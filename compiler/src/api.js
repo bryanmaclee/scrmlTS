@@ -12,6 +12,8 @@ import { resolve, extname, dirname, basename, join, relative } from "path";
 import { fileURLToPath } from "url";
 import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
+import { computePGOFlags } from "./compute-pgo-flags.ts";
+import { computeProgramConfig } from "./compute-program-config.ts";
 import { runCE } from "./component-expander.ts";
 import { runPostCEInvariant } from "./validators/post-ce-invariant.ts";
 import { runAttributeInterpolation } from "./validators/attribute-interpolation.ts";
@@ -725,6 +727,38 @@ export function compileScrml(options = {}) {
     tabResults.push(result);
     bsByTab.set(result, bsResult);
     if (verbose) log(`  [TAB] ${result.filePath}: ${result.ast?.nodes?.length ?? 0} nodes`);
+  }
+
+  // Stage 3.004 (PRECG): pipeline-agnostic post-AST pre-codegen derivations.
+  // Relocated S115 (DD #27 / F5 + F6 / Pivot 2) out of `ast-builder.js`'s
+  // TAB-time FileAST assembly. Two pure passes run here so the M5 native
+  // parser does not have to learn codegen-optimizer caches or program-config
+  // extraction — whatever pipeline produced the AST, these passes run against
+  // its top-level node stream:
+  //   - `computePGOFlags` → the 4 PGO has* flags (hasResetExpr /
+  //     hasEqualityExpr / hasChunkedMarkupTag / hasForStmt) consumed by
+  //     `codegen/emit-client.ts:detectRuntimeChunks`.
+  //   - `computeProgramConfig` → `authConfig` / `middlewareConfig` consumed by
+  //     route-inference.ts (RI), auth-graph.ts (AG) and codegen.
+  // Both passes MUTATE the FileAST (`tabResult.ast`) with the same field
+  // names the original TAB-time computation used — every downstream consumer
+  // reads the identical `fileAST.has*` / `fileAST.authConfig` /
+  // `fileAST.middlewareConfig` slots, so no consumer changes. Runs after the
+  // whole TAB loop and before GCP1 / RI / AG / CG — earliest post-AST seam.
+  for (const tabResult of tabResults) {
+    const fileAST = tabResult?.ast;
+    if (!fileAST) continue;
+    stage("PRECG", () => {
+      const nodes = fileAST.nodes ?? [];
+      const pgo = computePGOFlags(nodes);
+      fileAST.hasResetExpr = pgo.hasResetExpr;
+      fileAST.hasEqualityExpr = pgo.hasEqualityExpr;
+      fileAST.hasChunkedMarkupTag = pgo.hasChunkedMarkupTag;
+      fileAST.hasForStmt = pgo.hasForStmt;
+      const cfg = computeProgramConfig(nodes);
+      fileAST.authConfig = cfg.authConfig;
+      fileAST.middlewareConfig = cfg.middlewareConfig;
+    });
   }
 
   // Stage 3.005 (GCP1): Gauntlet Phase 1 checks (§21, §41, §7.6) — runs before NR.

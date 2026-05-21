@@ -141,8 +141,16 @@ function stripIds(obj) {
   if (Array.isArray(obj)) return obj.map(stripIds);
   if (typeof obj !== "object") return obj;
   const out = {};
+  // S115 (DD #27 / F6 / Pivot 2): the <program>-node auth annotation
+  // (`auth` / `loginRedirect` / `csrf` / `sessionExpiry`) is written by
+  // `computeProgramConfig`, the relocated PRECG pass — the JS `buildAST` no
+  // longer annotates the program node; the self-host `ast.scrml` still does.
+  // Strip the 4 annotation keys ONLY on the <program> markup node so unrelated
+  // nodes that legitimately carry these names are not masked.
+  const isProgramNode = obj && obj.kind === "markup" && obj.tag === "program";
   for (const key of Object.keys(obj)) {
     if (key === "id") continue; // strip node IDs
+    if (isProgramNode && (key === "auth" || key === "loginRedirect" || key === "csrf" || key === "sessionExpiry")) continue; // S115: program-node auth annotation relocated to computeProgramConfig (PRECG pass)
     if (key === "spans") continue; // spans table uses IDs as keys, skip
     if (key === "machineDecls") continue; // §51.3: self-hosted ast.scrml doesn't collect these yet
     if (key === "channelDecls") continue; // P3.A §38.12: self-hosted ast.scrml doesn't collect these yet
@@ -157,6 +165,8 @@ function stripIds(obj) {
     if (key === "hasEqualityExpr") continue; // S106 PGO P3 follow-up C1: JS ast-builder records hasEqualityExpr flag on FileAST literal for runtime-chunk-tagging O(1) gate (sibling to hasResetExpr); self-host doesn't yet
     if (key === "hasChunkedMarkupTag") continue; // S108 PGO P3 follow-up C2: JS ast-builder records hasChunkedMarkupTag flag on FileAST literal for runtime-chunk-tagging O(1) gate (markup tag-test elision); self-host doesn't yet
     if (key === "hasForStmt") continue; // S108 PGO P3 follow-up C2: JS ast-builder records hasForStmt flag on FileAST literal for runtime-chunk-tagging O(1) gate (buildFunctionBodyRegistry skip); self-host doesn't yet
+    if (key === "authConfig") continue; // S115 (DD #27 / F6 / Pivot 2): authConfig extraction relocated OUT of JS ast-builder into the api.js PRECG pass (computeProgramConfig) — the JS buildAST no longer emits it; the self-host ast.scrml still does
+    if (key === "middlewareConfig") continue; // S115 (DD #27 / F6 / Pivot 2): middlewareConfig extraction relocated OUT of JS ast-builder into the api.js PRECG pass (computeProgramConfig) — the JS buildAST no longer emits it; the self-host ast.scrml still does
     if (["_p3aExportName", "_p3aIsExport"].includes(key)) continue; // P3.A: JS ast-builder synthesizes export-tracking fields on function-decl shadow nodes; self-host doesn't yet
     out[key] = stripIds(obj[key]);
   }

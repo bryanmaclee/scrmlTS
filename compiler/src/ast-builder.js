@@ -11897,234 +11897,6 @@ function collectForbiddenSwitches(nodes, errors, filePath) {
 }
 
 /**
- * PGO P3.B follow-up (Option 2, S102) — detect whether the assembled AST
- * contains at least one `reset-expr` node anywhere in its ExprNode subtrees.
- * Result is cached on `FileAST.hasResetExpr` and consumed by
- * `detectRuntimeChunks` in `compiler/src/codegen/emit-client.ts`, which
- * previously ran a per-node ExprNode probe descent looking for `reset-expr`
- * presence — the largest residual sub-component of detect-runtime-chunks
- * cost after P3.B (~123ms on trucking-dispatch).
- *
- * **Why TAB:** TAB is the first stage that has the fully-assembled AST. All
- * downstream stages (NR / MOD / SYM / TS / DG / CG) read the AST; caching
- * a presence boolean here means every downstream consumer reads it as O(1).
- * The walk is a single-pass DFS with first-hit short-circuit via a sentinel
- * exception — the cheapest possible single-shot presence detection.
- *
- * **Walk shape:** mirrors `collectForbiddenSwitches.visit` (immediately
- * above) and `walkValidateResetTargets` (symbol-table.ts L6521). Iterates
- * every node's enumerable keys (excluding `span` / `id` metadata), descends
- * into array elements and into nested objects that carry a `kind` string.
- * The cheap `kind === "reset-expr"` test fires the sentinel on first match.
- *
- * **Conservatism:** false-negatives MUST NOT happen — a missed `reset-expr`
- * would cause `detectRuntimeChunks` to omit the `reset` chunk and break
- * runtime. False-positives are harmless (just the `reset` chunk landing when
- * not strictly needed via the ExprNode path; other gates — state-decl
- * `defaultExpr`, validators — still hit independently). Our walker descends
- * into every object child including ExprNode fields (initExpr, condExpr,
- * argsExpr, etc.), so any reset-expr reachable in the AST is detected.
- *
- * @param {ASTNode[]} nodes — Top-level AST nodes from buildAST.
- * @returns {boolean} — true iff any reset-expr exists in the AST tree.
- */
-const RESET_EXPR_SENTINEL = Symbol("RESET_EXPR_PRESENT");
-function detectResetExprPresence(nodes) {
-  if (!Array.isArray(nodes) || nodes.length === 0) return false;
-  // Throw-sentinel short-circuit: JS engines handle a single thrown
-  // primitive cheaply, and this lets us bail the entire DFS the moment
-  // the first reset-expr is found. The catch outside the loop re-asserts
-  // boolean true. Any non-sentinel error rethrows.
-  function visit(node) {
-    if (!node || typeof node !== "object") return;
-    if (node.kind === "reset-expr") {
-      throw RESET_EXPR_SENTINEL;
-    }
-    for (const key in node) {
-      // Skip span / id / pure-metadata fields. `kind` is a string and
-      // skipped naturally by the object-check below.
-      if (key === "span" || key === "id" || key === "_scope") continue;
-      const val = node[key];
-      if (Array.isArray(val)) {
-        for (let i = 0; i < val.length; i++) {
-          const item = val[i];
-          if (item && typeof item === "object") visit(item);
-        }
-      } else if (val && typeof val === "object" && typeof val.kind === "string") {
-        visit(val);
-      }
-    }
-  }
-  try {
-    for (const n of nodes) visit(n);
-  } catch (e) {
-    if (e === RESET_EXPR_SENTINEL) return true;
-    throw e;
-  }
-  return false;
-}
-
-/**
- * PGO Phase 3 follow-up C1 (S106) — sibling pattern to detectResetExprPresence
- * above. Detects whether the assembled AST contains at least one binary `==`
- * or `!=` expression anywhere in its ExprNode subtrees.
- *
- * Result is cached on `FileAST.hasEqualityExpr` and consumed by
- * `detectRuntimeChunks` in `compiler/src/codegen/emit-client.ts`, which
- * previously ran (still runs, conditionally) a per-node ExprNode probe descent
- * looking for `==` / `!=` presence to gate the `equality` runtime chunk.
- *
- * **Why TAB:** TAB is the first stage with the fully-assembled AST. Caching a
- * presence boolean here means every downstream consumer reads it as O(1) — the
- * same Option-2 sibling-pattern S102's hasResetExpr P3.B-followup established.
- *
- * **Walk shape:** mirrors detectResetExprPresence (immediately above). Same
- * throw-sentinel short-circuit; same enumerable-key descent; same
- * non-metadata-field filtering. The hot test is `kind === "binary" && (op
- * === "==" || op === "!=")` — fires the sentinel on first match.
- *
- * **Conservatism:** false-negatives MUST NOT happen — a missed `==` would
- * cause `detectRuntimeChunks` to omit the `equality` chunk and break
- * `_scrml_structural_eq` references in emitted client JS. False-positives are
- * harmless (just the `equality` chunk landing when not strictly needed via
- * the ExprNode path; other gates — e.g. match-stmt with enum arms — still hit
- * independently). The walker descends into every object child including
- * ExprNode fields, so any `==` reachable in the AST is detected.
- *
- * @param {ASTNode[]} nodes — Top-level AST nodes from buildAST.
- * @returns {boolean} — true iff any binary `==`/`!=` exists in the AST tree.
- */
-const EQUALITY_EXPR_SENTINEL = Symbol("EQUALITY_EXPR_PRESENT");
-function detectEqualityExprPresence(nodes) {
-  if (!Array.isArray(nodes) || nodes.length === 0) return false;
-  function visit(node) {
-    if (!node || typeof node !== "object") return;
-    if (node.kind === "binary" && (node.op === "==" || node.op === "!=")) {
-      throw EQUALITY_EXPR_SENTINEL;
-    }
-    for (const key in node) {
-      if (key === "span" || key === "id" || key === "_scope") continue;
-      const val = node[key];
-      if (Array.isArray(val)) {
-        for (let i = 0; i < val.length; i++) {
-          const item = val[i];
-          if (item && typeof item === "object") visit(item);
-        }
-      } else if (val && typeof val === "object" && typeof val.kind === "string") {
-        visit(val);
-      }
-    }
-  }
-  try {
-    for (const n of nodes) visit(n);
-  } catch (e) {
-    if (e === EQUALITY_EXPR_SENTINEL) return true;
-    throw e;
-  }
-  return false;
-}
-
-/**
- * PGO Phase 3 follow-up C2 (S108) — fused TAB-time presence walker for the
- * markup + for-stmt chunk gates inside `detectRuntimeChunks` in
- * `compiler/src/codegen/emit-client.ts`.
- *
- * Returns `{ hasChunkedMarkupTag, hasForStmt }`:
- *   - `hasChunkedMarkupTag` is true iff the file has at least one markup node
- *     with tag in {timer, poll, timeout, keyboard, mouse, gamepad}. These tags
- *     are the ONLY markup tags that activate runtime chunks (timers / input)
- *     inside `detectFromNode`'s `case "markup"`. `<channel>` is NOT in the set
- *     — channel uses inline WebSocket code with no runtime-chunk activation
- *     (see emit-client.ts:600-603).
- *   - `hasForStmt` is true iff the file has at least one for-stmt node anywhere.
- *     CONSERVATIVE — the walker does not test iter-reactivity at TAB time (that
- *     check requires the function-body registry which is only available at
- *     codegen time). A for-stmt with a non-reactive iter still sets the flag;
- *     `detectRuntimeChunks` then performs the per-node iter-reactivity check.
- *     When this flag is `false`, however, the file is guaranteed to contain NO
- *     for-stmt — so `detectRuntimeChunks` can skip the `buildFunctionBodyRegistry`
- *     call AND the per-node iter-reactivity probe entirely.
- *
- * **Why TAB-time:** Cumulative C2 fold pattern — S102 (hasResetExpr) + S106
- * (hasEqualityExpr) precedent. TAB is the first stage with the fully-assembled
- * AST. Caching presence booleans here means downstream consumers read them as
- * O(1) — no descent, no walk. The walker is a single-pass DFS with a sentinel
- * exception that fires once BOTH flags are set (the cheapest "stop walking now"
- * primitive available in JS).
- *
- * **Walk shape:** Mirrors `detectResetExprPresence` and `detectEqualityExprPresence`
- * above. Same enumerable-key descent, same metadata-field filtering, same
- * throw-sentinel short-circuit. The hot tests are:
- *   - `kind === "markup" && CHUNKED_MARKUP_TAGS.has(tag)` → set markup flag
- *   - `kind === "for-stmt"` → set forStmt flag
- * The walker exits via sentinel once BOTH flags are true (otherwise runs to
- * completion).
- *
- * **Conservatism:** false-negatives MUST NOT happen — a missed chunked-markup-tag
- * would cause `detectRuntimeChunks` to omit the markup-tag scan and miss the
- * `timers` / `input` chunks. A missed for-stmt would cause it to skip
- * `buildFunctionBodyRegistry` and miss the `reconciliation` / `lift` / `deep_reactive`
- * chunks for reactive for-stmts. False-positives are harmless (just the in-walk
- * probe doing its existing work — chunk decisions are unchanged).
- *
- * **Cumulative benefit:** Cumulatively with S102 (hasResetExpr) + S106
- * (hasEqualityExpr), this closes the per-node ExprNode probe + kind-test
- * surfaces for the markup-tag + for-stmt chunk gates. Together they let
- * `detectRuntimeChunks` tree-shake the major chunk-gate surfaces for files that
- * don't use those features (a common shape in pure-logic modules / utility
- * files).
- *
- * @param {ASTNode[]} nodes — Top-level AST nodes from buildAST.
- * @returns {{ hasChunkedMarkupTag: boolean, hasForStmt: boolean }}
- */
-const MARKUP_FOR_STMT_SENTINEL = Symbol("MARKUP_FOR_STMT_BOTH_PRESENT");
-const CHUNKED_MARKUP_TAGS = new Set([
-  "timer", "poll", "timeout",         // → chunks.add("timers") + chunks.add("deep_reactive")
-  "keyboard", "mouse", "gamepad",     // → chunks.add("input")
-]);
-function detectMarkupForStmtChunkPresence(nodes) {
-  if (!Array.isArray(nodes) || nodes.length === 0) {
-    return { hasChunkedMarkupTag: false, hasForStmt: false };
-  }
-  let hasChunkedMarkupTag = false;
-  let hasForStmt = false;
-  function visit(node) {
-    if (!node || typeof node !== "object") return;
-    const kind = node.kind;
-    if (!hasChunkedMarkupTag && kind === "markup" && typeof node.tag === "string" && CHUNKED_MARKUP_TAGS.has(node.tag)) {
-      hasChunkedMarkupTag = true;
-    } else if (!hasForStmt && kind === "for-stmt") {
-      hasForStmt = true;
-    }
-    // Both flags set — bail the entire DFS via sentinel.
-    if (hasChunkedMarkupTag && hasForStmt) {
-      throw MARKUP_FOR_STMT_SENTINEL;
-    }
-    for (const key in node) {
-      if (key === "span" || key === "id" || key === "_scope") continue;
-      const val = node[key];
-      if (Array.isArray(val)) {
-        for (let i = 0; i < val.length; i++) {
-          const item = val[i];
-          if (item && typeof item === "object") visit(item);
-        }
-      } else if (val && typeof val === "object" && typeof val.kind === "string") {
-        visit(val);
-      }
-    }
-  }
-  try {
-    for (const n of nodes) visit(n);
-  } catch (e) {
-    if (e === MARKUP_FOR_STMT_SENTINEL) {
-      return { hasChunkedMarkupTag: true, hasForStmt: true };
-    }
-    throw e;
-  }
-  return { hasChunkedMarkupTag, hasForStmt };
-}
-
-/**
  * Walk an ASTNode tree and collect all import-decl, export-decl,
  * type-decl, and component-def nodes that live inside logic blocks.
  * These are hoisted into the FileAST top-level fields.
@@ -12297,122 +12069,25 @@ export function buildAST(bsOutput, tokenizerOverrides) {
     n => n.kind === "markup" && n.tag === "program"
   );
 
-  // ---------------------------------------------------------------------------
-  // Session/auth attribute extraction from <program> (Option C hybrid)
-  //
-  // When <program auth="required" loginRedirect="/login" csrf="auto" sessionExpiry="2h">
-  // is present, extract these into a top-level `authConfig` on the AST and annotate the
-  // program markup node with the parsed auth properties.
-  // ---------------------------------------------------------------------------
-
-  let authConfig = null;
+  // S115 (DD #27 / F6 / Pivot 2) — `authConfig` / `middlewareConfig`
+  // extraction from the <program> attributes is NO LONGER done at TAB time.
+  // It is performed by the pipeline-agnostic pre-codegen pass
+  // `computeProgramConfig` (compiler/src/compute-program-config.ts), invoked
+  // at the post-AST PRECG seam in api.js, which mutates the FileAST with the
+  // same field names and reproduces the <program>-node annotation side-effect.
+  // The E-MW-002 ratelimit-format validation below is an error-emitting CHECK
+  // (not extraction) and STAYS here at TAB time.
   const programNode = nodes.find(n => n.kind === "markup" && n.tag === "program");
-  if (programNode) {
-    const programAttrs = programNode.attrs ?? [];
 
-    const getAttrValue = (name) => {
-      const a = programAttrs.find(attr => attr.name === name);
-      if (!a || !a.value || a.value.kind === "absent") return null;
-      if (a.value.kind === "string-literal") return a.value.value;
-      return null;
-    };
-
-    const authVal = getAttrValue("auth");
-    if (authVal) {
-      const loginRedirect = getAttrValue("loginRedirect") ?? "/login";
-      const csrf = getAttrValue("csrf") ?? "off";
-      const sessionExpiry = getAttrValue("sessionExpiry") ?? "1h";
-
-      authConfig = {
-        auth: authVal,
-        loginRedirect,
-        csrf,
-        sessionExpiry,
-      };
-
-      // Annotate the program node directly for downstream stages
-      programNode.auth = authVal;
-      programNode.loginRedirect = loginRedirect;
-      programNode.csrf = csrf;
-      programNode.sessionExpiry = sessionExpiry;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Middleware attribute extraction from <program> (§39)
-  //
-  // When <program cors="*" log="structured" ratelimit="100/min" headers="strict">
-  // is present, extract these into a top-level `middlewareConfig` on the AST.
-  // `csrf=` is extracted into authConfig (above) — canonical value set is
-  // "auto" | "off" per §52.13; the previously-separate middleware-mode csrf="on"
-  // value was retired at S80 alongside E-MW-001.
-  // E-MW-002: ratelimit= value does not match N/unit pattern.
-  // ---------------------------------------------------------------------------
-
-  let middlewareConfig = null;
+  // E-MW-002: ratelimit= value must match N/unit where unit is sec, min, or hour.
   if (programNode) {
     const programAttrs2 = programNode.attrs ?? [];
-
-    const getMWAttr = (attrName) => {
-      const a = programAttrs2.find(attr => attr.name === attrName);
-      if (!a || !a.value || a.value.kind === 'absent') return null;
-      if (a.value.kind === 'string-literal') return a.value.value;
-      return null;
-    };
-
-    const mwCors = getMWAttr('cors');
-    const mwLog = getMWAttr('log');
-    const mwRatelimit = getMWAttr('ratelimit');
-    const mwHeaders = getMWAttr('headers');
-    // §39.2.6 (A9 Ext 5): idempotency-store= attribute. Values:
-    // "auto" (default) | "sqlite" | "postgres" | "mysql" | "redis" | "none".
-    // Resolved per §19.9.6 paragraph 3 default-resolution algorithm in
-    // monotonicity-analyzer.ts (Stage 5.5).
-    const mwIdempotencyStore = getMWAttr('idempotency-store');
-    // S79 audit fix C.1 (§19.9.6, §39.2.6 extension): idempotency-ttl=
-    // attribute override. Raw value (parsed at codegen time). Accepted shape:
-    // bare millis ("3600000") OR duration string ("1h"/"7d"/"24h"/"300s"/"30m").
-    // Default (null): 24h (Stripe convention).
-    const mwIdempotencyTTL = getMWAttr('idempotency-ttl');
-    // S79 audit fix C.2 (§8.10.6 extension): batch-in-list-cap= attribute
-    // override. Raw value (decimal integer string). Default (null): 32766
-    // (SQLite 3.32+ SQLITE_MAX_VARIABLE_NUMBER). Adopters with Postgres
-    // (~65535) or older SQLite (999) override here.
-    const mwBatchInListCap = getMWAttr('batch-in-list-cap');
-    // S81 audit fix F.1 (§39.2.1 extension): cors-max-age= attribute override
-    // for the Access-Control-Max-Age header value the compiler emits on the
-    // OPTIONS preflight response. Raw value (parsed at codegen time into a
-    // positive integer seconds value). Default (null): 86400 (Firefox effective
-    // cap). The override is silently ignored when cors= is absent (CORS as a
-    // whole is opt-in).
-    const mwCorsMaxAge = getMWAttr('cors-max-age');
-    // S81 audit fix F.2 (§38.3.1): channel-reconnect= attribute override for
-    // the default WS onclose setTimeout cadence applied to channels that lack
-    // an explicit per-channel reconnect= attribute. Raw value (parsed at
-    // codegen time into millis; accepts bare integer ms or "Nms"/"Ns"/"Nm"/"Nh"
-    // duration strings — same shape as idempotency-ttl minus "d"). Default
-    // (null): 2000 ms. Per-channel reconnect= still wins when both present.
-    const mwChannelReconnect = getMWAttr('channel-reconnect');
-
-    if (
-      mwCors !== null || mwLog !== null || mwRatelimit !== null
-      || mwHeaders !== null || mwIdempotencyStore !== null
-      || mwIdempotencyTTL !== null || mwBatchInListCap !== null
-      || mwCorsMaxAge !== null || mwChannelReconnect !== null
-    ) {
-      middlewareConfig = {
-        cors: mwCors, log: mwLog, ratelimit: mwRatelimit, headers: mwHeaders,
-        idempotencyStore: mwIdempotencyStore,
-        idempotencyTTL: mwIdempotencyTTL,
-        batchInListCap: mwBatchInListCap,
-        corsMaxAge: mwCorsMaxAge,
-        channelReconnect: mwChannelReconnect,
-      };
+    const ratelimitAttr = programAttrs2.find(attr => attr.name === 'ratelimit');
+    let mwRatelimit = null;
+    if (ratelimitAttr && ratelimitAttr.value && ratelimitAttr.value.kind === 'string-literal') {
+      mwRatelimit = ratelimitAttr.value.value;
     }
-
-    // E-MW-002: ratelimit= value must match N/unit where unit is sec, min, or hour.
     if (mwRatelimit !== null && !/^\d+\/(sec|min|hour)$/.test(mwRatelimit)) {
-      const ratelimitAttr = programAttrs2.find(attr => attr.name === 'ratelimit');
       const ratelimitSpan = ratelimitAttr?.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
       errors.push(new TABError(
         'E-MW-002',
@@ -12760,30 +12435,17 @@ export function buildAST(bsOutput, tokenizerOverrides) {
     }
   }
 
-  // PGO P3.B follow-up (Option 2, S102) — cache reset-expr presence at TAB
-  // time so emit-client.ts:detectRuntimeChunks can skip its ExprNode probe
-  // descent for reset-expr detection (the largest residual sub-component
-  // of detect-runtime-chunks cost after P3.B fused-probe + structural-skip).
-  // Walk is short-circuiting via sentinel exception — bails the entire DFS
-  // on first reset-expr found.
-  const hasResetExpr = detectResetExprPresence(nodes);
-  // PGO Phase 3 follow-up C1 (S106) — sibling Option-2 pattern. Cache
-  // equality-expr presence so detectRuntimeChunks can gate the `equality`
-  // chunk at O(1) without per-node ExprNode descent. Closes one of the two
-  // remaining ExprNode-side probe sub-components after hasResetExpr removed
-  // the reset-side.
-  const hasEqualityExpr = detectEqualityExprPresence(nodes);
-  // PGO Phase 3 follow-up C2 (S108) — fused presence walker for the
-  // chunked-markup-tag + for-stmt chunk-gate surfaces inside
-  // detectRuntimeChunks (markup tag-tests for `timers` / `input` chunks +
-  // for-stmt iter-reactivity probe for `reconciliation` / `lift` / `deep_reactive`
-  // chunks). Single DFS walk with throw-sentinel that fires when BOTH flags
-  // are set. When `hasForStmt === false`, the codegen detectRuntimeChunks
-  // call can skip `buildFunctionBodyRegistry` entirely (no for-stmt → no
-  // iter-reactivity probe needed). When `hasChunkedMarkupTag === false`,
-  // the in-walk markup tag-test block can be elided per node.
-  const { hasChunkedMarkupTag, hasForStmt } = detectMarkupForStmtChunkPresence(nodes);
-
+  // S115 (DD #27 / F5 + F6 / Pivot 2) — the 4 PGO has* flags
+  // (hasResetExpr / hasEqualityExpr / hasChunkedMarkupTag / hasForStmt) and
+  // the `authConfig` / `middlewareConfig` program-config objects are NO LONGER
+  // computed at TAB time. They are derived by the pipeline-agnostic
+  // pre-codegen passes `computePGOFlags` / `computeProgramConfig`
+  // (compiler/src/compute-pgo-flags.ts, compute-program-config.ts), invoked at
+  // the post-AST PRECG seam in api.js, which mutate the FileAST with the same
+  // field names. Relocated so the M5 native parser does not have to learn
+  // codegen-optimizer caches or program-config extraction. `hasProgramRoot`
+  // STAYS here — it drives the isPureModuleFile / isNonEntryPageFile logic
+  // below and has no codegen-cache role.
   const ast = {
     filePath,
     nodes,
@@ -12795,12 +12457,6 @@ export function buildAST(bsOutput, tokenizerOverrides) {
     channelDecls,
     spans,
     hasProgramRoot,
-    hasResetExpr,
-    hasEqualityExpr,
-    hasChunkedMarkupTag,
-    hasForStmt,
-    authConfig,
-    middlewareConfig,
   };
 
   // Bug-batch S93 (Bug 6B — non-entry pure-module file):

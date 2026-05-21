@@ -17,10 +17,22 @@ import {
   extractDbDriverFromValue,
 } from "../../src/idempotency-store-resolver.ts";
 import { analyzeUsage, emptyUsage } from "../../src/codegen/usage-analyzer.ts";
+import { computeProgramConfig } from "../../src/compute-program-config.ts";
 
+// S115 (DD #27 / F6 / Pivot 2) — `middlewareConfig` extraction is no longer
+// done at TAB time inside `buildAST` / `runTAB`. It is performed by the
+// pipeline-agnostic `computeProgramConfig` pre-codegen pass, invoked at the
+// api.js PRECG seam, which mutates the FileAST. This helper reproduces that
+// seam so the existing `result.ast.middlewareConfig` assertions still hold.
 function tab(source) {
   const bs = splitBlocks("/test/app.scrml", source);
-  return runTAB(bs);
+  const result = runTAB(bs);
+  if (result.ast) {
+    const cfg = computeProgramConfig(result.ast.nodes ?? []);
+    result.ast.authConfig = cfg.authConfig;
+    result.ast.middlewareConfig = cfg.middlewareConfig;
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------

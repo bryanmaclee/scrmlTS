@@ -211,18 +211,21 @@ describe("§C.2 — batch-in-list cap via <program batch-in-list-cap=N>", () => 
 // AST extraction — middleware attrs flow through ast-builder
 // ---------------------------------------------------------------------------
 
-describe("§C.1+§C.2 — ast-builder.js extracts new middleware attrs", () => {
+describe("§C.1+§C.2 — compute-program-config.ts extracts new middleware attrs", () => {
+  // S115 (DD #27 / F6 / Pivot 2) — the middleware-attr extraction was relocated
+  // out of `ast-builder.js` into the pipeline-agnostic `computeProgramConfig`
+  // pre-codegen pass. The grep targets live in `compute-program-config.ts` now.
   const src = readFileSync(
-    join(import.meta.dir, "..", "..", "src", "ast-builder.js"),
+    join(import.meta.dir, "..", "..", "src", "compute-program-config.ts"),
     "utf8",
   );
 
-  test("ast-builder reads idempotency-ttl from <program>", () => {
-    expect(src).toContain("getMWAttr('idempotency-ttl')");
+  test("compute-program-config reads idempotency-ttl from <program>", () => {
+    expect(src).toContain('getMWAttr("idempotency-ttl")');
   });
 
-  test("ast-builder reads batch-in-list-cap from <program>", () => {
-    expect(src).toContain("getMWAttr('batch-in-list-cap')");
+  test("compute-program-config reads batch-in-list-cap from <program>", () => {
+    expect(src).toContain('getMWAttr("batch-in-list-cap")');
   });
 
   test("middlewareConfig object includes the two new fields", () => {

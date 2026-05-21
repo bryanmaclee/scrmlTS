@@ -35,6 +35,7 @@ import { buildAST } from "../../src/ast-builder.js";
 import { splitBlocks } from "../../src/block-splitter.js";
 import { runRI } from "../../src/route-inference.js";
 import { runCG } from "../../src/code-generator.js";
+import { computeProgramConfig } from "../../src/compute-program-config.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,10 +47,22 @@ function span(start, file = "/test/app.scrml") {
 
 /**
  * Parse a scrml source string through BS + TAB to get a FileAST.
+ *
+ * S115 (DD #27 / F6 / Pivot 2) — `authConfig` / `middlewareConfig` extraction
+ * (and the `<program>`-node auth annotation side-effect) is no longer done at
+ * TAB time inside `buildAST`. It is performed by the pipeline-agnostic
+ * `computeProgramConfig` pre-codegen pass, invoked at the api.js PRECG seam,
+ * which mutates the FileAST. This helper reproduces that seam so the existing
+ * `result.ast.authConfig` / `programNode.auth` assertions still hold.
  */
 function parseSource(source, filePath = "/test/app.scrml") {
   const bsResult = splitBlocks(filePath, source);
   const tabResult = buildAST(bsResult);
+  if (tabResult.ast) {
+    const cfg = computeProgramConfig(tabResult.ast.nodes ?? []);
+    tabResult.ast.authConfig = cfg.authConfig;
+    tabResult.ast.middlewareConfig = cfg.middlewareConfig;
+  }
   return tabResult;
 }
 

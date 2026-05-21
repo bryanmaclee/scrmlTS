@@ -33,6 +33,7 @@ import { compileScrml } from "../../src/api.js";
 import { runCG } from "../../src/code-generator.js";
 import { buildAST } from "../../src/ast-builder.js";
 import { splitBlocks } from "../../src/block-splitter.js";
+import { computeProgramConfig } from "../../src/compute-program-config.ts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -135,6 +136,15 @@ function getServerJs(nodes, routeMap, middlewareConfig = null) {
 function parseSource(source, filePath = "/test/app.scrml") {
   const bsResult = splitBlocks(filePath, source);
   const tabResult = buildAST(bsResult);
+  // S115 (DD #27 / F6 / Pivot 2) — `authConfig` / `middlewareConfig` extraction
+  // is no longer done at TAB time; it is performed by the pipeline-agnostic
+  // `computeProgramConfig` pre-codegen pass invoked at the api.js PRECG seam,
+  // which mutates the FileAST. Reproduce that seam here.
+  if (tabResult.ast) {
+    const cfg = computeProgramConfig(tabResult.ast.nodes ?? []);
+    tabResult.ast.authConfig = cfg.authConfig;
+    tabResult.ast.middlewareConfig = cfg.middlewareConfig;
+  }
   return tabResult;
 }
 

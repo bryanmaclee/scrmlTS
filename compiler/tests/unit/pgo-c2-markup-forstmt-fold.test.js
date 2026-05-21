@@ -33,11 +33,21 @@
 import { describe, test, expect } from "bun:test";
 import { splitBlocks } from "../../src/block-splitter.js";
 import { buildAST } from "../../src/ast-builder.js";
+import { computePGOFlags } from "../../src/compute-pgo-flags.ts";
 
+// S115 (DD #27 / F5 / Pivot 2) — the 4 PGO has* flags are no longer computed
+// at TAB time inside `buildAST`. They are derived by the pipeline-agnostic
+// `computePGOFlags` pre-codegen pass, invoked at the api.js PRECG seam, which
+// mutates the FileAST. This helper reproduces that seam: it runs `buildAST`
+// then applies `computePGOFlags` onto `out.ast` exactly as the PRECG pass does,
+// so the existing `out.ast.has*` assertions exercise the relocated pass.
 function compileToAST(source) {
   const filePath = "/test/pgo-c2-markup-forstmt-fold.scrml";
   const blocks = splitBlocks(filePath, source);
-  return buildAST(blocks);
+  const out = buildAST(blocks);
+  const pgo = computePGOFlags(out.ast?.nodes ?? []);
+  if (out.ast) Object.assign(out.ast, pgo);
+  return out;
 }
 
 describe("§1 PGO C2 — neither markup chunk tag nor for-stmt → both flags false (tree-shake)", () => {

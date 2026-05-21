@@ -23,24 +23,22 @@
 import { describe, test, expect } from "bun:test";
 import { splitBlocks } from "../../src/block-splitter.js";
 import { buildAST } from "../../src/ast-builder.js";
+import { computePGOFlags } from "../../src/compute-pgo-flags.ts";
 
-// `detectEqualityExprPresence` is module-internal — exercise it via buildAST's
-// emitted `hasEqualityExpr` field, OR via the same shape: a small AST tree
-// passed through the walker by importing the export. Since the function is
-// not exported, exercise via buildAST happy-path + a direct synthetic AST
-// helper inline.
-
-// ---------------------------------------------------------------------------
-// Direct walker via dynamically-extracted reference. The function is module-
-// local; we rebuild a synthetic AST and rely on `buildAST` end-to-end to
-// expose the flag. For direct-walker semantics we use the exported buildAST
-// flow with crafted inputs.
-// ---------------------------------------------------------------------------
+// S115 (DD #27 / F5 / Pivot 2) — `hasEqualityExpr` is no longer computed at
+// TAB time inside `buildAST`. The `detectEqualityExprPresence` walker was
+// relocated into the pipeline-agnostic `computePGOFlags` pre-codegen pass,
+// invoked at the api.js PRECG seam, which mutates the FileAST. This helper
+// reproduces that seam: `buildAST` then `computePGOFlags` onto `out.ast`, so
+// the existing `ast.hasEqualityExpr` assertions exercise the relocated pass.
 
 function compileToAST(source) {
   const filePath = "/test/has-equality-expr.scrml";
   const blocks = splitBlocks(filePath, source);
-  return buildAST(blocks);
+  const out = buildAST(blocks);
+  const pgo = computePGOFlags(out.ast?.nodes ?? []);
+  if (out.ast) Object.assign(out.ast, pgo);
+  return out;
 }
 
 describe("§1 hasEqualityExpr: empty file → false", () => {
