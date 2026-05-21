@@ -15658,6 +15658,93 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 
 ---
 
+### 34.1 Native-Parser Parse Diagnostics
+
+*The 66 codes in this sub-section are emitted by the native parser (`compiler/native-parser/`) — the recursive-descent front-end that replaces the legacy block-splitter + Acorn pipeline at the M5 swap. They are expression- and statement-grammar parse errors raised while the front-end builds the expression and statement AST. Each is a hard error; severity is carried by the `E-` prefix per the §34 diagnostic-stream convention. The `Section` column references the scrml construct whose grammar the code guards (the native parser has no dedicated per-code prose section, mirroring how `E-PARSE-001`/`E-PARSE-002` already cite §4). These codes are distinct from the legacy block-splitter family (`E-PARSE-*`, `E-CTX-*`, `E-MARKUP-*`): when M6 deletes the legacy pipeline, §34.1 is the surviving home of the parse-diagnostic family. (Catalog addition S117 M5-swap Unit R4 — DD #27; all 66 codes were already emitted by the native parser and become adopter-visible at the R5 pipeline swap.)*
+
+#### Expression-grammar codes (`E-EXPR-*`)
+
+| Code | Section | Trigger | Severity |
+|---|---|---|---|
+| E-EXPR-UNEXPECTED | §4 | Unexpected token in expression position (message names the token kind). Core expression-grammar parse error. | Error |
+| E-EXPR-ARROW-EXPECTED | §4 | Expected `=>` in an arrow function. | Error |
+| E-EXPR-PARAM | §4 | Expected a parameter name. | Error |
+| E-EXPR-PARAM-LIST | §4 | Expected `(` to open a parameter list. | Error |
+| E-EXPR-FUNCTION-BODY | §4 | Expected `{` to open a function body. | Error |
+| E-EXPR-UNCLOSED-BLOCK | §4 | Expected `}` to close a function body. | Error |
+| E-EXPR-UNCLOSED-PAREN | §4 | Expected `)` to close a parenthesized expression. | Error |
+| E-EXPR-UNCLOSED-BRACE | §4 | Expected `}` to close an object literal. | Error |
+| E-EXPR-UNCLOSED-BRACKET | §4 | Expected `]` to close an array literal. | Error |
+| E-EXPR-MEMBER-NAME | §4 | Expected a property name after `.`. | Error |
+| E-EXPR-OBJECT-KEY | §4 | Expected an object-literal property key. | Error |
+| E-EXPR-OBJECT-PROP | §4 | Malformed object-literal property. | Error |
+| E-EXPR-OBJECT-SHORTHAND | §4 | Shorthand object property requires an identifier key. | Error |
+| E-EXPR-EXPECTED-COLON | §4 | Expected `:` in an object-literal property. | Error |
+| E-EXPR-TERNARY-COLON | §4 | Expected `:` in a conditional expression. | Error |
+| E-EXPR-TEMPLATE-INTERP | §4 | Unterminated template interpolation. | Error |
+| E-EXPR-TEMPLATE-CHUNK | §4 | Expected a template chunk after an interpolation. | Error |
+| E-EXPR-UNARY-EXPONENT | §4 | A unary operator cannot directly precede `**`; the operand must be parenthesized (a JS grammar restriction scrml inherits). | Error |
+| E-EXPR-NULLISH-MIX | §4 | `??` cannot be combined with `&&` or `\|\|` without parentheses (a JS grammar restriction scrml inherits). | Error |
+| E-EXPR-YIELD-STAR-NO-ARG | §4 | `yield*` requires an operand. Generators (`yield` / `function*`) are preserved scrml vocabulary per S114. | Error |
+| E-EXPR-IS-SUFFIX | §18.17 | Expected `not`, `some`, `given`, or a `.Variant` after the `is` operator. scrml-specific `is` operator grammar. | Error |
+| E-EXPR-QUALIFIED-VARIANT | §14.5, §18.17 | Expected `.` or `::` after the enum-type name in a qualified-variant reference. | Error |
+| E-EXPR-FAIL-VARIANT | §19.3 | Expected an error-enum variant after `fail`. | Error |
+| E-EXPR-RENDER-NAME | §16 | Expected a snippet name after `render`. | Error |
+| E-EXPR-RENDER-CALL | §16 | Expected `(` to open the `render` argument list. | Error |
+| E-EXPR-MATCH-BRACE | §18 | Expected `{` to open the match arms. | Error |
+| E-EXPR-MATCH-ARROW | §18 | Expected `=>` or `->` in a match arm. | Error |
+| E-EXPR-MATCH-PATTERN | §18 | Expected a match arm pattern. | Error |
+| E-EXPR-MATCH-BINDING | §18 | Expected a binding name in a match arm pattern. | Error |
+| E-EXPR-MATCH-IS-PATTERN | §18 | Expected a `.Variant` after `is` in a match arm pattern. | Error |
+
+#### Statement-grammar codes (`E-STMT-*`)
+
+| Code | Section | Trigger | Severity |
+|---|---|---|---|
+| E-STMT-UNEXPECTED-TOKEN | §4 | Unexpected token — no statement begins here. Core statement-grammar parse error. | Error |
+| E-STMT-MISSING-SEMICOLON | §4 | Expected `;` or a newline to end the statement. | Error |
+| E-STMT-UNCLOSED-BLOCK | §4 | Expected `}` to close a block statement. | Error |
+| E-STMT-STRAY-ELSE | §4 | `else` with no matching `if`. | Error |
+| E-STMT-BINDING-NAME | §4 | Expected an identifier in a binding position. | Error |
+| E-STMT-PATTERN-PROPERTY | §4 | Expected a property name in an object-destructuring pattern. | Error |
+| E-STMT-PATTERN-COLON | §4 | Expected `:` after a pattern property key. | Error |
+| E-STMT-UNCLOSED-PATTERN | §4 | Expected `}` to close an object-destructuring pattern. | Error |
+| E-STMT-UNCLOSED-COMPUTED-KEY | §4 | Expected `]` to close a computed member name. | Error |
+| E-STMT-EXPECT-LPAREN | §49 | Expected `(` after an `if` / `while` / `for` head keyword. | Error |
+| E-STMT-EXPECT-RPAREN | §49 | Expected `)` to close an `if` / `while` / `for` head, or a `catch` binding. | Error |
+| E-STMT-EXPECT-WHILE | §49 | Expected `while` after the body of a `do` loop. | Error |
+| E-STMT-FOR-NONBINDABLE-LHS | §49 | A property cannot appear in a for-in / for-of binding LHS. | Error |
+| E-STMT-FOR-BINDING-INIT | §49 | A for-in / for-of binding may not have an initializer. | Error |
+| E-STMT-FOR-DECL-COUNT | §49 | A for-in / for-of declaration must declare exactly one binding. | Error |
+| E-STMT-FOR-SEMICOLON | §49 | Expected `;` after the `for` init or test clause. | Error |
+| E-STMT-RETURN-OUTSIDE-FUNCTION | §4 | `return` outside of a function. | Error |
+| E-STMT-FUNCTION-NAME | §4 | Expected a name after `function`. | Error |
+| E-STMT-FUNCTION-BODY | §4 | Expected `{` to open a function body. | Error |
+| E-STMT-UNCLOSED-FUNCTION-BODY | §4 | Expected `}` to close a function body. | Error |
+| E-STMT-MODULE-SOURCE | §21 | Expected a module-specifier string in an `import` / `export`. | Error |
+| E-STMT-EXPECT-FROM | §21 | Expected `from` in an `import` or re-export. | Error |
+| E-STMT-EXPECT-AS | §21 | Expected `as` in a namespace import. | Error |
+| E-STMT-IMPORT-NAME | §21 | Expected an imported name / identifier in an import binding. | Error |
+| E-STMT-UNCLOSED-IMPORT | §21 | Expected `}` to close an import clause. | Error |
+| E-STMT-EXPORT-NAME | §21 | Expected an exported name, or a name after `as`. | Error |
+| E-STMT-EXPORT-DECL | §21 | Expected a declaration after `export`. | Error |
+| E-STMT-UNCLOSED-EXPORT | §21 | Expected `}` to close an export clause. | Error |
+| E-STMT-CLASS-NAME | §19 | Expected a name after `class`. **Cross-ref (S117 R4 item X1):** the native parser parses a JS `class` head and fires this code only on a *malformed* construct; `class` is not scrml vocabulary, and whether `class` earns a parse-layer `E-*-NOT-IN-SCRML` rejection (mirroring `E-ASYNC-NOT-IN-SCRML`) is an open R1 statement-catalog-bridge decision. A later rejection code would be a separate additive amendment and does not retro-invalidate this row. | Error |
+| E-STMT-CLASS-BODY | §19 | Expected `{` to open a class body. **Cross-ref (S117 R4 item X1):** see `E-STMT-CLASS-NAME` — `class` is not scrml vocabulary; the parse-layer admission question belongs to R1. | Error |
+| E-STMT-UNCLOSED-CLASS-BODY | §19 | Expected `}` to close a class body. **Cross-ref (S117 R4 item X1):** see `E-STMT-CLASS-NAME` — `class` is not scrml vocabulary; the parse-layer admission question belongs to R1. | Error |
+| E-STMT-CLASS-MEMBER | §19 | Expected `(` after a class method head. **Cross-ref (S117 R4 item X1):** see `E-STMT-CLASS-NAME` — `class` is not scrml vocabulary; the parse-layer admission question belongs to R1. | Error |
+| E-STMT-CLASS-MEMBER-NAME | §19 | Expected a class member name. **Cross-ref (S117 R4 item X1):** see `E-STMT-CLASS-NAME` — `class` is not scrml vocabulary; the parse-layer admission question belongs to R1. | Error |
+| E-STMT-TRY-NO-HANDLER | §19 | A `try` needs a `catch` or a `finally`. **Cross-ref (S117 R4 item X1):** `try` / `catch` / `finally` are forbidden scrml vocabulary (the error model is `fail` / `?` / `!` / `<errorBoundary>`, §19); the native parser fires this only on a *malformed* `try` construct. Whether `try` earns a parse-layer `E-*-NOT-IN-SCRML` rejection is an open R1 decision; a later rejection code is a separate additive amendment and does not retro-invalidate this row. | Error |
+| E-STMT-THROW-NO-ARGUMENT | §19.3 | `throw` must be followed by an expression on the same line. **Cross-ref (S117 R4 item X1):** `throw` is forbidden scrml vocabulary (scrml uses `fail`, §19.3); the native parser fires this only on a *malformed* `throw`. Whether `throw` earns a parse-layer `E-*-NOT-IN-SCRML` rejection is an open R1 decision; a later rejection code is a separate additive amendment and does not retro-invalidate this row. | Error |
+
+#### Markup-as-value code
+
+| Code | Section | Trigger | Severity |
+|---|---|---|---|
+| E-MARKUP-VALUE-UNCLOSED | §10.2 | A markup-as-value expression never closes: no matching `/>` or `</...>` was found. Distinct from `E-CTX-003` (an unclosed logic-context on the block-tier tag-context stack) and `E-MARKUP-002` (a closer-name mismatch) — this fires in `parse-expr.js` on a markup-valued *expression*, with a different recovery and blame span. | Error |
+
+---
+
 ## 35. Linear Types — `lin`
 
 ### 35.1 Overview
