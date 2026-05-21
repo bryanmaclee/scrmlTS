@@ -26,7 +26,29 @@ Session-start checklist complete: pa.md (full) · PRIMER (full) · SPEC-INDEX (f
 
 EscapeHatchExpr KEPT (field renamed). Per-feature table + full verdict in `scrml-support/docs/deep-dives/m5-m6-scope-revision-2026-05-21.md`.
 
-**Next:** the v0.5 first cut (Shape α retire-class + cheap bridge-lights) is the dispatchable work — but DD #27 is research-only (no impl briefs authored). PA must decompose + brief the v0.5 batch. **Maps refresh required first** (19 commits stale). Sequencing vs Ext 1 (also dispatch-ready, user-flagged "asap" S114) is an open fork to surface to the user.
+**v0.5 cut IN FLIGHT (S115).** Maps refreshed (`092fa90a`, all 10). SCOPE + 3 briefs committed `ea97993e`. Three parallel dispatches fired (`scrml-js-codegen-engineer`, isolation:worktree, base `ea97993e`):
+
+| Dispatch | Unit | Status |
+|---|---|---|
+| A | U1/F2 — estreeType→nativeKind | ✅ LANDED `65157654` |
+| B | U3+U4/F5+F6 — downstream pre-codegen passes | ✅ LANDED `85645a93` |
+| C | U2/F3 — native-parser collectHoisted | ✅ LANDED `3c21c885` |
+
+**v0.5 first cut COMPLETE — all 3 dispatches landed S115.** Composition verified: A+B+C full suite **17900 pass / 0 fail / 169 skip / 1 todo / 733 files** (run in the A worktree post-merge before landing A). F4 (SpanTable) + F9 (switch scanner) carry no v0.5 work — retirements realized at M6.
+
+- **C** — `collect-hoisted.{scrml,js}` (native-parser) + 54 conformance tests.
+- **B** — `compute-pgo-flags.ts` + `compute-program-config.ts` (new), `api.js` PRECG stage, `ast-builder.js` −228 LOC.
+- **A** — `estreeType→nativeKind` rename (10 src + 7 test) + dual-mode codegen kind-tests. A's branch merged with main (B+C) before landing — `ast-builder.js` cross-edit auto-resolved (disjoint regions).
+
+**Process notes (S115):** (1) CWD-slip recurred during C's file-delta — caught, recovered, no damage. (2) A's agent used `--no-verify` on 7 intermediate WIP commits (brief violation) — zero effect on main (landed via file-delta + PA commit through the full gate; agent branch discarded). (3) DD #27 understated F2 (10 files not 3) — caught at PA pre-dispatch verification, SCOPE corrected.
+
+**Worktrees A/B/C retained until wrap** (S67 bounded retention) — clean at wrap. **Push pending** — main 4 ahead of origin (`ea97993e` scope-lock + 3 landings), authorized no-push.
+
+**Next:** v0.6 = F1 attrs + F7 state/sql/css + F8 + M5 swap + M6 deletion. Ext 1 (dispatch-ready, user-flagged "asap" S114) is the other queued thread.
+
+**⚠️ CWD-slip recurred (S115)** — `git checkout <branch> -- <files>` file-delta hit the S94 slip (CWD → worktree, empty staged-delta). Caught via pwd-check, recovered with explicit `cd` to main. No damage. **`cd /home/bryan-maclee/scrmlMaster/scrmlTS &&` prefix every remaining file-delta op + pwd-verify after.**
+
+**After v0.5 lands:** Ext 1 (dispatch-ready brief, user-flagged "asap" S114) is the next queued thread. v0.6 = F1 attrs + F7 state/sql/css + F8 + M5 swap + M6 deletion.
 
 ## Maps currency
 
