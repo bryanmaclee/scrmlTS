@@ -130,6 +130,19 @@ ${
         pushDelegationFrame,
         popDelegationFrame,
     } from "./parse-ctx.scrml"
+    // MK3.1 — the §4.18 BodyMode engine.
+    //   - `BodyMode` (the enum) RESOLVES the `<engine for=BodyMode>`
+    //     forward-reference inside the .InMarkupTag composite state-child
+    //     below — this import is what closes roadmap §4.4 K1 (the
+    //     deliberate E-ENGINE-004 single .scrml-compile error this file
+    //     carried for charter-Q1.C SHAPE fidelity from MK1.1 onward).
+    //   - `currentBodyMode` is punch-list P7 — enterBlockContext threads
+    //     the §4.18 body mode of the innermost enclosing body into the
+    //     markup→JS DelegationFrame.
+    // body-mode.scrml imports display-text-literal.scrml → lex-mode.scrml
+    // — neither imports block-context.scrml, so this edge is acyclic
+    // (K2's block-context↔parse-ctx cycle is a separate, untouched edge).
+    import { BodyMode, currentBodyMode } from "./body-mode.scrml"
 
     type BlockContext:enum = {
         TopLevel,
@@ -153,10 +166,12 @@ ${
 //   - .TopLevel may transition to any context-entry variant.
 //   - .InMarkupTag is a COMPOSITE state-child — its body carries a
 //     BodyMode engine (free-text vs code-default per §4.18). MK1.1
-//     declares the composite shape; MK3 owns BodyMode in full. NOTE:
-//     BodyMode is MK3's type — the nested engine here forward-references
-//     it; the .scrml is the canonical SHAPE per the README ANOMALY-2
-//     shadow discipline (the .js shadow is what runs).
+//     declared the composite shape; MK3.1 LANDED the BodyMode engine
+//     (body-mode.scrml) — the `BodyMode` import above brings the enum
+//     into scope, so the `<engine for=BodyMode>` nested below RESOLVES.
+//     This is the closure of roadmap §4.4 K1 — the deliberate
+//     E-ENGINE-004 single .scrml-compile error this file carried from
+//     MK1.1 (for charter-Q1.C SHAPE fidelity) no longer fires.
 //   - .InLogicEscape is a COMPOSITE state-child (punch-list P3) — its
 //     body carries the JS-layer LexMode engine graph (M1 — already
 //     built; LexMode imported above). This is the markup→JS delegation
@@ -172,9 +187,14 @@ ${
     <TopLevel rule=(.InMarkupTag | .InLogicEscape | .InCss | .InSql | .InErrorEffect | .InMeta | .InTest)></>
 
     // Composite state-child per §51.0.Q.1 — a markup tag's body carries
-    // a BodyMode engine (free-text vs code-default per §4.18). MK3 owns
-    // the BodyMode engine's substantive body; MK1.1 carries the
-    // composite SHAPE so MK2/MK3 extend rather than restructure.
+    // a BodyMode engine (free-text vs code-default per §4.18). MK3.1
+    // landed the BodyMode engine in body-mode.scrml — `BodyMode` is
+    // imported above, so this nested `<engine for=BodyMode>` resolves
+    // (roadmap §4.4 K1 closed). body-mode.scrml's `.CodeDefault`
+    // composite state-child carries the DisplayTextLiteral engine for
+    // `"..."` scanning; the two-variant inner engine here is the
+    // BodyMode-at-this-context view (the FreeText / CodeDefault
+    // transition contract per §4.18.1).
     <InMarkupTag rule=(.TopLevel | .InMarkupTag | .InLogicEscape)>
         <engine for=BodyMode var=tagBodyMode initial=.FreeText>
             <FreeText rule=.CodeDefault></>
@@ -476,14 +496,20 @@ ${
         // Punch-list P3 — entering .InLogicEscape pushes a DelegationFrame.
         if (context == BlockContext.InLogicEscape) {
             const kinds = delegationKinds()
-            // bodyMode is MK3's BodyMode type — carried as `not` here
-            // until MK3 threads the §4.18 mode (the field is part of the
-            // DelegationFrame struct per R1 spike §3.2).
+            // PUNCH-LIST P7 (MK3.1) — thread the §4.18 body mode into the
+            // markup→JS DelegationFrame. The mode is currentBodyMode(ctx)
+            // — the mode of the innermost enclosing markup/state body
+            // (the body the `${...}` logic-escape sits inside; SPEC
+            // §4.18.1 statement 3). The JS layer reads this frame field
+            // so the display-text rules for the delegated body are known
+            // (MK4 wires the JS-parse delegation that consumes it). MK1.2
+            // carried `not` here as a placeholder; MK3.1 supplies the
+            // real mode.
             const frameDelegation = makeDelegationFrame(
                 kinds.LogicEscape,
                 closeOnBraceDepth(depthAtOpen),
                 openSpan,
-                not,
+                currentBodyMode(ctx),
             )
             pushDelegationFrame(ctx, frameDelegation)
         }

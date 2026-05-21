@@ -42,6 +42,12 @@ import {
     pushDelegationFrame,
     popDelegationFrame,
 } from "./parse-ctx.js";
+// MK3.1 — punch-list P7: thread the §4.18 body mode into every markup->JS
+// DelegationFrame. currentBodyMode reads the innermost open TagFrame's
+// bodyMode payload (a plain ctx data field — no tag-frame.js import, so
+// no import cycle). body-mode.js imports nothing, so block-context.js ->
+// body-mode.js is acyclic.
+import { currentBodyMode } from "./body-mode.js";
 
 // BlockContext variant tags — all 9 per charter Q1.C.
 export const BlockContext = Object.freeze({
@@ -268,14 +274,19 @@ export function enterBlockContext(ctx, cursor, context, sigil) {
     // layer parse-delegation lands at MK4 — MK1.2 establishes the frame.
     if (context === BlockContext.InLogicEscape) {
         const kinds = delegationKinds();
-        // bodyMode is MK3's BodyMode type — carried as a tag here (null
-        // until MK3 threads the §4.18 mode; the field is part of the
-        // DelegationFrame struct per R1 spike §3.2).
+        // PUNCH-LIST P7 (MK3.1) — thread the §4.18 body mode into the
+        // markup->JS DelegationFrame. The mode is currentBodyMode(ctx) —
+        // the mode of the innermost enclosing markup/state body (the
+        // body the `${...}` logic-escape sits inside; SPEC §4.18.1
+        // statement 3). The JS layer reads this frame field so the
+        // display-text rules for the delegated body are known (MK4 wires
+        // the JS-parse delegation that consumes it). MK1.2 carried `null`
+        // here as a placeholder; MK3.1 supplies the real mode.
         const frameDelegation = makeDelegationFrame(
             kinds.LogicEscape,
             closeOnBraceDepth(depthAtOpen),
             openSpan,
-            null,
+            currentBodyMode(ctx),
         );
         pushDelegationFrame(ctx, frameDelegation);
     }

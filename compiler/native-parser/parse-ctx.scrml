@@ -217,22 +217,34 @@ ${
     // sequence of typed blocks; the nested <tag> tree is MK2 (TagFrame).
     //
     //   type BlockKind:enum = {
-    //       Text,          // a plain-text run
-    //       Comment,       // a // line comment or a <!-- --> HTML comment
-    //       Markup,        // a markup-tag block (boundary granularity —
-    //                      //   the tag tree is MK2)
-    //       LogicEscape,   // a logic-escape block             §7
-    //       Sql,           // a SQL block                      §8
-    //       Css,           // a CSS block                      §16
-    //       ErrorEffect,   // an error-effect block             §19
-    //       Meta,          // a meta block                     §22
-    //       Test,          // a test block                     §32
-    //       ForeignCode,   // a foreign-code block              §23
+    //       Text,               // a plain-text run (free-text mode)
+    //       DisplayTextLiteral, // a "..." display-text literal
+    //                           //   (code-default mode)            §4.18
+    //       Comment,            // a // line comment or a <!-- --> comment
+    //       Markup,             // a markup-tag block (the tag tree)
+    //       LogicEscape,        // a logic-escape block             §7
+    //       Sql,                // a SQL block                      §8
+    //       Css,                // a CSS block                      §16
+    //       ErrorEffect,        // an error-effect block             §19
+    //       Meta,               // a meta block                     §22
+    //       Test,               // a test block                     §32
+    //       ForeignCode,        // a foreign-code block              §23
     //   }
     //
     // BlockKind is PURE DATA — no <engine> (no transition contract on the
     // kind itself; the kind is computed once at block-recognition time
     // and carried). Calculation classification, the same as DelegationKind.
+    //
+    // MK3.1 — the `DisplayTextLiteral` block kind (SPEC §4.18.8). The
+    // §4.18 model splits a body's display text into TWO node kinds: a
+    // free-text-mode body produces `Text` blocks (the `TextNode` AST kind
+    // — SPEC §4.18.8 — SURVIVES); a code-default-mode body's `"..."`
+    // display-text literal is a DISTINCT `DisplayTextLiteral` block — the
+    // node MK3.2's literal scanner emits. The kind is declared HERE at
+    // MK3.1 (the catalog is whole — a reviewer can name every block kind
+    // the markup layer produces); MK3.2 emits it. Codegen routes the
+    // `DisplayTextLiteral` kind through the auto-HTML-escape path
+    // (§4.18.6) — distinct from a `Text` block's emission.
     //
     // The block-node STRUCT carries:
     //   kind        — the BlockKind tag
@@ -242,24 +254,30 @@ ${
     //                 `not` for every other kind
     // -------------------------------------------------------------------
 
-    // blockKinds — the ten BlockKind variant tags surfaced as values so
+    // blockKinds — the eleven BlockKind variant tags surfaced as values so
     // the trampoline + the conformance harness can name them. Data, not
     // state. The tag strings are chosen to read 1:1 with the BlockContext
     // variant names where a context maps to a block (LogicEscape / Sql /
     // Css / ErrorEffect / Meta / Test / Markup / ForeignCode) plus the
-    // two non-context block kinds (Text / Comment).
+    // three non-context block kinds (Text / DisplayTextLiteral / Comment).
+    //
+    // MK3.1 adds `DisplayTextLiteral` (SPEC §4.18.8) — the code-default-
+    // body `"..."` display-text-literal node, distinct from a free-text
+    // `Text` block. The kind is in the catalog at MK3.1; MK3.2's literal
+    // scanner emits it.
     export function blockKinds() {
         return {
-            Text:        "Text",
-            Comment:     "Comment",
-            Markup:      "Markup",
-            LogicEscape: "LogicEscape",
-            Sql:         "Sql",
-            Css:         "Css",
-            ErrorEffect: "ErrorEffect",
-            Meta:        "Meta",
-            Test:        "Test",
-            ForeignCode: "ForeignCode",
+            Text:               "Text",
+            DisplayTextLiteral: "DisplayTextLiteral",
+            Comment:            "Comment",
+            Markup:             "Markup",
+            LogicEscape:        "LogicEscape",
+            Sql:                "Sql",
+            Css:                "Css",
+            ErrorEffect:        "ErrorEffect",
+            Meta:               "Meta",
+            Test:               "Test",
+            ForeignCode:        "ForeignCode",
         }
     }
 

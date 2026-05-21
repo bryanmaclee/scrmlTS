@@ -75,22 +75,32 @@ export function nodeCount(ctx) {
 // BlockKind is pure data — the kind is computed once at block-recognition
 // time and carried (calculation classification, the same as DelegationKind).
 // The block-node struct carries { kind, span, commentForm }.
+//
+// MK3.1 — the `DisplayTextLiteral` block kind (SPEC §4.18.8). The §4.18
+// model splits a body's display text into two node kinds: a free-text-mode
+// body produces `Text` blocks (the `TextNode` AST kind — SPEC §4.18.8 —
+// SURVIVES); a code-default-mode body's `"..."` display-text literal is a
+// distinct `DisplayTextLiteral` block (the node MK3.2's literal scanner
+// emits — codegen routes it through the §4.18.6 auto-HTML-escape path).
+// MK3.1 declares the kind; MK3.2 emits it.
 
-// blockKinds — the ten BlockKind variant tags surfaced as values. The tag
-// strings read 1:1 with the BlockContext variant names where a context maps
-// to a block, plus the two non-context kinds (Text / Comment).
+// blockKinds — the eleven BlockKind variant tags surfaced as values. The
+// tag strings read 1:1 with the BlockContext variant names where a context
+// maps to a block, plus the three non-context kinds (Text /
+// DisplayTextLiteral / Comment).
 export function blockKinds() {
     return {
-        Text:        "Text",
-        Comment:     "Comment",
-        Markup:      "Markup",
-        LogicEscape: "LogicEscape",
-        Sql:         "Sql",
-        Css:         "Css",
-        ErrorEffect: "ErrorEffect",
-        Meta:        "Meta",
-        Test:        "Test",
-        ForeignCode: "ForeignCode",
+        Text:               "Text",
+        DisplayTextLiteral: "DisplayTextLiteral",
+        Comment:            "Comment",
+        Markup:             "Markup",
+        LogicEscape:        "LogicEscape",
+        Sql:                "Sql",
+        Css:                "Css",
+        ErrorEffect:        "ErrorEffect",
+        Meta:               "Meta",
+        Test:               "Test",
+        ForeignCode:        "ForeignCode",
     };
 }
 

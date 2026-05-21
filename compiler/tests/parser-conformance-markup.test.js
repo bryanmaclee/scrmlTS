@@ -117,6 +117,35 @@ import { ErrorRecovery } from "../native-parser/error-recovery.js";
 // (markupValueAllowedAfter) + TokenKind for its prev-token assertions.
 import { markupValueAllowedAfter } from "../native-parser/lex-in-code.js";
 import { TokenKind } from "../native-parser/token.js";
+// MK3.1 — the §4.18 BodyMode engine + body-mode establishment.
+import {
+    BodyMode,
+    ProgramBodyMode,
+    initialBodyMode,
+    STRUCTURAL_PARENT_CODE_DEFAULT,
+    isCodeBearingParentName,
+    PROGRAM_BODY_ELEMENTS,
+    isProgramBodyElementName,
+    bodyModeForChildOf,
+    shorthandBodyMode,
+    currentBodyMode,
+    isCodeDefault,
+    isFreeText,
+    isDefaultLogic,
+} from "../native-parser/body-mode.js";
+// MK3.1 — the §4.18.3/.4 DisplayTextLiteral engine SKELETON.
+import {
+    DisplayTextLiteral,
+    initialDisplayTextLiteral,
+    doubleQuote,
+    LEGAL_FROM_IN_LITERAL_TEXT,
+} from "../native-parser/display-text-literal.js";
+// MK3.1 — the parse-ctx block-kind catalog (the DisplayTextLiteral kind).
+import { blockKinds } from "../native-parser/parse-ctx.js";
+// MK3.1 — the markup-tag dispatch + the TagFrame-stack helpers the
+// body-mode establishment + P7 tests drive.
+import { dispatchInMarkupTag } from "../native-parser/parse-markup.js";
+import { topDelegationFrame } from "../native-parser/parse-ctx.js";
 
 // The MK1.3 conformance ORACLE — the current heuristic block-splitter
 // (compiler/src/block-splitter.js). The native markup block-stream is
@@ -668,17 +697,21 @@ describe("MK1.2 trampoline termination — every input halts", () => {
 // blockKinds — the typed-block tags the trampoline emits (mirror of the
 // parse-ctx.js blockKinds() table; the test names them inline so the
 // assertions read at the block-stream level of abstraction).
+// MK3.1 added DisplayTextLiteral (the §4.18.8 code-default-body literal
+// node kind, distinct from Text); the MK3.1 §41 section asserts the
+// blockKinds() catalog directly.
 const NativeBlockKind = {
-    Text:        "Text",
-    Comment:     "Comment",
-    Markup:      "Markup",
-    LogicEscape: "LogicEscape",
-    Sql:         "Sql",
-    Css:         "Css",
-    ErrorEffect: "ErrorEffect",
-    Meta:        "Meta",
-    Test:        "Test",
-    ForeignCode: "ForeignCode",
+    Text:               "Text",
+    DisplayTextLiteral: "DisplayTextLiteral",
+    Comment:            "Comment",
+    Markup:             "Markup",
+    LogicEscape:        "LogicEscape",
+    Sql:                "Sql",
+    Css:                "Css",
+    ErrorEffect:        "ErrorEffect",
+    Meta:               "Meta",
+    Test:               "Test",
+    ForeignCode:        "ForeignCode",
 };
 
 // blockStream — the native typed block-stream for a source: a list of
@@ -2736,5 +2769,437 @@ describe("MK2.3 MK2 milestone close — the 5 BS classifier heuristics are elimi
             };
             expect(markupTree(src)).toBe(bs.blocks.map(bsFmt).join(" "));
         }
+    });
+});
+
+// #############################################################################
+// #############################################################################
+// ##                                                                         ##
+// ##  MK3.1 — BodyMode engine + DisplayTextLiteral engine skeleton +          ##
+// ##         body-mode establishment + punch-list P7.                         ##
+// ##                                                                         ##
+// ##  Per IMPLEMENTATION-ROADMAP §3.3 (the MK3.1 row) + charter dive Q1.D     ##
+// ##  (the BodyMode 2-variant engine) + Q1.E (the DisplayTextLiteral          ##
+// ##  3-variant engine skeleton) + Q3.A (the §4.18 mapping) + SPEC §4.18.     ##
+// ##                                                                         ##
+// ##  MK3.1 lands the engine SHAPES + body-mode ESTABLISHMENT — which         ##
+// ##  bodies are code-default vs free-text. The substantive `"..."`           ##
+// ##  literal-scanning logic is MK3.2; the `${...}` interpolation is MK3.3.   ##
+// ##  These sections are therefore a UNIT suite over the MK3.1 surface.       ##
+// ##                                                                         ##
+// #############################################################################
+// #############################################################################
+
+// recognizeOpenerUnderParent — recognizeOpenerFromLt with a PARENT frame
+// already on the TagFrame stack, so body-mode establishment sees an
+// enclosing element. `parentName` / `parentKind` describe the parent; the
+// child opener is `childSource` (a `<...>` opener). Returns the child's
+// pushed TagFrame.
+function recognizeOpenerUnderParent(parentName, parentKind, childSource) {
+    const ctx = makeParseContext();
+    // Push a parent .OpenExpectingChildren frame (the element the child
+    // tag is nested inside).
+    pushTagFrame(ctx, makeOpenExpectingChildrenFrame(
+        parentName, parentKind, 0, { start: 0, end: 1, line: 1, col: 1 }));
+    const cursor = makeCursor(childSource);
+    const ltAnchor = { start: cursor.pos, line: cursor.line, col: cursor.col };
+    advance(cursor, 1);
+    return recognizeOpener(ctx, cursor, ltAnchor);
+}
+
+// =============================================================================
+// MK3.1 §37 — the BodyMode engine (charter Q1.D; the §4.18 two-mode engine).
+// =============================================================================
+describe("MK3.1 BodyMode engine — the §4.18 two-body-mode model", () => {
+    test("BodyMode has exactly the two §4.18.1 variants — FreeText / CodeDefault", () => {
+        expect(BodyMode.FreeText).toBe("FreeText");
+        expect(BodyMode.CodeDefault).toBe("CodeDefault");
+        // The §4.18 engine is a TWO-mode engine — no third variant. The
+        // §40.8 `default-logic` mode is a separate tag (ProgramBodyMode),
+        // NOT a BodyMode variant.
+        expect(Object.keys(BodyMode).sort()).toEqual(["CodeDefault", "FreeText"]);
+    });
+
+    test("initialBodyMode is .FreeText — the §4.18.1 default body mode", () => {
+        // SPEC §4.18.1: "The default body mode is free-text mode."
+        expect(initialBodyMode()).toBe(BodyMode.FreeText);
+    });
+
+    test("the §40.8 `default-logic` THIRD mode is a distinct tag, not a BodyMode variant", () => {
+        // S111 R3 reconciliation: `default-logic` (the `<program>` /
+        // `<page>` body mode) is a distinct THIRD mode owned by §40.8 —
+        // neither free-text nor code-default. It is surfaced as
+        // ProgramBodyMode.DefaultLogic so the §4.18 BodyMode enum stays
+        // a clean two-mode enum.
+        expect(ProgramBodyMode.DefaultLogic).toBe("DefaultLogic");
+        expect(BodyMode.DefaultLogic).toBe(undefined);
+    });
+
+    test("the mode predicates — isCodeDefault / isFreeText / isDefaultLogic", () => {
+        expect(isCodeDefault(BodyMode.CodeDefault)).toBe(true);
+        expect(isCodeDefault(BodyMode.FreeText)).toBe(false);
+        expect(isFreeText(BodyMode.FreeText)).toBe(true);
+        expect(isFreeText(BodyMode.CodeDefault)).toBe(false);
+        expect(isDefaultLogic(ProgramBodyMode.DefaultLogic)).toBe(true);
+        expect(isDefaultLogic(BodyMode.FreeText)).toBe(false);
+        expect(isDefaultLogic(BodyMode.CodeDefault)).toBe(false);
+    });
+});
+
+// =============================================================================
+// MK3.1 §38 — body-mode establishment (SPEC §4.18.1 — the establishment rule).
+// =============================================================================
+describe("MK3.1 body-mode establishment — the code-bearing-loci registries", () => {
+    test("STRUCTURAL_PARENT_CODE_DEFAULT is the closed `<engine>` / `<match>` set", () => {
+        // SPEC §4.18.1 code-bearing loci 1 + 2: an engine state-child
+        // body + a match block-form arm body. The closed parent set.
+        expect(STRUCTURAL_PARENT_CODE_DEFAULT.engine).toBe(true);
+        expect(STRUCTURAL_PARENT_CODE_DEFAULT.match).toBe(true);
+        expect(Object.keys(STRUCTURAL_PARENT_CODE_DEFAULT).sort())
+            .toEqual(["engine", "match"]);
+    });
+
+    test("isCodeBearingParentName — `<engine>` / `<match>` true; everything else false", () => {
+        expect(isCodeBearingParentName("engine")).toBe(true);
+        expect(isCodeBearingParentName("match")).toBe(true);
+        // A plain-markup parent does not make its children code-default.
+        expect(isCodeBearingParentName("div")).toBe(false);
+        expect(isCodeBearingParentName("Counter")).toBe(false);
+        // `<errors>` is a structural element but its body is free-text
+        // (the override-template body — SPEC §4.18.1) — so it is NOT a
+        // code-bearing parent.
+        expect(isCodeBearingParentName("errors")).toBe(false);
+        // A null parent (a top-level tag) is not a code-bearing parent.
+        expect(isCodeBearingParentName(null)).toBe(false);
+        expect(isCodeBearingParentName(undefined)).toBe(false);
+    });
+
+    test("PROGRAM_BODY_ELEMENTS / isProgramBodyElementName — the §40.8 set", () => {
+        // SPEC §40.8 — `<program>` / `<page>` bodies parse in
+        // `default-logic` mode (the THIRD mode).
+        expect(PROGRAM_BODY_ELEMENTS.program).toBe(true);
+        expect(PROGRAM_BODY_ELEMENTS.page).toBe(true);
+        expect(isProgramBodyElementName("program")).toBe(true);
+        expect(isProgramBodyElementName("page")).toBe(true);
+        expect(isProgramBodyElementName("div")).toBe(false);
+        expect(isProgramBodyElementName("engine")).toBe(false);
+        expect(isProgramBodyElementName(null)).toBe(false);
+    });
+
+    test("bodyModeForChildOf — a child of `<engine>` opens a code-default body", () => {
+        // SPEC §4.18.1 locus 1 — an engine state-child body is code-default.
+        expect(bodyModeForChildOf("Idle", "engine")).toBe(BodyMode.CodeDefault);
+        expect(bodyModeForChildOf("Loading", "engine")).toBe(BodyMode.CodeDefault);
+    });
+
+    test("bodyModeForChildOf — a child of `<match>` opens a code-default body", () => {
+        // SPEC §4.18.1 locus 2 — a match block-form arm body is code-default.
+        expect(bodyModeForChildOf("Big", "match")).toBe(BodyMode.CodeDefault);
+        expect(bodyModeForChildOf("Small", "match")).toBe(BodyMode.CodeDefault);
+    });
+
+    test("bodyModeForChildOf — a plain-markup body is free-text (the default)", () => {
+        // A `<button>` / `<p>` / component-element body is free-text.
+        expect(bodyModeForChildOf("button", "div")).toBe(BodyMode.FreeText);
+        expect(bodyModeForChildOf("p", "section")).toBe(BodyMode.FreeText);
+        expect(bodyModeForChildOf("span", "Counter")).toBe(BodyMode.FreeText);
+        // A top-level tag (no parent) — free-text.
+        expect(bodyModeForChildOf("div", null)).toBe(BodyMode.FreeText);
+    });
+
+    test("bodyModeForChildOf — the `<engine>` body itself is free-text (not a §4.18 locus)", () => {
+        // SPEC §4.18.1: the three code-bearing loci are engine STATE-CHILD
+        // bodies / match ARM bodies / `:`-shorthand bodies — NOT the
+        // `<engine>` / `<match>` body itself. An `<engine>` body's content
+        // is its state-children (recognized as tags in any mode); the
+        // §4.18.1 default — free-text — applies to the `<engine>` body.
+        expect(bodyModeForChildOf("engine", null)).toBe(BodyMode.FreeText);
+        expect(bodyModeForChildOf("match", "div")).toBe(BodyMode.FreeText);
+    });
+
+    test("bodyModeForChildOf — `<program>` / `<page>` is the §40.8 `default-logic` mode", () => {
+        // SPEC §40.8 — the THIRD body mode. Checked FIRST in
+        // bodyModeForChildOf — the program-body mode is the element's OWN
+        // fixed mode, independent of parent.
+        expect(bodyModeForChildOf("program", null)).toBe(ProgramBodyMode.DefaultLogic);
+        expect(bodyModeForChildOf("page", "program")).toBe(ProgramBodyMode.DefaultLogic);
+        // Even a `<program>` mis-nested under an `<engine>` keeps its own
+        // `default-logic` mode (NR validates structural-element placement
+        // downstream — the body mode is the element's).
+        expect(bodyModeForChildOf("program", "engine")).toBe(ProgramBodyMode.DefaultLogic);
+    });
+
+    test("body modes NEST, they do NOT propagate (SPEC §4.18.1 statement 3)", () => {
+        // SPEC §4.18.1 statement 3: "a plain-markup element opened inside
+        // a code-default body opens its OWN free-text body". A `<button>`
+        // whose parent is `<Idle>` (a state-child) — the parent is NOT an
+        // `<engine>` / `<match>`, so the `<button>` body is free-text.
+        // The code-default mode of the enclosing `<Idle>` body does NOT
+        // propagate down into the `<button>`.
+        expect(bodyModeForChildOf("button", "Idle")).toBe(BodyMode.FreeText);
+        // Conversely, an `<engine>` opened inside a free-text `<div>` body
+        // — the `<engine>` body itself is free-text. The establishment is
+        // purely a function of element + immediate parent.
+        expect(bodyModeForChildOf("engine", "div")).toBe(BodyMode.FreeText);
+    });
+
+    test("shorthandBodyMode — a `:`-shorthand body slot is always code-default", () => {
+        // SPEC §4.18.1 code-bearing locus 3 / §4.14 line 973 — a
+        // `:`-shorthand body is a code-default body. The CONSTANT (the
+        // recognizer that decides a tag HAS a `:`-shorthand body is a
+        // forward seam — see body-mode.scrml's shorthandBodyMode doc).
+        expect(shorthandBodyMode()).toBe(BodyMode.CodeDefault);
+    });
+});
+
+// =============================================================================
+// MK3.1 §39 — recognizeOpener populates the TagFrame `bodyMode` payload.
+// =============================================================================
+describe("MK3.1 recognizeOpener — the bodyMode payload (body-mode establishment)", () => {
+    test("a top-level `<div>` — bodyMode FreeText (no enclosing element)", () => {
+        const { frame } = recognizeOpenerFromLt("<div>");
+        expect(frame.bodyMode).toBe(BodyMode.FreeText);
+    });
+
+    test("a top-level `<engine>` — bodyMode FreeText (its body holds state-children)", () => {
+        const { frame } = recognizeOpenerFromLt("<engine for=Phase>");
+        expect(frame.bodyMode).toBe(BodyMode.FreeText);
+    });
+
+    test("an `<Idle>` child of an `<engine>` — bodyMode CodeDefault", () => {
+        // SPEC §4.18.1 locus 1 — the engine state-child body is code-default.
+        const frame = recognizeOpenerUnderParent("engine", TagKind.ScrmlStructural, "<Idle>");
+        expect(frame.bodyMode).toBe(BodyMode.CodeDefault);
+        expect(frame.name).toBe("Idle");
+    });
+
+    test("a `<Big>` arm of a `<match>` — bodyMode CodeDefault", () => {
+        // SPEC §4.18.1 locus 2 — the match block-form arm body is code-default.
+        const frame = recognizeOpenerUnderParent("match", TagKind.ScrmlStructural, "<Big>");
+        expect(frame.bodyMode).toBe(BodyMode.CodeDefault);
+    });
+
+    test("a `<button>` child of a plain `<div>` — bodyMode FreeText", () => {
+        const frame = recognizeOpenerUnderParent("div", TagKind.Html, "<button>");
+        expect(frame.bodyMode).toBe(BodyMode.FreeText);
+    });
+
+    test("a `<program>` opener — bodyMode is the §40.8 DefaultLogic THIRD mode", () => {
+        const { frame } = recognizeOpenerFromLt("<program>");
+        expect(frame.bodyMode).toBe(ProgramBodyMode.DefaultLogic);
+    });
+
+    test("a self-closing `<br/>` opener — an .OpenSelfClosed frame has NO bodyMode", () => {
+        // SPEC §4.18.1 — a body is the content between an opener's `>` and
+        // its closer; a self-closing tag opens no body. .OpenSelfClosed
+        // frames carry no `bodyMode` field.
+        const { frame } = recognizeOpenerFromLt("<br/>");
+        expect(frame.kind).toBe(TagFrameKind.OpenSelfClosed);
+        expect(frame.bodyMode).toBe(undefined);
+    });
+
+    test("makeOpenExpectingChildrenFrame — the 5th bodyMode arg is carried; omitting it defaults null", () => {
+        const span = { start: 0, end: 5, line: 1, col: 1 };
+        // The MK3.1 5-arg form carries the mode.
+        const withMode = makeOpenExpectingChildrenFrame(
+            "Idle", TagKind.StateOpener, 0, span, BodyMode.CodeDefault);
+        expect(withMode.bodyMode).toBe(BodyMode.CodeDefault);
+        // The MK2.1-era 4-arg form (existing callers) — bodyMode defaults
+        // to null, unchanged from MK2.1.
+        const noMode = makeOpenExpectingChildrenFrame("div", TagKind.Html, 0, span);
+        expect(noMode.bodyMode).toBe(null);
+    });
+
+    test("end-to-end — recognizeOpener stamps the §4.18 mode through the trampoline", () => {
+        // Drive the full markup trampoline; the TagFrame for the engine
+        // state-child carries bodyMode CodeDefault while it is open.
+        const cursor = makeCursor("<engine for=X><Idle></></>");
+        const ctx = makeParseContext();
+        const run = { at: null };
+        let idleMode = null;
+        let iters = 0;
+        while (!isEof(cursor) && iters < 200) {
+            const before = cursor.pos;
+            const c = ctx.blockContext;
+            if (c === BlockContext.TopLevel) dispatchTopLevel(run, cursor, ctx);
+            else if (c === BlockContext.InMarkupTag) dispatchInMarkupTag(run, cursor, ctx);
+            else cursor.pos = before + 1;
+            // Capture the <Idle> frame's body mode while it is on the
+            // stack. ctx.tagFrameStack is lazy-inited on the first frame
+            // push (ensureTagFrameStack) — guard the early iterations.
+            for (const f of (ctx.tagFrameStack ?? [])) {
+                if (f.name === "Idle") idleMode = f.bodyMode;
+            }
+            if (cursor.pos === before && !isEof(cursor)) cursor.pos = before + 1;
+            iters = iters + 1;
+        }
+        expect(idleMode).toBe(BodyMode.CodeDefault);
+    });
+});
+
+// =============================================================================
+// MK3.1 §40 — the DisplayTextLiteral engine SKELETON (charter Q1.E).
+// =============================================================================
+describe("MK3.1 DisplayTextLiteral engine — the §4.18.3/.4 literal-engine skeleton", () => {
+    test("DisplayTextLiteral has the three §4.18.3/.4 variants", () => {
+        expect(DisplayTextLiteral.Outside).toBe("Outside");
+        expect(DisplayTextLiteral.InLiteralText).toBe("InLiteralText");
+        expect(DisplayTextLiteral.InInterpolation).toBe("InInterpolation");
+        expect(Object.keys(DisplayTextLiteral).sort())
+            .toEqual(["InInterpolation", "InLiteralText", "Outside"]);
+    });
+
+    test("initialDisplayTextLiteral is .Outside — a code-default body begins outside a literal", () => {
+        // Matches `initial=.Outside` on the engine. A code-default body
+        // starts OUTSIDE any `"..."` display-text literal.
+        expect(initialDisplayTextLiteral()).toBe(DisplayTextLiteral.Outside);
+    });
+
+    test("doubleQuote is the `\"` display-text-literal delimiter (SPEC §4.18.3 — `\"`-only)", () => {
+        expect(doubleQuote()).toBe("\"");
+        expect(doubleQuote().length).toBe(1);
+    });
+
+    test("LEGAL_FROM_IN_LITERAL_TEXT — the rule= matrix for the .InLiteralText state-child", () => {
+        // From .InLiteralText the engine may transition to .Outside (the
+        // closing `"`) or .InInterpolation (a `${` opener) — charter Q1.E.
+        expect(LEGAL_FROM_IN_LITERAL_TEXT.Outside).toBe(true);
+        expect(LEGAL_FROM_IN_LITERAL_TEXT.InInterpolation).toBe(true);
+        expect(Object.keys(LEGAL_FROM_IN_LITERAL_TEXT).sort())
+            .toEqual(["InInterpolation", "Outside"]);
+    });
+});
+
+// =============================================================================
+// MK3.1 §41 — the DisplayTextLiteral block kind (SPEC §4.18.8).
+// =============================================================================
+describe("MK3.1 DisplayTextLiteral block kind — distinct from the Text block (§4.18.8)", () => {
+    test("blockKinds() carries a DisplayTextLiteral kind, distinct from Text", () => {
+        const k = blockKinds();
+        // SPEC §4.18.8 — the `text` block / `TextNode` AST kind SURVIVES
+        // (free-text bodies); `DisplayTextLiteral` is the NEW kind for the
+        // code-default-body `"..."` literal — a distinct node kind.
+        expect(k.Text).toBe("Text");
+        expect(k.DisplayTextLiteral).toBe("DisplayTextLiteral");
+        expect(k.Text).not.toBe(k.DisplayTextLiteral);
+    });
+
+    test("blockKinds() has 11 kinds — the MK1.3 ten plus DisplayTextLiteral", () => {
+        const k = blockKinds();
+        expect(Object.keys(k).length).toBe(11);
+        // The full catalog — a reviewer can name every block kind the
+        // markup layer produces.
+        expect(Object.keys(k).sort()).toEqual([
+            "Comment", "Css", "DisplayTextLiteral", "ErrorEffect", "ForeignCode",
+            "LogicEscape", "Markup", "Meta", "Sql", "Test", "Text",
+        ]);
+    });
+});
+
+// =============================================================================
+// MK3.1 §42 — punch-list P7: bodyMode threaded into the DelegationFrame.
+// =============================================================================
+describe("MK3.1 P7 — the §4.18 body mode threaded into every markup→JS DelegationFrame", () => {
+    // delegationFrameModes — drive the markup trampoline and collect every
+    // DISTINCT bodyMode observed on the top DelegationFrame across the run.
+    function delegationFrameModes(src) {
+        const cursor = makeCursor(src);
+        const ctx = makeParseContext();
+        const run = { at: null };
+        const seen = [];
+        let iters = 0;
+        while (!isEof(cursor) && iters < (src.length + 1) * 8) {
+            const before = cursor.pos;
+            const c = ctx.blockContext;
+            if (c === BlockContext.TopLevel) dispatchTopLevel(run, cursor, ctx);
+            else if (c === BlockContext.InMarkupTag) dispatchInMarkupTag(run, cursor, ctx);
+            else if (c === BlockContext.InLogicEscape) dispatchInLogicEscape(run, cursor, ctx);
+            else cursor.pos = before + 1;
+            const f = topDelegationFrame(ctx);
+            if (f !== null && delegationDepth(ctx) > 0) seen.push(f.bodyMode);
+            if (cursor.pos === before && !isEof(cursor)) cursor.pos = before + 1;
+            iters = iters + 1;
+        }
+        return [...new Set(seen)];
+    }
+
+    test("currentBodyMode — FreeText when no tag is open (the §4.18.1 default)", () => {
+        // SPEC §4.18.1 — the cursor at the top level of a file is inside
+        // no element body; the default body mode (free-text) applies.
+        const ctx = makeParseContext();
+        expect(currentBodyMode(ctx)).toBe(BodyMode.FreeText);
+        // A defensive null ctx — still free-text.
+        expect(currentBodyMode(null)).toBe(BodyMode.FreeText);
+    });
+
+    test("currentBodyMode — the innermost open TagFrame's bodyMode (§4.18.1 statement 3)", () => {
+        // SPEC §4.18.1 statement 3 — "the mode in effect at any cursor
+        // position is the mode of the INNERMOST enclosing body".
+        const ctx = makeParseContext();
+        pushTagFrame(ctx, makeOpenExpectingChildrenFrame(
+            "engine", TagKind.ScrmlStructural, 0,
+            { start: 0, end: 1, line: 1, col: 1 }, BodyMode.FreeText));
+        expect(currentBodyMode(ctx)).toBe(BodyMode.FreeText);
+        // Push an inner state-child frame whose body is code-default —
+        // currentBodyMode now reports the INNER frame's mode.
+        pushTagFrame(ctx, makeOpenExpectingChildrenFrame(
+            "Idle", TagKind.StateOpener, 1,
+            { start: 1, end: 2, line: 1, col: 2 }, BodyMode.CodeDefault));
+        expect(currentBodyMode(ctx)).toBe(BodyMode.CodeDefault);
+    });
+
+    test("a `${}` at top level — the DelegationFrame carries bodyMode FreeText", () => {
+        // The logic-escape sits in no element body — free-text (the default).
+        expect(delegationFrameModes("${ x }")).toEqual([BodyMode.FreeText]);
+    });
+
+    test("a `${}` inside a free-text `<div>` body — DelegationFrame bodyMode FreeText", () => {
+        expect(delegationFrameModes("<div>${ x }</div>")).toEqual([BodyMode.FreeText]);
+    });
+
+    test("a `${}` inside an engine state-child body — DelegationFrame bodyMode CodeDefault", () => {
+        // The `${...}` logic-escape sits inside the `<Idle>` engine
+        // state-child body — a code-default body (§4.18.1 locus 1). P7
+        // threads CodeDefault into the DelegationFrame so the JS layer
+        // knows the §4.18 display-text rules for that body.
+        expect(delegationFrameModes("<engine for=X><Idle>${ a }</></>"))
+            .toEqual([BodyMode.CodeDefault]);
+    });
+
+    test("the DelegationFrame bodyMode is no longer the MK1.2 null placeholder", () => {
+        // MK1.2 carried `null` for the DelegationFrame bodyMode field;
+        // MK3.1 (P7) supplies the real §4.18 mode. The field is now a
+        // BodyMode value, never null, for a markup→JS LogicEscape frame.
+        const modes = delegationFrameModes("<div>${ x }</div>");
+        expect(modes).not.toContain(null);
+        expect(modes.every((m) => m === BodyMode.FreeText || m === BodyMode.CodeDefault))
+            .toBe(true);
+    });
+});
+
+// =============================================================================
+// MK3.1 §43 — K1 resolution (roadmap §4.4) — the BodyMode forward-ref resolves.
+// =============================================================================
+describe("MK3.1 K1 — the block-context.scrml BodyMode forward-ref is resolved", () => {
+    test("block-context.scrml imports BodyMode — the .InMarkupTag <engine for=BodyMode> resolves", () => {
+        // K1 (roadmap §4.4): block-context.scrml's .InMarkupTag composite
+        // state-child carries `<engine for=BodyMode var=tagBodyMode>` — a
+        // forward-reference that was a deliberate single E-ENGINE-004
+        // .scrml-compile error from MK1.1 (charter-Q1.C SHAPE fidelity).
+        // MK3.1 lands body-mode.scrml + block-context.scrml imports
+        // `BodyMode` from it; the forward-ref resolves.
+        //
+        // The .js shadow (what this test runs) has always executed
+        // correctly (ANOMALY-2 shadow discipline); this test asserts the
+        // BodyMode engine the .scrml's `<engine for=BodyMode>` declares
+        // exists + is usable — the live-surface evidence that the type
+        // the forward-ref needs is now in the module graph.
+        expect(BodyMode).toBeDefined();
+        expect(BodyMode.FreeText).toBe("FreeText");
+        expect(BodyMode.CodeDefault).toBe("CodeDefault");
+        // The BodyMode engine drives the .InMarkupTag composite
+        // state-child's body-mode dispatch; body-mode establishment
+        // (bodyModeForChildOf) is the live calculation that feeds it.
+        expect(typeof bodyModeForChildOf).toBe("function");
     });
 });

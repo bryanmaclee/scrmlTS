@@ -41,6 +41,13 @@ import {
     markResync,
     resumeNormal,
 } from "./error-recovery.js";
+// MK3.1 — the §4.18 BodyMode engine + body-mode establishment.
+// recognizeOpener computes the body mode of the body each tag opens
+// (bodyModeForChildOf — SPEC §4.18.1's three code-bearing loci) and
+// stamps it onto the .OpenExpectingChildren frame's `bodyMode` payload
+// (MK2.1 created the field as null). body-mode.js imports nothing from
+// the native parser, so tag-frame.js -> body-mode.js is acyclic.
+import { bodyModeForChildOf } from "./body-mode.js";
 
 // TagKind variant tags — all 4 per the .scrml's type declaration.
 // PURE DATA (calculation classification, per D1 OQ1): the four-way
@@ -475,18 +482,27 @@ export function topTagFrame(ctx) {
 // live mirror of the canonical `.OpenExpectingChildren(name, kind,
 // depth, span)` payload-bearing state-child — a frame struct carrying
 // { kind: "OpenExpectingChildren", name, tagKind, depth, span, bodyMode }.
-// `bodyMode` is MK3's BodyMode — carried as a tag here (a TagFrame
-// payload may carry a body-mode-relevant field per the MK2.1 brief; the
-// BodyMode engine itself is MK3's).
-export function makeOpenExpectingChildrenFrame(name, tagKind, depth, span) {
+//
+// `bodyMode` is the §4.18 body mode of the body this tag opens — the
+// BodyMode engine instance's initial state for that body. MK2.1 created
+// the field carrying null; MK3.1 sets it: recognizeOpener computes the
+// mode (bodyModeForChildOf — SPEC §4.18.1) and passes it here. A caller
+// that has not yet computed the mode (the MK2.1-era 4-arg call sites in
+// tests) may omit the argument — it then defaults to null, the MK2.1
+// behavior, so existing callers are unaffected.
+export function makeOpenExpectingChildrenFrame(name, tagKind, depth, span, bodyMode) {
     return {
         kind:     TagFrameKind.OpenExpectingChildren,
         name,
         tagKind,
         depth,
         span,
-        // bodyMode — MK3 threads the §4.18 mode; null at MK2.1.
-        bodyMode: null,
+        // bodyMode — the §4.18 body mode of the body this tag opens
+        // (BodyMode.FreeText / BodyMode.CodeDefault, or
+        // ProgramBodyMode.DefaultLogic for a `<program>` / `<page>`).
+        // MK3.1's recognizeOpener supplies it; null when a caller omits
+        // it (MK2.1-compatibility default).
+        bodyMode: bodyMode ?? null,
     };
 }
 
@@ -558,6 +574,16 @@ export function popTagFrame(ctx) {
 // element's first child's own TagClass is already known (recursive
 // descent closes children before the parent's closer), so the BS's
 // self-recursive classifier becomes a typed-payload READ.
+//
+// MK3.1 amendment: recognizeOpener establishes the §4.18 BODY MODE of the
+// body the opener opens — for a non-self-closing opener — and stamps it
+// onto the .OpenExpectingChildren frame's `bodyMode` payload. The body
+// mode is bodyModeForChildOf(opener.name, parentName) — SPEC §4.18.1: a
+// body is code-default IFF it is an engine state-child / match arm body
+// (loci 1 + 2). The PARENT is topTagFrame(ctx) BEFORE the push (the
+// frame immediately enclosing this one); a top-level tag has no parent
+// (null). A self-closing `<ident ... />` opens NO body, so it carries no
+// `bodyMode` payload (makeOpenSelfClosedFrame has no such field).
 export function recognizeOpener(ctx, cursor, ltAnchor) {
     // 1. One-pass opener-body tokenization.
     const opener = tokenizeOpener(cursor, ltAnchor);
@@ -568,16 +594,29 @@ export function recognizeOpener(ctx, cursor, ltAnchor) {
     // 3 + 4. Build + push the open-tag frame.
     let frame = null;
     if (opener.selfClosing) {
+        // A self-closing `<ident ... />` opens no body (SPEC §4.18.1 —
+        // a body is the content between an opener's `>` and its closer);
+        // it carries no `bodyMode` payload.
         frame = makeOpenSelfClosedFrame(opener.name, tagKind, opener.span);
     } else {
         // The tag-tree depth at which this frame opens — the stack
         // length BEFORE the push (a top-level tag opens at depth 0).
         const depthAtOpen = tagFrameDepth(ctx);
+        // MK3.1 — establish the §4.18 body mode of the body this opener
+        // opens. The PARENT element is the TagFrame immediately enclosing
+        // this one (topTagFrame BEFORE the push); null at the top level.
+        // bodyModeForChildOf is SPEC §4.18.1's establishment rule.
+        const parent = topTagFrame(ctx);
+        const parentName = (parent !== null && parent !== undefined)
+            ? parent.name
+            : null;
+        const bodyMode = bodyModeForChildOf(opener.name, parentName);
         frame = makeOpenExpectingChildrenFrame(
             opener.name,
             tagKind,
             depthAtOpen,
             opener.span,
+            bodyMode,
         );
     }
     pushTagFrame(ctx, frame);
