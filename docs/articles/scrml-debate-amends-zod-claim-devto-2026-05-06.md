@@ -139,6 +139,8 @@ const result = parseVariant(jsonBlob, LoadResult) !{
 }/>
 ```
 
+> **Correction, May 2026:** as of the quoted-text model (SPEC §4.18), display text inside `<match>` block-form arm bodies is written as a `"..."` display-text literal, and interpolation uses the `${...}` sigil (the `{rows}` shown above would be `${rows}`). This example predates that model.
+
 The constraints are the design. They're worth naming because they are the type-system-level mitigation of the string-discriminator trap, not a documentation reminder:
 
 - The second argument **must** be a scrml-native `enum` type descriptor. Not a struct with a `kind: string` field. Not a general type. Compile error if you try.
@@ -182,6 +184,8 @@ That precedent is paid once. Subsequent family members harvest it. The roadmap, 
 4. **`schemaFor(StructType)`** — emits `<schema>` SQL DDL from the same struct's predicates.
 5. **`tableFor(StructType, rows)`** — auto-`<table>` with per-column slot overrides, sorting, selection, empty-state attrs.
 6. **`variantNames(EnumType)`** — reflective metadata as runtime values.
+
+> **Correction, May 2026:** this roadmap has since moved. `formFor` (SPEC §41.14) and `schemaFor` (SPEC §41.15) have shipped. `serialize` was stashed per the S103 debate (debate-05) — it failed the synonym gate and is intentionally not shipped, not a roadmap item.
 
 What this lets you write, when the family lands:
 

@@ -11,7 +11,7 @@ canonical_url:
 
 **TL;DR: `<input>` is already a state. `<Card>` should be too. One concept replaces useState, hooks rules, dependency arrays, Zustand, Pinia, Redux, context, and most prop drilling.**
 
-> **Status (v0.2.x):** the conceptual frame (state-as-type, primitive `<x> = 0` reactive cells, compound state with structural-children, validators on cells, server-side authority via `<schema>` + `protect=` + `<db>` + `<channel>`) is the v0.2.4 working baseline. The single scrml example below is a 2026-04 design preview of the user-defined `<Card authority="server" table="cards">` "state object" surface — that exact declaration shape is still landing through v0.2.x and the example may use older draft attribute names. The point of the example is structural (one declaration covers shape + sync + boundary); the canonical v0.2.4 spelling lives in the kickstarter v2 §11.3 (channel recipe) + §3 (compound state) + §11.1 (engine recipe). See `docs/articles/llm-kickstarter-v2-2026-05-04.md` for the up-to-date code.
+> **Status (as of May 2026):** the conceptual frame (state-as-type, primitive `<x> = 0` reactive cells, compound state with structural-children, validators on cells, server-side authority via `<schema>` + `protect=` + `<db>` + `<channel>`) tracks the current spec. The single scrml example below is a 2026-04 design preview of the user-defined `<Card authority="server" table="cards">` "state object" surface — that exact declaration shape is still landing and the example may use older draft attribute names. The point of the example is structural (one declaration covers shape + sync + boundary); the canonical current spelling lives in the kickstarter v2 §11.3 (channel recipe) + §3 (compound state) + §11.1 (engine recipe). See `docs/articles/llm-kickstarter-v2-2026-05-04.md` for the up-to-date code.
 
 Every framework I have looked at picks one of `useState`, `ref`, `createSignal`, or `signal`, and then bolts on a stack of secondary mechanisms to plug the gaps that one primitive cannot fill on its own. Hooks rules. Dependency arrays. A store library. A context API. Prop drilling for everything in between. I have hobbled through React when I had to. I have written enough TypeScript to be annoyed by it. I have spent eighteen months and about twenty compiler attempts circling one question: what would happen if state were a type, and a component were a state?
 
@@ -160,7 +160,7 @@ Every one of them has the same compile-time guarantees:
 2. Predicate-checked writes. Inline constraints (§53) gate every assignment.
 3. Reactive subscribers tracked at compile time. The dependency graph is built before the program runs.
 4. Optional authority. State that lives on a server is declared `authority="server"` and gets sync infrastructure for free.
-5. Optional state-machine rules. A reactive variable can be bound to a `< machine>` (§51) so transitions are typed too.
+5. Optional state-machine rules. A reactive variable can be bound to an `<engine>` (§51) so transitions are typed too.
 
 Layer those as you need them. Leave them off where you don't. A counter is one line: `@count = 0`. A server-synced kanban is the example above. The mechanism is the same.
 
@@ -181,7 +181,7 @@ That is most of a typical app's `package.json` state-management section. The rea
 This is a position piece, not a sales pitch. The point is not that scrml has no concepts. The point is that one concept covers what a stack of libraries used to.
 
 - **Some state is genuinely global.** Auth session, theme, current user. Declare it at file scope, or in a top-level state block. The mechanism is the same, the placement is the developer's call.
-- **Some forms are genuinely complex.** A multi-step wizard with cross-step validation is not five lines in any language. scrml gives you `< machine>` for the transition rules and inline predicates for the value constraints. The shape of the work is smaller. The work is still real.
+- **Some forms are genuinely complex.** A multi-step wizard with cross-step validation is not five lines in any language. scrml gives you `<engine>` for the transition rules and inline predicates for the value constraints. The shape of the work is smaller. The work is still real.
 - **Some state crosses a network.** `authority="server"` is the declaration; the sync infrastructure is generated. The wire is still a wire. The compiler does not pretend latency is zero. It just stops asking the developer to write the same fetch-reconcile-rollback by hand.
 - **Mutability contracts are deeper than predicates alone.** Predicates are the value layer. Lifecycles (`null → number`) and machine transitions are the other two. I am writing the dedicated unpacking of all three in the next piece in this series. This article only touches the value layer because that is what the state-as-type frame needs.
 
@@ -203,7 +203,7 @@ That is the design. Do it right, the first time, even if it takes more time. A l
 - [What scrml's LSP can do that no other LSP can, and why giti follows from the same principle](https://dev.to/bryan_maclee/what-scrmls-lsp-can-do-that-no-other-lsp-can-and-why-giti-follows-from-the-same-principle-4899). What vertical integration unlocks for tooling and version control.
 - [Introducing scrml: a single-file, full-stack reactive web language](https://dev.to/bryan_maclee/introducing-scrml-a-single-file-full-stack-reactive-web-language-9dp). The starting-point overview if you haven't seen scrml before.
 - [Null was a billion-dollar mistake. Falsy was the second.](https://dev.to/bryan_maclee/null-was-a-billion-dollar-mistake-falsy-was-the-second-3o61). On `not`, presence as a type-system question, and why scrml refuses to inherit JavaScript's truthiness rules.
-- [scrml's Living Compiler](https://dev.to/bryan_maclee/scrmls-living-compiler-23f9). The transformation-registry framing for the compile-time vs. runtime split that makes state-as-type cheap.
+- [Retraction — scrml's Living Compiler](./living-compiler-retraction-devto-2026-05-21.md). The "scrml's Living Compiler" article has been retracted; scrml chose a sealed, deterministic build-story model instead.
 - [The ORM trap, and why scrml does not need one](./orm-trap-devto-2026-04-29.md). Companion piece: SQL as a primitive, not a thing you import.
 - [Mutability contracts: predicates, lifecycles, machines](./mutability-contracts-devto-2026-04-29.md). The three layers of write-time guarantee the value layer of this piece is one third of.
 - [CSS without a build step](./css-without-build-step-devto-2026-04-29.md). Native scope, native variables, no styled-components.

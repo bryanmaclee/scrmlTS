@@ -121,10 +121,10 @@ That's the entire feature. Both halves.
 What the compiler did with `server function`:
 
 1. Generated a server-side route handler. Route name is compiler-internal; you don't reference it.
-2. Generated the client-side `fetch` call that invokes the route, with arg serialization, response deserialization, and auto-`await` insertion. The developer SHALL NOT write `JSON.stringify`, `JSON.parse`, `await`, or `fetch` to consume server function return values (§12.5 + §13.1 — scrml is auto-await throughout the source surface).
+2. Generated the client-side `fetch` call that invokes the route, with arg serialization and response deserialization. The developer SHALL NOT write `JSON.stringify`, `JSON.parse`, or `fetch` to consume server function return values (§12.5 + §13.1 — the compiler manages async across the server boundary; `async`/`await` are not scrml keywords).
 3. Type-checked the call site. `submitOrder(@cart.items)` checks the argument shape against the server fn signature in the same compile pass. There is no client-side `type SubmitOrderInput` declaration to drift.
 4. Emitted the function body to the server output only. The client gets a fetch stub.
-5. Enforced the failable contract at the server boundary. The `fail SubmitError::ItemCountOutOfRange` lands on the server, before any database write. (Refinement-type predicate arguments on parameters — `items: List<Item>(@length > 0 && @length < 100)` style — are part of the §53 design surface still landing through v0.2.x; today the bounds check rides as the failable-function entry guard above.)
+5. Enforced the failable contract at the server boundary. The `fail SubmitError::ItemCountOutOfRange` lands on the server, before any database write. (Refinement-type predicate arguments on parameters — `items: List<Item>(@length > 0 && @length < 100)` style — are part of the §53 design surface still landing; today the bounds check rides as the failable-function entry guard above.)
 
 ## What the compiler refuses
 
@@ -154,11 +154,11 @@ That's six refusals. Every one of them is a type-system answer to a question tha
 
 Beyond refusing the wrong things, the compiler also generates the things you would have written by hand:
 
-- **The fetch stub.** Argument serialization, response deserialization, automatic `await`. No `JSON.stringify`. No `JSON.parse`. No manual `await`.
+- **The fetch stub.** Argument serialization, response deserialization. No `JSON.stringify`. No `JSON.parse`. The compiler manages the server boundary; `await` is not something you write.
 - **The route handler.** With its name as a compiler-internal detail you never see.
 - **CSRF plumbing, when `<program csrf="on">` is set.** A token-mint server fn, a `<meta name="csrf-token">` injection in the generated HTML, a request interceptor that adds the `X-CSRF-Token` header to every state-mutating request, and a server-side validator that returns 403 if the token is missing or invalid (§39.2.3).
 - **Predicate validation at the boundary.** Inline predicate constraints on server function parameters are enforced server-side, before any database write or business logic, independently of any client-side check. A server function's parameter constraint cannot be bypassed by raw HTTP requests (§53.9.4).
-- **Async parallelization.** Independent server calls in the same function body are parallelized in generated code; dependent ones are sequenced. The developer writes flat synchronous-looking code; the compiler emits `Promise.all` and `await` correctly (§13.2).
+- **Async parallelization.** Independent server calls in the same function body are parallelized in generated code; dependent ones are sequenced. The developer writes flat synchronous-looking code; the compiler manages the async sequencing in the generated output (§13.2).
 
 The compiler is the dev's best friend. That phrase comes up a lot in my notes. This is what it means in practice. Every line of the framework boilerplate above is moved into the compiler, where it cannot drift, cannot be skipped under deadline pressure, and cannot be wrong without the build failing.
 
@@ -193,7 +193,7 @@ The runtime does less because the compiler did more. The seam between client and
 - [What scrml's LSP can do that no other LSP can, and why giti follows from the same principle](https://dev.to/bryan_maclee/what-scrmls-lsp-can-do-that-no-other-lsp-can-and-why-giti-follows-from-the-same-principle-4899). What vertical integration unlocks for tooling and version control.
 - [Introducing scrml: a single-file, full-stack reactive web language](https://dev.to/bryan_maclee/introducing-scrml-a-single-file-full-stack-reactive-web-language-9dp). The starting-point overview if you haven't seen scrml before.
 - [Null was a billion-dollar mistake. Falsy was the second.](https://dev.to/bryan_maclee/null-was-a-billion-dollar-mistake-falsy-was-the-second-3o61). On `not`, presence as a type-system question, and why scrml refuses to inherit JavaScript's truthiness rules.
-- [scrml's Living Compiler](https://dev.to/bryan_maclee/scrmls-living-compiler-23f9). The transformation-registry framing.
+- [Retraction — scrml's Living Compiler](./living-compiler-retraction-devto-2026-05-21.md). The "scrml's Living Compiler" article has been retracted; scrml chose a sealed, deterministic build-story model instead.
 - **scrml on GitHub:** [github.com/bryanmaclee/scrmlTS](https://github.com/bryanmaclee/scrmlTS). The working compiler, examples, spec, benchmarks.
 
 <!--

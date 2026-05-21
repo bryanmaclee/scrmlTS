@@ -11,7 +11,7 @@ canonical_url:
 
 **TL;DR: Three things your code already keeps track of, in three different places, with three different libraries. The type system can own all three.**
 
-> **Status (v0.2.x):** the value-predicate layer (`<amount> req gt(0) lt(10000)` on state cells; named-shape predicates `email` / `url` / `uuid` / `pattern(...)`; cross-field args like `eq(@signup.password)`) ships at v0.2.4 — see SPEC §53 + §55. The **lifecycle / typestate** layer (`(not -> string)` field-transition annotations) and the **`lin` linear-type** layer described later in this piece are SPEC-ratified design surfaces that are not yet implemented in the v0.2.4 compiler. Treat those sections as preview of where the contract-as-type idea is going; the value-predicate sections are working today.
+> **Status (as of May 2026):** the value-predicate layer (`<amount> req gt(0) lt(10000)` on state cells; named-shape predicates `email` / `url` / `uuid` / `pattern(...)`; cross-field args like `eq(@signup.password)`) ships today — see SPEC §53 + §55. The **lifecycle / typestate** layer (`(not -> string)` field-transition annotations) and the **`lin` linear-type** layer described later in this piece are SPEC-ratified design surfaces that are not yet implemented in the compiler. Treat those sections as preview of where the contract-as-type idea is going; the value-predicate sections are working today.
 
 > **Updated 2026-05-13 (S89):** `(null -> T)` lifecycle syntax has been migrated to `(not -> T)` per scrml canonical absence sentinel (`not`). `null` is not a scrml token; the typestate arrow now uses `not` for the pre-transition variant. TS-contrast snippets and host-language references to `null` are left intact as comparative pedagogy.
 
@@ -71,7 +71,7 @@ Scrml takes those four mechanisms and folds them into the type system. One contr
 Inline predicates are part of the type.
 
 ```scrml
-@amount: number(>0 && <10000) [order_amount] = 0
+<amount gt(0) lt(10000)> = 0
 ```
 
 That's the type, complete. The constraint isn't a runtime call to `validate()`. It isn't a Zod schema living in a separate file. It's the variable's declared type. Every assignment to `@amount` is checked against the predicate.
@@ -81,7 +81,7 @@ If the assignment is a literal, the compiler proves it statically:
 ```scrml
 @amount = 50000
 // E-CONTRACT-001: literal 50000 violates declared constraint (>0 && <10000)
-//                 on @amount [order_amount]
+//                 on @amount
 ```
 
 That is a compile error. The bad code does not run.
@@ -191,12 +191,12 @@ E-ENGINE-001: Illegal transition.
   OrderStatus has no transition rule from .Delivered.
   .Delivered is a terminal variant.
   Hint: add `.Delivered => .Pending` to OrderStatus.transitions if this move
-        is intended, or bind @status to a < machine> that permits this move.
+        is intended, or bind @status to an <engine> that permits this move.
 ```
 
 The error is a flat compile failure. If the prior value isn't statically known, the compiler emits a single runtime guard at the assignment site (`E-ENGINE-001-RT`). One guard. Not a wrapping XState machine, not a hand-rolled `switch`. A compiler-emitted check that runs once, at the write, where the language already needed to be.
 
-The deeper feature, `< machine>` blocks, lets you scope a transition graph to a context (a different set of legal moves for an admin vs. a customer view) and attach effects on transition. That belongs to its own piece. The point for *this* article is: state-machine transitions are a write-time contract, enforced by the type system, not a separate library bolted to the side.
+The deeper feature, `<engine>` blocks, lets you scope a transition graph to a context (a different set of legal moves for an admin vs. a customer view) and attach effects on transition. That belongs to its own piece. The point for *this* article is: state-machine transitions are a write-time contract, enforced by the type system, not a separate library bolted to the side.
 
 ### 4. `lin`: writes that must happen, exactly once
 
@@ -248,7 +248,7 @@ If the contract is the type, several familiar pieces of every framework codebase
 
 - **Zod (and Yup, Joi, Valibot, Ajv) on the network edge.** The schema is the type. The boundary check fires at the boundary. The bind:value attribute on the input flows from the same predicate.
 - **`useFetchState` / `useAsync` / RTK Query lifecycle hooks.** If "this field is absent until it's loaded" is the actual contract, write `(not -> T)` and stop hand-rolling the machine. The compiler narrows the type after the transition site.
-- **Most XState machines.** Enum `transitions {}` covers structural permission graphs. `< machine>` covers contextual ones with guards and effects. The library wrapper goes away.
+- **Most XState machines.** Enum `transitions {}` covers structural permission graphs. `<engine>` covers contextual ones with guards and effects. The library wrapper goes away.
 - **Manual `if (x !== null) { ... }` ceremony three calls deep into business logic.** The narrowing is part of the lifecycle annotation. The compiler knows which side of the transition each reference is on. The defensive `if` chain stops appearing.
 - **Manual single-use enforcement (CSRF, transactions, one-shot promises).** `lin` makes that contract a compile error if you violate it, not a postmortem.
 
@@ -278,5 +278,5 @@ The runtime does less because the compiler did more. A little short of perfect i
 - [What npm package do you actually need in scrml?](https://dev.to/bryan_maclee/what-npm-package-do-you-actually-need-in-scrml-2247). What replaces zod, joi, yup, valibot, ajv. The named-shape registry territory.
 - [What scrml's LSP can do that no other LSP can, and why giti follows from the same principle](https://dev.to/bryan_maclee/what-scrmls-lsp-can-do-that-no-other-lsp-can-and-why-giti-follows-from-the-same-principle-4899). What vertical integration unlocks for tooling.
 - [Introducing scrml: a single-file, full-stack reactive web language](https://dev.to/bryan_maclee/introducing-scrml-a-single-file-full-stack-reactive-web-language-9dp). Starting-point overview if you haven't seen scrml before.
-- [scrml's Living Compiler](https://dev.to/bryan_maclee/scrmls-living-compiler-23f9). The transformation-registry frame that connects this article to the npm story.
+- [Retraction — scrml's Living Compiler](./living-compiler-retraction-devto-2026-05-21.md). The "scrml's Living Compiler" article has been retracted; scrml chose a sealed, deterministic build-story model instead.
 - **scrml on GitHub:** [github.com/bryanmaclee/scrmlTS](https://github.com/bryanmaclee/scrmlTS). The working compiler, examples, spec, benchmarks.

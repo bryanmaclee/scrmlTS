@@ -122,7 +122,7 @@ What the compiler did with `<channel>`:
 
 1. Generated a server-side WebSocket upgrade route at `/_scrml_ws/chat` (§38.8).
 2. Generated a client-side connection IIFE that opens the WebSocket, dispatches messages, registers cleanup, and reconnects on close after 2000ms (§38.7). The `reconnect=` attribute is a number, not a library import.
-3. Took every reactive cell declared inside the channel body (`<messages> = []`) and wired it to a sync protocol. On every local write, the compiler emits a sync message; on every receive, it applies the inverse. The wire format is fixed by the spec (§38.4): `{ __type: "__sync", __key: "<varName>", __val: <value> }`. **The `@shared` modifier from older scrml drafts is gone in v0.2.0** (L4 lock + E-CHANNEL-SHARED-MODIFIER) — auto-sync follows from being declared inside the channel body, not from a marker.
+3. Took every reactive cell declared inside the channel body (`<messages> = []`) and wired it to a sync protocol. On every local write, the compiler emits a sync message; on every receive, it applies the inverse. The wire format is fixed by the spec (§38.4): `{ __type: "__sync", __key: "<varName>", __val: <value> }`. **The `@shared` modifier from older scrml drafts has been removed** (L4 lock + E-CHANNEL-SHARED-MODIFIER) — auto-sync follows from being declared inside the channel body, not from a marker.
 4. Routed the pub/sub through the channel's `topic=`, defaulting to the channel name. Two clients with the same `topic="room-42"` see each other's writes; clients with different topics do not (§38.3, §38.6.2).
 5. Made `broadcast(data)` and `disconnect()` available inside any `server function` declared in the channel's lexical scope (§38.6). Outside that scope, calling them is a compile error, E-CHANNEL-004.
 
@@ -195,7 +195,7 @@ That is what colocation of behavior means in practice. Realtime and off-thread c
 
 - **`new WebSocket()` boilerplate.** Connection lifecycle, reconnect, message dispatch, topic routing. All compiler-emitted.
 - **Socket.IO and ws on the dependency list.** Both sides of the wire are owned by one compiler.
-- **Pub/sub libraries.** The `topic=` attribute is the routing primitive. Declaration inside the channel body IS the sync primitive — no marker required (v0.2.0+).
+- **Pub/sub libraries.** The `topic=` attribute is the routing primitive. Declaration inside the channel body IS the sync primitive — no marker required.
 - **`new Worker()` plus `postMessage` plus `onmessage` plumbing.** Worker lifecycle is `<program name="...">`. Communication is `<#name>.send()` and `when message from <#name>`.
 - **Worker-loader plugins and bundler config for worker entry points.** The compiler extracts each nested `<program>` as its own compilation unit (§43.3) and emits its own bundle. The build system does not need to know workers exist.
 - **Type drift across the wire.** Shapes used in the channel body, on either side of the post, are the same shapes. They do not get redeclared.
@@ -205,7 +205,7 @@ That is what colocation of behavior means in practice. Realtime and off-thread c
 
 `<channel>` is the 90% case. The other 10% is real and unchanged.
 
-- **Custom binary frames, non-JSON wire protocols, or message-passing patterns beyond pub/sub.** A `<channel>` element is a pub/sub WebSocket with `@shared` reactivity; the wire format is fixed by the spec (§38.4). If you need a custom binary protocol, a `<program db=...>`-style scoped compute boundary, or anything beyond what `<channel>` offers, the escape hatch is a regular `server function` plus a spec-compliant ws library called from inside it. The 90% is in the language; the 10% is in the stdlib or vendored.
+- **Custom binary frames, non-JSON wire protocols, or message-passing patterns beyond pub/sub.** A `<channel>` element is a pub/sub WebSocket; the wire format is fixed by the spec (§38.4). If you need a custom binary protocol, a `<program db=...>`-style scoped compute boundary, or anything beyond what `<channel>` offers, the escape hatch is a regular `server function` plus a spec-compliant ws library called from inside it. The 90% is in the language; the 10% is in the stdlib or vendored.
 - **Auth on the upgrade.** The `protect=` attribute on `<channel>` maps to a session-cookie check at upgrade time (§38.5). Beyond that, application-specific authorization (which rooms can this user join?) is still your business logic. It lives inside the `onserver:open` or the server function that posts to the topic. It benefits from running on the server, where the data lives.
 - **Worker code that needs more than message-passing.** Web Workers are isolated by design. If your computation needs streaming partial results (`@price = <#worker>.stream(...)` style), the spec lists that as an open question (§46.5). Currently you wire it as repeated `send()` calls plus `when message from`. The event-hook model is the normative shape.
 
@@ -227,5 +227,5 @@ The runtime does less because the compiler did more. The seams between client an
 - [What scrml's LSP can do that no other LSP can, and why giti follows from the same principle](https://dev.to/bryan_maclee/what-scrmls-lsp-can-do-that-no-other-lsp-can-and-why-giti-follows-from-the-same-principle-4899). Vertical integration is what makes channel-level type-safety across the wire possible.
 - [Introducing scrml: a single-file, full-stack reactive web language](https://dev.to/bryan_maclee/introducing-scrml-a-single-file-full-stack-reactive-web-language-9dp). The starting-point overview if you haven't seen scrml before.
 - [Null was a billion-dollar mistake. Falsy was the second.](https://dev.to/bryan_maclee/null-was-a-billion-dollar-mistake-falsy-was-the-second-3o61). On `not`, presence as a type-system question, and why scrml refuses to inherit JavaScript's truthiness rules.
-- [scrml's Living Compiler](https://dev.to/bryan_maclee/scrmls-living-compiler-23f9). The transformation-registry framing.
+- [Retraction — scrml's Living Compiler](./living-compiler-retraction-devto-2026-05-21.md). The "scrml's Living Compiler" article has been retracted; scrml chose a sealed, deterministic build-story model instead.
 - **scrml on GitHub:** [github.com/bryanmaclee/scrmlTS](https://github.com/bryanmaclee/scrmlTS). The working compiler, examples (see `examples/13-worker.scrml` and `examples/15-channel-chat.scrml`), spec §38 and §43, benchmarks.

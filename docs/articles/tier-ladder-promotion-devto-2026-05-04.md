@@ -11,7 +11,9 @@ canonical_url:
 
 **TL;DR: The goal is a shipped app that is essentially bullet-proof — every reachable state has UI, every transition is intentional, every effect runs at the right moment. Getting there should not require rewriting the prototype. scrml has a three-tier ladder — `if=` → `<match>` → `<engine>` — where the state-children migrate verbatim. The compiler tells you when to promote. The wrapper swap is the commitment moment.**
 
-> **Status (v0.2.x):** Tier 0 (lifecycle booleans + `if=` chains) and Tier 2 (`<engine>` with target-only `rule=.Variant` forms) are shipped in v0.2.4 and the code blocks below compile against the current compiler. **Tier 1 block-form `<match for=Type>` is spec-ratified but the parser does not yet recognize it in v0.2.4** (the JS-style value-return `match expr {}` shape from §"Aside" below DOES work today). When the Tier 1 block-form lands, the promotion path is literally the wrapper swap shown in this article. Until then, treat the Tier 1 example as a design preview of where the language is going; if you want the exhaustiveness check today, skip directly from Tier 0 to Tier 2.
+> **Status (as of May 2026):** Tier 0 (lifecycle booleans + `if=` chains), Tier 1 block-form `<match for=Type>`, and Tier 2 (`<engine>` with target-only `rule=.Variant` forms) all track the current spec and the code blocks below compile against the current compiler.
+>
+> **Correction, May 2026:** an earlier version of this banner stated that the Tier 1 block-form `<match for=Type>` parser was not yet shipped. Block-form `<match>` has since landed end-to-end; the promotion path described here is the wrapper swap as written.
 
 This piece and its companion arrived together. This one shows the ladder. The companion piece, *Why scrml has to deprecate function and component overloading*, explains two features the language is deleting in v0.2.0 because the ladder you are about to read already does their job better.
 
@@ -159,6 +161,8 @@ ${
 
 </program>
 ```
+
+> **Correction, May 2026:** as of the quoted-text model (SPEC §4.18), display text inside `<engine>` and `<match>` block-form bodies is written as a `"..."` display-text literal — a bare run is treated as code. The bare `Loading...` / `No rows yet.` runs in the examples here and below predate that model and would be written quoted.
 
 What you got from the wrapper:
 

@@ -57,11 +57,15 @@ If the type system supports inline predicates (`let amount: number(>0 && <10000)
 
 This is what I mean by "mutability contracts." Value predicates are the contract on every write. Presence life-cycle (`not`, `is some`, `lin`) is the contract on read order. State machine transitions are the contract on what comes next. Layer them as you need them. Leave them off where you do not. When you do declare one, a `fn` can mutate through it and remain provably pure.
 
+> **Correction, May 2026:** `not` and `is some` ship today; `lin` (linear types, SPEC §35) is SPEC-ratified but not yet implemented in the compiler.
+
 ### 6. Realtime and workers as syntax
 
 A `<channel>` declares a WebSocket endpoint. The compiler generates the upgrade route, the client connection manager, auto-reconnect, and pub/sub topic routing. Reactive cells declared inside a channel body sync across every connected client — no `@shared` marker required (v0.2.0+).
 
 A nested `<program>` compiles to a Web Worker, a WASM module, or a foreign-language sidecar, with typed RPC, supervised restarts, and `when message from <#name>` event hooks on the parent side. No `new WebSocket()`. No `postMessage` plumbing. No worker-loader config. Almost every nontrivial browser app reaches for sockets and workers eventually; the language can either treat them as primitives or watch you write the same plumbing every time.
+
+> **Correction, May 2026:** the Web Worker target ships today; the WASM and foreign-language sidecar targets are spec-defined but not yet implemented in the compiler.
 
 ## What you give up
 

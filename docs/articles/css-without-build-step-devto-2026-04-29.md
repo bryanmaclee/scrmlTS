@@ -128,7 +128,9 @@ That works out of the box. Mixed with `#{}` for things utilities don't reach, in
 
 Two honest disclosures.
 
-1. The current built-in engine covers the core utility set. Arbitrary values (`p-[1.5rem]`), responsive prefixes (`md:`, `lg:`), variant prefixes (`hover:`, `focus:`), and custom theme configuration are tracked in `SPEC-ISSUE-012` and not yet shipped. If your design language requires those today, you would still need them. They are on the roadmap.
+1. The current built-in engine covers the core utility set. Custom theme configuration, `group-*`/`peer-*` parent/sibling-state variants, and `before:`/`after:` pseudo-element variants are tracked in `SPEC-ISSUE-012` and not yet shipped. If your design language requires those today, you would still need them.
+
+> **Correction, May 2026:** arbitrary values (`p-[1.5rem]`), responsive prefixes (`md:`, `lg:`), and variant prefixes (`hover:`, `focus:`) have since shipped (SPEC §26.3, §26.4). The original list above understated current engine coverage.
 2. Tailwind utility classes live *outside* `@scope`. They remain globally scoped, by design. A `.bg-emerald-100` rule in a child constructor uses the same emerald as the parent. That is what Tailwind users expect; it is the right call.
 
 The `#{}` block is for the cases utilities don't cover. The utilities are for the design-token cases, where consistency across the app is the value.
@@ -147,7 +149,7 @@ I am sure I am wrong about plenty. But every time I look at what a fresh-shape p
 - [Introducing scrml: a single-file, full-stack reactive web language](https://dev.to/bryan_maclee/introducing-scrml-a-single-file-full-stack-reactive-web-language-9dp). Mentions the built-in Tailwind engine in context. Starting-point if you haven't seen scrml before.
 - [What npm package do you actually need in scrml?](https://dev.to/bryan_maclee/what-npm-package-do-you-actually-need-in-scrml-2247). The package-list-collapses argument worked through one tier at a time. The CSS-in-JS / scoping line item is in there.
 - [The server boundary disappears](https://dev.to/bryan_maclee/the-server-boundary-disappears-hap). The same compiler-owns-it pattern, applied to the wire.
-- [scrml's Living Compiler](https://dev.to/bryan_maclee/scrmls-living-compiler-23f9). The transformation-registry framing for why scrml puts work in the compiler.
+- [Retraction — scrml's Living Compiler](./living-compiler-retraction-devto-2026-05-21.md). The "scrml's Living Compiler" article has been retracted; scrml chose a sealed, deterministic build-story model instead.
 - [What scrml's LSP can do that no other LSP can, and why giti follows from the same principle](https://dev.to/bryan_maclee/what-scrmls-lsp-can-do-that-no-other-lsp-can-and-why-giti-follows-from-the-same-principle-4899). What vertical integration unlocks for tooling and version control.
 - **scrml on GitHub:** [github.com/bryanmaclee/scrmlTS](https://github.com/bryanmaclee/scrmlTS). The working compiler, examples, spec, benchmarks.
 

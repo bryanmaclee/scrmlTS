@@ -87,7 +87,7 @@ That's the entire feature. One file. One AST.
 What the compiler did:
 
 1. Parsed the `<schema>` block (§39) and held the column list for `users` and `posts` in memory.
-2. Parsed the `<db>` block (§11) and resolved the driver from the connection string (§44).
+2. Parsed the `<db>` block (§52) and resolved the driver from the connection string (§44).
 3. Parsed the `?{}` SQL template (§8). The `${userId}` interpolation compiled to a bound parameter, not string concatenation. There is no `sql.raw()` in scrml.
 4. Validated the SQL template syntactically against the database. A malformed template is E-SQL-002 at compile time, not a runtime exception.
 5. Computed the migration diff between `<schema>` and the live database. `scrml migrate` applies it. The developer never writes `ALTER TABLE` by hand.
@@ -143,7 +143,9 @@ This is not "ORMs are wrong." Honest list of what they earn:
 
 **Migrations exist.** scrml has them. They are computed by diffing `<schema>` against the live database, but they exist as their own artifact and `scrml migrate` is a separate command. The schema-first ORMs got this part right. The difference is who owns the source-of-truth declaration.
 
-**Transactions are deferred.** Current spec workaround is `^{}` meta with direct Bun.SQL `sql.begin()` (§44.6). A native scrml syntax for transactions is in the roadmap; until it ships, this is a real gap and worth naming honestly.
+**Transactions are deferred.** A native scrml syntax for transactions has not shipped; this is a real gap and worth naming honestly.
+
+> **Correction, May 2026:** this section previously suggested a `^{}` meta block calling Bun.SQL `sql.begin()` directly as a workaround. As of Approach C, `^{}` is no longer a general JavaScript escape hatch — that workaround is no longer valid.
 
 **Specialized query patterns.** Window functions, recursive CTEs, JSON operators, full-text search. SQL has all of these. So does `?{}`, because `?{}` is SQL. ORMs vary in how cleanly they expose them. The point is not that scrml is more powerful than every ORM at every query shape. The point is that the SQL string is the language the compiler reads, so the language is as expressive as SQL itself.
 
@@ -165,7 +167,7 @@ That is the design. A little short of perfect is still pretty awesome.
 - [What scrml's LSP can do that no other LSP can, and why giti follows from the same principle](https://dev.to/bryan_maclee/what-scrmls-lsp-can-do-that-no-other-lsp-can-and-why-giti-follows-from-the-same-principle-4899). Where the column-completion and `did you mean?` quick-fix live in the toolchain.
 - [What npm package do you actually need in scrml?](https://dev.to/bryan_maclee/what-npm-package-do-you-actually-need-in-scrml-2247). Includes the "Prisma, Drizzle, Kysely, TypeORM, Sequelize: replaced by the language" line item. This piece is the long form of that line.
 - [Null was a billion-dollar mistake. Falsy was the second.](https://dev.to/bryan_maclee/null-was-a-billion-dollar-mistake-falsy-was-the-second-3o61). On `not`, presence as a type-system question, and why scrml refuses to inherit JavaScript's truthiness rules.
-- [scrml's Living Compiler](https://dev.to/bryan_maclee/scrmls-living-compiler-23f9). The compile-time evaluation story.
+- [Retraction — scrml's Living Compiler](./living-compiler-retraction-devto-2026-05-21.md). The "scrml's Living Compiler" article has been retracted; scrml chose a sealed, deterministic build-story model instead.
 - Companion drafts in this batch: [Components are states](./components-are-states-devto-2026-04-29.md), [Mutability contracts](./mutability-contracts-devto-2026-04-29.md), [CSS without a build step](./css-without-build-step-devto-2026-04-29.md), [Realtime and workers as syntax](./realtime-and-workers-as-syntax-devto-2026-04-29.md).
 - **scrml on GitHub:** [github.com/bryanmaclee/scrmlTS](https://github.com/bryanmaclee/scrmlTS). The working compiler, examples, spec, benchmarks.
 
