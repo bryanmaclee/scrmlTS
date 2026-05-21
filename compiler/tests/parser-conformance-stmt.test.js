@@ -41,6 +41,14 @@ import { parseBlockStubBody, reenterBlockStubs } from "../native-parser/parse-st
 import { parseExpr as scrmlNativeParseExpr } from "../native-parser/parse-expr.js";
 import { StmtKind, BindingKind, ClassMemberKind } from "../native-parser/ast-stmt.js";
 import { ExprKind } from "../native-parser/ast-expr.js";
+// M3.4 — the M1 ErrorRecovery engine. The panic-mode re-synchronization
+// describe block exercises the engine's three-state cycle directly, alongside
+// the end-to-end "parser resumes after a parse error" integration tests.
+import {
+    ErrorRecovery, SyncToken,
+    makeRecovery, isParsingNormally, beginRecovery, accumulateSkipped,
+    markResync, resumeNormal,
+} from "../native-parser/error-recovery.js";
 
 const ACORN_OPTS = {
     ecmaVersion: 2025,
@@ -166,6 +174,13 @@ function nativeExprToEstree(node) {
     }
     if (node.kind === ExprKind.This) {
         return { type: "ThisExpression" };
+    }
+    if (node.kind === ExprKind.Super) {
+        // Acorn emits a bare `Super` node (the base of a `super.x` member /
+        // a `super(...)` call). The M3.4 full-subset corpus exercises a
+        // `super.greet()` method body — without this case the native `Super`
+        // node would drop out of the Tier-1 node-kind sequence.
+        return { type: "Super" };
     }
     if (node.kind === ExprKind.Conditional) {
         return {
@@ -2389,6 +2404,379 @@ describe("M3.3 statement-parser — error paths (diagnostics, no throw)", () => 
         for (const src of sources) {
             const r = parseWithNative(src);
             expect(r.ok).toBe(true);   // ok:true means "did not throw"
+        }
+    });
+});
+
+// =============================================================================
+// M3.4 — error-recovery engine integration + return-legality + full statement
+// conformance. M3.4 is the FINAL M3 sub-step (it completes the M3 milestone).
+//
+// Per the S98 DD §D7 M3 gating criterion:
+//   "Conformance Tier 1+2 PASS on [the] full [statement] conformance corpus.
+//    ... Error-recovery engine demonstrably accumulates skipped tokens and
+//    re-synchronizes on `;` / statement-start keywords / closing braces
+//    (panic-mode pattern)."
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// FULL_SUBSET_CORPUS — the full-statement-subset conformance corpus. The
+// M3.1 / M3.2 / M3.3 corpora above each exercise ONE sub-step's statement
+// forms in isolation; M3.4's "full statement subset" deliverable is realistic
+// programs that MIX statement forms from every sub-step — declarations +
+// control flow + functions + classes + modules + try/throw together. Every
+// entry is module-mode-Acorn-parseable, so the native-vs-Acorn Tier 1+2 diff
+// is meaningful on the combined subset.
+// -----------------------------------------------------------------------------
+const FULL_SUBSET_CORPUS = [
+    {
+        name: "decl + loop + fn + return",
+        src: "let total = 0; function add(n) { total = total + n; return total; } for (let i = 0; i < 3; i++) { add(i); }",
+    },
+    {
+        name: "fn with control flow + nested decl",
+        src: "function classify(n) { if (n < 0) { return -1; } let sign = 0; while (n > 0) { sign = 1; n = n - 1; } return sign; }",
+    },
+    {
+        name: "class with methods + a consumer program",
+        src: "class Counter { constructor() { this.n = 0; } step() { this.n = this.n + 1; return this.n; } } const c = new Counter(); c.step();",
+    },
+    {
+        name: "import + fn + try/catch program",
+        src: 'import { load } from "data"; async function run() { try { const v = load(); return v; } catch (e) { return 0; } }',
+    },
+    {
+        name: "for-of over a destructured iterable + labeled break",
+        src: "function scan(pairs) { outer: for (const [k, v] of pairs) { if (k) { break outer; } } }",
+    },
+    {
+        name: "export decl + class + fn mix",
+        src: "export const VERSION = 1; class Box { get value() { return 42; } } export function make() { return new Box(); }",
+    },
+    {
+        name: "do-while + if/else + throw",
+        src: "function attempt(limit) { let tries = 0; do { tries = tries + 1; if (tries > limit) { throw new Error('too many'); } } while (tries < limit); return tries; }",
+    },
+    {
+        name: "generator fn + for-in + continue",
+        src: "function* keys(obj) { for (const k in obj) { if (k) { continue; } } }",
+    },
+    {
+        name: "nested functions + block scoping",
+        src: "function outer() { let base = 10; function inner(x) { return base + x; } { let local = inner(5); return local; } }",
+    },
+    {
+        name: "try/finally + var hoisting shape + while",
+        src: "function drain(queue) { var seen = 0; try { while (queue.length) { seen = seen + 1; } } finally { return seen; } }",
+    },
+    {
+        name: "arrow callbacks at statement position + decl",
+        src: "const handler = (event) => { return event; }; const wrapped = () => handler(1); wrapped();",
+    },
+    {
+        name: "class extends + super-shaped method + module export",
+        src: "class Base { greet() { return 'hi'; } } class Sub extends Base { greet() { return super.greet(); } } export { Sub };",
+    },
+];
+
+describe("M3.4 full statement subset — conformance Tier 1 (node-kind sequence)", () => {
+    for (const c of FULL_SUBSET_CORPUS) {
+        test(`(tier1) ${c.name}`, () => {
+            const a = parseWithAcorn(c.src);
+            const n = parseWithNative(c.src);
+
+            expect(a.ok).toBe(true);
+            expect(n.ok).toBe(true);
+            // A clean full-subset program reports NO diagnostics.
+            expect(n.errors).toEqual([]);
+
+            const acornSeq = nodeKindSequence(a.ast);
+            const nativeSeq = nodeKindSequence(nativeProgramToEstree(n.body));
+            expect(nativeSeq).toEqual(acornSeq);
+        });
+    }
+});
+
+describe("M3.4 full statement subset — conformance Tier 2 (identifier / literal values)", () => {
+    for (const c of FULL_SUBSET_CORPUS) {
+        test(`(tier2) ${c.name}`, () => {
+            const a = parseWithAcorn(c.src);
+            const n = parseWithNative(c.src);
+
+            expect(a.ok).toBe(true);
+            expect(n.ok).toBe(true);
+
+            const acornVals = valueSequence(a.ast);
+            const nativeVals = valueSequence(nativeProgramToEstree(n.body));
+            expect(nativeVals).toEqual(acornVals);
+        });
+    }
+});
+
+// -----------------------------------------------------------------------------
+// M3.4 — return-legality. A `return` outside any function body is a JS
+// SyntaxError (Acorn, the conformance oracle, rejects a top-level `return`).
+// M3.4 closes the seam M3.3 flagged in parseReturn: `ctx.functionDepth` — a
+// function-body NESTING counter — drives the check. A top-level `return`
+// fires E-STMT-RETURN-OUTSIDE-FUNCTION; a `return` inside any function body
+// (incl. a deeply nested `{}` block, where the single-slot ParseMode would
+// read `.InBlock`, not `.InFunctionBody`) does NOT. The parse is still
+// well-formed — a Return node is produced; the diagnostic is the verdict.
+// -----------------------------------------------------------------------------
+describe("M3.4 statement-parser — return-legality", () => {
+    test("a top-level `return` fires E-STMT-RETURN-OUTSIDE-FUNCTION", () => {
+        const r = parseWithNative("return 1;");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).toContain("E-STMT-RETURN-OUTSIDE-FUNCTION");
+    });
+
+    test("a bare top-level `return` (no argument) also fires the diagnostic", () => {
+        const r = parseWithNative("return;");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).toContain("E-STMT-RETURN-OUTSIDE-FUNCTION");
+    });
+
+    test("a top-level `return` inside a bare block still fires the diagnostic", () => {
+        // A `{}` block does NOT establish function scope — a `return` inside
+        // a program-level block is still outside any function.
+        const r = parseWithNative("{ return 1; }");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).toContain("E-STMT-RETURN-OUTSIDE-FUNCTION");
+    });
+
+    test("the top-level `return` still parses to a well-formed Return node", () => {
+        // The diagnostic is the legality verdict; the parse is well-formed —
+        // a Return node IS produced (so a caller sees both node + error).
+        const r = parseWithNative("return 1;");
+        expect(r.ok).toBe(true);
+        expect(r.body.length).toBe(1);
+        expect(r.body[0].kind).toBe(StmtKind.Return);
+    });
+
+    test("a `return` inside a function declaration body fires NO diagnostic", () => {
+        const r = parseWithNative("function f() { return 1; }");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).not.toContain("E-STMT-RETURN-OUTSIDE-FUNCTION");
+        expect(r.errors).toEqual([]);
+    });
+
+    test("a `return` in a nested `{}` block inside a function fires NO diagnostic", () => {
+        // THE seam M3.3 named — a `return` deep inside nested blocks. A
+        // single-slot ParseMode reads `.InBlock` here; the functionDepth
+        // counter correctly reports depth >= 1, so the `return` is legal.
+        const r = parseWithNative("function f() { { { return 1; } } }");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).not.toContain("E-STMT-RETURN-OUTSIDE-FUNCTION");
+        expect(r.errors).toEqual([]);
+    });
+
+    test("a `return` in a nested function fires NO diagnostic", () => {
+        const r = parseWithNative("function outer() { function inner() { return 2; } return inner; }");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).not.toContain("E-STMT-RETURN-OUTSIDE-FUNCTION");
+        expect(r.errors).toEqual([]);
+    });
+
+    test("a `return` in a class method body fires NO diagnostic", () => {
+        const r = parseWithNative("class C { m() { return this; } }");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).not.toContain("E-STMT-RETURN-OUTSIDE-FUNCTION");
+        expect(r.errors).toEqual([]);
+    });
+
+    test("a top-level `return` after a function decl still fires (depth restored)", () => {
+        // functionDepth must decrement back to 0 when the function body
+        // closes — a `return` after the declaration is again program-scope.
+        const r = parseWithNative("function f() { return 1; } return 2;");
+        expect(r.ok).toBe(true);
+        const codes = r.errors.map((e) => e.code);
+        expect(codes).toContain("E-STMT-RETURN-OUTSIDE-FUNCTION");
+        // Exactly one — the top-level `return 2;`, not the in-function one.
+        expect(codes.filter((c) => c === "E-STMT-RETURN-OUTSIDE-FUNCTION").length).toBe(1);
+    });
+
+    test("a `return` inside a re-entered BlockStub body fires NO diagnostic", () => {
+        // parseBlockStubBody seeds functionDepth to 1 — a re-entered arrow /
+        // function body IS a function body, so `return` is legal there.
+        const e = scrmlNativeParseExpr(scrmlNativeLex("(x) => { return x; }"));
+        expect(e.ast.kind).toBe(ExprKind.Arrow);
+        const re = parseBlockStubBody(e.ast.body);
+        expect(re.errors.map((d) => d.code)).not.toContain("E-STMT-RETURN-OUTSIDE-FUNCTION");
+        expect(re.errors).toEqual([]);
+        expect(re.body[0].kind).toBe(StmtKind.Return);
+    });
+
+    test("a `return` in a nested block inside a re-entered body fires NO diagnostic", () => {
+        const e = scrmlNativeParseExpr(scrmlNativeLex("() => { { return 9; } }"));
+        const re = parseBlockStubBody(e.ast.body);
+        expect(re.errors).toEqual([]);
+        expect(re.body[0].kind).toBe(StmtKind.Block);
+        expect(re.body[0].body[0].kind).toBe(StmtKind.Return);
+    });
+});
+
+// -----------------------------------------------------------------------------
+// M3.4 — panic-mode re-synchronization. parseStatementList drives the M1
+// ErrorRecovery engine when parseStatement makes NO forward progress: the
+// engine accumulates skipped tokens into its .AccumulatingSkipped payload,
+// re-synchronizes on a `;` / a statement-start keyword / a closing `}`, and
+// resumes. This block exercises BOTH the engine cycle directly (the M1
+// ErrorRecovery API) AND the end-to-end outcome (the parser resumes cleanly
+// after a parse error). The S98 D7 M3 gating regression test is the
+// "accumulate -> resync -> resume" case.
+//
+// The malformed-run probe is a run of `)` (RParen) tokens — a `)` at
+// statement position begins no statement, so parseStatement makes no forward
+// progress and panic-mode engages. (A stray `parseExprStatement` still emits
+// a null-expression ExprStmt placeholder for the stuck token — a pre-existing
+// M3.1 design choice; the tests therefore probe for the RESUMED real
+// statement, not an exact `body` length.)
+// -----------------------------------------------------------------------------
+
+// firstCall — the first ExprStmt in `body` whose expression is a Call to the
+// named callee (skips the null-expression placeholders panic-mode leaves).
+function firstCallNamed(body, name) {
+    return body.find((s) =>
+        s.kind === StmtKind.ExprStmt
+        && s.expression !== null
+        && s.expression.kind === ExprKind.Call
+        && s.expression.callee
+        && s.expression.callee.name === name);
+}
+
+describe("M3.4 statement-parser — panic-mode re-synchronization", () => {
+    // --- the M1 ErrorRecovery engine cycle, exercised directly ---
+    test("the ErrorRecovery engine cycles ParsingNormally -> Accumulating -> ReSynchronized -> ParsingNormally", () => {
+        const rec = makeRecovery();
+        expect(rec.mode).toBe(ErrorRecovery.ParsingNormally);
+        expect(isParsingNormally(rec)).toBe(true);
+
+        beginRecovery(rec);
+        expect(rec.mode).toBe(ErrorRecovery.AccumulatingSkipped);
+        expect(rec.skipped).toEqual([]);
+
+        accumulateSkipped(rec, { kind: "Ident", name: "junk" });
+        accumulateSkipped(rec, { kind: "Ident", name: "more" });
+        expect(rec.mode).toBe(ErrorRecovery.AccumulatingSkipped);
+        expect(rec.skipped.length).toBe(2);
+
+        markResync(rec, SyncToken.Semicolon);
+        expect(rec.mode).toBe(ErrorRecovery.ReSynchronized);
+        expect(rec.syncAt).toBe(SyncToken.Semicolon);
+
+        resumeNormal(rec);
+        expect(rec.mode).toBe(ErrorRecovery.ParsingNormally);
+        expect(isParsingNormally(rec)).toBe(true);
+        expect(rec.skipped).toEqual([]);
+    });
+
+    // --- the S98 D7 M3 gating regression test: accumulate -> resync -> resume ---
+    test("REGRESSION — a malformed run is skipped, the parser re-synchronizes, and resumes", () => {
+        // `) ) )` is a run of tokens that begins no statement. The parser
+        // must (a) record the parse error, (b) skip the malformed run
+        // (accumulate into the ErrorRecovery engine's .AccumulatingSkipped
+        // payload), (c) re-synchronize on the `;`, and (d) RESUME — `valid();`
+        // after the `;` parses to a real statement. The resumed statement is
+        // the observable proof the engine accumulated, resynced, and resumed.
+        const r = parseWithNative(") ) ) ; valid();");
+        expect(r.ok).toBe(true);   // the parser never throws
+
+        // (a) the parse error was recorded.
+        expect(r.errors.map((e) => e.code)).toContain("E-STMT-UNEXPECTED-TOKEN");
+
+        // (d) the parser RESUMED — `valid();` after the `;` parsed to a real
+        // Call statement (the engine accumulated `) ) )`, resynced on `;`,
+        // and resumed).
+        const resumed = firstCallNamed(r.body, "valid");
+        expect(resumed).toBeDefined();
+        expect(resumed.expression.kind).toBe(ExprKind.Call);
+    });
+
+    test("re-synchronizes on a `;` — the statement after the `;` is parsed", () => {
+        const r = parseWithNative(") ; let x = 1;");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).toContain("E-STMT-UNEXPECTED-TOKEN");
+        // The `let x = 1;` after the resync `;` parsed to a real VarDecl
+        // (the native VarDeclarator binding is `.target`, the ESTree-`id`
+        // slot).
+        const decls = r.body.filter((s) => s.kind === StmtKind.VarDecl);
+        expect(decls.length).toBe(1);
+        expect(decls[0].declarations[0].target.name).toBe("x");
+    });
+
+    test("re-synchronizes on a statement-start keyword — the next statement is parsed", () => {
+        // A malformed run with NO `;` — the parser must resync on the next
+        // statement-start keyword (`function`) and parse the declaration.
+        const r = parseWithNative(") ) function f() {}");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).toContain("E-STMT-UNEXPECTED-TOKEN");
+        const fns = r.body.filter((s) => s.kind === StmtKind.FunctionDecl);
+        expect(fns.length).toBe(1);
+        expect(fns[0].name).toBe("f");
+    });
+
+    test("re-synchronizes on a closing `}` — the enclosing block still closes", () => {
+        // A malformed run inside a block — the parser must resync on the
+        // block's own `}` so the block closes cleanly and the statement
+        // AFTER the block parses.
+        const r = parseWithNative("{ ) ) } foo();");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).toContain("E-STMT-UNEXPECTED-TOKEN");
+        // The block closed (a Block node at body[0]) and `foo();` after it
+        // parsed to a real Call.
+        expect(r.body[0].kind).toBe(StmtKind.Block);
+        expect(firstCallNamed(r.body, "foo")).toBeDefined();
+    });
+
+    test("re-synchronizes at EOF — a trailing malformed run does not spin", () => {
+        // A malformed run that ends the source — resync hits EOF; the loop
+        // terminates (no infinite spin) and the earlier statements survive.
+        const r = parseWithNative("let x = 1; ) ) )");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).toContain("E-STMT-UNEXPECTED-TOKEN");
+        const decls = r.body.filter((s) => s.kind === StmtKind.VarDecl);
+        expect(decls.length).toBe(1);
+        expect(decls[0].declarations[0].target.name).toBe("x");
+    });
+
+    test("multiple malformed runs each re-synchronize independently", () => {
+        // Two separate malformed runs, each terminated by `;` — both are
+        // recovered; both surrounding good statements parse.
+        const r = parseWithNative(") ; first(); ) ) ; second();");
+        expect(r.ok).toBe(true);
+        const codes = r.errors.map((e) => e.code);
+        expect(codes.filter((c) => c === "E-STMT-UNEXPECTED-TOKEN").length).toBeGreaterThanOrEqual(2);
+        expect(firstCallNamed(r.body, "first")).toBeDefined();
+        expect(firstCallNamed(r.body, "second")).toBeDefined();
+    });
+
+    test("a malformed run inside a function body re-synchronizes (BPP subsumption holds)", () => {
+        // Panic-mode resync works in an IN-LINE function body too (the body
+        // is parsed via parseStatementList — the same trampoline).
+        const r = parseWithNative("function f() { ) ) ; return 1; }");
+        expect(r.ok).toBe(true);
+        expect(r.errors.map((e) => e.code)).toContain("E-STMT-UNEXPECTED-TOKEN");
+        // No spurious return-outside-function — the body IS a function body.
+        expect(r.errors.map((e) => e.code)).not.toContain("E-STMT-RETURN-OUTSIDE-FUNCTION");
+        expect(r.body[0].kind).toBe(StmtKind.FunctionDecl);
+    });
+
+    test("the parser never spins on a stray `}` with nothing open", () => {
+        // A stray `}` at statement position is not a statement and is not
+        // this list's terminator — the forced-advance fallback after resync
+        // guarantees forward progress; the parser terminates.
+        const r = parseWithNative("} foo();");
+        expect(r.ok).toBe(true);   // terminates — does not hang
+        // `foo();` after the stray `}` still parses to a real Call.
+        expect(firstCallNamed(r.body, "foo")).toBeDefined();
+    });
+
+    test("a clean program records no E-STMT-UNEXPECTED-TOKEN (panic-mode never fires)", () => {
+        // Panic-mode is OFF the happy path — a well-formed program must not
+        // record the parse-error diagnostic.
+        for (const c of FULL_SUBSET_CORPUS) {
+            const r = parseWithNative(c.src);
+            expect(r.errors.map((e) => e.code)).not.toContain("E-STMT-UNEXPECTED-TOKEN");
         }
     });
 });

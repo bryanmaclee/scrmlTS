@@ -2,8 +2,8 @@
 // See span.js header for the .scrml<->.js duplication rationale.
 // PILLAR 5b classification mirrors parse-stmt.scrml's header — see that file.
 //
-// SCOPE — M3.1 + M3.2 + M3.3 (the first three sub-steps of M3, the JS
-// statement parser).
+// SCOPE — M3.1 + M3.2 + M3.3 + M3.4 (the four sub-steps of M3, the JS
+// statement parser — M3.4 completes the M3 milestone).
 //   M3.1: STATEMENT SUBSTRATE + DECLARATIONS + BLOCK/EXPRESSION STATEMENTS
 //   + BlockStub RE-ENTRY. Parses, per S98 DD §D5's MUST-PARSE list:
 //     - variable declarations `let` / `const` / `var`, INCLUDING object +
@@ -53,9 +53,21 @@
 //   are recognized as statement-lead expression operators (`await x;` /
 //   `yield x;` inside an async / generator body).
 //
-//   NOT M3.3 (forward seams — see parse-stmt.scrml's header for the named
-//   sub-step that owns each):
-//     - error-recovery engine integration + full conformance — M3.4.
+//   M3.4: ERROR-RECOVERY ENGINE INTEGRATION + RETURN-LEGALITY + FULL STATEMENT
+//   CONFORMANCE — the FINAL M3 sub-step. Per S98 DD §D7 M3 gating:
+//     - PANIC-MODE RE-SYNCHRONIZATION. parseStatementList drives the M1
+//       ErrorRecovery engine (error-recovery.js) when parseStatement makes no
+//       forward progress: accumulate skipped tokens into the engine's
+//       .AccumulatingSkipped payload, re-synchronize on `;` / a statement-start
+//       keyword / a closing `}` (the canonical statement-grammar sync points),
+//       then resume. This REPLACES M3.1's placeholder forced-advance guard.
+//     - RETURN-LEGALITY. A `ctx.functionDepth` counter (a function-body
+//       NESTING count — a single-slot ParseMode cannot tell function-scope
+//       from program-scope across nested `{}` blocks) drives the
+//       return-outside-function check: a top-level `return` fires
+//       E-STMT-RETURN-OUTSIDE-FUNCTION (the seam M3.3 flagged, now closed).
+//
+//   NOT M3 (forward seams):
 //     - `await` / `yield` integrated as operators at unary precedence INSIDE
 //       a larger expression (`let x = await f()`, `return await g()`) — M4
 //       (the full bounded JS subset; needs the async / generator scope flag
@@ -65,10 +77,11 @@
 //   records E-PARSER-OUT-OF-SUBSET (D5/OQ6 — the subset bound).
 //
 // The expression sub-grammar is M2's. parse-stmt shares ONE parser context
-// object with parse-expr — same `{ cursor, currentParseMode, errors }` shape
-// makeParseExprContext produces — so parseExpression(ctx) runs directly on
-// the statement parser's ctx with no token-range copy (R1 one-cursor
-// discipline, applied within the JS layer).
+// object with parse-expr — `{ cursor, currentParseMode, errors }` is the
+// shared core makeParseExprContext produces (M3.4's `recovery` + `functionDepth`
+// slots are statement-parser-only — parse-expr never reads them) — so
+// parseExpression(ctx) runs directly on the statement parser's ctx with no
+// token-range copy (R1 one-cursor discipline, applied within the JS layer).
 
 import {
     makeTokenCursor, current, currentKind, advance, atEnd,
@@ -98,16 +111,31 @@ import {
     makeImportNamed, makeImportDefault, makeImportNamespace,
     makeExportSpecifier, makeCatchClause,
 } from "./ast-stmt.js";
+import {
+    SyncToken,
+    makeRecovery, beginRecovery, accumulateSkipped, markResync, resumeNormal,
+} from "./error-recovery.js";
 
 // --- makeParseStmtContext — statement-parser context constructor ---
-// Identical SHAPE to makeParseExprContext (parse-expr.js) — `cursor` +
-// `currentParseMode` + `errors`. The shared shape lets parseExpression(ctx)
-// run directly on this ctx; the cursor is the one cursor both layers walk.
+// SHAPE compatible with makeParseExprContext (parse-expr.js) — `cursor` +
+// `currentParseMode` + `errors` are the shared core, so parseExpression(ctx)
+// runs directly on this ctx; the cursor is the one cursor both layers walk.
+// M3.4 adds two STATEMENT-parser-only slots (parse-expr never reads them):
+//   - `recovery` — the M1 ErrorRecovery engine's live-surface struct
+//     (error-recovery.js). Panic-mode statement re-synchronization writes it.
+//   - `functionDepth` — a function-body NESTING counter. `parseReturn`
+//     consults it for the return-outside-function legality check; a single
+//     `currentParseMode` slot cannot tell function-scope from program-scope
+//     across nested `{}` blocks (a `return` in a nested block sees `.InBlock`,
+//     not `.InFunctionBody`). 0 = program scope; >= 1 = inside N function
+//     bodies. parseFunctionBodyInline increments / decrements it.
 export function makeParseStmtContext(tokens) {
     return {
         cursor:           makeTokenCursor(tokens),
         currentParseMode: initialParseMode(),
         errors:           [],
+        recovery:         makeRecovery(),
+        functionDepth:    0,
     };
 }
 
@@ -225,14 +253,134 @@ function lastTokenBefore(ctx) {
 }
 
 // =============================================================================
+// Panic-mode re-synchronization — the M1 ErrorRecovery engine, statement-level.
+//
+// When parseStatement makes NO forward progress (returns null AND consumes no
+// token), the cursor is parked on a token that begins no statement — a parse
+// error. M3.4 drives the M1 ErrorRecovery engine through its three-state
+// panic-mode cycle (error-recovery.js):
+//
+//   .ParsingNormally --beginRecovery--> .AccumulatingSkipped
+//   .AccumulatingSkipped --accumulateSkipped--> .AccumulatingSkipped (self-loop)
+//   .AccumulatingSkipped --markResync--> .ReSynchronized
+//   .ReSynchronized --resumeNormal--> .ParsingNormally
+//
+// resyncStatement skips tokens — accumulating each into the .AccumulatingSkipped
+// variant's `skipped` payload — until it reaches one of the canonical
+// statement-grammar SYNC TOKENS (the panic-mode resync points named in the
+// S98 D7 M3 gating criterion):
+//
+//   - `;`                — a statement terminator. CONSUMED; resync point is
+//                          PAST it (the next statement starts fresh).
+//   - a statement-start  — a keyword (or `{` block opener) that begins a new
+//     keyword               statement. The resync point is BEFORE it, so the
+//                          enclosing loop re-attempts parseStatement there.
+//   - `}`                — a closing brace: the enclosing block's own
+//                          terminator OR an outer block's. NOT consumed; the
+//                          resync point is BEFORE it so the block can close.
+//   - EOF                — the token stream's end.
+//
+// The accumulated `skipped` payload is the engine's record of what panic-mode
+// discarded; a regression test asserts a malformed run accumulates skipped
+// tokens, re-synchronizes, and the parser resumes (S98 D7 M3 gating).
+// =============================================================================
+
+// STATEMENT_START_KINDS — the token kinds that begin a fresh statement. A
+// panic-mode skip re-synchronizes (BEFORE the token) when it reaches one of
+// these — the enclosing parseStatementList loop then re-attempts a clean
+// parse from that statement-start keyword. The set is the D5 statement-lead
+// keywords plus `{` (a block opener at statement position).
+const STATEMENT_START_KINDS = Object.freeze({
+    [TokenKind.LBrace]:    true,
+    [TokenKind.KwLet]:     true,
+    [TokenKind.KwConst]:   true,
+    [TokenKind.KwVar]:     true,
+    [TokenKind.KwIf]:      true,
+    [TokenKind.KwFor]:     true,
+    [TokenKind.KwWhile]:   true,
+    [TokenKind.KwDoWhile]: true,
+    [TokenKind.KwReturn]:  true,
+    [TokenKind.KwBreak]:   true,
+    [TokenKind.KwContinue]:true,
+    [TokenKind.KwFunction]:true,
+    [TokenKind.KwClass]:   true,
+    [TokenKind.KwImport]:  true,
+    [TokenKind.KwExport]:  true,
+    [TokenKind.KwTry]:     true,
+    [TokenKind.KwThrow]:   true,
+});
+
+// isStatementStartKind — calculation (predicate): does `kind` begin a fresh
+// statement? A panic-mode skip resyncs in place when it reaches one.
+function isStatementStartKind(kind) {
+    return STATEMENT_START_KINDS[kind] === true;
+}
+
+// resyncStatement — drive the ErrorRecovery engine's panic-mode cycle. The
+// caller has already recorded the parse-error diagnostic; this function does
+// the token-skipping. Starting from a stuck cursor, accumulate skipped tokens
+// into the engine's payload until a sync token is reached, then return the
+// engine to .ParsingNormally. The cursor is left ON the resync point (before
+// a `}` / a statement-start keyword / EOF) or PAST a consumed `;`.
+function resyncStatement(ctx) {
+    const cursor = ctx.cursor;
+    const recovery = ctx.recovery;
+
+    beginRecovery(recovery);   // .ParsingNormally -> .AccumulatingSkipped
+
+    while (atEnd(cursor) === false) {
+        const kind = currentKind(cursor);
+
+        // `;` — a statement terminator. Accumulate it, consume it, and resync
+        // PAST it: the next statement starts on the token after the `;`.
+        if (kind === TokenKind.Semicolon) {
+            accumulateSkipped(recovery, current(cursor));
+            advance(cursor);
+            markResync(recovery, SyncToken.Semicolon);   // -> .ReSynchronized
+            resumeNormal(recovery);                       // -> .ParsingNormally
+            return;
+        }
+
+        // `}` — a closing brace. The enclosing block (or an outer block) ends
+        // here. Do NOT consume it (the block parser owns the `}`); resync
+        // BEFORE it.
+        if (kind === TokenKind.RBrace) {
+            markResync(recovery, SyncToken.ClosingBrace);
+            resumeNormal(recovery);
+            return;
+        }
+
+        // A statement-start keyword / `{` block opener — a fresh statement
+        // begins here. Resync BEFORE it so the loop re-attempts a clean parse.
+        if (isStatementStartKind(kind)) {
+            markResync(recovery, SyncToken.NewlineAtStmtBoundary);
+            resumeNormal(recovery);
+            return;
+        }
+
+        // Not a sync token — accumulate it into the engine's `skipped`
+        // payload and advance (the .AccumulatingSkipped self-loop).
+        accumulateSkipped(recovery, current(cursor));
+        advance(cursor);
+    }
+
+    // The token stream ended before any other sync token was reached.
+    markResync(recovery, SyncToken.EofToken);
+    resumeNormal(recovery);
+}
+
+// =============================================================================
 // Statement-list parsing — the trampoline.
 // =============================================================================
 
 // parseStatementList — parse a run of statements until the cursor reaches a
 // terminator token kind (RBrace for a block body) or EOF. Returns a Stmt
-// array. A statement that parses to `not` (null) is skipped after one forced
-// advance so a malformed token cannot spin the loop (M3.4 replaces this with
-// the ErrorRecovery engine's panic-mode re-synchronization).
+// array. When parseStatement makes NO forward progress (returns null and
+// consumes nothing), the cursor is parked on a token that begins no statement
+// — a parse error: M3.4 records the diagnostic and drives the M1 ErrorRecovery
+// engine's panic-mode re-synchronization (resyncStatement) to skip to the next
+// statement boundary, so a malformed token cannot spin the loop AND the parser
+// resumes cleanly at the next `;` / statement-start keyword / closing `}`.
 export function parseStatementList(ctx, terminatorKind) {
     const cursor = ctx.cursor;
     const body = [];
@@ -247,11 +395,23 @@ export function parseStatementList(ctx, terminatorKind) {
         if (stmt !== undefined && stmt !== null) {
             body.push(stmt);
         }
-        // Forward-progress guard — if parseStatement consumed nothing, force
-        // one advance so a stuck token cannot loop forever. (M3.4: the
-        // ErrorRecovery engine owns proper re-synchronization.)
+        // Forward-progress check — if parseStatement consumed nothing, the
+        // cursor is stuck on a token that begins no statement. Record the
+        // parse error and drive the ErrorRecovery engine's panic-mode resync.
         if (cursor.idx === before) {
-            advance(cursor);
+            recordError(ctx, "E-STMT-UNEXPECTED-TOKEN",
+                "unexpected token — no statement begins here", spanHere(ctx));
+            resyncStatement(ctx);
+            // resyncStatement leaves the cursor ON the resync point. If that
+            // point is the enclosing block's own terminator, the next loop
+            // iteration's terminator check breaks out cleanly. If it is a
+            // statement-start keyword the loop re-attempts a clean parse. If
+            // resync made no progress at all (the stuck token was itself a
+            // `}` that is NOT this list's terminator — e.g. a stray `}`),
+            // force one advance so the loop cannot spin.
+            if (cursor.idx === before) {
+                advance(cursor);
+            }
         }
     }
     return body;
@@ -1150,21 +1310,27 @@ function sameLineFollows(ctx, kwTok) {
 }
 
 // --- parseReturn — a `return argument?` statement ---
-// RETURN-LEGALITY SEAM (M3.4). A `return` outside any function body is a JS
-// SyntaxError. The signal would be "is the parser inside a function body" —
-// but `currentParseMode` is a single slot, not a depth stack: a `return`
-// inside a nested `{}` block inside a function sees `.InBlock`, not
-// `.InFunctionBody`, so the single-slot mode cannot reliably tell
-// function-scope from program-scope across nested blocks. A correct check
-// needs a function-scope DEPTH counter — new state machinery that does NOT
-// fall naturally out of M3.3's work. M3.4 (error-recovery + full
-// conformance) is the natural home: add a function-depth counter to the
-// parse context, then `parseReturn` emits E-STMT-RETURN-OUTSIDE-FUNCTION at
-// depth 0. M3.3 parses a top-level `return` to a Return node (the parse is
-// well-formed); the legality diagnostic is the documented M3.4 seam.
+// RETURN-LEGALITY (M3.4 — the seam M3.3 flagged, now CLOSED). A `return`
+// outside any function body is a JS SyntaxError. `currentParseMode` is a
+// single slot, not a depth stack — a `return` inside a nested `{}` block
+// inside a function sees `.InBlock`, not `.InFunctionBody` — so the
+// single-slot mode cannot tell function-scope from program-scope across
+// nested blocks. M3.4 adds `ctx.functionDepth`, a function-body NESTING
+// counter (parseFunctionBodyInline increments it; parseBlockStubBody seeds it
+// to 1). `parseReturn` consults it: at depth 0 the `return` is in program
+// scope — fire E-STMT-RETURN-OUTSIDE-FUNCTION. The parse is still well-formed
+// (a Return node is produced); the diagnostic is the legality verdict, so a
+// later stage / a caller can see both the node and the error. Acorn (the
+// conformance oracle) rejects a top-level `return` outright.
 export function parseReturn(ctx) {
     const cursor = ctx.cursor;
     const kw = advance(cursor);   // consume `return`
+
+    // Return-legality — a `return` at functionDepth 0 is outside any function.
+    if (ctx.functionDepth <= 0) {
+        recordError(ctx, "E-STMT-RETURN-OUTSIDE-FUNCTION",
+            "'return' outside of a function", kw.span);
+    }
 
     let argument = null;
     let endE = kw.span.end;
@@ -1257,6 +1423,13 @@ export function parseLabeledStatement(ctx) {
 // on the opening `{`. Enters .InFunctionBody for the body. Returns
 // { body, endPos } — `body` is the Stmt array, `endPos` the byte offset of
 // the closing `}` (or the last consumed token's end on a missing `}`).
+//
+// M3.4 — increments `ctx.functionDepth` for the body's duration. This is the
+// single in-line function/method body parser (parseFunctionDecl + class
+// methods both route through it), so the increment here covers every nested
+// function body. `parseReturn` reads functionDepth: a `return` inside the
+// body — even in a deeply nested `{}` block — sees depth >= 1 and is legal;
+// a top-level `return` sees depth 0 and fires E-STMT-RETURN-OUTSIDE-FUNCTION.
 function parseFunctionBodyInline(ctx) {
     const cursor = ctx.cursor;
 
@@ -1268,7 +1441,9 @@ function parseFunctionBodyInline(ctx) {
     const open = advance(cursor);   // consume {
 
     const prior = enterMode(ctx, ParseMode.InFunctionBody);
+    ctx.functionDepth = ctx.functionDepth + 1;
     const body = parseStatementList(ctx, TokenKind.RBrace);
+    ctx.functionDepth = ctx.functionDepth - 1;
     exitMode(ctx, prior);
 
     let endPos = open.span.end;
@@ -1405,9 +1580,12 @@ function parseClassBody(ctx) {
         if (member !== undefined && member !== null) {
             members.push(member);
         }
-        // Forward-progress guard — a malformed member that consumed nothing
-        // gets one forced advance (the M3.4 ErrorRecovery engine owns proper
-        // re-synchronization).
+        // Forward-progress guard — a malformed class member that consumed
+        // nothing gets one forced advance so the body loop cannot spin. The
+        // class-member loop already re-synchronizes structurally (a stray `;`
+        // is consumed above; a `}` ends the body via the `while` condition);
+        // M3.4's ErrorRecovery-engine panic-mode is the STATEMENT grammar's
+        // (parseStatementList) — class-member recovery is a separate grammar.
         if (cursor.idx === before) {
             advance(cursor);
         }
@@ -2185,6 +2363,12 @@ export function parseBlockStubBody(stub) {
     // A function/arrow/match-arm body is a statement list in function-body
     // context — the ParseMode the body re-enters.
     setParseMode(ctx, ParseMode.InFunctionBody);
+    // M3.4 — a re-entered BlockStub is a function / arrow body, so it parses
+    // INSIDE a function: seed functionDepth to 1 (the constructor's default 0
+    // is program scope). A `return` anywhere in the re-entered body is then
+    // legal — including in a nested `{}` block, where the depth counter (not
+    // the single-slot ParseMode) is what proves function scope.
+    ctx.functionDepth = 1;
     const body = parseStatementList(ctx, undefined);
     return { body, errors: ctx.errors };
 }
