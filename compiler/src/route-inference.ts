@@ -77,6 +77,9 @@ import type { ExprNode } from "./types/ast.ts";
 // erased at compile time and is cycle-safe.
 import type { MonotonicityVerdict } from "./monotonicity-analyzer.ts";
 import { collectChannelFunctionMap, collectChannelCellMap } from "./codegen/emit-channel.ts";
+// Ext 1 M1.2 + M1.3 — statement-grain body-DG + multi-batch CPS planner.
+import { buildBodyDG } from "./body-dg-builder.ts";
+import { planMultiBatchCPS } from "./cps-batch-planner.ts";
 
 // ---------------------------------------------------------------------------
 // RI-internal types
@@ -291,6 +294,15 @@ interface CPSResult {
   serverStmtIndices: number[];
   clientStmtIndices: number[];
   returnVarName: string | null;
+  /**
+   * Ext 1 M1.3: the two tier sub-sets the multi-batch planner needs to build a
+   * `BodyTierClassification` for the body-DG. `pureServerIndices` are
+   * server-tier statements that are NOT reactive-server; `reactiveServerIndices`
+   * are `state-decl`s whose server-call init crosses the seam. Their union
+   * (sorted) equals `serverStmtIndices` — the field is retained for back-compat.
+   */
+  pureServerIndices: number[];
+  reactiveServerIndices: number[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1348,6 +1360,9 @@ export function analyzeCPSEligibility(
     serverStmtIndices: allServerIndices,
     clientStmtIndices,
     returnVarName,
+    // Ext 1 M1.3: tier sub-sets for the multi-batch planner's body-DG.
+    pureServerIndices: [...serverIndices].sort((a, b) => a - b),
+    reactiveServerIndices: [...reactiveServerIndices].sort((a, b) => a - b),
   };
 }
 
@@ -2790,13 +2805,41 @@ export function runRI(input: RIInput): RIOutput {
           );
 
           if (cpsResult && cpsResult.eligible) {
-            // Ext 1 M1.1: single-batch construction (no behavior change).
-            // The multi-batch planner (M1.3) is what produces N>1 batches.
+            // Ext 1 M1.1: single-batch construction is the back-compat
+            // baseline.
             cpsSplit = CPSSplit.singleBatch(
               cpsResult.serverStmtIndices,
               cpsResult.clientStmtIndices,
               cpsResult.returnVarName,
             );
+
+            // Ext 1 M1.3: run the multi-batch planner over the body-DG. The
+            // planner topologically schedules the statement-grain DG (M1.2),
+            // coalesces contiguous server runs into batches, and either
+            // (a) produces a multi-batch plan we install into `serverBatches`,
+            // or (b) statically rejects an irreducible cross-batch dependency
+            // / a `<machine>` advance crossing a batch boundary.
+            const _bodyDG = buildBodyDG(body, {
+              server: cpsResult.pureServerIndices,
+              reactive: cpsResult.reactiveServerIndices,
+            });
+            const _plan = planMultiBatchCPS(_bodyDG, body);
+            if (_plan.status === "reject") {
+              // E-CPS-MULTIBATCH-REORDER / E-CPS-MULTIBATCH-MACHINE-CROSSING.
+              // §34 catalog registration of these codes lands at M1.6; the
+              // planner produces the diagnostic shape + offending statements
+              // here so the reject path is wired end-to-end.
+              cpsSplit = null;
+              errors.push(new RIError(
+                _plan.code,
+                `${_plan.code}: ${_plan.message}`,
+                record.fnNode.span,
+              ));
+            } else if (_plan.batches.length > 0) {
+              // Install the planned batches. A single-batch plan is identical
+              // to the M1.1 baseline; a multi-batch plan is the Ext 1 shape.
+              cpsSplit.serverBatches = _plan.batches;
+            }
           } else {
             // Bug-5 follow-on to C18 (§38.4, S83 Wave 4A): channel-scoped
             // server functions writing to a channel-owned cell are spec-
