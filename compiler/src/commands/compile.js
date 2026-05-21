@@ -56,6 +56,11 @@ Options:
   --convert-legacy-css    Convert <style> blocks to #{...}
   --mode <mode>           Output mode: browser (default) or library
   --self-host             Use compiled scrml modules (requires build-self-host.js)
+  --parser=scrml-native   Opt-in native-parser observability shadow (M5.1).
+                          The native parser runs alongside the live pipeline
+                          and surfaces an I-PARSER-NATIVE-SHADOW info diagnostic
+                          per compile. Downstream routing is M5-FULL scope (see
+                          compiler/native-parser/M5-ast-bridge-scoping.md).
   --help, -h              Show this message
 
 Examples:
@@ -101,6 +106,17 @@ function parseArgs(args) {
   // optimization work. When set, CG/RS/DG sub-stage timings emit at the
   // sub-stage granularity (P1.1/P1.2/P1.3 consumers). Zero overhead when unset.
   let debugPerf = false;
+  // M5.1 (S114) — opt-in native-parser shadow run. When set to "scrml-native",
+  // the native parser (compiler/native-parser/) runs ALONGSIDE the live
+  // BS+TAB+BPP pipeline as an OBSERVABILITY shadow. Native-parser diagnostics
+  // surface on the same diagnostic stream; the live pipeline's AST is still
+  // the canonical input to downstream stages. See
+  // compiler/native-parser/M5-ast-bridge-scoping.md for the cost-extension
+  // rationale (the downstream-bridge work that gates the full M5 swap is
+  // 90-180h+ and was deferred at M5.1 close). The flag is recognized but
+  // accepts only `scrml-native` at this milestone; any other value errors.
+  // Default null = legacy pipeline, no shadow.
+  let parser = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -175,6 +191,31 @@ function parseArgs(args) {
     } else if (arg === "--debug-perf") {
       // PGO P1.5 (S102) — opt-in sub-stage instrumentation.
       debugPerf = true;
+    } else if (arg === "--parser" || arg.startsWith("--parser=")) {
+      // M5.1 (S114) — opt-in native-parser shadow. Both
+      // `--parser=scrml-native` and `--parser scrml-native` shapes are
+      // accepted. The only valid value at this milestone is `scrml-native`;
+      // any other value errors. The flag wires through to compileScrml's
+      // `parser` option as an observability hook; downstream stages still
+      // consume the live FileAST. The M5.1 scoping doc
+      // (compiler/native-parser/M5-ast-bridge-scoping.md) explains why the
+      // full pipeline swap was deferred to a future MD-ladder dispatch
+      // (the downstream-bridge work).
+      let raw;
+      if (arg === "--parser") {
+        raw = args[++i];
+        if (!raw) {
+          console.error(c.red("error:") + ` ${arg} requires a value (only \`scrml-native\` is accepted at this milestone)`);
+          process.exit(1);
+        }
+      } else {
+        raw = arg.substring("--parser=".length);
+      }
+      if (raw !== "scrml-native") {
+        console.error(c.red("error:") + ` --parser only accepts \`scrml-native\` at this milestone (got: \`${raw}\`)`);
+        process.exit(1);
+      }
+      parser = raw;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -210,7 +251,7 @@ function parseArgs(args) {
     }
   }
 
-  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, watchMode, mode, selfHost, emitBatchPlan, emitReachability, emitPerRoute, chunkSizeBudgetBytes, emitMachineTests, gather, debugPerf };
+  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, watchMode, mode, selfHost, emitBatchPlan, emitReachability, emitPerRoute, chunkSizeBudgetBytes, emitMachineTests, gather, debugPerf, parser };
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +381,7 @@ function formatLintDiagnostic(diag, cwd) {
  * @returns {{ success: boolean }}
  */
 function runOnce(opts, selfHostModules = null) {
-  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, mode, emitBatchPlan, emitReachability, emitPerRoute, chunkSizeBudgetBytes, emitMachineTests, gather, debugPerf } = opts;
+  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, mode, emitBatchPlan, emitReachability, emitPerRoute, chunkSizeBudgetBytes, emitMachineTests, gather, debugPerf, parser } = opts;
   const cwd = process.cwd();
 
   if (verbose) {
@@ -379,6 +420,12 @@ function runOnce(opts, selfHostModules = null) {
       // added output for the perf-focused invocation.
       log: (verbose || debugPerf) ? (msg) => console.log(c.dim(msg)) : () => {},
       selfHostModules,
+      // M5.1 (S114) — `--parser=scrml-native` value forwarded as an
+      // observability flag. At this milestone compileScrml emits an
+      // I-PARSER-NATIVE-SHADOW info diagnostic when set; downstream stages
+      // are NOT routed through the native parser (the bridge work was
+      // cost-deferred at M5.1). See compiler/native-parser/M5-ast-bridge-scoping.md.
+      parser,
     });
   } catch (err) {
     // ENOENT — file not found, not a compiler bug

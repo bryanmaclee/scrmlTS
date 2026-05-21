@@ -364,9 +364,26 @@ gating; the parse-layer re-compositions are correct + verified).
   directions. Re-tokenizer scaffolding deletion is M5/M6 (the actual src/ files
   `engine-statechild-parser.ts` + `body-pre-parser.ts` stay until the joint retirement
   — the native-parser side has zero imports from them; MK4.2 was a verification step).
-- **M5 — pipeline swap behind `--parser=scrml-native`** + canary soak.
+- **M5 — pipeline swap behind `--parser=scrml-native`** — **PARTIAL S114 (M5.1 + M5.3 + M5.4 + M5.5 landed; M5.2 cost-deferred to MD ladder).** Phase M5.1's
+  AST-bridge scoping found the divergence between native-parser output (flat
+  block-stream + JS-only Stmt[] + Expr AST) and the live FileAST (~30-kind
+  ASTNode union with attrs/exprs/hoisted collections/span table) is too wide
+  for the 16-36h budget — all three brief options scoped at 70-250h. The
+  dispatch landed M5-LIGHT (the observability shadow): the
+  `--parser=scrml-native` CLI flag is wired end-to-end and fires an
+  **I-PARSER-NATIVE-SHADOW** info diagnostic when set, but downstream stages
+  still consume the live FileAST. The full M5 pipeline swap (M5.2 = bridge
+  implementation) is deferred to a future **MD ladder** dispatch:
+  MD.1 (attrs + tokenizedAttrs in markup, 20-30h) + MD.2 (ESTree-decorated
+  expression bridging on attr values, 25-35h) + MD.3 (hoisted collections,
+  15-20h) + MD.4 (span table + PGO has* flags, 10-15h) + MD.5 (state/sql/css/
+  error/meta rich payloads, 20-30h) + re-entered M5 (8-16h) = 98-180h total.
+  See `compiler/native-parser/M5-ast-bridge-scoping.md` for the full
+  divergence inventory + cost analysis, and `M5-divergence-ledger.md` for
+  the M5.4 conformance ledger.
 - **M6 — joint retirement.** Delete BS + Acorn + BPP + re-tokenizer scaffolding; retire
   the flag; native parser self-hosts its own `.scrml` source (charter Q8).
+  **Gated on the MD ladder + the real M5 pipeline swap closing.**
 
 ---
 
@@ -450,6 +467,11 @@ within one quarter.
 | **MK4.1** seam implementation (C1-C4) | ✅ landed S114 | scrml-token-and-ast-engineer (worktree) | S114 | parse-seam.{scrml,js} substrate + LogicEscape body parses to Stmt[] (markup→JS delegate-down) + MarkupValue ExprKind + parsePrimary LessThan discriminator (JS→markup delegate-up) + §4.18.4 deep-stack via source-aware parseInterpolationBody. +6 MK4 §63 markup tests + +19 MK4 §1-§4 expr tests. |
 | **MK4.2** scaffolding-deletion verification (C5) | ✅ landed S114 (no-op) | scrml-token-and-ast-engineer (worktree) | S114 | grep'd compiler/native-parser/ for imports from compiler/src/parsers/* / body-pre-parser.* — ZERO. The native parser is self-contained; the src/ deletions are M5/M6 per the dispatch's framing. |
 | **MK4.3** cross-seam errors + deep-nesting smoke + conformance close (C6-C8) | ✅ landed S114 | scrml-token-and-ast-engineer (worktree) | S114 | cross-seam error attribution wired both directions (markup→JS via diag.delegationFrame; JS→markup via err.delegationFrame.via = "JSToMarkup"); +2 MK4 §5 expr tests; +5 MK4 §64-§65 + §66 markup tests covering the spike's punch-list P11 deep-nesting smoke. The .scrml corpus histogram dropped 90%+ as a side effect of C3+C4 — explicit Tier 1+2 promotion is M5+ scope. Full suite 17,808 → 17,842 / 0 fail / 173 skip / 1 todo. **MK4 MILESTONE COMPLETE.** |
-| M5 / M6 | ⬜ pending | — | — | M5 = pipeline swap behind `--parser=scrml-native`; M6 = joint retirement |
+| **M5.1** AST-bridge scoping (cost-extension surfaced) | ✅ landed S114 | dev-pipeline (this dispatch, worktree) | S114 | `compiler/native-parser/M5-ast-bridge-scoping.md` — divergence inventory across all native-parser exit points vs the live FileAST (~30-kind ASTNode union with attrs/exprs/hoisted collections/span table/PGO flags). All three brief options (a/b/c) scoped at 70-250h — exceeded the 16-36h budget. Recommended M5-LIGHT (observability shadow); deferred M5-FULL to a future MD-ladder dispatch. |
+| **M5.3** `--parser=scrml-native` CLI flag wiring | ✅ landed S114 | dev-pipeline (this dispatch, worktree) | S114 | cli.js help + commands/compile.js arg parsing (both `--parser=scrml-native` and `--parser scrml-native` forms; rejects other values) + api.js compileScrml `parser` option threaded through; runOnce → compileScrml plumbing. The flag fires one I-PARSER-NATIVE-SHADOW info diagnostic when set; downstream stages still consume the live FileAST. Smoke-tested: invalid value errors with clean message; absent flag has zero behavioral change. |
+| **M5.4** conformance close — divergence ledger | ✅ landed S114 | dev-pipeline (this dispatch, worktree) | S114 | `compiler/native-parser/M5-divergence-ledger.md` — what the native parser produces today (Expr AST + Stmt[] + flat markup BlockNode stream + .scrml-corpus no-throw smoke) vs what the live FileAST carries that the native parser does NOT (attrs[], ESTree expr decorations, hoisted collections, span table, PGO flags, etc.). Pre-commit subset: 13,358/0/92/1 — matches v0.4 baseline exactly. Zero regressions. |
+| **M5.5** roadmap + canary update | ✅ landed S114 | dev-pipeline (this dispatch, worktree) | S114 | This row + the §3 M5 line updated to reflect the partial close + the MD-ladder deferment + the path forward. |
+| **M5.2** bridge implementation (DEFERRED — MD ladder) | ⬜ deferred (cost-extension surfaced) | — | — | The native-parser → live-FileAST bridge work was scoped at 70-250h, exceeding the 16-36h M5 budget. Decomposed into the MD ladder: **MD.1** attrs + tokenizedAttrs in markup (20-30h); **MD.2** ESTree-decorated expression bridging on attr values (25-35h); **MD.3** hoisted collections (15-20h); **MD.4** span table + PGO has* flags (10-15h); **MD.5** state/sql/css/error/meta rich payloads (20-30h). MD-ladder close re-enters real M5 (8-16h). Total MD + real M5 = 98-180h. |
+| M6 | ⬜ pending — gated on MD + real M5 | — | — | Delete BS + Acorn + BPP + re-tokenizer scaffolding; retire the `--parser` flag; native parser self-hosts (charter Q8). |
 
 **Legend:** ⬜ pending · ⏳ in flight · ✅ complete · 🟥 blocked

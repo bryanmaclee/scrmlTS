@@ -464,6 +464,19 @@ export function compileScrml(options = {}) {
      * from a project-level config loader.
      */
     compilerSettings = {},
+    /**
+     * M5.1 (S114) — `--parser=scrml-native` observability flag. When set to
+     * "scrml-native", an I-PARSER-NATIVE-SHADOW info diagnostic is appended
+     * to result.warnings noting the opt-in. The live BS+TAB+BPP pipeline
+     * still runs canonically; the native parser is NOT routed downstream at
+     * this milestone (the downstream-bridge work was cost-deferred at M5.1
+     * close — see compiler/native-parser/M5-ast-bridge-scoping.md). The
+     * flag is a no-op when null / undefined / any other value; only the
+     * literal "scrml-native" string fires the diagnostic. This shape lets
+     * the future M5-FULL (or MD-ladder) dispatch swap in real routing
+     * behind the same flag value without a second CLI plumbing pass.
+     */
+    parser = null,
   } = options;
 
   let { outputDir } = options;
@@ -1774,6 +1787,35 @@ export function compileScrml(options = {}) {
       if (output.css) fileCount++;
       if (output.testJs) fileCount++;
     }
+  }
+
+  // M5.1 (S114) — `--parser=scrml-native` observability flag. When set, emit
+  // ONE I-PARSER-NATIVE-SHADOW info diagnostic per compile noting the opt-in
+  // and the milestone boundary. The native parser is NOT routed downstream
+  // at this milestone; the flag is observability-only. The downstream-bridge
+  // work that gates the full M5 pipeline swap (the MD ladder per
+  // compiler/native-parser/M5-ast-bridge-scoping.md) is a future dispatch.
+  // The diagnostic's presence in result.warnings is the evidence that the
+  // flag was recognized + threaded; future M5-FULL work swaps the no-op for
+  // real native-parser routing behind the same flag value.
+  if (parser === "scrml-native") {
+    allErrors.push({
+      code: "I-PARSER-NATIVE-SHADOW",
+      message:
+        "I-PARSER-NATIVE-SHADOW: --parser=scrml-native flag recognized. " +
+        "At this milestone the flag is observability-only — the live " +
+        "BS+TAB+BPP pipeline still produces the FileAST consumed by " +
+        "downstream stages. The downstream-bridge work that gates the " +
+        "full pipeline swap was cost-deferred at M5.1 close (see " +
+        "compiler/native-parser/M5-ast-bridge-scoping.md). This " +
+        "diagnostic confirms the flag is wired end-to-end and is the " +
+        "stable surface a future MD-ladder dispatch lights up.",
+      severity: "info",
+      stage: "PARSER-FLAG",
+      filePath: inputFiles[0] || "",
+      line: 1,
+      column: 1,
+    });
   }
 
   // Diagnostic-stream partition (S93 fix — info-level no longer fatal).
