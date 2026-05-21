@@ -615,6 +615,6 @@ ${
         if (node is not) {
             return false
         }
-        return ExprKind[node.kind] != not
+        return ExprKind[node.kind] is some
     }
 }
