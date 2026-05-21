@@ -39,6 +39,16 @@
 // statement-context state-child and activates .InFunctionBody. .InClassBody
 // remains declared-only (its body activates at M2.3+/M4).
 //
+// M4.1 NOTE — async/generator SCOPE is deliberately NOT a ParseMode variant.
+// `await`/`yield` legality is the question "is the cursor inside an async /
+// generator function body". That is ORTHOGONAL to what ParseMode
+// discriminates (which grammar production runs — the `{`-object-vs-block
+// ambiguity, etc.). Folding it in would force a combinatorial cross-product
+// (.InFunctionBody × {sync, async, gen, async-gen}) — the variant explosion
+// DD §D3 rejects. M4.1 carries it as two boolean ctx slots (`inAsync` /
+// `inGenerator`) saved+set+restored at every function/arrow entry (the M3.4
+// `functionDepth` pattern). This <engine> is UNCHANGED by M4.1.
+//
 //   - TopLevel        — the program-body / statement-position context.
 //   - InExpression    — an expression is being parsed (after `=`, `return`,
 //                       inside `(...)`, etc.).

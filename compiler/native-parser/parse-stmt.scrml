@@ -39,7 +39,8 @@
 // parse-markup once the K2 `.scrml`-compile blocker is also cleared.
 //
 // SCOPE — M3.1 + M3.2 + M3.3 + M3.4 (the four sub-steps of M3, the
-// statement parser — M3.4 completes the M3 milestone).
+// statement parser — M3.4 completes the M3 milestone) + M4.1 (the
+// async/generator scope-threading: see the M4.1 note below).
 //   M3.1 — STATEMENT SUBSTRATE + DECLARATIONS + BLOCK/EXPRESSION STATEMENTS
 //     + BlockStub RE-ENTRY. Parses, per S98 DD §D5's MUST-PARSE list:
 //       - variable declarations `let` / `const` / `var`, INCLUDING object +
@@ -86,8 +87,7 @@
 //         `fail`/`!{}` per §19). The parser's job is to PARSE them.
 //     M3.3 also TIES OFF the function-expression body seam — a function /
 //     arrow EXPRESSION at statement position has its BlockStub body
-//     re-entered in-line via reenterBlockStubs. `await` / `yield` are
-//     recognized as statement-lead expression operators.
+//     re-entered in-line via reenterBlockStubs.
 //
 //   M3.4 — ERROR-RECOVERY ENGINE INTEGRATION + RETURN-LEGALITY + FULL
 //     STATEMENT CONFORMANCE — the FINAL M3 sub-step. Per S98 DD §D7 M3 gating:
@@ -104,10 +104,18 @@
 //         outside-function check: a top-level `return` fires
 //         E-STMT-RETURN-OUTSIDE-FUNCTION (the seam M3.3 flagged, now closed).
 //
-//   NOT M3 — forward seams (the named sub-step that owns each):
-//     - `await` / `yield` integrated as operators at unary precedence INSIDE
-//       a larger expression (`let x = await f()`) — M4 (the full bounded JS
-//       subset). M3.3 recognizes the keywords at STATEMENT position only.
+//   M4.1 — ASYNC / GENERATOR SCOPE THREADING (the M3.3 forward seam, now
+//     closed). `await` / `yield` are now operators INSIDE a larger
+//     expression (`let x = await f()`, `return await g()`) — the M2
+//     expression grammar handles them (parse-expr's parseUnary /
+//     parseYieldExpr). parse-stmt's role at M4.1: the shared parser context
+//     carries `inAsync` / `inGenerator` (makeParseStmtContext);
+//     parseFunctionBodyInline saves+sets+restores them around an in-line
+//     body (the functionDepth-pattern shape — a function ESTABLISHES its own
+//     scope); parseBlockStubBody seeds the scope from the enclosing function;
+//     reenterBlockStubs threads each Function/Arrow node's flags into the
+//     re-entry; the M3.3 dedicated statement-lead `await`/`yield` parsers are
+//     DELETED — an `await x;` statement is now an expression statement.
 //   A statement form outside the S98 D5 subset (`switch`, `with`, decorators)
 //   is E-PARSER-OUT-OF-SUBSET (D5/OQ6 — surfaced to PA, scope NOT widened);
 //   `switch` specifically is also E-SWITCH-FORBIDDEN in scrml source (§17).
@@ -116,10 +124,11 @@
 // loop); parseStatement is the per-statement dispatch. parseBlockStubBody is
 // the M2→M3 re-entry seam (M2.3/M2.4 left BlockStubs; M3.1 parses them).
 // parse-stmt shares ONE parser context object with parse-expr — `{ cursor,
-// currentParseMode, errors }` is the shared core makeParseExprContext produces
-// (M3.4's `recovery` + `functionDepth` slots are statement-parser-only —
-// parse-expr never reads them) — so parseExpression(ctx) runs directly on the
-// statement parser's ctx with no token-range copy (the R1 one-cursor
+// currentParseMode, errors, inAsync, inGenerator }` is the shared core
+// makeParseExprContext produces (M3.4's `recovery` + `functionDepth` slots
+// are statement-parser-only — parse-expr never reads them) — so
+// parseExpression(ctx) runs directly on the statement parser's ctx with no
+// token-range copy (the R1 one-cursor
 // discipline, within the JS layer).
 //
 // .scrml<->.js shadow discipline (README ANOMALY-2): this .scrml carries the
@@ -163,10 +172,10 @@ ${
 
     // -- makeParseStmtContext — statement-parser context constructor --
     // SHAPE compatible with makeParseExprContext (parse-expr.scrml) —
-    // `cursor` + `currentParseMode` + `errors` are the shared core, so
-    // parseExpression(ctx) runs directly on this ctx; the cursor is the one
-    // cursor both layers walk. M3.4 adds two STATEMENT-parser-only slots
-    // (parse-expr never reads them):
+    // `cursor` + `currentParseMode` + `errors` + `inAsync` + `inGenerator`
+    // are the shared core, so parseExpression(ctx) runs directly on this
+    // ctx; the cursor is the one cursor both layers walk. M3.4 added two
+    // STATEMENT-parser-only slots (parse-expr never reads them):
     //   - `recovery` — the M1 ErrorRecovery engine's live-surface struct
     //     (error-recovery.scrml). Panic-mode statement re-synchronization
     //     writes it.
@@ -177,6 +186,10 @@ ${
     //     block sees `.InBlock`, not `.InFunctionBody`). 0 = program scope;
     //     >= 1 = inside N function bodies. parseFunctionBodyInline
     //     increments / decrements it.
+    // M4.1 — `inAsync` / `inGenerator` are part of the SHARED core (parse-
+    // expr's parseUnary / parseAssignmentExpr read them to decide when
+    // `await`/`yield` are operators). parseFunctionBodyInline saves+sets+
+    // restores them around a body — the same shape as its functionDepth.
     export function makeParseStmtContext(tokens) {
         return {
             cursor:           makeTokenCursor(tokens),
@@ -184,6 +197,8 @@ ${
             errors:           [],
             recovery:         makeRecovery(),
             functionDepth:    0,
+            inAsync:          false,
+            inGenerator:      false,
         }
     }
 
@@ -560,15 +575,14 @@ ${
             return parseThrow(ctx)
         }
 
-        // An `await` / `yield` statement lead. M3.3 recognizes the keyword
-        // at STATEMENT position; integrating `await` / `yield` as operators
-        // inside a larger expression is M4 (see the file header).
-        if (kind == TokenKind.KwAwait) {
-            return parseAwaitStatement(ctx)
-        }
-        if (kind == TokenKind.KwYield) {
-            return parseYieldStatement(ctx)
-        }
+        // An `await` / `yield` statement lead — `await x;` / `yield x;`
+        // inside an async / generator body — is handled by
+        // parseExprStatement: the M4.1 expression grammar parses `await` (at
+        // unary precedence, gated on `ctx.inAsync`) and `yield` / `yield*`
+        // (at assignment precedence, gated on `ctx.inGenerator`) AS
+        // operators. M3.3 had a dedicated statement-lead path here; M4.1
+        // unifies statement-position and operator-position into the single
+        // expression-grammar implementation — NO `KwAwait`/`KwYield` branch.
 
         return parseExprStatement(ctx)
     }
@@ -1412,7 +1426,14 @@ ${
     // `return` inside the body — even in a deeply nested `{}` block — sees
     // depth >= 1 and is legal; a top-level `return` sees depth 0 and fires
     // E-STMT-RETURN-OUTSIDE-FUNCTION.
-    function parseFunctionBodyInline(ctx) {
+    //
+    // M4.1 — `isAsync` / `isGenerator` are the body's OWN async/generator
+    // scope. The body parses with `ctx.inAsync`/`ctx.inGenerator` set to this
+    // function's flags (so `await`/`yield` are operators inside it); the
+    // prior scope is saved and restored, mirroring the functionDepth inc/dec.
+    // A function ESTABLISHES its own scope — it does not inherit the
+    // enclosing function's.
+    function parseFunctionBodyInline(ctx, isAsync, isGenerator) {
         const cursor = ctx.cursor
 
         if (currentKind(cursor) != TokenKind.LBrace) {
@@ -1424,7 +1445,13 @@ ${
 
         const prior = enterMode(ctx, ParseMode.InFunctionBody)
         ctx.functionDepth = ctx.functionDepth + 1
+        const priorAsync = ctx.inAsync
+        const priorGenerator = ctx.inGenerator
+        ctx.inAsync = isAsync == true
+        ctx.inGenerator = isGenerator == true
         const body = parseStatementList(ctx, TokenKind.RBrace)
+        ctx.inAsync = priorAsync
+        ctx.inGenerator = priorGenerator
         ctx.functionDepth = ctx.functionDepth - 1
         exitMode(ctx, prior)
 
@@ -1474,7 +1501,8 @@ ${
         }
 
         const params = parseParamList(ctx)
-        const inline = parseFunctionBodyInline(ctx)
+        // M4.1 — the body parses in the function's own async/generator scope.
+        const inline = parseFunctionBodyInline(ctx, isAsync, isGenerator)
 
         const span = makeSpan(fnTok.span.start, inline.endPos, fnTok.span.line, fnTok.span.col)
         return makeFunctionDecl(name, params, inline.body, isAsync, isGenerator, span)
@@ -1620,7 +1648,10 @@ ${
         // A `(` after the name -> a method. Anything else -> a class field.
         if (currentKind(cursor) == TokenKind.LParen) {
             const params = parseParamList(ctx)
-            const inline = parseFunctionBodyInline(ctx)
+            // M4.1 — the method body parses in the method's own
+            // async/generator scope (`isAsync` from an `async` prefix,
+            // `isGenerator` from a `*`).
+            const inline = parseFunctionBodyInline(ctx, isAsync, isGenerator)
             const valueSpan = makeSpan(startSpan.start, inline.endPos, startSpan.line, startSpan.col)
             const value = makeInlineFunction(not, params, inline.body, isAsync, isGenerator, valueSpan)
 
@@ -2148,76 +2179,19 @@ ${
     }
 
     // ====================================================================
-    // await / yield — recognized as STATEMENT-LEAD expression operators.
-    // M3.3's scope: `await x;` / `yield x;` at statement position (inside an
-    // async / generator function body). Integrating `await` / `yield` as
-    // operators at unary precedence INSIDE a larger expression is M4 — the
-    // full bounded JS subset (see the file header).
+    // await / yield — M4.1 unifies statement-position and operator-position.
+    //
+    // M3.3 had dedicated parseAwaitStatement / parseYieldStatement +
+    // makeAwaitExpr / makeYieldExpr here — `await x;` / `yield x;` at
+    // statement position only. M4.1 promotes `Await` / `Yield` to real
+    // ExprKind members (ast-expr.scrml) and integrates them into the M2
+    // expression grammar (parse-expr's parseUnary / parseYieldExpr, gated on
+    // the ctx async/generator scope). An `await x;` statement is now just an
+    // expression statement — parseExprStatement → parseExpression handles it.
+    // The M3.3 statement-lead parsers + local makers are DELETED: one
+    // implementation, no divergence between statement-position and
+    // operator-position `await`/`yield`.
     // ====================================================================
-
-    // makeAwaitExpr / makeYieldExpr — the await / yield Expr-shaped nodes
-    // M3.3 produces at statement position. These ride the parse-stmt layer
-    // (the M2 expression AST has no Await / Yield ExprKind — `await` /
-    // `yield` join the expression grammar at M4).
-    function makeAwaitExpr(argument, span) {
-        return { kind: "Await", argument, span }
-    }
-    function makeYieldExpr(argument, delegate, span) {
-        return { kind: "Yield", argument, delegate, span }
-    }
-
-    // -- parseAwaitStatement — an `await argument;` expression statement --
-    export function parseAwaitStatement(ctx) {
-        const cursor = ctx.cursor
-        const kw = advance(cursor)
-
-        const prior = enterMode(ctx, ParseMode.InExpression)
-        const argument = parsePostfix(ctx)
-        exitMode(ctx, prior)
-        reenterBlockStubs(argument)
-
-        const prevTok = lastTokenBefore(ctx)
-        consumeSemicolon(ctx, prevTok)
-
-        const exprSpan = makeSpan(kw.span.start, nodeEnd(argument), kw.span.line, kw.span.col)
-        const awaitExpr = makeAwaitExpr(argument, exprSpan)
-        return makeExprStmt(awaitExpr, exprSpan)
-    }
-
-    // -- parseYieldStatement — a `yield argument;` / `yield* argument;` /
-    // bare `yield;` expression statement --
-    // `yield*` (delegate) yields each value of an iterable. A bare `yield`
-    // (no same-line argument) yields `undefined`.
-    export function parseYieldStatement(ctx) {
-        const cursor = ctx.cursor
-        const kw = advance(cursor)
-
-        let delegate = false
-        if (currentKind(cursor) == TokenKind.Star) {
-            advance(cursor)
-            delegate = true
-        }
-
-        let argument = not
-        let endE = kw.span.end
-        if (delegate == true || sameLineFollows(ctx, kw)) {
-            const prior = enterMode(ctx, ParseMode.InExpression)
-            argument = parsePostfix(ctx)
-            exitMode(ctx, prior)
-            reenterBlockStubs(argument)
-            endE = nodeEnd(argument)
-        }
-
-        const prevTok = lastTokenBefore(ctx)
-        consumeSemicolon(ctx, prevTok)
-        if (prevTok is not not && prevTok.span is not not && prevTok.span.end > endE) {
-            endE = prevTok.span.end
-        }
-
-        const exprSpan = makeSpan(kw.span.start, endE, kw.span.line, kw.span.col)
-        const yieldExpr = makeYieldExpr(argument, delegate, exprSpan)
-        return makeExprStmt(yieldExpr, exprSpan)
-    }
 
     // ====================================================================
     // BlockStub re-entry — THE load-bearing M3.1 mechanism.
@@ -2240,7 +2214,15 @@ ${
     // function-expr bodies, and match-arm block bodies all produce
     // BlockStubs via the same parse-expr capture, so one re-entry function
     // serves all three. Returns { body, errors }.
-    export function parseBlockStubBody(stub) {
+    //
+    // M4.1 — `isAsync` / `isGenerator` are the async/generator scope of the
+    // FUNCTION/ARROW whose body this BlockStub is. A block body parsed in
+    // parse-expr is captured as a token range, NOT parsed in-line — so the
+    // scope the enclosing function established does not reach the re-entered
+    // body. reenterBlockStubs threads the function's flags here so the
+    // re-parsed body sees `await`/`yield` as operators (both default false
+    // for a standalone re-entry / a match-arm body not inside a function).
+    export function parseBlockStubBody(stub, isAsync, isGenerator) {
         const stubTokens = (stub is not || stub.tokens is not) ? [] : stub.tokens
 
         // Append a synthetic EOF so the token-cursor terminates cleanly.
@@ -2272,6 +2254,10 @@ ${
         // block, where the depth counter (not the single-slot ParseMode) is
         // what proves function scope.
         ctx.functionDepth = 1
+        // M4.1 — seed the async/generator scope from the enclosing function
+        // so `await`/`yield` parse as operators inside the re-entered body.
+        ctx.inAsync = isAsync == true
+        ctx.inGenerator = isGenerator == true
         const body = parseStatementList(ctx, not)
         return { body, errors: ctx.errors }
     }
@@ -2282,34 +2268,68 @@ ${
     // function / match bodies are all BlockStubs becomes a fully-parsed
     // tree. Returns the count of stubs re-entered. Idempotent — a BlockStub
     // already carrying `.parsedBody` is skipped.
-    export function reenterBlockStubs(node) {
+    //
+    // M4.1 — `asyncScope` / `genScope` are the async/generator scope IN
+    // which the current `node` sits: a bare BlockStub reached here is
+    // re-parsed in that scope. When the walk descends INTO a Function /
+    // Arrow node, that node's `body` BlockStub is re-entered in the
+    // FUNCTION's OWN scope (`node.isAsync` / `node.isGenerator`; an arrow is
+    // never a generator). A Function/Arrow node's non-body children (params
+    // — default-value expressions) walk with scope reset (a param default
+    // with `await`/`yield` is a SyntaxError).
+    export function reenterBlockStubs(node, asyncScope, genScope) {
         let count = 0
         if (node is not || typeof node != "object") {
             return count
         }
+        const aScope = asyncScope == true
+        const gScope = genScope == true
 
         if (node.kind == "BlockStub") {
             if (node.parsedBody is not) {
-                const result = parseBlockStubBody(node)
+                const result = parseBlockStubBody(node, aScope, gScope)
                 node.parsedBody = result.body
                 node.bodyErrors = result.errors
                 count = count + 1
                 for (const stmt of node.parsedBody) {
-                    count = count + reenterBlockStubs(stmt)
+                    count = count + reenterBlockStubs(stmt, aScope, gScope)
                 }
             }
             return count
         }
 
-        // Generic structural walk — descend into every array / object child.
+        // A Function / Arrow node ESTABLISHES its own async/generator scope:
+        // its `body` BlockStub re-enters in (node.isAsync, node.isGenerator)
+        // — an arrow is never a generator. Its other children (params) walk
+        // with the scope reset.
+        if (node.kind == "Function" || node.kind == "Arrow") {
+            const bodyAsync = node.isAsync == true
+            const bodyGenerator = (node.kind == "Function") && node.isGenerator == true
+            for (const key of Object.keys(node)) {
+                const child = node[key]
+                const childAsync = (key == "body") ? bodyAsync : false
+                const childGen = (key == "body") ? bodyGenerator : false
+                if (Array.isArray(child)) {
+                    for (const el of child) {
+                        count = count + reenterBlockStubs(el, childAsync, childGen)
+                    }
+                } else if (child is not not && typeof child == "object") {
+                    count = count + reenterBlockStubs(child, childAsync, childGen)
+                }
+            }
+            return count
+        }
+
+        // Generic structural walk — descend into every array / object child,
+        // carrying the current scope through unchanged.
         for (const key of Object.keys(node)) {
             const child = node[key]
             if (Array.isArray(child)) {
                 for (const el of child) {
-                    count = count + reenterBlockStubs(el)
+                    count = count + reenterBlockStubs(el, aScope, gScope)
                 }
             } else if (child is not not && typeof child == "object") {
-                count = count + reenterBlockStubs(child)
+                count = count + reenterBlockStubs(child, aScope, gScope)
             }
         }
         return count

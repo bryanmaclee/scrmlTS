@@ -2,7 +2,7 @@
 // See span.js header for the .scrml<->.js duplication rationale.
 // PILLAR 5b classification mirrors parse-expr.scrml's header — see that file.
 //
-// SCOPE — M2.1 + M2.2 + M2.3 + M2.4 (M2 COMPLETE).
+// SCOPE — M2.1 + M2.2 + M2.3 + M2.4 (M2 COMPLETE) + M4.1 (async/generator).
 //   M2.1: PRIMARY EXPRESSIONS. M2.2: OPERATOR EXPRESSIONS — binary
 //   (precedence-climbing core), logical, unary prefix, update (++/--),
 //   assignment, conditional ?:, sequence ,.
@@ -19,6 +19,13 @@
 //   .Variant`), `match expr {}`, `render name()`, `lift expr`, `fail
 //   Type::Variant(args)`. These eliminate the 9 preprocessForAcorn
 //   Acorn-workaround classes (M2 gating criterion).
+//   M4.1: ASYNC / GENERATOR OPERATOR EXPRESSIONS (D5 MUST PARSE) — `await`
+//   as a unary-precedence operator (gated on `ctx.inAsync`); `yield` /
+//   `yield*` as an assignment-precedence operator (gated on
+//   `ctx.inGenerator`); the `function*` generator-flag full wiring onto
+//   function expressions + object methods (the M2.3 deferral). The
+//   async/generator scope is two ctx slots saved+set+restored at every
+//   function / arrow entry (makeParseExprContext + enterFunctionScope).
 //
 //   parseExpression is the single recursion seam (full sequence-level).
 //   parseAssignmentExpr is the no-comma entry used by element positions
@@ -46,19 +53,58 @@ import {
     makeNotValue, makeTilde, makeSql, makeInputStateRef, makeIsCheck,
     makeMatch, makeMatchArm, makeVariantPattern, makeWildcardPattern,
     makeIsPattern, makeMatchBinding, makeRender, makeLift, makeFail,
+    makeAwait, makeYield,
 } from "./ast-expr.js";
 
 // --- makeParseExprContext — parser state constructor ---
+// M4.1 — adds two ASYNC/GENERATOR SCOPE slots:
+//   - `inAsync`     — true iff the cursor is inside an `async` function body.
+//     `await` is an operator (parseUnary) only when this is true.
+//   - `inGenerator` — true iff the cursor is inside a `function*` body.
+//     `yield` / `yield*` are operators (parseAssignmentExpr) only when true.
+// These are NOT a ParseMode engine variant: ParseMode discriminates WHICH
+// grammar production runs (the object-vs-block `{` ambiguity, etc.); async /
+// generator scope is the orthogonal question "is `await`/`yield` a legal
+// operator here". Folding it into ParseMode forces a combinatorial
+// cross-product (InFunctionBody × {sync, async, gen, async-gen}) — the
+// variant explosion DD §D3 explicitly rejects. The slots mirror M3.4's
+// `functionDepth` pattern (a function-scoped slot saved+set+restored at
+// function entry/exit — see withFunctionScope). A standalone parseExpr call
+// starts OUTSIDE any function: both flags default false.
 export function makeParseExprContext(tokens) {
     return {
         cursor:           makeTokenCursor(tokens),
         currentParseMode: initialParseMode(),
         errors:           [],
+        inAsync:          false,
+        inGenerator:      false,
     };
 }
 
 export function recordError(ctx, code, message, span) {
     ctx.errors.push({ code, message, span });
+}
+
+// --- enterFunctionScope / exitFunctionScope — async/generator scope save +
+// set + restore (M4.1). Every JS function / arrow ESTABLISHES its OWN
+// async/generator scope — it does NOT inherit the enclosing function's
+// (Acorn-verified: a plain arrow / plain function nested inside an `async`
+// function CANNOT use `await`; a non-generator nested inside a generator
+// cannot `yield`). enterFunctionScope captures the prior {inAsync,
+// inGenerator}, sets the new pair, and returns the saved pair; the caller
+// passes it to exitFunctionScope on the function's exit. This mirrors
+// enterMode/exitMode (and M3.4's functionDepth save-restore). Arrows are
+// never generators — pass isGenerator false for an arrow.
+export function enterFunctionScope(ctx, isAsync, isGenerator) {
+    const prior = { inAsync: ctx.inAsync, inGenerator: ctx.inGenerator };
+    ctx.inAsync = isAsync === true;
+    ctx.inGenerator = isGenerator === true;
+    return prior;
+}
+
+export function exitFunctionScope(ctx, prior) {
+    ctx.inAsync = prior.inAsync;
+    ctx.inGenerator = prior.inGenerator;
 }
 
 // =============================================================================
@@ -187,10 +233,13 @@ const TWO_TOKEN_ASSIGN_OPS = Object.freeze({
 // inner positions (array / object / template / paren) re-enter.
 //
 //   parseExpression     level 1   sequence ,
-//   parseAssignmentExpr level 2   assignment = += ... (right-assoc)
+//   parseAssignmentExpr level 2   assignment = += ... (right-assoc); `yield`
+//                                 / `yield*` (M4.1 — yield is at THIS level,
+//                                 the lowest expression precedence)
 //   parseConditional    level 3   ?: ternary (right-assoc)
 //   parseBinary         levels 4-12 + logical — precedence-climbing core
-//   parseUnary          prefix ! - + ~ typeof void delete, prefix ++/--
+//   parseUnary          prefix ! - + ~ typeof void delete, prefix ++/--,
+//                                 `await` (M4.1 — await is at unary level)
 //   parseUpdate         postfix ++/--
 //   parsePostfix        M2.3 — arrow/function/new heads, atom + postfix chain
 //   parsePostfixChain   M2.3 — call / member / optional-chain / tagged-template
@@ -232,8 +281,20 @@ export function parseSequence(ctx) {
 //
 // This is the no-comma entry point — element positions call it directly so
 // a separating comma is not swallowed as a sequence.
+//
+// M4.1 — `yield` / `yield*` is a YieldExpression, an AssignmentExpression at
+// the ECMA-262 grammar level (the LOWEST expression precedence — below
+// conditional `?:`, so `yield a ? b : c` yields the whole conditional). It
+// is parsed HERE — at the head of this level — when the cursor is inside a
+// generator (`ctx.inGenerator`). Outside a generator a `yield` token would
+// reach parsePrimary and surface as an unhandled keyword.
 export function parseAssignmentExpr(ctx) {
     const cursor = ctx.cursor;
+
+    if (currentKind(cursor) === TokenKind.KwYield && ctx.inGenerator === true) {
+        return parseYieldExpr(ctx);
+    }
+
     const left = parseConditional(ctx);
 
     const assignInfo = matchAssignmentOperator(ctx);
@@ -331,6 +392,76 @@ export function parseConditional(ctx) {
 
     const span = spanOf(test, alternate);
     return makeConditional(test, consequent, alternate, span);
+}
+
+// --- parseYieldExpr — `yield` / `yield* argument` / bare `yield` (M4.1) ---
+// The caller (parseAssignmentExpr) has confirmed `KwYield` AND `ctx.inGenerator`.
+// `yield*` (the delegating form) ALWAYS takes an argument. A plain `yield`
+// takes an argument iff one follows on the SAME source line (the ECMA-262
+// no-LineTerminator restricted production — `yield⏎x` is a bare `yield` then
+// a separate `x`); a `yield` followed on the same line by a closer / a
+// separator (`)` `]` `}` `,` `;` `:`) is also bare (those cannot start an
+// expression). The argument is an assignment-level expression — so `yield a +
+// b` yields the sum, `yield a ? b : c` yields the conditional, `yield yield x`
+// nests. A bare `yield` (argument `null`) is a legal operand: `a + yield`.
+export function parseYieldExpr(ctx) {
+    const cursor = ctx.cursor;
+    const kw = advance(cursor);   // consume `yield`
+
+    // `yield*` — the delegating form. The `*` must be source-adjacent-ish; M1
+    // lexes it as a Star token. `yield *` (with whitespace) is still the
+    // delegating form per ECMA-262 (no no-LineTerminator restriction on the
+    // `*` itself — only the same-line check below, applied to `yield*` too).
+    let delegate = false;
+    if (currentKind(cursor) === TokenKind.Star) {
+        advance(cursor);   // consume *
+        delegate = true;
+    }
+
+    // `yield*` ALWAYS takes an operand; a plain `yield` takes one only when an
+    // argument follows on the same line. When `yield*` has nothing to
+    // delegate to, ECMA-262 still requires an operand — record the diagnostic
+    // but keep the parse well-formed (the no-throw discipline).
+    const argPresent = yieldArgFollows(ctx, kw);
+    if (delegate === true && argPresent === false) {
+        recordError(ctx, "E-EXPR-YIELD-STAR-NO-ARG",
+            "'yield*' requires an operand", kw.span);
+    }
+
+    let argument = null;
+    let endE = kw.span.end;
+    if (argPresent === true) {
+        argument = parseAssignmentExpr(ctx);
+        endE = endOf(argument);
+    }
+
+    const span = makeSpan(kw.span.start, endE, kw.span.line, kw.span.col);
+    return makeYield(argument, delegate, span);
+}
+
+// --- yieldArgFollows — does an argument follow a bare `yield`? (M4.1) ---
+// True iff the token after `yield` is on the SAME source line as the `yield`
+// keyword AND is not a closer / separator. Used by parseYieldExpr to apply
+// the ECMA-262 no-LineTerminator restricted production for the optional
+// `yield` argument.
+function yieldArgFollows(ctx, kwTok) {
+    const cursor = ctx.cursor;
+    const here = current(cursor);
+    if (here === undefined || here === null || here.span === undefined) {
+        return false;
+    }
+    // A different source line — the restricted production: bare `yield`.
+    if (here.span.line !== kwTok.span.line) {
+        return false;
+    }
+    const k = here.kind;
+    // Closers + separators cannot start an expression — bare `yield`.
+    if (k === TokenKind.RParen || k === TokenKind.RBracket || k === TokenKind.RBrace
+        || k === TokenKind.Comma || k === TokenKind.Semicolon || k === TokenKind.Colon
+        || k === TokenKind.Eof) {
+        return false;
+    }
+    return true;
 }
 
 // --- isUnparenthesizedLogical — is `node` a Logical node with op in `ops`? ---
@@ -457,6 +588,25 @@ export function parseBinary(ctx, minPrec) {
 export function parseUnary(ctx) {
     const cursor = ctx.cursor;
     const kind = currentKind(cursor);
+
+    // M4.1 — `await operand` (AwaitExpression). `await` is a unary-precedence
+    // operator: it binds tighter than every binary operator (`await a + b` is
+    // `(await a) + b`) and its operand is a UnaryExpression (`await -x`,
+    // `await typeof x`, `await await x` all parse). It is recognized here —
+    // at unary level — when the cursor is inside an async function body
+    // (`ctx.inAsync`). Like every other prefix unary it cannot be the
+    // un-parenthesized left of `**` (`await a ** b` is a SyntaxError).
+    if (kind === TokenKind.KwAwait && ctx.inAsync === true) {
+        const opTok = advance(cursor);   // consume `await`
+        const operand = parseUnary(ctx);
+        const span = makeSpan(opTok.span.start, endOf(operand), opTok.span.line, opTok.span.col);
+        if (currentKind(cursor) === TokenKind.StarStar) {
+            recordError(ctx, "E-EXPR-UNARY-EXPONENT",
+                "'await' cannot directly precede '**'; wrap the operand in parentheses",
+                current(cursor).span);
+        }
+        return makeAwait(operand, span);
+    }
 
     // Prefix update operators ++ / --
     if (kind === TokenKind.Increment || kind === TokenKind.Decrement) {
@@ -1070,6 +1220,14 @@ export function parseParenArrow(ctx, isAsync, headStartTok) {
 // --- finishArrow — consume `=>` and the body; build the Arrow node ---
 // The body is concise (an expression) UNLESS it opens with `{`, in which case
 // it is a block body captured as a BlockStub (M3 parses the statements).
+//
+// M4.1 — an arrow ESTABLISHES its own async scope. `inAsync` is the arrow's
+// own `async` flag; `inGenerator` is ALWAYS false (an arrow is never a
+// generator — there is no `async function*`-shaped arrow). The scope is set
+// for the duration of the body parse: a CONCISE body is parsed in-line here
+// (`async () => await x` needs `inAsync` for that parse); a BLOCK body is a
+// BlockStub whose statements M3's reenterBlockStubs re-parses later — the
+// Arrow node carries `isAsync` so that re-entry re-derives the scope.
 export function finishArrow(ctx, params, isAsync, headStartTok) {
     const cursor = ctx.cursor;
 
@@ -1081,7 +1239,10 @@ export function finishArrow(ctx, params, isAsync, headStartTok) {
         recordError(ctx, "E-EXPR-ARROW-EXPECTED", "expected '=>' in arrow function", span);
     }
 
+    const scopePrior = enterFunctionScope(ctx, isAsync, false);
     const body = parseArrowOrFunctionBody(ctx, true);
+    exitFunctionScope(ctx, scopePrior);
+
     const startPos = (headStartTok === undefined || headStartTok === null || headStartTok.span === undefined)
         ? startOf(body) : headStartTok.span.start;
     const startLine = (headStartTok === undefined || headStartTok === null || headStartTok.span === undefined)
@@ -1094,16 +1255,26 @@ export function finishArrow(ctx, params, isAsync, headStartTok) {
 
 // --- parseFunctionExpr — `function name?(params) { ... }` ---
 // `async` is consumed by the caller (parsePostfix). The block body is a
-// BlockStub (M3 parses the statements). A leading `*` (generator) is consumed
-// if present so the head parse stays in sync — generator semantics are an M4
-// concern (the Function node carries no generator flag at M2.3).
+// BlockStub (M3 parses the statements).
+//
+// M4.1 — the `function*` generator `*` is now WIRED: `isGenerator` is
+// recorded onto the Function node (M2.3 consumed the `*` to keep the head
+// parse in sync but discarded the flag — a documented M2.3 deferral). A
+// function expression establishes its OWN async/generator scope: `inAsync`
+// from its `async` keyword, `inGenerator` from its `*`. The scope is set for
+// the BODY parse only (not the param list — `await`/`yield` in a param
+// default is a SyntaxError, Acorn-verified, so param defaults stay
+// out-of-scope). The body is a BlockStub; the Function node carries
+// `isAsync`/`isGenerator` so M3's reenterBlockStubs re-derives the scope.
 export function parseFunctionExpr(ctx, isAsync) {
     const cursor = ctx.cursor;
     const fnTok = advance(cursor);   // consume `function`
 
-    // A `function*` generator — consume the `*` so the head stays in sync.
+    // A `function*` generator — consume the `*` and RECORD the flag (M4.1).
+    let isGenerator = false;
     if (currentKind(cursor) === TokenKind.Star) {
         advance(cursor);
+        isGenerator = true;
     }
 
     // Optional name — a function expression may be named or anonymous.
@@ -1114,9 +1285,11 @@ export function parseFunctionExpr(ctx, isAsync) {
     }
 
     const params = parseParamList(ctx);
+    const scopePrior = enterFunctionScope(ctx, isAsync, isGenerator);
     const body = parseArrowOrFunctionBody(ctx, false);
+    exitFunctionScope(ctx, scopePrior);
     const span = makeSpan(fnTok.span.start, endOf(body), fnTok.span.line, fnTok.span.col);
-    return makeFunction(name, params, body, isAsync, span);
+    return makeFunction(name, params, body, isAsync, isGenerator, span);
 }
 
 // --- parseArrowOrFunctionBody — concise expression body OR a BlockStub ---
@@ -2156,14 +2329,32 @@ export function parseObjectLiteral(ctx) {
 export function parseObjectProperty(ctx) {
     const cursor = ctx.cursor;
 
-    // --- `async` method prefix — `{ async foo() { ... } }`. `async` lexes
-    // as KwAsync; it is an async-method prefix only when the token after it
-    // is a property-key start AND the one after THAT is `(` / `[` (i.e. a
-    // method follows). Otherwise `async` is itself a property key. ---
-    if (currentKind(cursor) === TokenKind.KwAsync && isMethodPrefixAhead(cursor)) {
+    // --- `async` method prefix — `{ async foo() { ... } }` / `{ async
+    // *gen() {} }`. `async` lexes as KwAsync; it is an async-method prefix
+    // only when a method-shaped key follows (possibly via a `*` generator
+    // marker — an `async *` async-generator method). Otherwise `async` is
+    // itself a property key (`{ async: 1 }`). M4.1 adds the `async *` case. ---
+    if (currentKind(cursor) === TokenKind.KwAsync
+        && (isMethodPrefixAhead(cursor) || isGeneratorMethodPrefixAhead(cursor))) {
         advance(cursor);   // consume `async`
+        let isGen = false;
+        if (currentKind(cursor) === TokenKind.Star) {
+            advance(cursor);   // consume `*` — an async-generator method
+            isGen = true;
+        }
         const keyInfo = parseObjectPropertyKey(ctx);
-        const fn = parseMethodTail(ctx, true);
+        const fn = parseMethodTail(ctx, true, isGen);
+        return makeObjectMethod(keyInfo.key, fn, keyInfo.computed, "init");
+    }
+
+    // --- `*` generator method prefix — `{ *gen() {} }` (M4.1). `*` lexes as
+    // a Star token; it is a generator-method prefix when a method-shaped key
+    // follows. (A bare `*` cannot otherwise begin an object-literal property,
+    // so no disambiguation against a `*`-named property is needed.) ---
+    if (currentKind(cursor) === TokenKind.Star && isMethodPrefixAhead(cursor)) {
+        advance(cursor);   // consume `*`
+        const keyInfo = parseObjectPropertyKey(ctx);
+        const fn = parseMethodTail(ctx, false, true);
         return makeObjectMethod(keyInfo.key, fn, keyInfo.computed, "init");
     }
 
@@ -2176,7 +2367,7 @@ export function parseObjectProperty(ctx) {
         if ((word === "get" || word === "set") && isMethodPrefixAhead(cursor)) {
             advance(cursor);   // consume `get` / `set`
             const keyInfo = parseObjectPropertyKey(ctx);
-            const fn = parseMethodTail(ctx, false);
+            const fn = parseMethodTail(ctx, false, false);
             return makeObjectMethod(keyInfo.key, fn, keyInfo.computed, word);
         }
     }
@@ -2192,7 +2383,7 @@ export function parseObjectProperty(ctx) {
 
     // `key( ... ) { ... }` — a method.
     if (afterKind === TokenKind.LParen) {
-        const fn = parseMethodTail(ctx, false);
+        const fn = parseMethodTail(ctx, false, false);
         return makeObjectMethod(keyNode, fn, computed, "init");
     }
 
@@ -2279,20 +2470,49 @@ export function isMethodPrefixAhead(cursor) {
     return peekKind(cursor, 2) === TokenKind.LParen;
 }
 
+// --- isGeneratorMethodPrefixAhead — does an `async * key(...)` async-
+// generator method follow the cursor? (M4.1) The cursor is at the `async`
+// keyword. The shape is `async`, `*`, a key-start, then `(` / `[`. Used by
+// parseObjectProperty to recognize the `async *` async-generator object
+// method (the `*` alone is handled by the dedicated `*`-prefix branch). ---
+export function isGeneratorMethodPrefixAhead(cursor) {
+    if (peekKind(cursor, 1) !== TokenKind.Star) {
+        return false;
+    }
+    const k2 = peekKind(cursor, 2);
+    if (k2 === TokenKind.LBracket) {
+        return true;
+    }
+    const keyIsSimple = (k2 === TokenKind.Ident || k2 === TokenKind.StringLit
+        || k2 === TokenKind.NumberLit || isKeywordKind(k2));
+    if (keyIsSimple === false) {
+        return false;
+    }
+    return peekKind(cursor, 3) === TokenKind.LParen;
+}
+
 // --- parseMethodTail — `( params ) { ... }` for an object method / accessor ---
 // Returns a Function node (no `function` keyword in the source, but the same
 // node shape: params + block-stub body). The block body is a BlockStub (M3
 // parses the statements). `name` is `not` — an object method's name is its
 // property key, carried by the enclosing ObjectProperty.
-export function parseMethodTail(ctx, isAsync) {
+//
+// M4.1 — a method establishes its own async/generator scope (`isAsync` from
+// an `async` method prefix, `isGenerator` from a `*` method prefix). The
+// scope is set for the body parse; the Function node carries the flags so
+// M3's reenterBlockStubs re-derives the scope for the BlockStub body. A
+// getter / setter is never async / generator (the caller passes false/false).
+export function parseMethodTail(ctx, isAsync, isGenerator) {
     const cursor = ctx.cursor;
     const params = parseParamList(ctx);
+    const scopePrior = enterFunctionScope(ctx, isAsync, isGenerator);
     const body = parseArrowOrFunctionBody(ctx, false);
+    exitFunctionScope(ctx, scopePrior);
     const startPos = (params.length > 0) ? startOf(params[0]) : startOf(body);
     const startLine = (params.length > 0) ? lineOf(params[0]) : lineOf(body);
     const startCol = (params.length > 0) ? colOf(params[0]) : colOf(body);
     const span = makeSpan(startPos, endOf(body), startLine, startCol);
-    return makeFunction(null, params, body, isAsync, span);
+    return makeFunction(null, params, body, isAsync, isGenerator === true, span);
 }
 
 // --- parseTemplateLiteral — reassemble M1's template token run ---

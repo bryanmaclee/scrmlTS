@@ -57,6 +57,14 @@ export const ExprKind = Object.freeze({
     Render:        "Render",         // `render name(args)` (§14.9)
     Lift:          "Lift",           // `lift expr` (§10)
     Fail:          "Fail",           // `fail Type::Variant(args)` (§19)
+
+    // async / generator operator expressions (M4.1 — D5 MUST PARSE).
+    // M3.3 produced Await/Yield as untyped {kind:"Await"}/{kind:"Yield"}
+    // nodes at STATEMENT position only (a local parse-stmt shape, NOT in
+    // ExprKind); M4.1 PROMOTES them into the catalog so the M2 expression
+    // grammar can build them as operators inside a larger expression.
+    Await: "Await",                  // `await expr` (unary-prec; §13 / D5)
+    Yield: "Yield",                  // `yield expr` / `yield* expr` (§37 / D5)
 });
 
 export const ArrayElementKind = Object.freeze({
@@ -222,8 +230,13 @@ export function makeMember(object, property, computed, optional, span) {
 export function makeArrow(params, body, isAsync, span) {
     return { kind: ExprKind.Arrow, params, body, isAsync, span };
 }
-export function makeFunction(name, params, body, isAsync, span) {
-    return { kind: ExprKind.Function, name, params, body, isAsync, span };
+// makeFunction — function expression. `body` is a BlockStub (M3 parses the
+// statement body). `name` is `not` for an anonymous function. `isGenerator`
+// (M4.1) is true for a `function*` generator-function expression; the
+// generator flag was a documented M2.3 deferral — M2.3 consumed the `*` to
+// keep the head parse in sync but discarded the flag, which M4.1 now wires.
+export function makeFunction(name, params, body, isAsync, isGenerator, span) {
+    return { kind: ExprKind.Function, name, params, body, isAsync, isGenerator, span };
 }
 
 // makeTaggedTemplate — tagged template `tag`...``. `tag` is the callee Expr;
@@ -360,6 +373,37 @@ export function makeLift(argument, span) {
 // `fail` requires an `!` function) is a later-stage concern.
 export function makeFail(variant, span) {
     return { kind: ExprKind.Fail, variant, span };
+}
+
+// --- async / generator operator-expression constructors (M4.1 — D5 MUST
+// PARSE). Calculation (pure fns over already-confirmed parts; DD §D1). ---
+
+// makeAwait — an `await argument` expression (§13). `await` is a UNARY-
+// precedence operator: it binds tighter than every binary operator
+// (`await a + b` is `(await a) + b`) and, like a prefix unary, cannot be the
+// un-parenthesized left operand of `**`. `await` is legal only inside an
+// async function body (or — with the Acorn `allowAwaitOutsideFunction`
+// option — at module top level). M4.1's expression grammar consults the
+// parse context's async-scope flag to decide when `await` is an operator;
+// the §13.1 "developer SHALL NOT write await" rule is a LATER-STAGE
+// diagnostic, not a parse concern. The conformance normalizer maps this to
+// ESTree's AwaitExpression.
+export function makeAwait(argument, span) {
+    return { kind: ExprKind.Await, argument, span };
+}
+
+// makeYield — a `yield argument` / `yield* argument` / bare `yield`
+// expression (§37). `yield` is an ASSIGNMENT-precedence operator — the
+// LOWEST expression precedence, below conditional `?:` (`yield a ? b : c`
+// yields the whole conditional). `delegate` is true for the `yield*`
+// delegating form (yields each value of an iterable). `argument` is `not`
+// for a bare `yield` (yield-undefined — valid as an operand, e.g. `a +
+// yield`). `yield` is legal only inside a generator (`function*`) body;
+// `yield` outside a generator is E-SSE-001, a SEMANTIC check (not a parse
+// error — the form still parses). The conformance normalizer maps this to
+// ESTree's YieldExpression.
+export function makeYield(argument, delegate, span) {
+    return { kind: ExprKind.Yield, argument, delegate, span };
 }
 
 // --- isExpr — predicate ---

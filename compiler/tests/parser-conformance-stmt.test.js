@@ -213,11 +213,15 @@ function nativeExprToEstree(node) {
             body: nativeArrowBody(node.body),
         };
     }
-    // `await` / `yield` Expr-shaped nodes the M3.3 statement parser produces.
-    if (node.kind === "Await") {
+    // `await` / `yield` Expr nodes. M3.3 produced these at statement position
+    // as untyped {kind:"Await"}/{kind:"Yield"}; M4.1 promoted them to real
+    // ExprKind members (Await / Yield) + integrated them as operators inside
+    // the expression grammar. The node `.kind` string is unchanged ("Await" /
+    // "Yield") — ExprKind.Await / ExprKind.Yield ARE those strings.
+    if (node.kind === ExprKind.Await) {
         return { type: "AwaitExpression", argument: nativeExprToEstree(node.argument) };
     }
-    if (node.kind === "Yield") {
+    if (node.kind === ExprKind.Yield) {
         return {
             type: "YieldExpression",
             delegate: node.delegate === true,
@@ -2778,5 +2782,313 @@ describe("M3.4 statement-parser — panic-mode re-synchronization", () => {
             const r = parseWithNative(c.src);
             expect(r.errors.map((e) => e.code)).not.toContain("E-STMT-UNEXPECTED-TOKEN");
         }
+    });
+});
+
+// =============================================================================
+// M4.1 — async / generator (await/yield as OPERATORS, function* full wiring).
+//
+// M3.3 recognized `await`/`yield` at STATEMENT position only and deferred the
+// operator-position integration to M4. M4.1 promotes `Await`/`Yield` to real
+// ExprKind members + integrates them into the M2 expression grammar — `await`
+// at unary precedence (gated on the async scope), `yield`/`yield*` at
+// assignment precedence (gated on the generator scope). The async/generator
+// scope is two ctx slots saved+set+restored at every function/arrow entry.
+//
+// Conformance ACORN_OPTS is { ecmaVersion:2025, sourceType:"module" } — NO
+// `allowAwaitOutsideFunction`. So `await`/`yield` as operators are Acorn-legal
+// ONLY inside an async/generator function body — every M4_1_CORPUS entry wraps
+// them in one. Top-level await/yield + scope-boundary rejections are exercised
+// in the native-shape describe blocks below (Acorn rejects them, so they are
+// not Acorn-diffable).
+// =============================================================================
+const M4_1_CORPUS = [
+    // --- `await` as an operator inside an async function body ---
+    { name: "await — in a let initializer",      src: "async function f() { let x = await g(); }" },
+    { name: "await — in a return",               src: "async function f() { return await g(); }" },
+    { name: "await — in a const destructuring",  src: "async function f() { const [a, b] = await pair(); }" },
+    { name: "await — binds tighter than +",      src: "async function f() { let x = await a + b; }" },
+    { name: "await — of a member-call chain",    src: "async function f() { let x = await obj.fetch(id); }" },
+    { name: "await — as an if test",             src: "async function f() { if (await ready()) { go(); } }" },
+    { name: "await — nested await await",        src: "async function f() { let x = await await deep(); }" },
+    { name: "await — operand is a unary expr",   src: "async function f() { let x = await -count(); }" },
+    { name: "await — inside a for-of right",     src: "async function f() { for (const x of await items()) { use(x); } }" },
+    { name: "await — two awaits in a body",      src: "async function f() { let a = await one(); let b = await two(); }" },
+    { name: "await — statement-position lead",   src: "async function f() { await flush(); }" },
+    { name: "await — in an async arrow concise", src: "const f = async () => await load();" },
+    { name: "await — in an async arrow block",   src: "const f = async () => { return await load(); };" },
+    { name: "await — in an async method body",   src: "class C { async load() { return await fetch(); } }" },
+
+    // --- `yield` / `yield*` as an operator inside a generator body ---
+    { name: "yield — in a let initializer",      src: "function* g() { let v = yield x; }" },
+    { name: "yield — in an assignment",          src: "function* g() { let v; v = yield next(); }" },
+    { name: "yield — binds below +",             src: "function* g() { let v = yield a + b; }" },
+    { name: "yield — binds below conditional",   src: "function* g() { let v = yield a ? b : c; }" },
+    { name: "yield — bare, as a binary operand", src: "function* g() { let v = (yield) + 1; }" },
+    { name: "yield — nested yield yield",        src: "function* g() { let v = yield yield x; }" },
+    { name: "yield — statement-position lead",   src: "function* g() { yield 1; }" },
+    { name: "yield — bare statement",            src: "function* g() { yield; }" },
+    { name: "yield* — delegate in initializer",  src: "function* g() { let v = yield* inner(); }" },
+    { name: "yield* — delegate statement",       src: "function* g() { yield* other(); }" },
+    { name: "yield — two yields in a body",      src: "function* g() { yield 1; yield 2; }" },
+
+    // --- `function*` generator-function expressions ---
+    { name: "function* — expr in a let",         src: "let g = function* () { yield 1; };" },
+    { name: "function* — named expr",            src: "let g = function* named() { yield 1; };" },
+    { name: "function* — IIFE",                  src: "(function* () { yield 1; })();" },
+    { name: "async function* — expr",            src: "let ag = async function* () { yield await x(); };" },
+
+    // --- object-literal generator methods ---
+    { name: "object — generator method",         src: "let o = { *gen() { yield 1; } };" },
+    { name: "object — async generator method",   src: "let o = { async *ag() { yield await x(); } };" },
+    { name: "object — async method",             src: "let o = { async load() { return await f(); } };" },
+    { name: "object — computed generator method", src: "let o = { *['k']() { yield 1; } };" },
+
+    // --- `for await ... of` ---
+    { name: "for await — in an async function",  src: "async function f() { for await (const c of stream()) { read(c); } }" },
+    { name: "for await — in an async generator", src: "async function* ag() { for await (const c of stream()) { yield c; } }" },
+
+    // --- async generator: await + yield mixed ---
+    { name: "async generator — yield await",     src: "async function* ag() { let v = yield await x(); }" },
+    { name: "async generator — await then yield", src: "async function* ag() { let a = await one(); yield a; }" },
+
+    // --- nesting: scope reset / re-establish across function boundaries ---
+    { name: "nested — async inside async",       src: "async function o() { async function i() { return await x(); } }" },
+    { name: "nested — async arrow in async fn",  src: "async function o() { const f = async () => await y(); }" },
+    { name: "nested — generator in generator",   src: "function* o() { function* i() { yield 1; } }" },
+    { name: "nested — sync fn in async fn",      src: "async function o() { function i() { return 1; } return await i(); }" },
+    { name: "nested — async generator method in class", src: "class C { async *stream() { yield await next(); } }" },
+];
+
+describe("M4.1 async/generator — conformance Tier 1 (node-kind sequence)", () => {
+    for (const c of M4_1_CORPUS) {
+        test(`(tier1) ${c.name}`, () => {
+            const a = parseWithAcorn(c.src);
+            const n = parseWithNative(c.src);
+
+            expect(a.ok).toBe(true);
+            expect(n.ok).toBe(true);
+            // A clean async/generator program reports NO diagnostics.
+            expect(n.errors).toEqual([]);
+
+            const acornSeq = nodeKindSequence(a.ast);
+            const nativeSeq = nodeKindSequence(nativeProgramToEstree(n.body));
+            expect(nativeSeq).toEqual(acornSeq);
+        });
+    }
+});
+
+describe("M4.1 async/generator — conformance Tier 2 (identifier / literal / flag values)", () => {
+    for (const c of M4_1_CORPUS) {
+        test(`(tier2) ${c.name}`, () => {
+            const a = parseWithAcorn(c.src);
+            const n = parseWithNative(c.src);
+
+            expect(a.ok).toBe(true);
+            expect(n.ok).toBe(true);
+
+            const acornVals = valueSequence(a.ast);
+            const nativeVals = valueSequence(nativeProgramToEstree(n.body));
+            expect(nativeVals).toEqual(acornVals);
+        });
+    }
+});
+
+// -----------------------------------------------------------------------------
+// M4.1 — native AST shape. Direct assertions on the native parser's nodes:
+// the Await / Yield ExprKind, the `delegate` flag, the `function*` isGenerator
+// flag. These are the M3.3-promoted statement-position cases re-verified via
+// the unified expression-grammar path PLUS the new operator-position cases.
+// -----------------------------------------------------------------------------
+describe("M4.1 async/generator — native AST shape", () => {
+    test("await operator in a let-init is an Await node wrapping the operand", () => {
+        const r = parseWithNative("async function f() { let x = await getData(); }");
+        expect(r.errors).toEqual([]);
+        const init = r.body[0].body[0].declarations[0].init;
+        expect(init.kind).toBe(ExprKind.Await);
+        expect(init.argument.kind).toBe(ExprKind.Call);
+    });
+
+    test("await binds tighter than + — `await a + b` is Binary(Await(a), +, b)", () => {
+        const r = parseWithNative("async function f() { let x = await a + b; }");
+        expect(r.errors).toEqual([]);
+        const init = r.body[0].body[0].declarations[0].init;
+        expect(init.kind).toBe(ExprKind.Binary);
+        expect(init.op).toBe("+");
+        expect(init.left.kind).toBe(ExprKind.Await);
+        expect(init.right.kind).toBe(ExprKind.Ident);
+    });
+
+    test("await in a return position is an Await node", () => {
+        const r = parseWithNative("async function f() { return await g(); }");
+        expect(r.errors).toEqual([]);
+        const ret = r.body[0].body[0];
+        expect(ret.kind).toBe(StmtKind.Return);
+        expect(ret.argument.kind).toBe(ExprKind.Await);
+    });
+
+    test("nested `await await x` is an Await wrapping an Await", () => {
+        const r = parseWithNative("async function f() { let x = await await deep(); }");
+        expect(r.errors).toEqual([]);
+        const init = r.body[0].body[0].declarations[0].init;
+        expect(init.kind).toBe(ExprKind.Await);
+        expect(init.argument.kind).toBe(ExprKind.Await);
+    });
+
+    test("yield operator in a let-init is a Yield node, delegate false", () => {
+        const r = parseWithNative("function* g() { let v = yield next(); }");
+        expect(r.errors).toEqual([]);
+        const init = r.body[0].body[0].declarations[0].init;
+        expect(init.kind).toBe(ExprKind.Yield);
+        expect(init.delegate).toBe(false);
+        expect(init.argument.kind).toBe(ExprKind.Call);
+    });
+
+    test("yield* operator in a let-init is a Yield node, delegate true", () => {
+        const r = parseWithNative("function* g() { let v = yield* inner(); }");
+        expect(r.errors).toEqual([]);
+        const init = r.body[0].body[0].declarations[0].init;
+        expect(init.kind).toBe(ExprKind.Yield);
+        expect(init.delegate).toBe(true);
+    });
+
+    test("yield binds below + — `yield a + b` yields the whole sum", () => {
+        const r = parseWithNative("function* g() { let v = yield a + b; }");
+        expect(r.errors).toEqual([]);
+        const init = r.body[0].body[0].declarations[0].init;
+        expect(init.kind).toBe(ExprKind.Yield);
+        expect(init.argument.kind).toBe(ExprKind.Binary);
+    });
+
+    test("yield binds below `?:` — `yield a ? b : c` yields the conditional", () => {
+        const r = parseWithNative("function* g() { let v = yield a ? b : c; }");
+        expect(r.errors).toEqual([]);
+        const init = r.body[0].body[0].declarations[0].init;
+        expect(init.kind).toBe(ExprKind.Yield);
+        expect(init.argument.kind).toBe(ExprKind.Conditional);
+    });
+
+    test("a bare `yield` is a Yield node with no argument", () => {
+        const r = parseWithNative("function* g() { let v = (yield) + 1; }");
+        expect(r.errors).toEqual([]);
+        const init = r.body[0].body[0].declarations[0].init;
+        expect(init.kind).toBe(ExprKind.Binary);
+        const y = init.left.expression;   // Paren wraps the bare yield
+        expect(y.kind).toBe(ExprKind.Yield);
+        expect(y.argument === undefined || y.argument === null).toBe(true);
+    });
+
+    test("a `function*` expression carries isGenerator true", () => {
+        const r = parseWithNative("let g = function* () { yield 1; };");
+        expect(r.errors).toEqual([]);
+        const fn = r.body[0].declarations[0].init;
+        expect(fn.kind).toBe(ExprKind.Function);
+        expect(fn.isGenerator).toBe(true);
+        expect(fn.isAsync).toBe(false);
+    });
+
+    test("an `async function*` expression carries isAsync + isGenerator", () => {
+        const r = parseWithNative("let ag = async function* () { yield await x(); };");
+        expect(r.errors).toEqual([]);
+        const fn = r.body[0].declarations[0].init;
+        expect(fn.kind).toBe(ExprKind.Function);
+        expect(fn.isAsync).toBe(true);
+        expect(fn.isGenerator).toBe(true);
+    });
+
+    test("a plain `function` expression carries isGenerator false", () => {
+        const r = parseWithNative("let g = function () { return 1; };");
+        expect(r.errors).toEqual([]);
+        const fn = r.body[0].declarations[0].init;
+        expect(fn.kind).toBe(ExprKind.Function);
+        expect(fn.isGenerator).toBe(false);
+    });
+
+    test("an object-literal generator method carries isGenerator true", () => {
+        const r = parseWithNative("let o = { *gen() { yield 1; } };");
+        expect(r.errors).toEqual([]);
+        const method = r.body[0].declarations[0].init.properties[0];
+        expect(method.kind).toBe("Method");
+        expect(method.value.isGenerator).toBe(true);
+        expect(method.value.isAsync).toBe(false);
+    });
+
+    test("an object-literal async generator method carries isAsync + isGenerator", () => {
+        const r = parseWithNative("let o = { async *ag() { yield await x(); } };");
+        expect(r.errors).toEqual([]);
+        const method = r.body[0].declarations[0].init.properties[0];
+        expect(method.kind).toBe("Method");
+        expect(method.value.isAsync).toBe(true);
+        expect(method.value.isGenerator).toBe(true);
+    });
+
+    test("a generator function declaration carries isGenerator true", () => {
+        const r = parseWithNative("function* gen() { yield 1; }");
+        expect(r.errors).toEqual([]);
+        expect(r.body[0].kind).toBe(StmtKind.FunctionDecl);
+        expect(r.body[0].isGenerator).toBe(true);
+    });
+});
+
+// -----------------------------------------------------------------------------
+// M4.1 — async/generator SCOPE BOUNDARY. `await`/`yield` are operators ONLY
+// inside the matching function scope. A function ESTABLISHES its own scope —
+// it does NOT inherit the enclosing function's (Acorn-verified). Outside the
+// scope the keyword reaches parsePrimary unhandled and the parse records a
+// diagnostic (no throw — the no-throw discipline). Acorn rejects all of these
+// too, so they are exercised native-only (not Acorn-diffable).
+// -----------------------------------------------------------------------------
+describe("M4.1 async/generator — scope boundary (await/yield gated on scope)", () => {
+    test("`await` in a plain (non-async) function is a parse error", () => {
+        const r = parseWithNative("function f() { let x = await g(); }");
+        expect(r.ok).toBe(true);          // no throw
+        expect(r.errors.length).toBeGreaterThan(0);
+    });
+
+    test("`yield` in a plain (non-generator) function is a parse error", () => {
+        const r = parseWithNative("function f() { let v = yield x; }");
+        expect(r.ok).toBe(true);
+        expect(r.errors.length).toBeGreaterThan(0);
+    });
+
+    test("a plain arrow inside an async function cannot use `await`", () => {
+        // The arrow ESTABLISHES its own scope — a non-async arrow resets
+        // inAsync to false, so `await` inside it is out-of-scope.
+        const r = parseWithNative("async function o() { const f = () => await x; }");
+        expect(r.ok).toBe(true);
+        expect(r.errors.length).toBeGreaterThan(0);
+    });
+
+    test("a sync function nested in an async function cannot use `await`", () => {
+        const r = parseWithNative("async function o() { function i() { return await x; } }");
+        expect(r.ok).toBe(true);
+        expect(r.errors.length).toBeGreaterThan(0);
+    });
+
+    test("a non-generator function nested in a generator cannot use `yield`", () => {
+        const r = parseWithNative("function* o() { function i() { let v = yield x; } }");
+        expect(r.ok).toBe(true);
+        expect(r.errors.length).toBeGreaterThan(0);
+    });
+
+    test("a non-async generator body permits `yield` but not `await`", () => {
+        // `function* g` is a generator but NOT async — `yield` is an
+        // operator, `await` is not.
+        const ok = parseWithNative("function* g() { let v = yield x; }");
+        expect(ok.errors).toEqual([]);
+        const bad = parseWithNative("function* g() { let v = await x; }");
+        expect(bad.errors.length).toBeGreaterThan(0);
+    });
+
+    test("the async scope is restored after a nested function returns", () => {
+        // `await` works in the outer body, the nested sync fn rejects it,
+        // and `await` works AGAIN in the outer body after the nested fn —
+        // the scope save/restore round-trips.
+        const r = parseWithNative(
+            "async function o() { let a = await one(); function i() {} let b = await two(); }");
+        expect(r.errors).toEqual([]);
+        const body = r.body[0].body;
+        expect(body[0].declarations[0].init.kind).toBe(ExprKind.Await);
+        expect(body[2].declarations[0].init.kind).toBe(ExprKind.Await);
     });
 });

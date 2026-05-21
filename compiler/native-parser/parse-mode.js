@@ -1,6 +1,17 @@
 // parse-mode.js — JS-host shadow of parse-mode.scrml.
 // See span.js header for the .scrml<->.js duplication rationale.
 // PILLAR 5b classification mirrors parse-mode.scrml's header — see that file.
+//
+// M4.1 NOTE — async/generator SCOPE is deliberately NOT a ParseMode variant.
+// `await`/`yield` legality is the question "is the cursor inside an async /
+// generator function body". That is ORTHOGONAL to what ParseMode discriminates
+// (which grammar production runs — the `{`-object-vs-block ambiguity, etc.).
+// Folding it in would force a combinatorial cross-product
+// (InFunctionBody × {sync, async, gen, async-gen}) — the variant explosion
+// DD §D3 explicitly rejects. M4.1 carries it as two boolean ctx slots
+// (`inAsync`/`inGenerator` — makeParseExprContext / makeParseStmtContext),
+// saved+set+restored at every function/arrow entry (the M3.4 `functionDepth`
+// pattern). ParseMode is unchanged by M4.1.
 
 export const ParseMode = Object.freeze({
     TopLevel:        "TopLevel",

@@ -14,7 +14,7 @@
 //   the parser is currently in. The AST nodes this file constructs are the
 //   OUTPUT of the parse — pure values, not state.
 //
-// Status (M2.1-M2.3): COMPILABLE skeleton. JS-escape carries the live
+// Status (M2.1-M2.4 + M4.1): COMPILABLE skeleton. JS-escape carries the live
 // tag-style surface today. The `type Expr:enum = { ... }` declaration is
 // preserved in commented canonical form for the M5 swap-in to scrml-native
 // tagged variants. M2.1 emits the primary-expression kinds (Ident, NumberLit,
@@ -23,9 +23,11 @@
 // Logical, Assignment, Conditional, Sequence); M2.3 emits the call / member /
 // arrow / function kinds (Call, New, Member, TaggedTemplate, Arrow, Function)
 // plus the parameter-pattern + body-stub kinds (RestElement,
-// AssignmentPattern, BlockStub). M2.4 will emit the scrml-extension forms.
-// Every kind in the enum below has a substantive constructor; the parser
-// EMITS up to its current sub-step.
+// AssignmentPattern, BlockStub); M2.4 emits the scrml-extension forms
+// (NotValue, Tilde, Sql, InputStateRef, IsCheck, Match, Render, Lift, Fail);
+// M4.1 emits the async/generator operator forms (Await, Yield) and wires the
+// `isGenerator` flag onto Function. Every kind in the enum below has a
+// substantive constructor; the parser EMITS up to its current sub-step.
 //
 // DD §D3 cross-ref: the existing compiler/src/types/ast.ts defines an
 // ExprNode union (LitExpr / IdentExpr / BinaryExpr / UnaryExpr / CallExpr /
@@ -80,7 +82,7 @@ ${
     //       Member(object: Expr, property: Expr, computed: boolean, optional: boolean, span: Span),
     //       TaggedTemplate(tag: Expr, quasi: Expr, span: Span),   // tag`...`
     //       Arrow(params: Pattern[], body: Expr | BlockStub, isAsync: boolean, span: Span),
-    //       Function(name: string | not, params: Pattern[], body: BlockStub, isAsync: boolean, span: Span),
+    //       Function(name: string | not, params: Pattern[], body: BlockStub, isAsync: boolean, isGenerator: boolean, span: Span),
     //
     //       // --- Parameter-pattern + body-stub support (M2.3) ---
     //       RestElement(argument: Expr, span: Span),              // ...rest param
@@ -97,6 +99,10 @@ ${
     //       Render(name: string, args: Expr[], span: Span),       // `render name()` (§14.9)
     //       Lift(argument: Expr, span: Span),                     // `lift expr` (§10)
     //       Fail(variant: Expr, span: Span),                      // `fail Type::V(..)` (§19)
+    //
+    //       // --- async / generator operator forms (M4.1 — D5 MUST PARSE) ---
+    //       Await(argument: Expr, span: Span),                    // `await expr` (§13)
+    //       Yield(argument: Expr | not, delegate: boolean, span: Span), // `yield`/`yield*` (§37)
     //   }
     //
     //   type ArrayElement:enum = {
@@ -195,6 +201,14 @@ ${
         Render:        "Render",         // `render name(args)` (§14.9)
         Lift:          "Lift",           // `lift expr` (§10)
         Fail:          "Fail",           // `fail Type::Variant(args)` (§19)
+
+        // async / generator operator expressions (M4.1 — D5 MUST PARSE).
+        // M3.3 produced Await/Yield as untyped {kind:"Await"}/{kind:"Yield"}
+        // nodes at STATEMENT position only (a local parse-stmt shape, NOT in
+        // ExprKind); M4.1 PROMOTES them into the catalog so the M2 expression
+        // grammar can build them as operators inside a larger expression.
+        Await: "Await",                  // `await expr` (unary-prec; §13 / D5)
+        Yield: "Yield",                  // `yield expr` / `yield* expr` (§37 / D5)
     })
 
     // ArrayElementKind — discriminator for array-literal element forms.
@@ -416,9 +430,13 @@ ${
         return { kind: ExprKind.Arrow, params, body, isAsync, span }
     }
     // makeFunction — function expression. `body` is a BlockStub (M3 parses
-    // the statement body). `name` is `not` for an anonymous function. M2.3.
-    export function makeFunction(name, params, body, isAsync, span) {
-        return { kind: ExprKind.Function, name, params, body, isAsync, span }
+    // the statement body). `name` is `not` for an anonymous function.
+    // `isGenerator` (M4.1) is true for a `function*` generator-function
+    // expression; the generator flag was a documented M2.3 deferral — M2.3
+    // consumed the `*` to keep the head parse in sync but discarded the
+    // flag, which M4.1 now wires.
+    export function makeFunction(name, params, body, isAsync, isGenerator, span) {
+        return { kind: ExprKind.Function, name, params, body, isAsync, isGenerator, span }
     }
     // makeTaggedTemplate — tagged template `tag`...``. `tag` is the callee
     // Expr; `quasi` is the TemplateLit node. M2.3.
@@ -561,6 +579,39 @@ ${
     // later-stage concern.
     export function makeFail(variant, span) {
         return { kind: ExprKind.Fail, variant, span }
+    }
+
+    // ---------------------------------------------------------------------
+    // async / generator operator-expression constructors (M4.1 — D5 MUST
+    // PARSE). Calculation (pure fns over already-confirmed parts; DD §D1).
+    // ---------------------------------------------------------------------
+
+    // makeAwait — an `await argument` expression (§13). `await` is a UNARY-
+    // precedence operator: it binds tighter than every binary operator
+    // (`await a + b` is `(await a) + b`) and, like a prefix unary, cannot be
+    // the un-parenthesized left operand of `**`. `await` is legal only inside
+    // an async function body (or — with the Acorn `allowAwaitOutsideFunction`
+    // option — at module top level). M4.1's expression grammar consults the
+    // parse context's async-scope flag to decide when `await` is an operator;
+    // the §13.1 "developer SHALL NOT write await" rule is a LATER-STAGE
+    // diagnostic, not a parse concern. The conformance normalizer maps this
+    // to ESTree's AwaitExpression.
+    export function makeAwait(argument, span) {
+        return { kind: ExprKind.Await, argument, span }
+    }
+
+    // makeYield — a `yield argument` / `yield* argument` / bare `yield`
+    // expression (§37). `yield` is an ASSIGNMENT-precedence operator — the
+    // LOWEST expression precedence, below conditional `?:` (`yield a ? b : c`
+    // yields the whole conditional). `delegate` is true for the `yield*`
+    // delegating form (yields each value of an iterable). `argument` is `not`
+    // for a bare `yield` (yield-undefined — valid as an operand, e.g. `a +
+    // yield`). `yield` is legal only inside a generator (`function*`) body;
+    // `yield` outside a generator is E-SSE-001, a SEMANTIC check (not a parse
+    // error — the form still parses). The conformance normalizer maps this
+    // to ESTree's YieldExpression.
+    export function makeYield(argument, delegate, span) {
+        return { kind: ExprKind.Yield, argument, delegate, span }
     }
 
     // ---------------------------------------------------------------------
