@@ -265,7 +265,7 @@ function bareExprNode(raw: string, refs: string[], span: unknown): unknown {
   try {
     exprNode = parseExprToNode(raw, "<tableFor-synth>", 0);
   } catch {
-    exprNode = { kind: "escape-hatch", span, estreeType: "SkippedExpr", raw };
+    exprNode = { kind: "escape-hatch", span, nativeKind: "SkippedExpr", raw };
   }
   const inner = {
     id: nextSynthId(),
@@ -339,7 +339,7 @@ function buildForLiftBlock(
     iterExpr = parseExprToNode(rowsExpr, "<tableFor-synth>", 0);
   } catch {
     // Defensive fallback — produce an escape-hatch with the raw text.
-    iterExpr = { kind: "escape-hatch", span, estreeType: "SkippedExpr", raw: rowsExpr };
+    iterExpr = { kind: "escape-hatch", span, nativeKind: "SkippedExpr", raw: rowsExpr };
   }
   void rowsRefs;  // refs propagate naturally via parseExprToNode's @-tracking
   const forStmt: Record<string, unknown> = {

@@ -76,7 +76,7 @@ function tier3Node(name, typeAnnotation, rawSequenceText) {
     init: rawSequenceText,
     initExpr: {
       kind: "escape-hatch",
-      estreeType: "SequenceExpression",
+      nativeKind: "SequenceExpression",
       raw: rawSequenceText,
       span: { file: "<test>", start: 0, end: rawSequenceText.length, line: 1, col: 1 },
     },
@@ -186,7 +186,7 @@ describe("C21 §C21.2 — Detection-gate negatives (no lowering)", () => {
       init: '("a", "b", "c")',
       initExpr: {
         kind: "escape-hatch",
-        estreeType: "SequenceExpression",
+        nativeKind: "SequenceExpression",
         raw: '("a", "b", "c")',
         span: { start: 0, end: 0 },
       },
@@ -228,7 +228,7 @@ describe("C21 §C21.2 — Detection-gate negatives (no lowering)", () => {
     expect(errors.length).toBe(0);
   });
 
-  test("init is non-SequenceExpression (escape-hatch with different estreeType) → falls through", () => {
+  test("init is non-SequenceExpression (escape-hatch with different nativeKind) → falls through", () => {
     const Point = makeStructType("Point", [
       ["x", makePrimitive("number")],
       ["y", makePrimitive("number")],
@@ -242,7 +242,7 @@ describe("C21 §C21.2 — Detection-gate negatives (no lowering)", () => {
       init: "somefunc()",
       initExpr: {
         kind: "escape-hatch",
-        estreeType: "CallExpression",
+        nativeKind: "CallExpression",
         raw: "somefunc()",
         span: { start: 0, end: 0 },
       },
@@ -456,7 +456,7 @@ describe("C21 §C21.6 — Regression: SequenceExpression OUTSIDE compound init",
       init: "(1, 2, 3)",
       initExpr: {
         kind: "escape-hatch",
-        estreeType: "SequenceExpression",
+        nativeKind: "SequenceExpression",
         raw: "(1, 2, 3)",
         span: { start: 0, end: 0 },
       },

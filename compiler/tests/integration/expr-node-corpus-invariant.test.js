@@ -111,8 +111,8 @@ const FIELD_PAIRS = [
 //   "interpolated-template"  -- raw contains backtick + ${ (template literal interpolation)
 //   "block-lambda"           -- raw contains => { (block-body arrow function)
 //   "nested-paren-is"        -- raw contains ) is not or ) is some
-//   "parse-error"            -- acorn couldn't parse at all (estreeType === "ParseError")
-//   "conversion-error"       -- esTreeToExprNode threw (estreeType === "ConversionError")
+//   "parse-error"            -- acorn couldn't parse at all (nativeKind === "ParseError")
+//   "conversion-error"       -- esTreeToExprNode threw (nativeKind === "ConversionError")
 //   "unclassified"           -- anything else
 // ---------------------------------------------------------------------------
 
@@ -131,11 +131,11 @@ function classifyEscapeHatch(node) {
     return "nested-paren-is";
   }
 
-  if (node.estreeType === "ParseError") {
+  if (node.nativeKind === "ParseError") {
     return "parse-error";
   }
 
-  if (node.estreeType === "ConversionError") {
+  if (node.nativeKind === "ConversionError") {
     return "conversion-error";
   }
 

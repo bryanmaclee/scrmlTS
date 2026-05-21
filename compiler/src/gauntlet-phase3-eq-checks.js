@@ -309,7 +309,7 @@ const SKIP_KEYS = new Set([
   "name",          // identifier name string
   "raw",           // literal raw text
   "litType",       // literal subtype string
-  "estreeType",    // escape-hatch original ESTree node-type string
+  "nativeKind",    // escape-hatch sub-kind discriminator string
   "fnStyle",       // lambda style discriminator
   "isAsync",       // lambda async flag
   "computed",      // member/index flag

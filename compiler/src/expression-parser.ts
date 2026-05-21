@@ -1832,7 +1832,7 @@ function makeEscapeHatch(node: ESNode, span: ExprSpan, rawSource: string): Escap
   return {
     kind: "escape-hatch",
     span,
-    estreeType: node.type,
+    nativeKind: node.type,
     raw: rawSource,
   } satisfies EscapeHatchExpr;
 }
@@ -1918,7 +1918,7 @@ export function parseExprToNode(raw: string, filePath: string, offset: number, o
     return {
       kind: "escape-hatch",
       span,
-      estreeType: "SqlPlaceholderError",
+      nativeKind: "SqlPlaceholderError",
       raw: trimmed,
       sqlDiagnostic,
     } as EscapeHatchExpr & { sqlDiagnostic: { code: string; message: string; offset: number } };
@@ -1942,7 +1942,7 @@ export function parseExprToNode(raw: string, filePath: string, offset: number, o
     return {
       kind: "escape-hatch",
       span,
-      estreeType: "ParseError",
+      nativeKind: "ParseError",
       raw: trimmed,
     } satisfies EscapeHatchExpr;
   }
@@ -1964,7 +1964,7 @@ export function parseExprToNode(raw: string, filePath: string, offset: number, o
     return {
       kind: "escape-hatch",
       span,
-      estreeType: "ConversionError",
+      nativeKind: "ConversionError",
       raw: trimmed,
     } satisfies EscapeHatchExpr;
   }
@@ -2654,7 +2654,7 @@ function walkTemplateInterpolations(
       cached.push({
         kind: "escape-hatch",
         span: lit.span,
-        estreeType: "TemplateInterpFallback",
+        nativeKind: "TemplateInterpFallback",
         raw: exprText,
       } as EscapeHatchExpr);
     }
@@ -2663,7 +2663,7 @@ function walkTemplateInterpolations(
 
   for (const node of cached) {
     if ((node as EscapeHatchExpr).kind === "escape-hatch"
-        && (node as EscapeHatchExpr).estreeType === "TemplateInterpFallback") {
+        && (node as EscapeHatchExpr).nativeKind === "TemplateInterpFallback") {
       regexExtractIdents((node as EscapeHatchExpr).raw, lit.span, callback);
       continue;
     }
@@ -2742,7 +2742,7 @@ export function forEachIdentInExprNode(
       // every walker consumer. Surgical fix A4: when the escape-hatch was
       // built from a TemplateLiteral, descend into its interpolations.
       const eh = node as EscapeHatchExpr;
-      if (eh.estreeType === "TemplateLiteral" && typeof eh.raw === "string"
+      if (eh.nativeKind === "TemplateLiteral" && typeof eh.raw === "string"
           && eh.raw.startsWith("`") && eh.raw.includes("${")) {
         walkTemplateInterpolations(eh as unknown as { raw: string; span: ExprSpan } & object, callback);
       }

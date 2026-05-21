@@ -1854,8 +1854,14 @@ export interface InputStateRefExpr {
 export interface EscapeHatchExpr {
   kind: "escape-hatch";
   span: ExprSpan;
-  /** Original ESTree node type that triggered the escape hatch. */
-  estreeType: string;
+  /**
+   * Escape-hatch sub-kind discriminator (string). Carries the original
+   * ESTree node type for live-pipeline (Acorn) escape hatches, plus
+   * compiler-internal sub-kinds (`"ParseError"`, `"SkippedExpr"`, etc.).
+   * Renamed from `estreeType` (F2 / DD #27) — the field is a sub-kind
+   * decoration, not a native↔ESTree translation surface.
+   */
+  nativeKind: string;
   /** Raw source text of the unsupported expression. */
   raw: string;
 }

@@ -1150,9 +1150,15 @@ function emitEscapeHatch(node: EscapeHatchExpr, ctx: EmitExprContext): string {
   // The default pipeline's Pass 1 (rewritePresenceGuard) would match
   // `(x) => { body }` and rewrite it into an if-statement, corrupting the
   // arrow. Use the arrow-body variant that skips that pass.
+  // Dual-mode: the live (Acorn) pipeline produces escape-hatch nodes whose
+  // `nativeKind` carries the ESTree node-type string; the native parser
+  // (v0.6) produces first-class ExprNode kinds (`"Arrow"` / `"Function"`).
+  // Both arms recognized so codegen works regardless of front-end.
   const isArrowOrFn =
-    node.estreeType === "ArrowFunctionExpression" ||
-    node.estreeType === "FunctionExpression";
+    (node as any).kind === "Arrow" ||
+    (node as any).kind === "Function" ||
+    node.nativeKind === "ArrowFunctionExpression" ||
+    node.nativeKind === "FunctionExpression";
   if (ctx.mode === "server") {
     return isArrowOrFn
       ? rewriteServerExprArrowBody(node.raw, ctx.dbVar)

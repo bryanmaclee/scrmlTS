@@ -86,9 +86,9 @@ export function countEscapeHatches(node: ExprNode): number {
 export function collectEscapeHatches(
   node: ExprNode,
   path = "root"
-): Array<{ path: string; estreeType: string; raw: string }> {
+): Array<{ path: string; nativeKind: string; raw: string }> {
   if (node.kind === "escape-hatch") {
-    return [{ path, estreeType: node.estreeType, raw: node.raw }];
+    return [{ path, nativeKind: node.nativeKind, raw: node.raw }];
   }
   return walkChildrenCollect(node, collectEscapeHatches, path);
 }
@@ -165,10 +165,10 @@ function walkChildrenCollect(
   fn: (
     n: ExprNode,
     path: string
-  ) => Array<{ path: string; estreeType: string; raw: string }>,
+  ) => Array<{ path: string; nativeKind: string; raw: string }>,
   path: string
-): Array<{ path: string; estreeType: string; raw: string }> {
-  const results: Array<{ path: string; estreeType: string; raw: string }> = [];
+): Array<{ path: string; nativeKind: string; raw: string }> {
+  const results: Array<{ path: string; nativeKind: string; raw: string }> = [];
   switch (node.kind) {
     case "ident":
     case "lit":

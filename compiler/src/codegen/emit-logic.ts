@@ -1793,8 +1793,9 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       //
       // Detection gate (all four MUST hold):
       //   1. `node.typeAnnotation` is a non-empty string
-      //   2. `node.initExpr` is an escape-hatch with `estreeType:
-      //      "SequenceExpression"`
+      //   2. `node.initExpr` is a comma-sequence — either a native-parser
+      //      `kind: "Sequence"` node OR a live-pipeline escape-hatch with
+      //      `nativeKind: "SequenceExpression"`
       //   3. `opts.typeRegistry` is provided (entry-point sets it; tests
       //      that bypass the registry naturally skip this arm)
       //   4. The annotation resolves to a `kind: "struct"` ResolvedType
@@ -1809,12 +1810,19 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       // type mismatch is OUT-OF-SCOPE for codegen — the lowered object
       // literal flows through the existing type-system enforcement on
       // record-init shapes (§14.3).
+      // Dual-mode: the live (Acorn) pipeline emits the comma-sequence as an
+      // escape-hatch with `nativeKind: "SequenceExpression"`; the native
+      // parser (v0.6) emits a first-class `kind: "Sequence"` ExprNode.
+      const _initExpr = (node as any).initExpr as any;
+      const _isCommaSequence =
+        _initExpr &&
+        ((_initExpr.kind === "escape-hatch" &&
+          _initExpr.nativeKind === "SequenceExpression") ||
+          _initExpr.kind === "Sequence");
       if (
         (node as any).typeAnnotation &&
         typeof (node as any).typeAnnotation === "string" &&
-        (node as any).initExpr &&
-        ((node as any).initExpr as any).kind === "escape-hatch" &&
-        ((node as any).initExpr as any).estreeType === "SequenceExpression" &&
+        _isCommaSequence &&
         opts.typeRegistry
       ) {
         const _annoStr = ((node as any).typeAnnotation as string).trim();

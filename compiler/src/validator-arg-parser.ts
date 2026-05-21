@@ -189,11 +189,11 @@ function spanOfArg(span: Span | undefined, filePath: string): ExprSpan {
  * Build an EscapeHatch ExprNode for malformed validator-arg cases. Keeps the
  * raw text accessible to B10 / future error-reporting passes.
  */
-function makeEscapeHatch(span: ExprSpan, estreeType: string, raw: string): ExprNode {
+function makeEscapeHatch(span: ExprSpan, nativeKind: string, raw: string): ExprNode {
   return {
     kind: "escape-hatch",
     span,
-    estreeType,
+    nativeKind,
     raw,
   } as ExprNode;
 }

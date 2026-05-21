@@ -541,7 +541,7 @@ describe("deepEqualExprNode — §4 helper unit tests", () => {
     // Escape-hatch nodes with same content but different whitespace are equal
     const a = parseExprToNode(">>> <<<", "<test>", 0);
     // Manually check that two escape-hatch nodes with normalized-equal raw compare equal
-    const b = { kind: "escape-hatch", span: a.span, estreeType: "ParseError", raw: "  >>>  <<<  " };
+    const b = { kind: "escape-hatch", span: a.span, nativeKind: "ParseError", raw: "  >>>  <<<  " };
     expect(deepEqualExprNode(a, b)).toBe(true);
   });
 

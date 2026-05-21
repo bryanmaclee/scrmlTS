@@ -854,7 +854,7 @@ function buildPropExprMap(
       out.set(name, {
         kind: "escape-hatch",
         span: exprSpan,
-        estreeType: "PropDefaultParseFailure",
+        nativeKind: "PropDefaultParseFailure",
         raw: value,
       } satisfies EscapeHatchExpr);
     }
@@ -912,7 +912,7 @@ function substitutePropsInExprNode(
     case "escape-hatch": {
       const eh = node as EscapeHatchExpr;
       // Template-literal-shaped escape hatches: rewrite interpolations
-      if (eh.estreeType === "TemplateLiteral" && typeof eh.raw === "string" && eh.raw.includes("${")) {
+      if (eh.nativeKind === "TemplateLiteral" && typeof eh.raw === "string" && eh.raw.includes("${")) {
         const rewritten = rewriteTemplateInterpolations(eh.raw, propExprMap, shadowed);
         if (rewritten !== eh.raw) {
           return { ...eh, raw: rewritten } satisfies EscapeHatchExpr;

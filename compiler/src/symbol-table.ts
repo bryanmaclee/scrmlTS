@@ -3045,7 +3045,7 @@ function isStringLit(arg: ValidatorArg): boolean {
   // Canonical scrml ExprNode for literals: kind:"lit", litType:"string".
   if (a.kind === "lit" && a.litType === "string") return true;
   // ESTree-flavored escape-hatch fallback (Literal with string value).
-  if (a.kind === "escape-hatch" && a.estreeType === "Literal"
+  if (a.kind === "escape-hatch" && a.nativeKind === "Literal"
       && typeof a.value === "string") return true;
   return false;
 }
@@ -3058,13 +3058,13 @@ function isInlineMessageOverride(arg: ValidatorArg): boolean {
  * Is the arg a regex-shaped value? Per B9 specifics, regex literals fall
  * through to the escape-hatch path because `esTreeToExprNode` routes RegExp
  * values through the BigInt/exotic branch — they arrive as
- * `{kind: "escape-hatch", estreeType: "Literal", raw: "/.../"}`.
+ * `{kind: "escape-hatch", nativeKind: "Literal", raw: "/.../"}`.
  */
 function isRegexLikeArg(arg: ValidatorArg): boolean {
   if (!arg || typeof arg !== "object") return false;
   const a = arg as any;
   if (a.kind === "regex") return true;
-  if (a.kind === "escape-hatch" && a.estreeType === "Literal"
+  if (a.kind === "escape-hatch" && a.nativeKind === "Literal"
       && typeof a.raw === "string" && a.raw.startsWith("/")) return true;
   return false;
 }
@@ -3073,8 +3073,8 @@ function isRegexLikeArg(arg: ValidatorArg): boolean {
  * Is the arg an array-literal-shaped value? Two paths:
  *  - Canonical scrml ExprNode: `kind: "array-lit"` (or future `kind: "lit"`
  *    with `litType: "array"` if grammar evolves).
- *  - Escape-hatch fallbacks: `estreeType: "ArrayExpression"` for clean
- *    array literals; OR `estreeType: "ParseError"` with `raw` starting with
+ *  - Escape-hatch fallbacks: `nativeKind: "ArrayExpression"` for clean
+ *    array literals; OR `nativeKind: "ParseError"` with `raw` starting with
  *    `[` — covers `[.Admin, .Editor]` bare-variant arrays which fail
  *    standalone JS parse but ARE valid scrml array literals.
  */
@@ -3088,10 +3088,10 @@ function isArrayLikeArg(arg: ValidatorArg): boolean {
   // escape-hatch ParseError).
   if (a.kind === "array") return true;
   if (a.kind === "escape-hatch") {
-    if (a.estreeType === "ArrayExpression") return true;
+    if (a.nativeKind === "ArrayExpression") return true;
     // Bare-variant arrays: ParseError with raw starting "[" — legacy shape
     // preserved for any path that still produces it (defensive).
-    if (a.estreeType === "ParseError" && typeof a.raw === "string"
+    if (a.nativeKind === "ParseError" && typeof a.raw === "string"
         && a.raw.trimStart().startsWith("[")) return true;
   }
   return false;
@@ -3907,7 +3907,7 @@ function stringLiteralValueOf(arg: any): string | null {
       && typeof arg.value === "string") {
     return arg.value;
   }
-  if (arg.kind === "escape-hatch" && arg.estreeType === "Literal"
+  if (arg.kind === "escape-hatch" && arg.nativeKind === "Literal"
       && typeof arg.value === "string") {
     return arg.value;
   }

@@ -357,7 +357,7 @@ describe("A1b Step B9 — validator-arg ExprNode conversion (direct parser)", ()
     // there's no expression after the operator.
     const node = parseValidatorArg("length", ">=", SPAN, "<probe>", 0);
     expect(node.kind).toBe("escape-hatch");
-    expect(node.estreeType).toBe("RelationalPredicateNoRhs");
+    expect(node.nativeKind).toBe("RelationalPredicateNoRhs");
   });
 
   test("§B9.7b: length(arg-with-no-rel-op) → escape-hatch", () => {
@@ -366,13 +366,13 @@ describe("A1b Step B9 — validator-arg ExprNode conversion (direct parser)", ()
     // the typed error.
     const node = parseValidatorArg("length", "req", SPAN, "<probe>", 0);
     expect(node.kind).toBe("escape-hatch");
-    expect(node.estreeType).toBe("RelationalPredicateNoOp");
+    expect(node.nativeKind).toBe("RelationalPredicateNoOp");
   });
 
   test("§B9.7c: empty raw text → escape-hatch", () => {
     const node = parseValidatorArg("min", "", SPAN, "<probe>", 0);
     expect(node.kind).toBe("escape-hatch");
-    expect(node.estreeType).toBe("EmptyValidatorArg");
+    expect(node.nativeKind).toBe("EmptyValidatorArg");
   });
 
   // §B9.7d: not-a-validator-shape → standard expression-parser path returns
@@ -380,6 +380,6 @@ describe("A1b Step B9 — validator-arg ExprNode conversion (direct parser)", ()
   test("§B9.7d: malformed expr in standard-form → escape-hatch (ParseError), no throw", () => {
     const node = parseValidatorArg("eq", ")(((", SPAN, "<probe>", 0);
     expect(node.kind).toBe("escape-hatch");
-    // estreeType comes from parseExprToNode — could be ParseError or similar.
+    // nativeKind comes from parseExprToNode — could be ParseError or similar.
   });
 });

@@ -9,7 +9,7 @@
  * paths feed raw `${...}` (or `{...}`) text directly into acorn's
  * `parseExpression` — when the first depth-0 keyword is `switch`, acorn
  * rejects it as not-an-expression and returns an `escape-hatch` ExprNode
- * with `estreeType: "ParseError"`. NO `switch-stmt` AST node ever lands,
+ * with `nativeKind: "ParseError"`. NO `switch-stmt` AST node ever lands,
  * so the walker has nothing to walk.
  *
  * Fix: a structural text scanner (`findForbiddenSwitchInRaw` in

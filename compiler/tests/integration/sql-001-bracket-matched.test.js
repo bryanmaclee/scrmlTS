@@ -148,7 +148,7 @@ describe("F-SQL-001 — E-SQL-008 unbalanced ?{} hard-error", () => {
   test("parseExprToNode returns escape-hatch with sqlDiagnostic for unbalanced ?{", () => {
     const node = parseExprToNode("?{`unterminated", "/test.scrml", 100);
     expect(node.kind).toBe("escape-hatch");
-    expect(node.estreeType).toBe("SqlPlaceholderError");
+    expect(node.nativeKind).toBe("SqlPlaceholderError");
     expect(node.sqlDiagnostic).toBeDefined();
     expect(node.sqlDiagnostic.code).toBe("E-SQL-008");
     // Span starts at offset + diagnostic.offset

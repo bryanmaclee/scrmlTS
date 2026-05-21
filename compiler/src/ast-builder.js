@@ -170,13 +170,13 @@ function isHtmlFragment(expr) {
 function safeParseExprToNodeGlobal(expr, filePath, startOffset, errors) {
   if (!expr || typeof expr !== "string" || !expr.trim()) return undefined;
   if (shouldSkipExprParse(expr)) {
-    return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "SkippedExpr", raw: expr };
+    return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, nativeKind: "SkippedExpr", raw: expr };
   }
   try {
     const node = parseExprToNode(expr, filePath, startOffset ?? 0);
     // F-SQL-001: surface E-SQL-008 from unbalanced ?{} as a TABError when
     // an errors array is in scope. Falls back to escape-hatch otherwise.
-    if (node && node.kind === "escape-hatch" && node.estreeType === "SqlPlaceholderError" && node.sqlDiagnostic) {
+    if (node && node.kind === "escape-hatch" && node.nativeKind === "SqlPlaceholderError" && node.sqlDiagnostic) {
       if (errors) {
         errors.push(new TABError(
           node.sqlDiagnostic.code || "E-SQL-008",
@@ -202,7 +202,7 @@ function safeParseExprToNodeGlobal(expr, filePath, startOffset, errors) {
     }
     return node;
   } catch (_e) {
-    return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "ParseError", raw: expr };
+    return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, nativeKind: "ParseError", raw: expr };
   }
 }
 
@@ -1250,7 +1250,7 @@ export class TABError extends Error {
  * text as a raw expression string and hand it to acorn via `parseExprToNode`
  * — when the body's first depth-0 keyword is `switch`, acorn fails the parse
  * (`switch` is a statement keyword, not an expression) and returns an
- * `escape-hatch` ExprNode with `estreeType: "ParseError"`. No `switch-stmt`
+ * `escape-hatch` ExprNode with `nativeKind: "ParseError"`. No `switch-stmt`
  * node ever lands in the AST and the walker has nothing to walk.
  *
  * Concrete bypass path (the FOLLOW-UP gap pinned by S99 A7):
@@ -2297,13 +2297,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // Phase 4d: when shouldSkipExprParse is true, produce an escape-hatch node
     // so ExprNode fields are always populated when a string expression exists.
     if (shouldSkipExprParse(expr)) {
-      return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "SkippedExpr", raw: expr };
+      return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, nativeKind: "SkippedExpr", raw: expr };
     }
     try {
       // Automatically thread tilde context from the closure-scoped flag
       const node = parseExprToNode(expr, filePath, startOffset ?? 0, _tildeActive ? { tildeActive: true } : undefined);
       // F-SQL-001: surface E-SQL-008 from unbalanced ?{} as a TABError.
-      if (node && node.kind === "escape-hatch" && node.estreeType === "SqlPlaceholderError" && node.sqlDiagnostic) {
+      if (node && node.kind === "escape-hatch" && node.nativeKind === "SqlPlaceholderError" && node.sqlDiagnostic) {
         errors.push(new TABError(
           node.sqlDiagnostic.code || "E-SQL-008",
           node.sqlDiagnostic.message,
@@ -2327,7 +2327,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       return node;
     } catch (_e) {
       // Phase 4d: produce escape-hatch on parse failure instead of undefined
-      return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "ParseError", raw: expr };
+      return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, nativeKind: "ParseError", raw: expr };
     }
   }
 
