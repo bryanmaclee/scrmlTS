@@ -503,7 +503,9 @@ This isn't bundler-style single-letter renaming — the names are longer than `a
 
 ### Tooling
 
-- **No npm — stdlib first** — scrml ships its own standard library. No package manager, no dependency trees, no node_modules.
+- **One source file type, layered imports** — scrml has one source file type, `.scrml`, and code enters a build through a small set of explicit, layered surfaces, never an open-ended transitive dependency graph. **The no-npm stance is not a no-user-code stance** — you bring whatever code your app needs, third-party code included; the rule is only that it enters through an explicit, named surface, not an implicit auto-resolved dependency graph. `import` wires `.scrml` modules within a project. The `scrml:*` standard library is bundled with the compiler and version-locked to it — no registry, no separate semver, ~88–90% of a typical app's third-party needs already on the shelf. Everything beyond that crosses a named, governed boundary: `_{}` foreign code\* for inline non-scrml escapes, `import:host`\* for the bounded self-host bridge, and `vendor:`\* for third-party units — physical source copies you own, content-addressed by hash so identity is bytes not names, and capability-gated so a vendored unit reaches the network, filesystem, or host code only where your project manifest explicitly grants it. There is no central registry and nothing is fetched without you asking.
+
+  *\* `_{}` foreign code and `import:host` are specified, not yet implemented; `vendor:` is a ratified design direction with its mechanism still under debate.*
 - **`<program>` root** — configure database connections, protection rules, HTML spec version, and program-wide settings from a single root element.
 
 ## Language Contexts
@@ -532,6 +534,14 @@ These features are fully designed in the [language spec](compiler/SPEC.md) but n
 | **WASM call-char sigils** | S23.3 | Single-character sigils (`r{}`, `c{}`, `z{}`) for invoking compiled WASM functions from Rust, C, Zig, etc. Paired with `extern` declarations for type-safe FFI. |
 | **Sidecar process declarations** | S23.4 | `use foreign:name { fn }` for declaring server-side sidecar processes (HTTP/socket services) that scrml routes to automatically. |
 | **`RemoteData` enum** | S13.5 | Built-in `Loading / Loaded(T) / Failed(Error)` enum for modeling async fetch state. Pattern-matchable with exhaustive checking. |
+
+## The Build Story
+
+> *Nominal — scrml's compiler model as designed. The build-story artifact is a ratified design direction; it is not yet specified or implemented. `*` marks a claim not yet actual.*
+
+scrml's compiler has a build story. Compilation is a pure function of two inputs — your source and an explicit, committed **build story**. The compiler-proper is a governed composite of four components — compiler source, language tools, the standard library, and any vendored edge code — and the build story pins all four as a **content-addressed Merkle closure**: one root hash with the dependency edges between components *inside* the hash, plus a human-inspectable `build-story.lock` sidecar. Because every part — including the compiler itself — is identified by the hash of its content, customizing the compiler to your project and reproducing any build bit-for-bit\* stop being in tension: a tuned compiler is just a different pinned build story, and "pinned" is what makes it portable. This is deliberately not a live or hot-swappable compiler — the build story is static, read once before parsing begins; only *authorship* is customizable, never the running compile.
+
+<sub>\* The bit-for-bit guarantee requires a whole-compiler determinism audit that has not yet been done.</sub>
 
 ## Examples
 
