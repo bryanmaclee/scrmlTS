@@ -344,7 +344,7 @@ ${
 
     // initialTagFrame — calculation (pure fn: the .Variant the engine
     // starts in). Matches `initial=.Closed` on the engine above.
-    export function initialTagFrame() {
+    export fn initialTagFrame() {
         return TagFrameKind.Closed
     }
 
@@ -390,7 +390,7 @@ ${
     // closed-name-set lookup — the heuristic-elimination shape per
     // charter Q2.A #4 (the block-splitter's recursive classifier is
     // replaced by this membership test + the rest of tagKindFor).
-    export function isStructuralElementName(name) {
+    export fn isStructuralElementName(name) {
         return STRUCTURAL_ELEMENTS[name] is given
     }
 
@@ -431,7 +431,7 @@ ${
     // firstCharIsUpper — CALCULATION (predicate). Is the first character
     // of `name` an ASCII uppercase letter (A-Z)? The PascalCase
     // component-vs-HTML signal (§4.3 casing convention).
-    export function firstCharIsUpper(name) {
+    export fn firstCharIsUpper(name) {
         if (name == "") return false
         const c = name.charCodeAt(0)
         return c >= 65 && c <= 90
@@ -441,7 +441,7 @@ ${
     // opener with tag-name `name`, given whether whitespace followed the
     // `<`. THE heuristic-elimination calculation (charter Q1.F + Q2.A
     // #4) — a closed four-way classification from the opener's bytes.
-    export function tagKindFor(name, hadSpaceAfterLt) {
+    export fn tagKindFor(name, hadSpaceAfterLt) {
         // 1. The §4.3 advisory state-type-instantiation shape — a
         //    `< ident`-with-space opener. ADVISORY per §4.3; MK2.3
         //    completes the authoritative markup-vs-state decision.
@@ -495,7 +495,7 @@ ${
     // START a markup-tag name: an ASCII letter. (Reuses block-context's
     // isAsciiLetter — MK1.3's isMarkupTagOpener uses the same test for
     // the `<ident` boundary; MK2 owns the deeper tag-name grammar.)
-    export function isTagNameStart(ch) {
+    export fn isTagNameStart(ch) {
         return isAsciiLetter(ch)
     }
 
@@ -505,7 +505,7 @@ ${
     // for boundary-only consumption; MK2.1 is the home of the full
     // tag-name grammar — this is the canonical one. The values match
     // 1:1 so the MK1.3 local can defer to it without behavior change.)
-    export function isTagNameChar(ch) {
+    export fn isTagNameChar(ch) {
         if (ch == "") return false
         if (ch == "-") return true
         const c = ch.charCodeAt(0)
@@ -520,7 +520,7 @@ ${
     // tokenizer skips runs of it between the tag name and attributes
     // (and before the closing `>`), exactly as the JS-layer lexer skips
     // inter-token whitespace.
-    export function isOpenerWhitespace(ch) {
+    export fn isOpenerWhitespace(ch) {
         if (ch == " ") return true
         if (ch == String.fromCharCode(9)) return true   // tab
         if (ch == String.fromCharCode(10)) return true  // LF
@@ -533,7 +533,7 @@ ${
     // character, scanning a maximal `isTagNameChar` run from `start`.
     // The caller has already verified the char at `start` is a
     // tag-name start (an ASCII letter).
-    export function scanTagName(source, start) {
+    export fn scanTagName(source, start) {
         const len = source.length
         let p = start
         while (p < len) {
@@ -546,7 +546,7 @@ ${
     // skipOpenerWhitespace — CALCULATION (pure fn over a source + a
     // start offset). Returns the END offset one past a maximal
     // whitespace run from `start`.
-    export function skipOpenerWhitespace(source, start) {
+    export fn skipOpenerWhitespace(source, start) {
         const len = source.length
         let p = start
         while (p < len) {
@@ -558,13 +558,13 @@ ${
 
     // closeAngle — CALCULATION (pure fn). The one-character opener
     // terminator `>`.
-    export function closeAngle() {
+    export fn closeAngle() {
         return ">"
     }
 
     // slash — CALCULATION (pure fn). The one-character `/` — the
     // self-closing marker (a trailing `/` before the `>`).
-    export function slash() {
+    export fn slash() {
         return String.fromCharCode(47)
     }
 
@@ -607,7 +607,7 @@ ${
     // arithmetic) and `malformed` is true for a missing tag name OR an
     // unterminated opener (EOF before `>`) — MK2.2's ErrorRecovery
     // blame datum.
-    export function tokenizeOpener(cursor, ltAnchor) {
+    export fn tokenizeOpener(cursor, ltAnchor) {
         const source = cursor.source
         const len = source.length
 
@@ -716,7 +716,7 @@ ${
     // block-context.scrml's ensureBlockContextStack — a parse context
     // built before MK2.1 (an MK1-vintage ctx) has no tagFrameStack
     // slot; this keeps the helpers total.
-    export function ensureTagFrameStack(ctx) {
+    export fn ensureTagFrameStack(ctx) {
         if (ctx.tagFrameStack is not) {
             ctx.tagFrameStack = []
         }
@@ -726,7 +726,7 @@ ${
     // tags are open. The raw stack-depth read; MK2.1 added it. Punch-list
     // P5's queryable stack-depth datum (see tagFrameBalancedAt below for
     // the CloseCondition-shaped accessor MK2.3 adds).
-    export function tagFrameDepth(ctx) {
+    export fn tagFrameDepth(ctx) {
         ensureTagFrameStack(ctx)
         return ctx.tagFrameStack.length
     }
@@ -762,7 +762,7 @@ ${
     // its children have been fully consumed and the delegation must hand
     // back. The CloseCondition.TagFrameBalanced(tagDepthAtOpen) datum's
     // predicate; the MK4 seam consumes it.
-    export function tagFrameBalancedAt(ctx, tagDepthAtOpen) {
+    export fn tagFrameBalancedAt(ctx, tagDepthAtOpen) {
         ensureTagFrameStack(ctx)
         return ctx.tagFrameStack.length == tagDepthAtOpen
     }
@@ -770,7 +770,7 @@ ${
     // currentTagFrame — CALCULATION (peek). The CURRENT @tagFrame
     // variant tag — the kind of the top frame, or `.Closed` when the
     // stack is empty.
-    export function currentTagFrame(ctx) {
+    export fn currentTagFrame(ctx) {
         ensureTagFrameStack(ctx)
         if (ctx.tagFrameStack.length == 0) return TagFrameKind.Closed
         return ctx.tagFrameStack[ctx.tagFrameStack.length - 1].kind
@@ -779,7 +779,7 @@ ${
     // topTagFrame — CALCULATION (peek). The top open-tag frame (the
     // descriptor — kind + payload), or `not` when no tag is open. The
     // frame a matching closer (MK2.2) pops.
-    export function topTagFrame(ctx) {
+    export fn topTagFrame(ctx) {
         ensureTagFrameStack(ctx)
         if (ctx.tagFrameStack.length == 0) return not
         return ctx.tagFrameStack[ctx.tagFrameStack.length - 1]
@@ -797,7 +797,7 @@ ${
     // computes the mode (bodyModeForChildOf — SPEC §4.18.1) and passes it
     // here. A caller that has not yet computed the mode may omit the
     // argument — it then defaults to `not`, the MK2.1 behavior.
-    export function makeOpenExpectingChildrenFrame(name, tagKind, depth, span, bodyMode) {
+    export fn makeOpenExpectingChildrenFrame(name, tagKind, depth, span, bodyMode) {
         return {
             kind:     TagFrameKind.OpenExpectingChildren,
             name,
@@ -816,7 +816,7 @@ ${
     // live mirror of the canonical `.OpenSelfClosed(name, kind, span)`
     // payload-bearing state-child. No `depth` payload — a self-closed
     // tag opens no child subtree.
-    export function makeOpenSelfClosedFrame(name, tagKind, span) {
+    export fn makeOpenSelfClosedFrame(name, tagKind, span) {
         return {
             kind:    TagFrameKind.OpenSelfClosed,
             name,
@@ -829,7 +829,7 @@ ${
     // to ctx.tagFrameStack. The `.Closed → .Open*` (or nested
     // `.OpenExpectingChildren → .OpenExpectingChildren`) @tagFrame
     // transition.
-    export function pushTagFrame(ctx, frame) {
+    export fn pushTagFrame(ctx, frame) {
         ensureTagFrameStack(ctx)
         ctx.tagFrameStack.push(frame)
     }
@@ -839,7 +839,7 @@ ${
     // ErrorRecovery dispatch). The `.Open* → .Closed` @tagFrame
     // transition. MK2.1 provides it as the substrate; MK2.2 drives it
     // from the closer-form recognizers.
-    export function popTagFrame(ctx) {
+    export fn popTagFrame(ctx) {
         ensureTagFrameStack(ctx)
         if (ctx.tagFrameStack.length == 0) return not
         return ctx.tagFrameStack.pop()
@@ -893,7 +893,7 @@ ${
     // topTagFrame(ctx) BEFORE the push (the frame immediately enclosing
     // this one); a top-level tag has no parent (`not`). A self-closing
     // `<ident ... />` opens NO body, so it carries no `bodyMode` payload.
-    export function recognizeOpener(ctx, cursor, ltAnchor) {
+    export fn recognizeOpener(ctx, cursor, ltAnchor) {
         // 1. One-pass opener-body tokenization.
         const opener = tokenizeOpener(cursor, ltAnchor)
 
@@ -990,7 +990,7 @@ ${
     // an opener's `>` is a `:`-shorthand-body / state-decl signal (§4.14
     // / §6). (`=` needs a two-char look — see inspectAfterOpener — so it
     // is NOT a single-char test.)
-    export function isDeclSignalChar(ch) {
+    export fn isDeclSignalChar(ch) {
         return ch == ":"
     }
 
@@ -1018,7 +1018,7 @@ ${
     //
     // A pure fn — no cursor, no engine write. Mirrors the no-offset-math
     // discipline: the inputs are a source string + an absolute offset.
-    export function inspectAfterOpener(source, afterOpenerPos) {
+    export fn inspectAfterOpener(source, afterOpenerPos) {
         const len = source.length
 
         // 1. The decl-signal test — skip inline spaces/tabs only (a
@@ -1115,7 +1115,7 @@ ${
     // a stray post-`>` `=`; NR validates structural-element placement.
     // declSignal before the compound test — `<NAME> = <X>...` is a
     // declaration whose RHS happens to open with a tag, not a compound.
-    export function classifyTag(tagKind, selfClosing, afterOpener, firstChildClass) {
+    export fn classifyTag(tagKind, selfClosing, afterOpener, firstChildClass) {
         // 1. A self-closing `<ident ... />` — §4.14 self-closing form.
         if (selfClosing) return TagClass.SelfClose
         // 2. A scrml-defined structural element — its TagKind IS its
@@ -1143,7 +1143,7 @@ ${
     // The trampoline calls this at frame-close to get classifyTag's
     // `firstChildClass` argument — a typed-payload read over the spliced
     // child blocks (each Markup child carries its own `.tagClass`).
-    export function firstChildElementClass(children) {
+    export fn firstChildElementClass(children) {
         if (children is not) return not
         let i = 0
         while (i < children.length) {
@@ -1163,7 +1163,7 @@ ${
     // (parse-markup's closeMarkupElement / emitMarkupElement) calls this
     // and stamps the result on the Markup block — the typed payload NR
     // (Stage 3.05) consumes downstream.
-    export function classifyTagFrame(frame, children) {
+    export fn classifyTagFrame(frame, children) {
         const selfClosing = frame.opener is given && frame.opener.selfClosing
         const firstChildClass = firstChildElementClass(children)
         return classifyTag(frame.tagKind, selfClosing, frame.afterOpener, firstChildClass)
@@ -1224,7 +1224,7 @@ ${
 
     // lessThanSlash — CALCULATION (pure fn). The two-character `</`
     // closer prelude.
-    export function lessThanSlash() {
+    export fn lessThanSlash() {
         return "<" + slash()
     }
 
@@ -1232,7 +1232,7 @@ ${
     // inferred-closer token (SPEC §4.4.2). Assembled via slash() per the
     // README ANOMALY-1 string-literal discipline (a literal `</>` in a
     // string trips the BS-layer bracket matcher).
-    export function inferredCloser() {
+    export fn inferredCloser() {
         return "<" + slash() + closeAngle()
     }
 
@@ -1253,7 +1253,7 @@ ${
     // legal here (that is the trampoline's per-context dispatch — a
     // closer inside a logic context is E-CTX-002, the trampoline's
     // concern).
-    export function recognizeCloserForm(cursor) {
+    export fn recognizeCloserForm(cursor) {
         if (peekStr(cursor, 3) == inferredCloser()) return CloserForm.Inferred
         if (peekStr(cursor, 2) == lessThanSlash()) {
             // `</` followed by a tag-name start is an explicit `</name>`.
@@ -1284,7 +1284,7 @@ ${
     // an inferred closer and the closed tag's name for an explicit one.
     // The span is file-absolute (the one-cursor invariant — no offset
     // math).
-    export function tokenizeCloser(cursor) {
+    export fn tokenizeCloser(cursor) {
         const source = cursor.source
         const len = source.length
         const startPos = cursor.pos
@@ -1357,7 +1357,7 @@ ${
     // ensureDiagnostics — STATE write (lazy init). Mirrors
     // ensureTagFrameStack — a parse context built before MK2.2 has no
     // diagnostics slot; this keeps the helpers total.
-    export function ensureDiagnostics(ctx) {
+    export fn ensureDiagnostics(ctx) {
         if (ctx.diagnostics is not) {
             ctx.diagnostics = []
         }
@@ -1365,13 +1365,13 @@ ${
 
     // makeDiagnostic — CALCULATION (pure data builder). One structured
     // markup diagnostic: { code, message, span }.
-    export function makeDiagnostic(code, message, span) {
+    export fn makeDiagnostic(code, message, span) {
         return { code, message, span }
     }
 
     // pushDiagnostic — STATE write: append a diagnostic to
     // ctx.diagnostics.
-    export function pushDiagnostic(ctx, diagnostic) {
+    export fn pushDiagnostic(ctx, diagnostic) {
         ensureDiagnostics(ctx)
         ctx.diagnostics.push(diagnostic)
     }
@@ -1397,7 +1397,7 @@ ${
     // accumulating `closer` (the offending closer descriptor) as the
     // skipped token and re-syncing on it. Returns ctx.recovery
     // (re-synchronized) so the caller can observe the recovery outcome.
-    export function dispatchTagMismatchRecovery(ctx, closer) {
+    export fn dispatchTagMismatchRecovery(ctx, closer) {
         beginRecovery(ctx.recovery)
         accumulateSkipped(ctx.recovery, closer)
         markResync(ctx.recovery, SyncToken.ClosingBrace)
@@ -1438,7 +1438,7 @@ ${
     // (`not` on a mismatch / stray closer) and `code` is the diagnostic
     // code (`not` on a clean close). The `ok` flag is true only for a
     // clean close.
-    export function closeTagFrame(ctx, closer) {
+    export fn closeTagFrame(ctx, closer) {
         ensureTagFrameStack(ctx)
         const top = topTagFrame(ctx)
 
@@ -1484,7 +1484,7 @@ ${
     // `.OpenSelfClosed -> .Closed` @tagFrame transition per the Q1.F
     // rule= contract). Returns the popped frame, or `not` if the top
     // frame was not an .OpenSelfClosed (defensive).
-    export function closeSelfClosedFrame(ctx) {
+    export fn closeSelfClosedFrame(ctx) {
         ensureTagFrameStack(ctx)
         const top = topTagFrame(ctx)
         if (top is not) return not
@@ -1497,7 +1497,7 @@ ${
     // with a closer) — SPEC §4 (line 1072) E-CTX-001. One diagnostic per
     // still-open frame, blamed at the opener's span. Returns the count of
     // unterminated tags reported. The trampoline calls this once at EOF.
-    export function reportUnterminatedTags(ctx) {
+    export fn reportUnterminatedTags(ctx) {
         ensureTagFrameStack(ctx)
         let count = 0
         let i = 0

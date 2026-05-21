@@ -83,7 +83,7 @@ ${
     // Handles: integer, decimal, 0x.../0X... hex, 0o.../0O... octal,
     //          0b.../0B... binary, BigInt suffix `n`, numeric separators `_`.
     // ---------------------------------------------------------------------
-    export function parseNumericLiteralValue(raw) {
+    export fn parseNumericLiteralValue(raw) {
         // strip trailing 'n' (BigInt) for value parsing
         let body = raw
         if (body.length > 0 && body.charAt(body.length - 1) == "n") {
@@ -108,7 +108,7 @@ ${
     // Whitespace is dropped (Acorn parity); newlines also skipped. Real
     // tokenizers compatible with Acorn don't emit Whitespace / Newline
     // tokens by default; our compareTokenizers normalizes either way.
-    export function skipWhitespaceAndNewlines(cursor) {
+    export fn skipWhitespaceAndNewlines(cursor) {
         while (!isEof(cursor)) {
             const c = peekCharCode(cursor, 0)
             if (isWhitespaceCode(c) || isNewlineCode(c)) {
@@ -122,7 +122,7 @@ ${
     // scanIdentifier — STATE-write (advances cursor over the ident body) +
     // CALCULATION (returns the matched substring + span). isIdentStart is
     // assumed already true at cursor.pos.
-    export function scanIdentifier(cursor) {
+    export fn scanIdentifier(cursor) {
         const start = cursor.pos
         const line = cursor.line
         const col = cursor.col
@@ -137,7 +137,7 @@ ${
     // scanNumericLiteral — STATE-write + CALCULATION.
     // Detects 0x/0o/0b prefixes, scans digits + separators + decimal +
     // exponent + optional BigInt suffix. Returns the raw substring + span.
-    export function scanNumericLiteral(cursor) {
+    export fn scanNumericLiteral(cursor) {
         const start = cursor.pos
         const line = cursor.line
         const col = cursor.col
@@ -220,7 +220,7 @@ ${
     // tokenization end-to-end functional for InCode-state-only bench files.
     // ---------------------------------------------------------------------
 
-    export function stubScanSingleString(cursor) {
+    export fn stubScanSingleString(cursor) {
         const start = cursor.pos
         const line = cursor.line
         const col = cursor.col
@@ -241,7 +241,7 @@ ${
         return { raw: cursor.source.substring(start, cursor.pos), span: makeSpan(start, cursor.pos, line, col) }
     }
 
-    export function stubScanDoubleString(cursor) {
+    export fn stubScanDoubleString(cursor) {
         const start = cursor.pos
         const line = cursor.line
         const col = cursor.col
@@ -264,7 +264,7 @@ ${
     // Template literal — naive paired-backtick scan. Real template lexing
     // (M1.2) emits TemplateChunk + LogicEscapeOpen + nested LexMode per
     // §51.0.Q.1; the stub coalesces the whole thing into one TemplateChunk.
-    export function stubScanTemplate(cursor) {
+    export fn stubScanTemplate(cursor) {
         const start = cursor.pos
         const line = cursor.line
         const col = cursor.col
@@ -309,7 +309,7 @@ ${
     // retained as an exported helper for M1.x archaeology + parity with
     // stubScanSingleString / stubScanDoubleString / stubScanTemplate
     // (also retired at their dispatch sites but kept as helpers).
-    export function stubScanRegex(cursor) {
+    export fn stubScanRegex(cursor) {
         const start = cursor.pos
         const line = cursor.line
         const col = cursor.col
@@ -353,7 +353,7 @@ ${
     // an Ident, NumberLit, StringLit, `)`, `]`, `}`, or a postfix-aware
     // operator. Default safe: division.
     // ---------------------------------------------------------------------
-    export function regexAllowedAfter(lastKind) {
+    export fn regexAllowedAfter(lastKind) {
         if (lastKind is not) return true
         // Cannot follow values/closing brackets — division is intended.
         if (lastKind == TokenKind.Ident) return false
@@ -412,7 +412,7 @@ ${
     // dispatchInCode is therefore UNCHANGED at MK2.3 — this is an exported
     // calculation with no caller yet inside this file.
     // ---------------------------------------------------------------------
-    export function markupValueAllowedAfter(lastKind) {
+    export fn markupValueAllowedAfter(lastKind) {
         // Start-of-input — a `<` here may open a top-level markup element.
         if (lastKind is not) return true
         // After a value or a closing bracket the `<` is less-than — a
@@ -459,7 +459,7 @@ ${
     // dispatch transitioned LexMode (caller should reroute to the relevant
     // state-child body in M1.2+; in M1.1 the body work runs inline here).
     // ---------------------------------------------------------------------
-    export function dispatchInCode(cursor, ctx) {
+    export fn dispatchInCode(cursor, ctx) {
         skipWhitespaceAndNewlines(cursor)
         if (isEof(cursor)) {
             ctx.tokens.push(makeEof(cursor.pos, cursor.line, cursor.col))

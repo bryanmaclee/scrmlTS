@@ -161,7 +161,7 @@ ${
 
     // initialParseMode — calculation (pure fn: returns the .Variant the
     // engine starts in). Matches `initial=.TopLevel` on the engine above.
-    export function initialParseMode() {
+    export fn initialParseMode() {
         return ParseMode.TopLevel
     }
 
@@ -171,12 +171,12 @@ ${
     // we trust the dispatch sites in parse-expr.scrml to honor the rule=
     // matrix. enterMode / exitMode below restore the prior mode on region
     // exit — the engine equivalent is the state-child's return rule.
-    export function setParseMode(ctx, mode) {
+    export fn setParseMode(ctx, mode) {
         ctx.currentParseMode = mode
     }
 
     // getParseMode — calculation (read).
-    export function getParseMode(ctx) {
+    export fn getParseMode(ctx) {
         return ctx.currentParseMode
     }
 
@@ -185,7 +185,7 @@ ${
     // a state-child's enter; the returned prior-mode is what the child's
     // `rule=` return-path names. Used by parse-expr.scrml when entering
     // `[...]` / `{...}` / `(...)` regions.
-    export function enterMode(ctx, mode) {
+    export fn enterMode(ctx, mode) {
         const prior = ctx.currentParseMode
         ctx.currentParseMode = mode
         return prior
@@ -193,7 +193,7 @@ ${
 
     // exitMode — STATE write: restore a prior mode captured by enterMode.
     // The engine equivalent is the state-child's `rule=` return transition.
-    export function exitMode(ctx, priorMode) {
+    export fn exitMode(ctx, priorMode) {
         ctx.currentParseMode = priorMode
     }
 
@@ -252,7 +252,7 @@ ${
 
     // parseExprIsLegalTransition — calculation (predicate). Mirrors the
     // engine's rule= validation: is `to` a legal transition out of `from`?
-    export function isLegalParseModeTransition(from, to) {
+    export fn isLegalParseModeTransition(from, to) {
         const row = LEGAL_TRANSITIONS[from]
         if (row is not) {
             return false

@@ -220,27 +220,27 @@ ${
     // -- Statement node constructors (M3.1) --
 
     // makeBlock — a block statement `{ stmt* }`.
-    export function makeBlock(body, span) {
+    export fn makeBlock(body, span) {
         return { kind: StmtKind.Block, body, span }
     }
 
     // makeExprStmt — an expression statement `expr ;`.
-    export function makeExprStmt(expression, span) {
+    export fn makeExprStmt(expression, span) {
         return { kind: StmtKind.ExprStmt, expression, span }
     }
 
     // makeEmpty — the empty statement `;`.
-    export function makeEmpty(span) {
+    export fn makeEmpty(span) {
         return { kind: StmtKind.Empty, span }
     }
 
     // makeVarDecl — a `let`/`const`/`var` declaration.
-    export function makeVarDecl(declKind, declarations, span) {
+    export fn makeVarDecl(declKind, declarations, span) {
         return { kind: StmtKind.VarDecl, declKind, declarations, span }
     }
 
     // makeVarDeclarator — one declarator: a binding target + optional init.
-    export function makeVarDeclarator(target, init, span) {
+    export fn makeVarDeclarator(target, init, span) {
         return { target, init, span }
     }
 
@@ -249,30 +249,30 @@ ${
     // makeIf — an `if (test) consequent else alternate` statement. `alternate`
     // is `not` for a no-else `if`; an `else if` chain nests an If as the
     // alternate (Acorn's IfStatement shape).
-    export function makeIf(test, consequent, alternate, span) {
+    export fn makeIf(test, consequent, alternate, span) {
         return { kind: StmtKind.If, test, consequent, alternate, span }
     }
 
     // makeWhile — a `while (test) body` loop.
-    export function makeWhile(test, body, span) {
+    export fn makeWhile(test, body, span) {
         return { kind: StmtKind.While, test, body, span }
     }
 
     // makeDoWhile — a `do body while (test)` loop (body runs once first).
-    export function makeDoWhile(body, test, span) {
+    export fn makeDoWhile(body, test, span) {
         return { kind: StmtKind.DoWhile, body, test, span }
     }
 
     // makeFor — a C-style three-clause `for (init; test; update) body` loop.
     // Each of `init` / `test` / `update` is `not` when its clause is empty.
     // `init` is a VarDecl Stmt or an Expr; `test` / `update` are Exprs.
-    export function makeFor(init, test, update, body, span) {
+    export fn makeFor(init, test, update, body, span) {
         return { kind: StmtKind.For, init, test, update, body, span }
     }
 
     // makeForIn — a `for (left in right) body` loop. `left` is a VarDecl Stmt
     // or an assignment-target Expr; `right` is the iterated object.
-    export function makeForIn(left, right, body, span) {
+    export fn makeForIn(left, right, body, span) {
         return { kind: StmtKind.ForIn, left, right, body, span }
     }
 
@@ -280,31 +280,31 @@ ${
     // `for await (left of right)` (an M3.2 extension of the DD §D3 ForOf
     // shape — mirrors Acorn's ForOfStatement `await: boolean`; the body
     // `async` context is M3.3's territory).
-    export function makeForOf(left, right, body, isAwait, span) {
+    export fn makeForOf(left, right, body, isAwait, span) {
         return { kind: StmtKind.ForOf, left, right, body, isAwait, span }
     }
 
     // makeReturn — a `return argument` statement. `argument` is `not` for a
     // bare `return`.
-    export function makeReturn(argument, span) {
+    export fn makeReturn(argument, span) {
         return { kind: StmtKind.Return, argument, span }
     }
 
     // makeBreak — a `break` (optionally `break label`). `label` is `not` for
     // an unlabeled break.
-    export function makeBreak(label, span) {
+    export fn makeBreak(label, span) {
         return { kind: StmtKind.Break, label, span }
     }
 
     // makeContinue — a `continue` (optionally `continue label`). `label` is
     // `not` for an unlabeled continue.
-    export function makeContinue(label, span) {
+    export fn makeContinue(label, span) {
         return { kind: StmtKind.Continue, label, span }
     }
 
     // makeLabeled — a `label: body` labeled statement. `label` is the label
     // identifier text; `body` is the statement the label names.
-    export function makeLabeled(label, body, span) {
+    export fn makeLabeled(label, body, span) {
         return { kind: StmtKind.Labeled, label, body, span }
     }
 
@@ -320,21 +320,21 @@ ${
     // makeFunctionDecl — a `function name(params) { body }` declaration.
     // `body` is the function body's Stmt array (parsed in-line). `isAsync` is
     // true for `async function`; `isGenerator` is true for `function*`.
-    export function makeFunctionDecl(name, params, body, isAsync, isGenerator, span) {
+    export fn makeFunctionDecl(name, params, body, isAsync, isGenerator, span) {
         return { kind: StmtKind.FunctionDecl, name, params, body, isAsync, isGenerator, span }
     }
 
     // makeClassDecl — a `class Name extends Base { ... }` declaration.
     // `superClass` is the extends-clause Expr or `not`; `body` is a
     // ClassMember array.
-    export function makeClassDecl(name, superClass, body, span) {
+    export fn makeClassDecl(name, superClass, body, span) {
         return { kind: StmtKind.ClassDecl, name, superClass, body, span }
     }
 
     // makeImport — an `import ... from "source"` statement. `specifiers` is an
     // import-specifier array (empty for a bare `import "m"`); `source` is the
     // module-specifier string value.
-    export function makeImport(specifiers, source, span) {
+    export fn makeImport(specifiers, source, span) {
         return { kind: StmtKind.Import, specifiers, source, span }
     }
 
@@ -342,20 +342,20 @@ ${
     // Stmt or `not`; `specifiers` is the export-specifier list (`export {}`);
     // `source` is the re-export module string or `not`; `isDefault` is true
     // for `export default`.
-    export function makeExport(declaration, specifiers, source, isDefault, span) {
+    export fn makeExport(declaration, specifiers, source, isDefault, span) {
         return { kind: StmtKind.Export, declaration, specifiers, source, isDefault, span }
     }
 
     // makeTry — a `try { } catch (param) { } finally { }` statement. `block`
     // is the try-block Stmt; `handler` is a catch-clause object or `not`;
     // `finalizer` is the finally-block Stmt or `not`.
-    export function makeTry(block, handler, finalizer, span) {
+    export fn makeTry(block, handler, finalizer, span) {
         return { kind: StmtKind.Try, block, handler, finalizer, span }
     }
 
     // makeThrow — a `throw argument` statement. `argument` is the thrown-value
     // Expr (the no-LineTerminator restricted production gates it).
-    export function makeThrow(argument, span) {
+    export fn makeThrow(argument, span) {
         return { kind: StmtKind.Throw, argument, span }
     }
 
@@ -365,7 +365,7 @@ ${
     // method-name node; `value` is the method's Function Expr (params +
     // in-line body); `methodKind` is a MethodKind value; `isStatic` /
     // `computed` are booleans.
-    export function makeMethodDef(key, value, methodKind, isStatic, computed, span) {
+    export fn makeMethodDef(key, value, methodKind, isStatic, computed, span) {
         return {
             memberKind: ClassMemberKind.Method,
             key, value, methodKind, isStatic, computed, span,
@@ -375,7 +375,7 @@ ${
     // makePropertyDef — one class-field member. `key` is the field-name node;
     // `value` is the initializer Expr or `not`; `isStatic` / `computed` are
     // booleans.
-    export function makePropertyDef(key, value, isStatic, computed, span) {
+    export fn makePropertyDef(key, value, isStatic, computed, span) {
         return {
             memberKind: ClassMemberKind.Property,
             key, value, isStatic, computed, span,
@@ -385,96 +385,96 @@ ${
     // -- Import-specifier / export-specifier / catch-clause constructors --
 
     // makeImportNamed — a named import specifier `imported as local`.
-    export function makeImportNamed(imported, local, span) {
+    export fn makeImportNamed(imported, local, span) {
         return { specifierKind: ImportSpecifierKind.Named, imported, local, span }
     }
 
     // makeImportDefault — the default-import specifier `import local`.
-    export function makeImportDefault(local, span) {
+    export fn makeImportDefault(local, span) {
         return { specifierKind: ImportSpecifierKind.Default, local, span }
     }
 
     // makeImportNamespace — the namespace-import specifier `import * as local`.
-    export function makeImportNamespace(local, span) {
+    export fn makeImportNamespace(local, span) {
         return { specifierKind: ImportSpecifierKind.Namespace, local, span }
     }
 
     // makeExportSpecifier — one specifier of `export { ... }`: `local as
     // exported`.
-    export function makeExportSpecifier(local, exported, span) {
+    export fn makeExportSpecifier(local, exported, span) {
         return { local, exported, span }
     }
 
     // makeCatchClause — the `catch (param) { body }` clause of a `try`.
     // `param` is the caught-binding target or `not` (optional-catch-binding);
     // `body` is the catch-block Stmt.
-    export function makeCatchClause(param, body, span) {
+    export fn makeCatchClause(param, body, span) {
         return { param, body, span }
     }
 
     // -- Binding-pattern node constructors (M3.1 — DD §D5) --
 
     // makeBindingIdent — a plain identifier binding `x` (the pattern leaf).
-    export function makeBindingIdent(name, span) {
+    export fn makeBindingIdent(name, span) {
         return { bindingKind: BindingKind.Ident, name, span }
     }
 
     // makeObjectPattern — `{ a, b: c, ...rest }` destructuring pattern.
-    export function makeObjectPattern(properties, span) {
+    export fn makeObjectPattern(properties, span) {
         return { bindingKind: BindingKind.ObjectPat, properties, span }
     }
 
     // makeArrayPattern — `[ a, , b, ...rest ]` destructuring pattern.
-    export function makeArrayPattern(elements, span) {
+    export fn makeArrayPattern(elements, span) {
         return { bindingKind: BindingKind.ArrayPat, elements, span }
     }
 
     // makeAssignmentPattern — a defaulted binding `target = default`.
-    export function makeAssignmentPattern(left, right, span) {
+    export fn makeAssignmentPattern(left, right, span) {
         return { bindingKind: "AssignmentPattern", left, right, span }
     }
 
     // makeRestElement — a rest binding `...target`.
-    export function makeRestElement(argument, span) {
+    export fn makeRestElement(argument, span) {
         return { bindingKind: "RestElement", argument, span }
     }
 
     // -- object-pattern property constructors --
 
     // makeBindingPropertyKeyValue — `{ key: target }`.
-    export function makeBindingPropertyKeyValue(key, value, computed) {
+    export fn makeBindingPropertyKeyValue(key, value, computed) {
         return { propertyKind: BindingPropertyKind.KeyValue, key, value, computed }
     }
 
     // makeBindingPropertyShorthand — `{ name }` (or `{ name = default }`).
-    export function makeBindingPropertyShorthand(name, value) {
+    export fn makeBindingPropertyShorthand(name, value) {
         return { propertyKind: BindingPropertyKind.Shorthand, name, value }
     }
 
     // makeBindingPropertyRest — `{ ...rest }`.
-    export function makeBindingPropertyRest(argument) {
+    export fn makeBindingPropertyRest(argument) {
         return { propertyKind: BindingPropertyKind.Rest, argument }
     }
 
     // -- array-pattern element constructors --
 
     // makeBindingElementItem — one positional element of an array pattern.
-    export function makeBindingElementItem(value) {
+    export fn makeBindingElementItem(value) {
         return { elementKind: BindingElementKind.Item, value }
     }
 
     // makeBindingElementHole — an elision slot `[ , x ]`.
-    export function makeBindingElementHole() {
+    export fn makeBindingElementHole() {
         return { elementKind: BindingElementKind.Hole }
     }
 
     // makeBindingElementRest — `[ ...rest ]`.
-    export function makeBindingElementRest(argument) {
+    export fn makeBindingElementRest(argument) {
         return { elementKind: BindingElementKind.Rest, argument }
     }
 
     // -- isStmt — predicate --
-    export function isStmt(node) {
+    export fn isStmt(node) {
         if (node is not) {
             return false
         }

@@ -27,19 +27,19 @@ ${
     // constructor. Calculation classification per DD §D1 — pure fn over
     // already-typed input; no condition-dependent dispatch.
 
-    export function makeSpan(start, end, line, col) {
+    export fn makeSpan(start, end, line, col) {
         return { start, end, line, col }
     }
 
     // Convenience: extend a span's end while preserving its start anchor.
     // Pure function (no state mutation; returns a NEW span).
-    export function extendSpan(span, newEnd) {
+    export fn extendSpan(span, newEnd) {
         return { start: span.start, end: newEnd, line: span.line, col: span.col }
     }
 
     // Convenience: empty span at a single point (start === end).
     // Useful for EOF + zero-width tokens.
-    export function pointSpan(pos, line, col) {
+    export fn pointSpan(pos, line, col) {
         return { start: pos, end: pos, line, col }
     }
 }

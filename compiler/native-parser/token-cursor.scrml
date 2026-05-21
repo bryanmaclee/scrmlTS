@@ -43,7 +43,7 @@ ${
     // `lex(source)` returns). Calculation: pure fn from input → starting
     // cursor state. The token array is assumed to END with an EOF token
     // (lex.scrml guarantees this); the cursor never advances past it.
-    export function makeTokenCursor(tokens) {
+    export fn makeTokenCursor(tokens) {
         return {
             tokens,            // immutable token buffer (lex output)
             idx:    0,         // current token index (advances; the STATE field)
@@ -51,14 +51,14 @@ ${
     }
 
     // tokenCount — calculation (read): how many tokens in the buffer.
-    export function tokenCount(cursor) {
+    export fn tokenCount(cursor) {
         return cursor.tokens.length
     }
 
     // atEnd — calculation (predicate): are we at (or past) the EOF token?
     // The EOF token is the LAST element; "at end" means the current token
     // IS the EOF token (or, defensively, the index ran past the array).
-    export function atEnd(cursor) {
+    export fn atEnd(cursor) {
         if (cursor.idx >= cursor.tokens.length) {
             return true
         }
@@ -69,7 +69,7 @@ ${
     // Past-end reads return the EOF token (the last element) so callers
     // can always inspect a `.kind` without a null-guard — mirrors M1's
     // cursor.peekChar returning "" past EOF.
-    export function peek(cursor, k) {
+    export fn peek(cursor, k) {
         const offset = cursor.idx + (k ?? 0)
         if (offset >= cursor.tokens.length) {
             if (cursor.tokens.length == 0) {
@@ -84,13 +84,13 @@ ${
     }
 
     // current — calculation (read): the token at the cursor (peek 0).
-    export function current(cursor) {
+    export fn current(cursor) {
         return peek(cursor, 0)
     }
 
     // peekKind — calculation (read): the `.kind` of the token at `idx + k`.
     // Returns the EOF kind past-end (since peek returns the EOF token).
-    export function peekKind(cursor, k) {
+    export fn peekKind(cursor, k) {
         const tok = peek(cursor, k)
         if (tok is not) {
             return TokenKind.EOF
@@ -99,17 +99,17 @@ ${
     }
 
     // currentKind — calculation (read): the `.kind` of the current token.
-    export function currentKind(cursor) {
+    export fn currentKind(cursor) {
         return peekKind(cursor, 0)
     }
 
     // isKind — calculation (predicate): is the current token of `kind`?
-    export function isKind(cursor, kind) {
+    export fn isKind(cursor, kind) {
         return currentKind(cursor) == kind
     }
 
     // isKindAt — calculation (predicate): is the token at `idx + k` of `kind`?
-    export function isKindAt(cursor, k, kind) {
+    export fn isKindAt(cursor, k, kind) {
         return peekKind(cursor, k) == kind
     }
 
@@ -119,7 +119,7 @@ ${
     // be `@tokenCursor.idx = ...`; the live-surface mutation mirrors that.
     // Returns the token that WAS current before the advance (the consumed
     // token) — the common "consume + use" idiom.
-    export function advance(cursor, n) {
+    export fn advance(cursor, n) {
         const steps = n ?? 1
         const consumed = current(cursor)
         let i = 0
@@ -136,14 +136,14 @@ ${
     // lookahead-with-commit is the parser's speculation primitive. In
     // canonical scrml the snapshot is lin-typed (§35); the live surface
     // returns a plain {idx} object.
-    export function snapshot(cursor) {
+    export fn snapshot(cursor) {
         return { idx: cursor.idx }
     }
 
     // restore — apply a snapshot back to a cursor (STATE write). The
     // lin-typed canonical form CONSUMES the snapshot here (designing out
     // double-restore); the live surface just writes `idx`.
-    export function restore(cursor, snap) {
+    export fn restore(cursor, snap) {
         cursor.idx = snap.idx
     }
 }

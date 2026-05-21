@@ -90,7 +90,7 @@ ${
     // the outer dispatch loop in lex.scrml rather than inline from
     // dispatchInCode — see the M1.3 comment-body precedent.
     // ---------------------------------------------------------------------
-    export function scanRegexBody(cursor) {
+    export fn scanRegexBody(cursor) {
         const start = cursor.pos
         const line = cursor.line
         const col = cursor.col
@@ -171,7 +171,7 @@ ${
     // boundary is clean (mirrors the M1.2 string-body shape — string
     // bodies also emit a single token per dispatch).
     // ---------------------------------------------------------------------
-    export function dispatchInRegexBody(cursor, ctx) {
+    export fn dispatchInRegexBody(cursor, ctx) {
         const { pattern, flags, raw, span } = scanRegexBody(cursor)
         ctx.tokens.push(makeToken(TokenKind.RegexLit, raw, span, { pattern, flags }))
         setMode(ctx, LexMode.InCode)

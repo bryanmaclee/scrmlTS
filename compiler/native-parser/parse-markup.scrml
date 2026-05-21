@@ -214,7 +214,7 @@ ${
     // map to one BlockKind. Used by the trampoline when it emits a block
     // on context close.
     // -------------------------------------------------------------------
-    export function blockKindForContext(context) {
+    export fn blockKindForContext(context) {
         const k = blockKinds()
         if (context == BlockContext.InLogicEscape) return k.LogicEscape
         if (context == BlockContext.InSql)         return k.Sql
@@ -247,7 +247,7 @@ ${
     // elimination shape per charter Q2: the block-splitter GUESSES
     // context; the native parser COMPUTES it from a closed rule.
     // -------------------------------------------------------------------
-    export function recognizeContextEntryAt(cursor) {
+    export fn recognizeContextEntryAt(cursor) {
         // Two-character block-opener sigil?
         const twoChar = peekStr(cursor, 2)
         const sigilContext = contextForSigil(twoChar)
@@ -281,7 +281,7 @@ ${
     // beginTextRun — STATE write. Mark the start of a text run at the
     // cursor IF a run is not already open. (Idempotent — calling it
     // mid-run is a no-op, matching the BS's beginText.)
-    export function beginTextRun(run, cursor) {
+    export fn beginTextRun(run, cursor) {
         if (run.at is not) {
             run.at = { start: cursor.pos, line: cursor.line, col: cursor.col }
         }
@@ -291,7 +291,7 @@ ${
     // block spanning [run.at.start, cursor.pos] and clear the marker. A
     // zero-length run (start == cursor.pos) emits nothing — matching the
     // BS's flushText, which skips empty raw slices.
-    export function flushTextRun(run, cursor, ctx) {
+    export fn flushTextRun(run, cursor, ctx) {
         if (run.at is not) return
         const start = run.at.start
         if (cursor.pos > start) {
@@ -316,7 +316,7 @@ ${
     // block-stream order is text-then-comment-then-text — matching the BS
     // block-tree order.
     // -------------------------------------------------------------------
-    export function emitComment(run, cursor, ctx) {
+    export fn emitComment(run, cursor, ctx) {
         const form = recognizeCommentForm(cursor)
         if (form is not) return false
 
@@ -346,7 +346,7 @@ ${
     // BlockContext frame (carrying openSpan); `endPos` is the position
     // one past the context's last consumed character.
     // -------------------------------------------------------------------
-    export function emitContextBlock(ctx, frame, endPos) {
+    export fn emitContextBlock(ctx, frame, endPos) {
         const kind = blockKindForContext(frame.context)
         if (kind is not) return
         appendBlock(ctx, makeBlockNode(
@@ -382,7 +382,7 @@ ${
     // recognition (recognizeCloserForm) is the heuristic-elimination
     // contract.
     // -------------------------------------------------------------------
-    export function dispatchTopLevel(run, cursor, ctx) {
+    export fn dispatchTopLevel(run, cursor, ctx) {
         // Structural comment recognition FIRST — a `//` / `<!-- -->`
         // sequence is a comment in `.TopLevel` (a code-default body per
         // §40.8 / a markup-context construct), not text.
@@ -471,7 +471,7 @@ ${
     // outcome. A valid-code bare run is consumed but its parsed Expr is
     // NOT yet woven into a body node — that weaving is MK4.
     // -------------------------------------------------------------------
-    export function dispatchCodeDefaultBody(run, cursor, ctx) {
+    export fn dispatchCodeDefaultBody(run, cursor, ctx) {
         // Whitespace between values in a code-default body is source
         // formatting (SPEC §4.18.5), not content — skip it.
         const here = peekChar(cursor, 0)
@@ -501,7 +501,7 @@ ${
     // carriage return / newline — whitespace that, BETWEEN values in a
     // code-default body, is source formatting (SPEC §4.18.5).
     // -------------------------------------------------------------------
-    export function isBodyWhitespace(ch) {
+    export fn isBodyWhitespace(ch) {
         return ch == " " || ch == "\t" || ch == "\r" || ch == "\n"
     }
 
@@ -514,7 +514,7 @@ ${
     // the node as `.literal` so a downstream consumer (codegen's §4.18.6
     // auto-HTML-escape path) reads the segments + exprs.
     // -------------------------------------------------------------------
-    export function emitDisplayTextLiteral(cursor, ctx) {
+    export fn emitDisplayTextLiteral(cursor, ctx) {
         const result = scanDisplayTextLiteral(cursor, ctx)
         const node = result.node
         const k = blockKinds()
@@ -532,7 +532,7 @@ ${
     // a `//` line comment, or EOF. The scan does NOT advance the live
     // cursor — the caller advances.
     // -------------------------------------------------------------------
-    export function scanCodeDefaultRunExtent(cursor) {
+    export fn scanCodeDefaultRunExtent(cursor) {
         let i = cursor.pos
         const src = cursor.source
         const len = src.length
@@ -557,7 +557,7 @@ ${
     // cases — progress is guaranteed; the diagnostic, not a stall, is the
     // prose signal.
     // -------------------------------------------------------------------
-    export function emitCodeDefaultRun(cursor, ctx) {
+    export fn emitCodeDefaultRun(cursor, ctx) {
         const runStart = cursor.pos
         const runLine = cursor.line
         const runCol = cursor.col
@@ -593,7 +593,7 @@ ${
     // (`Ready to fetch` lexes to three adjacent identifier tokens;
     // parseExpression consumes only the first).
     // -------------------------------------------------------------------
-    export function isValidCodeRun(runText) {
+    export fn isValidCodeRun(runText) {
         if (runText == undefined || runText == null) { return false }
         if (runText.trim().length == 0) { return false }
         const tokens = lex(runText)
@@ -611,7 +611,7 @@ ${
     // recovered (a markup tag cannot outlive its enclosing brace
     // context).
     // -------------------------------------------------------------------
-    export function stampTagDepthAtOpen(ctx, frame) {
+    export fn stampTagDepthAtOpen(ctx, frame) {
         if (frame is not) return
         frame.tagDepthAtOpen = tagFrameDepth(ctx)
     }
@@ -631,7 +631,7 @@ ${
     // the EOF / mismatch path — the context-scoped recovery here is a
     // span-correctness measure, not a new diagnostic site.
     // -------------------------------------------------------------------
-    export function recoverTagsInClosedContext(ctx, tagDepthFloor, closePos) {
+    export fn recoverTagsInClosedContext(ctx, tagDepthFloor, closePos) {
         while (tagFrameDepth(ctx) > tagDepthFloor) {
             const frame = popTagFrame(ctx)
             if (frame is not) return
@@ -676,7 +676,7 @@ ${
     // pairs; on the context's close, recoverTagsInClosedContext recovers
     // any tag still open above it.
     // -------------------------------------------------------------------
-    export function dispatchInLogicEscape(run, cursor, ctx) {
+    export fn dispatchInLogicEscape(run, cursor, ctx) {
         // The context-scoped tag floor — the tag-tree depth when THIS
         // logic context opened. A TagFrame above it was opened inside
         // this body.
@@ -767,7 +767,7 @@ ${
     // matching close — a pure brace-depth calculation. On close a
     // ForeignCode block is emitted.
     // -------------------------------------------------------------------
-    export function dispatchInForeignCode(run, cursor, ctx) {
+    export fn dispatchInForeignCode(run, cursor, ctx) {
         // Matching close of this foreign-code block?
         if (isBlockContextClose(ctx, cursor)) {
             const frame = closeBlockContext(ctx, cursor)
@@ -813,7 +813,7 @@ ${
     // scanBraceDelimitedSketch — the shared sketch-depth body scan. Track
     // inner braces against ctx.brackets; on the matching brace-depth-0
     // close, close the context + emit its block.
-    export function scanBraceDelimitedSketch(cursor, ctx) {
+    export fn scanBraceDelimitedSketch(cursor, ctx) {
         if (isBlockContextClose(ctx, cursor)) {
             const frame = closeBlockContext(ctx, cursor)
             emitContextBlock(ctx, frame, cursor.pos)
@@ -837,20 +837,20 @@ ${
 
     // dispatchInCss — the `.InCss` state-child body (sketch depth). The
     // deep CSS sub-tokenizer engine is a later milestone.
-    export function dispatchInCss(run, cursor, ctx) {
+    export fn dispatchInCss(run, cursor, ctx) {
         scanBraceDelimitedSketch(cursor, ctx)
     }
 
     // dispatchInSql — the `.InSql` state-child body (sketch depth). The
     // deep SQL sub-tokenizer engine is a later milestone.
-    export function dispatchInSql(run, cursor, ctx) {
+    export fn dispatchInSql(run, cursor, ctx) {
         scanBraceDelimitedSketch(cursor, ctx)
     }
 
     // dispatchInErrorEffect — the `.InErrorEffect` state-child body
     // (sketch depth). The deep error-effect arm tokenizer is a later
     // milestone.
-    export function dispatchInErrorEffect(run, cursor, ctx) {
+    export fn dispatchInErrorEffect(run, cursor, ctx) {
         scanBraceDelimitedSketch(cursor, ctx)
     }
 
@@ -858,13 +858,13 @@ ${
     // meta block's body is logic-grammar (charter Q1.B: ".InMeta → meta =
     // logic-grammar; reuses the JS-layer graph") — the deep dispatcher
     // delegates to the JS layer at a later milestone.
-    export function dispatchInMeta(run, cursor, ctx) {
+    export fn dispatchInMeta(run, cursor, ctx) {
         scanBraceDelimitedSketch(cursor, ctx)
     }
 
     // dispatchInTest — the `.InTest` state-child body (sketch depth). The
     // deep test-block tokenizer is a later milestone.
-    export function dispatchInTest(run, cursor, ctx) {
+    export fn dispatchInTest(run, cursor, ctx) {
         scanBraceDelimitedSketch(cursor, ctx)
     }
 
@@ -902,7 +902,7 @@ ${
     // the open-tag stack the closer recognizers (handleCloser) pop
     // against.
     // -------------------------------------------------------------------
-    export function dispatchInMarkupTag(run, cursor, ctx) {
+    export fn dispatchInMarkupTag(run, cursor, ctx) {
         // 1. Pop the .InMarkupTag BlockContext frame — its openSpan is
         //    the `<`'s span (the opener-span anchor). enterMarkupTagContext
         //    always pushes this frame, but stay defensive.
@@ -957,7 +957,7 @@ ${
     // child's `.tagClass` here, and NR (Stage 3.05) consumes it as the
     // authoritative-resolution input.
     // -------------------------------------------------------------------
-    export function emitMarkupElement(ctx, tagFrame, startPos, endPos, children) {
+    export fn emitMarkupElement(ctx, tagFrame, startPos, endPos, children) {
         const k = blockKinds()
         const block = makeBlockNode(
             k.Markup,
@@ -985,7 +985,7 @@ ${
     // this element's children — splice them out and nest them under one
     // whole-element Markup block spanning [opener.<, closerEnd].
     // -------------------------------------------------------------------
-    export function closeMarkupElement(ctx, tagFrame, closerForm, closerEnd) {
+    export fn closeMarkupElement(ctx, tagFrame, closerForm, closerEnd) {
         const startIndex = tagFrame.childStartIndex ?? ctx.nodes.length
         // Splice the children out of the flat node stream.
         const children = ctx.nodes.splice(startIndex, ctx.nodes.length - startIndex)
@@ -1016,7 +1016,7 @@ ${
     // The text run is flushed before the closer so the block-stream
     // order is children-then-(parent emitted on close).
     // -------------------------------------------------------------------
-    export function handleCloser(run, cursor, ctx) {
+    export fn handleCloser(run, cursor, ctx) {
         const form = recognizeCloserForm(cursor)
         if (form is not) return false
 
@@ -1047,7 +1047,7 @@ ${
     // grammar; this is a thin delegation so existing importers of
     // parse-markup.scrml's isTagNameChar (the MK1.2 conformance suite)
     // keep a single source of truth.
-    export function isTagNameChar(ch) {
+    export fn isTagNameChar(ch) {
         return tagNameCharCanonical(ch)
     }
 
@@ -1056,10 +1056,10 @@ ${
     // per the README ANOMALY-1 string-literal workaround (a literal
     // brace in a string inside a logic-escape block trips the BS-layer
     // bracket matcher — same class as the SIGIL_TO_CONTEXT concat form).
-    export function openBrace() {
+    export fn openBrace() {
         return String.fromCharCode(123)
     }
-    export function closeBraceChar() {
+    export fn closeBraceChar() {
         return String.fromCharCode(125)
     }
 
@@ -1069,7 +1069,7 @@ ${
     // dispatch per BlockContext). Returns the typed block-stream
     // (ctx.nodes).
     // -------------------------------------------------------------------
-    export function parseMarkup(source) {
+    export fn parseMarkup(source) {
         return runMarkup(source).ctx.nodes
     }
 
@@ -1079,7 +1079,7 @@ ${
     // delegationStack / blockContextStack / nodes). The contextTrace is
     // the @blockContext value recorded at the TOP of every trampoline
     // iteration.
-    export function parseMarkupTrace(source) {
+    export fn parseMarkupTrace(source) {
         return runMarkup(source)
     }
 
@@ -1102,7 +1102,7 @@ ${
     // unterminated-context diagnostic is a later milestone; the frame
     // persistence is the MK1.2 contract this dispatch preserves.
     // -------------------------------------------------------------------
-    export function runMarkup(source) {
+    export fn runMarkup(source) {
         const cursor = makeCursor(source)
         const ctx = makeParseContext()
         const contextTrace = []
@@ -1182,7 +1182,7 @@ ${
     // [opener.<, EOF] with its accumulated children. The element is
     // recovered as if an inferred `</>` closed it at end-of-input.
     // -------------------------------------------------------------------
-    export function closeUnterminatedTags(ctx, eofPos) {
+    export fn closeUnterminatedTags(ctx, eofPos) {
         // Record the E-CTX-001 diagnostics for every still-open frame.
         reportUnterminatedTags(ctx)
 

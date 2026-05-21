@@ -157,7 +157,7 @@ ${
 
     // initialMode — calculation (pure fn: returns the .Variant the engine
     // starts in). Matches `initial=.InCode` on the engine above.
-    export function initialMode() {
+    export fn initialMode() {
         return LexMode.InCode
     }
 
@@ -165,12 +165,12 @@ ${
     // In the canonical form this would be `@lexMode = .NewMode`. The runtime
     // engine's rule= contract validates legal transitions; in M1.1 we trust
     // the dispatch sites in lex-in-code.scrml to honor the rule= matrix.
-    export function setMode(ctx, mode) {
+    export fn setMode(ctx, mode) {
         ctx.currentMode = mode
     }
 
     // getMode — calculation (read).
-    export function getMode(ctx) {
+    export fn getMode(ctx) {
         return ctx.currentMode
     }
 

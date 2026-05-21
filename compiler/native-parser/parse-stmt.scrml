@@ -190,7 +190,7 @@ ${
     // expr's parseUnary / parseAssignmentExpr read them to decide when
     // `await`/`yield` are operators). parseFunctionBodyInline saves+sets+
     // restores them around a body — the same shape as its functionDepth.
-    export function makeParseStmtContext(tokens) {
+    export fn makeParseStmtContext(tokens) {
         return {
             cursor:           makeTokenCursor(tokens),
             currentParseMode: initialParseMode(),
@@ -204,13 +204,13 @@ ${
 
     // recordError — push a structured diagnostic. Mirrors parse-expr's
     // recordError exactly (the diagnostic stream is { code, message, span }).
-    export function recordError(ctx, code, message, span) {
+    export fn recordError(ctx, code, message, span) {
         ctx.errors.push({ code, message, span })
     }
 
     // spanHere — the span of the token at the cursor, or a safe zero span
     // past EOF. Used for diagnostics where no node span is available.
-    function spanHere(ctx) {
+    fn spanHere(ctx) {
         const here = current(ctx.cursor)
         if (here is not) {
             return makeSpan(0, 0, 1, 1)
@@ -220,25 +220,25 @@ ${
 
     // nodeStart / nodeEnd / nodeLine / nodeCol — defensive node-span reads
     // (a malformed parse can yield a null child).
-    function nodeStart(node) {
+    fn nodeStart(node) {
         if (node is not || node.span is not) {
             return 0
         }
         return node.span.start
     }
-    function nodeEnd(node) {
+    fn nodeEnd(node) {
         if (node is not || node.span is not) {
             return 0
         }
         return node.span.end
     }
-    function nodeLine(node) {
+    fn nodeLine(node) {
         if (node is not || node.span is not) {
             return 1
         }
         return node.span.line
     }
-    function nodeCol(node) {
+    fn nodeCol(node) {
         if (node is not || node.span is not) {
             return 1
         }
@@ -256,7 +256,7 @@ ${
     // ====================================================================
 
     // lineOfToken — the 1-based source line of a token (1 if absent).
-    function lineOfToken(tok) {
+    fn lineOfToken(tok) {
         if (tok is not || tok.span is not) {
             return 1
         }
@@ -266,7 +266,7 @@ ${
     // canInsertSemicolon — is an ASI condition satisfied at the cursor,
     // given the last token of the statement just parsed (`prevTok`)? True
     // when the next token is `}`, is EOF, or sits on a later line.
-    export function canInsertSemicolon(ctx, prevTok) {
+    export fn canInsertSemicolon(ctx, prevTok) {
         const cursor = ctx.cursor
         if (atEnd(cursor)) {
             return true
@@ -286,7 +286,7 @@ ${
     // is consumed. Otherwise, if an ASI condition holds the boundary is
     // accepted silently. If neither, a missing-terminator diagnostic is
     // recorded (the parser does NOT throw) and the parser continues.
-    export function consumeSemicolon(ctx, prevTok) {
+    export fn consumeSemicolon(ctx, prevTok) {
         const cursor = ctx.cursor
         if (currentKind(cursor) == TokenKind.Semicolon) {
             advance(cursor)
@@ -301,7 +301,7 @@ ${
 
     // lastTokenBefore — the token immediately before the cursor (the last
     // token the parse consumed). The `prevTok` argument to consumeSemicolon.
-    function lastTokenBefore(ctx) {
+    fn lastTokenBefore(ctx) {
         const cursor = ctx.cursor
         if (cursor.idx <= 0) {
             return current(cursor)
@@ -363,7 +363,7 @@ ${
 
     // isStatementStartKind — calculation (predicate): does `kind` begin a
     // fresh statement? A panic-mode skip resyncs in place when it reaches one.
-    function isStatementStartKind(kind) {
+    fn isStatementStartKind(kind) {
         return STATEMENT_START_KINDS[kind] == true
     }
 
@@ -374,7 +374,7 @@ ${
     // is reached, then return the engine to .ParsingNormally. The cursor is
     // left ON the resync point (before a `}` / a statement-start keyword /
     // EOF) or PAST a consumed `;`.
-    function resyncStatement(ctx) {
+    fn resyncStatement(ctx) {
         const cursor = ctx.cursor
         const recovery = ctx.recovery
 
@@ -431,7 +431,7 @@ ${
     // that begins no statement — a parse error: M3.4 records the diagnostic
     // and drives the M1 ErrorRecovery engine's panic-mode re-synchronization
     // (resyncStatement) to skip to the next statement boundary.
-    export function parseStatementList(ctx, terminatorKind) {
+    export fn parseStatementList(ctx, terminatorKind) {
         const cursor = ctx.cursor
         const body = []
 
@@ -468,7 +468,7 @@ ${
     // the cursor. M3.1 dispatches the substrate forms; M3.2 dispatches the
     // control-flow forms + labeled statements; M3.3 dispatches the
     // declaration / module / legacy-error statement forms.
-    export function parseStatement(ctx) {
+    export fn parseStatement(ctx) {
         const cursor = ctx.cursor
         const kind = currentKind(ctx.cursor)
 
@@ -588,7 +588,7 @@ ${
     }
 
     // -- parseEmptyStatement — a lone `;` --
-    export function parseEmptyStatement(ctx) {
+    export fn parseEmptyStatement(ctx) {
         const semi = advance(ctx.cursor)
         return makeEmpty(semi.span)
     }
@@ -597,7 +597,7 @@ ${
     // Enters .InBlock for the body, parses the statement list to the
     // matching `}`, restores the prior ParseMode. A missing `}` records a
     // diagnostic (the parser does not throw).
-    export function parseBlock(ctx) {
+    export fn parseBlock(ctx) {
         const cursor = ctx.cursor
         const open = advance(cursor)
 
@@ -623,7 +623,7 @@ ${
     // the statement terminator (explicit `;` or ASI). M3.3 ties off the
     // function-expression body seam here — a function / arrow expression in
     // the statement's expression has its BlockStub body re-entered in-line.
-    export function parseExprStatement(ctx) {
+    export fn parseExprStatement(ctx) {
         const prior = enterMode(ctx, ParseMode.InExpression)
         const expr = parseExpression(ctx)
         exitMode(ctx, prior)
@@ -646,7 +646,7 @@ ${
 
     // -- parseVarDecl — a variable declaration --
     //   var-decl ::= ('let' | 'const' | 'var') declarator (',' declarator)* ';'
-    export function parseVarDecl(ctx) {
+    export fn parseVarDecl(ctx) {
         const cursor = ctx.cursor
         const kwTok = advance(cursor)
         const declKind = varDeclKindOf(kwTok.kind)
@@ -678,7 +678,7 @@ ${
     }
 
     // varDeclKindOf — the VarDeclKind for a declaration-keyword TokenKind.
-    function varDeclKindOf(tokenKind) {
+    fn varDeclKindOf(tokenKind) {
         if (tokenKind == TokenKind.KwConst) {
             return VarDeclKind.Const
         }
@@ -690,7 +690,7 @@ ${
 
     // -- parseVarDeclarator — one declarator: a binding target + opt init --
     //   declarator ::= binding ('=' assignment-expr)?
-    export function parseVarDeclarator(ctx) {
+    export fn parseVarDeclarator(ctx) {
         const cursor = ctx.cursor
         const target = parseBinding(ctx)
 
@@ -715,7 +715,7 @@ ${
     // initializer stops at a `,` because the comma is the declarator
     // separator). parse-expr's parseAssignmentExpr is the element-position
     // entry (it stops at a `,`) — imported at the file head and reused.
-    function parseAssignmentLevelExpr(ctx) {
+    fn parseAssignmentLevelExpr(ctx) {
         return parseAssignmentExpr(ctx)
     }
 
@@ -729,7 +729,7 @@ ${
     // ====================================================================
 
     // -- parseBinding — a binding TARGET (identifier or destructuring) --
-    export function parseBinding(ctx) {
+    export fn parseBinding(ctx) {
         const cursor = ctx.cursor
         const kind = currentKind(cursor)
 
@@ -743,7 +743,7 @@ ${
     }
 
     // -- parseBindingIdent — a plain identifier binding --
-    export function parseBindingIdent(ctx) {
+    export fn parseBindingIdent(ctx) {
         const cursor = ctx.cursor
         if (currentKind(cursor) != TokenKind.Ident) {
             recordError(ctx, "E-STMT-BINDING-NAME",
@@ -756,7 +756,7 @@ ${
 
     // -- parseBindingTargetWithDefault — a binding target, opt defaulted --
     // `target = default` -> an AssignmentPattern; a bare target -> target.
-    function parseBindingTargetWithDefault(ctx) {
+    fn parseBindingTargetWithDefault(ctx) {
         const cursor = ctx.cursor
         const target = parseBinding(ctx)
 
@@ -772,7 +772,7 @@ ${
     }
 
     // -- parseObjectPattern — `{ a, b: c, d = 1, ...rest }` --
-    export function parseObjectPattern(ctx) {
+    export fn parseObjectPattern(ctx) {
         const cursor = ctx.cursor
         const open = advance(cursor)
         const properties = []
@@ -808,7 +808,7 @@ ${
     // -- parseObjectPatternProperty — one `{ ... }` pattern property --
     // Forms: `{ name }` / `{ name = default }` shorthand;
     //        `{ key: target }` / `{ "k": target }` / `{ [expr]: target }`.
-    export function parseObjectPatternProperty(ctx) {
+    export fn parseObjectPatternProperty(ctx) {
         const cursor = ctx.cursor
         const kind = currentKind(cursor)
 
@@ -866,7 +866,7 @@ ${
     }
 
     // expectColon — consume a `:` separator; record a diagnostic if absent.
-    function expectColon(ctx) {
+    fn expectColon(ctx) {
         if (currentKind(ctx.cursor) == TokenKind.Colon) {
             advance(ctx.cursor)
             return
@@ -876,12 +876,12 @@ ${
     }
 
     // identKeyExpr — a property-key node for an identifier-key token.
-    function identKeyExpr(tok) {
+    fn identKeyExpr(tok) {
         return { kind: "Ident", name: tok.name, span: tok.span }
     }
 
     // literalKeyExpr — a property-key node for a string / number literal key.
-    function literalKeyExpr(tok) {
+    fn literalKeyExpr(tok) {
         if (tok.kind == TokenKind.StringLit) {
             return { kind: "StringLit", value: tok.cooked, raw: tok.text, span: tok.span }
         }
@@ -889,7 +889,7 @@ ${
     }
 
     // -- parseArrayPattern — `[ a, , b, c = 1, ...rest ]` --
-    export function parseArrayPattern(ctx) {
+    export fn parseArrayPattern(ctx) {
         const cursor = ctx.cursor
         const open = advance(cursor)
         const elements = []
@@ -942,7 +942,7 @@ ${
 
     // expectLParen — consume a `(` that opens a control-flow head; record a
     // diagnostic if absent (the parser does not throw — it parses on).
-    function expectLParen(ctx, ctxLabel) {
+    fn expectLParen(ctx, ctxLabel) {
         if (currentKind(ctx.cursor) == TokenKind.LParen) {
             return advance(ctx.cursor)
         }
@@ -953,7 +953,7 @@ ${
 
     // expectRParen — consume the `)` that closes a control-flow head; record
     // a diagnostic if absent.
-    function expectRParen(ctx, ctxLabel) {
+    fn expectRParen(ctx, ctxLabel) {
         if (currentKind(ctx.cursor) == TokenKind.RParen) {
             return advance(ctx.cursor)
         }
@@ -964,7 +964,7 @@ ${
 
     // parseParenCondition — parse the `( expr )` condition of an if / while /
     // do-while. The condition is a full (sequence-level) expression.
-    function parseParenCondition(ctx, ctxLabel) {
+    fn parseParenCondition(ctx, ctxLabel) {
         expectLParen(ctx, ctxLabel)
         const prior = enterMode(ctx, ParseMode.InExpression)
         const test = parseExpression(ctx)
@@ -976,7 +976,7 @@ ${
     // -- parseIf — an `if (test) consequent (else alternate)?` statement --
     // `else if` is just an `else` whose alternate is itself an If — the
     // recursion through parseStatement builds the chain (Acorn's shape).
-    export function parseIf(ctx) {
+    export fn parseIf(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -995,7 +995,7 @@ ${
     }
 
     // -- parseWhile — a `while (test) body` loop --
-    export function parseWhile(ctx) {
+    export fn parseWhile(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -1009,7 +1009,7 @@ ${
     // -- parseDoWhile — a `do body while (test) ;` loop --
     // ECMAScript inserts the trailing `;` of a do-while unconditionally — so
     // the `;` is consumed when present and never required when absent.
-    export function parseDoWhile(ctx) {
+    export fn parseDoWhile(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -1044,7 +1044,7 @@ ${
     // it: "in" / "of" when a depth-0 `in` / `of` precedes any depth-0 `;`,
     // else "c-style". The scan starts at cursor.idx (the caller positions the
     // cursor just past the `(`) and reads tokens WITHOUT consuming them.
-    function forHeadKind(ctx) {
+    fn forHeadKind(ctx) {
         const cursor = ctx.cursor
         let i = cursor.idx
         let depth = 0
@@ -1084,7 +1084,7 @@ ${
     // keyword + exactly ONE binding target (no initializer — JS forbids an
     // initializer on a for-in/of binding) and returns a one-declarator
     // VarDecl Stmt.
-    function parseForBindingHead(ctx) {
+    fn parseForBindingHead(ctx) {
         const cursor = ctx.cursor
         const kwTok = advance(cursor)
         const declKind = varDeclKindOf(kwTok.kind)
@@ -1111,7 +1111,7 @@ ${
     // (`for (let i = 0, j = 1; ...)`). Parses the keyword + a comma-separated
     // declarator list but NOT the terminating `;` (parseFor owns the head's
     // `;` separators). Mirrors parseVarDecl minus consumeSemicolon.
-    function parseForCStyleVarHead(ctx) {
+    fn parseForCStyleVarHead(ctx) {
         const cursor = ctx.cursor
         const kwTok = advance(cursor)
         const declKind = varDeclKindOf(kwTok.kind)
@@ -1148,7 +1148,7 @@ ${
     // destructuring LHS (`for ([a] of xs)`) parses as an array/object literal
     // here; the conformance normalizer maps it to a pattern (the documented
     // K6-class param/binding divergence — M4 unifies the two surfaces).
-    function parseForInOfLeftExpr(ctx) {
+    fn parseForInOfLeftExpr(ctx) {
         const prior = enterMode(ctx, ParseMode.InExpression)
         const left = parsePostfix(ctx)
         exitMode(ctx, prior)
@@ -1156,7 +1156,7 @@ ${
     }
 
     // -- parseFor — `for` C-style / for-in / for-of (incl. `for await`) --
-    export function parseFor(ctx) {
+    export fn parseFor(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -1181,7 +1181,7 @@ ${
 
     // parseForInOf — finish a for-in / for-of after the head was classified.
     // The cursor sits just past the `(`. `headKind` is "in" or "of".
-    function parseForInOf(ctx, kw, headKind, isAwait) {
+    fn parseForInOf(ctx, kw, headKind, isAwait) {
         const cursor = ctx.cursor
 
         // The left side — a declaration (`let`/`const`/`var` + one binding)
@@ -1222,7 +1222,7 @@ ${
 
     // parseForCStyle — finish a C-style `for (init; test; update) body`. The
     // cursor sits just past the `(`. Any of the three clauses may be empty.
-    function parseForCStyle(ctx, kw, isAwait) {
+    fn parseForCStyle(ctx, kw, isAwait) {
         const cursor = ctx.cursor
 
         // `for await` is only legal on a for-of — a `for await (;;)` C-style
@@ -1292,7 +1292,7 @@ ${
     // sameLineFollows — does the token at the cursor sit on the SAME source
     // line as `kwTok`, and is it NOT a `;` / `}` / EOF (the always-terminate
     // tokens)? The signal for "the optional argument / label is present".
-    function sameLineFollows(ctx, kwTok) {
+    fn sameLineFollows(ctx, kwTok) {
         const cursor = ctx.cursor
         if (atEnd(cursor)) {
             return false
@@ -1320,7 +1320,7 @@ ${
     // program scope — fire E-STMT-RETURN-OUTSIDE-FUNCTION. The parse is still
     // well-formed (a Return node is produced); the diagnostic is the legality
     // verdict. Acorn (the conformance oracle) rejects a top-level `return`.
-    export function parseReturn(ctx) {
+    export fn parseReturn(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -1350,7 +1350,7 @@ ${
     // optionalLabelName — the optional label of a `break` / `continue`: an
     // identifier on the SAME line as the keyword. Returns the label text or
     // `not`. Consumes the identifier token when present.
-    function optionalLabelName(ctx, kwTok) {
+    fn optionalLabelName(ctx, kwTok) {
         const cursor = ctx.cursor
         if (sameLineFollows(ctx, kwTok) == false) {
             return not
@@ -1362,7 +1362,7 @@ ${
     }
 
     // -- parseBreak — a `break label?` statement --
-    export function parseBreak(ctx) {
+    export fn parseBreak(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -1376,7 +1376,7 @@ ${
     }
 
     // -- parseContinue — a `continue label?` statement --
-    export function parseContinue(ctx) {
+    export fn parseContinue(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -1394,7 +1394,7 @@ ${
     // after the `:` is not another `:`). The labeled statement's body is the
     // statement that follows the `:` — parseStatement parses it (a label may
     // name a loop / block / any statement; `break label` targets it).
-    export function parseLabeledStatement(ctx) {
+    export fn parseLabeledStatement(ctx) {
         const cursor = ctx.cursor
         const nameTok = advance(cursor)
         advance(cursor)   // consume the `:`
@@ -1433,7 +1433,7 @@ ${
     // prior scope is saved and restored, mirroring the functionDepth inc/dec.
     // A function ESTABLISHES its own scope — it does not inherit the
     // enclosing function's.
-    function parseFunctionBodyInline(ctx, isAsync, isGenerator) {
+    fn parseFunctionBodyInline(ctx, isAsync, isGenerator) {
         const cursor = ctx.cursor
 
         if (currentKind(cursor) != TokenKind.LBrace) {
@@ -1473,7 +1473,7 @@ ${
     // Stmt array (the in-line body shape — distinct from M2.3's
     // BlockStub-bodied function expressions). `name` is the function name or
     // `not` (an anonymous method value).
-    function makeInlineFunction(name, params, body, isAsync, isGenerator, span) {
+    fn makeInlineFunction(name, params, body, isAsync, isGenerator, span) {
         return { kind: "Function", name, params, body, isAsync, isGenerator, span }
     }
 
@@ -1482,7 +1482,7 @@ ${
     // The body is parsed IN-LINE via parseStatementList — the BPP
     // subsumption. `allowAnonymous` is true ONLY for `export default
     // function () {}`; a plain declaration always names.
-    export function parseFunctionDecl(ctx, isAsync, allowAnonymous) {
+    export fn parseFunctionDecl(ctx, isAsync, allowAnonymous) {
         const cursor = ctx.cursor
         const fnTok = advance(cursor)
 
@@ -1520,7 +1520,7 @@ ${
     // -- parseClassDecl — a `class Name extends Base { ... }` declaration --
     // `allowAnonymous` is true ONLY for `export default class {}`; a plain
     // declaration always names.
-    export function parseClassDecl(ctx, allowAnonymous) {
+    export fn parseClassDecl(ctx, allowAnonymous) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -1557,7 +1557,7 @@ ${
     // parseClassBody — the `{ member* }` body of a class. Returns a
     // ClassMember array. A stray `;` between members is the empty class
     // element (consumed, no node).
-    function parseClassBody(ctx) {
+    fn parseClassBody(ctx) {
         const cursor = ctx.cursor
         const members = []
 
@@ -1603,7 +1603,7 @@ ${
     // a class field. Recognizes `static` / `get` / `set` / `async` / `*`
     // prefixes + computed `[expr]` names. The prefix keywords are CONTEXTUAL
     // — each is a valid plain member name on its own.
-    function parseClassMember(ctx) {
+    fn parseClassMember(ctx) {
         const cursor = ctx.cursor
         const startTok = current(cursor)
         const startSpan = (startTok is not) ? spanHere(ctx) : startTok.span
@@ -1691,7 +1691,7 @@ ${
     // class-member PREFIX vs a member NAME. Returns "static-prefix" /
     // "async-prefix" / "get-prefix" / "set-prefix" when the token is that
     // keyword AND another member head follows; otherwise "name".
-    function classMemberNameKind(cursor) {
+    fn classMemberNameKind(cursor) {
         const k = currentKind(cursor)
         let isContextualKw = ""
         if (k == TokenKind.Ident) {
@@ -1716,7 +1716,7 @@ ${
     // class-member head? A member head starts with an identifier, a keyword
     // usable as a member name, a string / number literal, a computed `[`,
     // or a generator `*`.
-    function memberHeadFollows(cursor, k) {
+    fn memberHeadFollows(cursor, k) {
         const kind = peekKind(cursor, k)
         if (kind is not) {
             return false
@@ -1731,13 +1731,13 @@ ${
 
     // isKeywordTokenKind — does a TokenKind name a JS keyword token? By
     // convention every keyword TokenKind name begins with `Kw`.
-    function isKeywordTokenKind(kind) {
+    fn isKeywordTokenKind(kind) {
         return typeof kind == "string" && kind.indexOf("Kw") == 0
     }
 
     // parseClassMemberName — the name of a class member. Returns
     // { key, computed, plainName }.
-    function parseClassMemberName(ctx) {
+    fn parseClassMemberName(ctx) {
         const cursor = ctx.cursor
         const kind = currentKind(cursor)
 
@@ -1798,7 +1798,7 @@ ${
 
     // expectModuleString — consume the `"..."` module-specifier string.
     // Returns the cooked string value, or "" + a diagnostic.
-    function expectModuleString(ctx) {
+    fn expectModuleString(ctx) {
         const cursor = ctx.cursor
         if (currentKind(cursor) == TokenKind.StringLit) {
             const tok = advance(cursor)
@@ -1810,7 +1810,7 @@ ${
     }
 
     // expectFromKeyword — consume the `from` keyword; diagnostic if absent.
-    function expectFromKeyword(ctx) {
+    fn expectFromKeyword(ctx) {
         if (currentKind(ctx.cursor) == TokenKind.KwFrom) {
             advance(ctx.cursor)
             return
@@ -1821,7 +1821,7 @@ ${
 
     // importLocalName — consume an identifier that BINDS a name in this
     // module. A keyword here is malformed; a diagnostic + "" is returned.
-    function importLocalName(ctx) {
+    fn importLocalName(ctx) {
         const cursor = ctx.cursor
         if (currentKind(cursor) == TokenKind.Ident) {
             return advance(cursor).name
@@ -1832,7 +1832,7 @@ ${
     }
 
     // -- parseImport — an `import ... from "source"` statement --
-    export function parseImport(ctx) {
+    export fn parseImport(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
         const specifiers = []
@@ -1879,7 +1879,7 @@ ${
 
     // parseNamedImportSpecifiers — the `{ a, b as c }` clause of an import.
     // The cursor sits on the `{`. Appends ImportNamed specifiers to `out`.
-    function parseNamedImportSpecifiers(ctx, out) {
+    fn parseNamedImportSpecifiers(ctx, out) {
         const cursor = ctx.cursor
         advance(cursor)
 
@@ -1914,7 +1914,7 @@ ${
     }
 
     // -- parseExport — an `export ...` statement --
-    export function parseExport(ctx) {
+    export fn parseExport(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -1976,7 +1976,7 @@ ${
     // parseExportDefault — the body of `export default ...`. A `function` /
     // `async function` / `function*` / `class` lead is a declaration;
     // anything else is an assignment-level expression.
-    function parseExportDefault(ctx, kw) {
+    fn parseExportDefault(ctx, kw) {
         const cursor = ctx.cursor
         const k = currentKind(cursor)
 
@@ -2009,7 +2009,7 @@ ${
     // parseExportedDeclaration — the declaration after `export` (not
     // `default`): a let/const/var, a function / async function / function*,
     // or a class declaration.
-    function parseExportedDeclaration(ctx) {
+    fn parseExportedDeclaration(ctx) {
         const cursor = ctx.cursor
         const k = currentKind(cursor)
 
@@ -2034,7 +2034,7 @@ ${
 
     // parseExportSpecifierClause — the `{ a, b as c }` clause of an export.
     // The cursor sits on the `{`. Appends ExportSpecifier objects to `out`.
-    function parseExportSpecifierClause(ctx, out) {
+    fn parseExportSpecifierClause(ctx, out) {
         const cursor = ctx.cursor
         advance(cursor)
 
@@ -2076,7 +2076,7 @@ ${
     // finishStatementTerminator — consume the statement terminator (explicit
     // `;` or ASI) and return the byte offset of the last consumed token.
     // Shared by the import / export statement parsers.
-    function finishStatementTerminator(ctx, kwTok) {
+    fn finishStatementTerminator(ctx, kwTok) {
         const prevTok = lastTokenBefore(ctx)
         consumeSemicolon(ctx, prevTok)
         if (prevTok is not not && prevTok.span is not not) {
@@ -2095,7 +2095,7 @@ ${
     // -- parseTry — a `try { } catch (param) { } finally { }` statement --
     // At least one of `catch` / `finally` must be present; M3.3 records a
     // diagnostic for the bare form and still emits the Try node.
-    export function parseTry(ctx) {
+    export fn parseTry(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -2130,7 +2130,7 @@ ${
     // parseCatchClause — a `catch (param) { body }` clause. The `(param)` is
     // optional (ES2019 optional catch binding — `catch { }`). `param` is a
     // binding target (an identifier or a destructuring pattern).
-    function parseCatchClause(ctx) {
+    fn parseCatchClause(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -2155,7 +2155,7 @@ ${
     // The no-LineTerminator restricted production: a `throw` with nothing on
     // its source line is a JS syntax error. M3.3 records a diagnostic for the
     // no-argument form and still emits the Throw node.
-    export function parseThrow(ctx) {
+    export fn parseThrow(ctx) {
         const cursor = ctx.cursor
         const kw = advance(cursor)
 
@@ -2222,7 +2222,7 @@ ${
     // body. reenterBlockStubs threads the function's flags here so the
     // re-parsed body sees `await`/`yield` as operators (both default false
     // for a standalone re-entry / a match-arm body not inside a function).
-    export function parseBlockStubBody(stub, isAsync, isGenerator) {
+    export fn parseBlockStubBody(stub, isAsync, isGenerator) {
         const stubTokens = (stub is not || stub.tokens is not) ? [] : stub.tokens
 
         // Append a synthetic EOF so the token-cursor terminates cleanly.
@@ -2277,7 +2277,7 @@ ${
     // never a generator). A Function/Arrow node's non-body children (params
     // — default-value expressions) walk with scope reset (a param default
     // with `await`/`yield` is a SyntaxError).
-    export function reenterBlockStubs(node, asyncScope, genScope) {
+    export fn reenterBlockStubs(node, asyncScope, genScope) {
         let count = 0
         if (node is not || typeof node != "object") {
             return count
@@ -2341,7 +2341,7 @@ ${
 
     // parseStmt — parse ONE statement at the head of a token stream.
     // Mirrors parse-expr's parseExpr entry shape — returns { ast, errors }.
-    export function parseStmt(tokens) {
+    export fn parseStmt(tokens) {
         const ctx = makeParseStmtContext(tokens)
         const ast = parseStatement(ctx)
         return { ast, errors: ctx.errors }
@@ -2350,7 +2350,7 @@ ${
     // parseProgram — parse a whole token stream as a statement list (a
     // program body / a module body). Returns { body, errors }. The M3.1
     // top-level entry the conformance harness drives.
-    export function parseProgram(tokens) {
+    export fn parseProgram(tokens) {
         const ctx = makeParseStmtContext(tokens)
         const body = parseStatementList(ctx, not)
         return { body, errors: ctx.errors }

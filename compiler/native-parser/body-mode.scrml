@@ -213,7 +213,7 @@ ${
     // initialBodyMode — CALCULATION (pure fn: the .Variant the engine
     // starts in). Matches `initial=.FreeText` on the engine above — SPEC
     // §4.18.1 "the default body mode is free-text mode".
-    export function initialBodyMode() {
+    export fn initialBodyMode() {
         return BodyMode.FreeText
     }
 
@@ -295,7 +295,7 @@ ${
     // isCodeBearingParentName — CALCULATION (predicate). Is `name` a
     // structural-element parent whose child tags open code-default bodies
     // (an `<engine>` or a `<match>`)? A closed-name-set lookup.
-    export function isCodeBearingParentName(name) {
+    export fn isCodeBearingParentName(name) {
         return STRUCTURAL_PARENT_CODE_DEFAULT[name] is given
     }
 
@@ -310,7 +310,7 @@ ${
     // isProgramBodyElementName — CALCULATION (predicate). Is `name` a
     // `<program>` / `<page>` element — whose body parses in §40.8
     // `default-logic` mode (the THIRD body mode)?
-    export function isProgramBodyElementName(name) {
+    export fn isProgramBodyElementName(name) {
         return PROGRAM_BODY_ELEMENTS[name] is given
     }
 
@@ -340,7 +340,7 @@ ${
     // `parentName` is `not` for a top-level tag — handled by isCodeBearing-
     // ParentName returning false on a `not` input (no enclosing element ⇒
     // not a state-child ⇒ not code-default).
-    export function bodyModeForChildOf(tagName, parentName) {
+    export fn bodyModeForChildOf(tagName, parentName) {
         // 1. A `<program>` / `<page>` body is the §40.8 THIRD mode.
         if (isProgramBodyElementName(tagName)) {
             return ProgramBodyMode.DefaultLogic
@@ -371,7 +371,7 @@ ${
     // when that grammar lands, the recognizer reads this constant for the
     // slot's mode. MK3.1 establishes the CONSTANT (the mode) so the rule
     // is in one place; the recognizer is later-milestone work.
-    export function shorthandBodyMode() {
+    export fn shorthandBodyMode() {
         return BodyMode.CodeDefault
     }
 
@@ -395,7 +395,7 @@ ${
     // PUNCH-LIST P7 — the markup layer threads this value into every
     // markup→JS DelegationFrame so a delegated JS body knows the §4.18
     // body mode it sits inside.
-    export function currentBodyMode(ctx) {
+    export fn currentBodyMode(ctx) {
         if (ctx is not) return BodyMode.FreeText
         const stack = ctx.tagFrameStack
         if (stack is not) return BodyMode.FreeText
@@ -410,20 +410,20 @@ ${
     // code-default mode? A thin classifier the markup trampoline + the
     // tag-frame establishment site read so the code-default branch is
     // named, not a bare string compare.
-    export function isCodeDefault(mode) {
+    export fn isCodeDefault(mode) {
         return mode == BodyMode.CodeDefault
     }
 
     // isFreeText — CALCULATION (predicate). Is `mode` the §4.18 free-text
     // mode (the default)?
-    export function isFreeText(mode) {
+    export fn isFreeText(mode) {
         return mode == BodyMode.FreeText
     }
 
     // isDefaultLogic — CALCULATION (predicate). Is `mode` the §40.8
     // `default-logic` THIRD body mode? (mode is ProgramBodyMode.Default-
     // Logic, NOT a BodyMode enum variant — see the file header.)
-    export function isDefaultLogic(mode) {
+    export fn isDefaultLogic(mode) {
         return mode == ProgramBodyMode.DefaultLogic
     }
 }

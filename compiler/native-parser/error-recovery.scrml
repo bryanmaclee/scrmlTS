@@ -77,7 +77,7 @@ ${
     })
 
     // makeRecovery — STATE constructor. Initial mode .ParsingNormally.
-    export function makeRecovery() {
+    export fn makeRecovery() {
         return {
             mode:    ErrorRecovery.ParsingNormally,
             skipped: [],
@@ -86,12 +86,12 @@ ${
     }
 
     // isParsingNormally — CALCULATION (predicate).
-    export function isParsingNormally(recovery) {
+    export fn isParsingNormally(recovery) {
         return recovery.mode == ErrorRecovery.ParsingNormally
     }
 
     // beginRecovery — STATE write: .ParsingNormally -> .AccumulatingSkipped.
-    export function beginRecovery(recovery) {
+    export fn beginRecovery(recovery) {
         recovery.mode = ErrorRecovery.AccumulatingSkipped
         recovery.skipped = []
         recovery.syncAt = not
@@ -99,18 +99,18 @@ ${
 
     // accumulateSkipped — STATE write: .AccumulatingSkipped self-loop with
     // the new token appended to the variant's payload.
-    export function accumulateSkipped(recovery, token) {
+    export fn accumulateSkipped(recovery, token) {
         recovery.skipped.push(token)
     }
 
     // markResync — STATE write: .AccumulatingSkipped -> .ReSynchronized.
-    export function markResync(recovery, syncTokenKind) {
+    export fn markResync(recovery, syncTokenKind) {
         recovery.mode = ErrorRecovery.ReSynchronized
         recovery.syncAt = syncTokenKind
     }
 
     // resumeNormal — STATE write: .ReSynchronized -> .ParsingNormally.
-    export function resumeNormal(recovery) {
+    export fn resumeNormal(recovery) {
         recovery.mode = ErrorRecovery.ParsingNormally
         recovery.skipped = []
         recovery.syncAt = not

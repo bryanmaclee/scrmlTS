@@ -57,7 +57,7 @@ ${
     // Unknown escapes pass through as the literal escape character (per
     // ECMA-262 IdentityEscape — `\q` decodes to `q`).
     // ---------------------------------------------------------------------
-    export function decodeSingleEscapeChar(c) {
+    export fn decodeSingleEscapeChar(c) {
         if (c == "n")  return "\n"
         if (c == "r")  return "\r"
         if (c == "t")  return "\t"
@@ -79,7 +79,7 @@ ${
     // current cursor position; returns the decoded codepoint as a string.
     // Cursor advances past the consumed digits.
     // ---------------------------------------------------------------------
-    export function scanHexEscape(cursor, digitCount) {
+    export fn scanHexEscape(cursor, digitCount) {
         let hex = ""
         let i = 0
         while (i < digitCount && !isEof(cursor)) {
@@ -96,7 +96,7 @@ ${
     // scanBraceUnicodeEscape — CALCULATION: handles \u{...} brace form.
     // Cursor is positioned AT the `{` when called; consumes through `}`.
     // ---------------------------------------------------------------------
-    export function scanBraceUnicodeEscape(cursor) {
+    export fn scanBraceUnicodeEscape(cursor) {
         advance(cursor, 1) // consume {
         let hex = ""
         while (!isEof(cursor) && peekChar(cursor, 0) != "}") {
@@ -120,7 +120,7 @@ ${
     // (the backslash + newline are erased from the cooked value). The raw
     // span still includes both.
     // ---------------------------------------------------------------------
-    export function scanStringEscape(cursor) {
+    export fn scanStringEscape(cursor) {
         advance(cursor, 1) // consume backslash
         if (isEof(cursor)) return ""
         const c = peekChar(cursor, 0)
@@ -169,7 +169,7 @@ ${
     // surface defers to M1.3+ — for M1.2 the partial token is emitted
     // and the outer loop will see the lex-progress sentinel.
     // ---------------------------------------------------------------------
-    export function scanSingleQuotedString(cursor) {
+    export fn scanSingleQuotedString(cursor) {
         const start = cursor.pos
         const line = cursor.line
         const col = cursor.col
@@ -212,7 +212,7 @@ ${
     // transitions); the BODY scanner (scanSingleQuotedString) is pure
     // calculation. The boundary is clean.
     // ---------------------------------------------------------------------
-    export function dispatchInSingleString(cursor, ctx) {
+    export fn dispatchInSingleString(cursor, ctx) {
         setMode(ctx, LexMode.InSingleString)
         const { raw, cooked, span } = scanSingleQuotedString(cursor)
         ctx.tokens.push(makeToken(TokenKind.StringLit, raw, span, { raw, cooked, quote: QuoteKind.Single }))

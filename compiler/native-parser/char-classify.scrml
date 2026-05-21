@@ -30,36 +30,36 @@ ${
     // ---------------------------------------------------------------------
 
     // isWhitespaceCode — space, tab, vertical tab, form feed, NBSP.
-    export function isWhitespaceCode(c) {
+    export fn isWhitespaceCode(c) {
         return c == 32 || c == 9 || c == 11 || c == 12 || c == 160
     }
 
     // isNewlineCode — LF, CR, LINE SEPARATOR (U+2028), PARAGRAPH SEPARATOR
     // (U+2029) — the ECMA-262 LineTerminator set.
-    export function isNewlineCode(c) {
+    export fn isNewlineCode(c) {
         return c == 10 || c == 13 || c == 0x2028 || c == 0x2029
     }
 
     // isDigit — ASCII decimal digit 0-9.
-    export function isDigit(c) {
+    export fn isDigit(c) {
         return c >= 48 && c <= 57
     }
 
     // isHexDigit — ASCII hex digit (0-9, A-F, a-f).
-    export function isHexDigit(c) {
+    export fn isHexDigit(c) {
         return (c >= 48 && c <= 57) || (c >= 65 && c <= 70) || (c >= 97 && c <= 102)
     }
 
     // isIdentStart — a character that may begin an identifier (A-Z, a-z,
     // `_`, `$`). ASCII-only — the M1 lexer subset does not yet recognize
     // the full ECMA-262 IdentifierStart Unicode range.
-    export function isIdentStart(c) {
+    export fn isIdentStart(c) {
         return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 || c == 36
     }
 
     // isIdentCont — a character that may continue an identifier
     // (isIdentStart + a decimal digit).
-    export function isIdentCont(c) {
+    export fn isIdentCont(c) {
         return isIdentStart(c) || isDigit(c)
     }
 }

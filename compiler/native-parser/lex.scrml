@@ -53,7 +53,7 @@ ${
     // The `templateStack` field tracks the §51.0.Q.1 nested-engine frames
     // for template-literal interpolation — each `${` pushes a frame, each
     // matching `}` pops one. See lex-in-template.scrml for details.
-    export function makeLexContext() {
+    export fn makeLexContext() {
         return {
             tokens:        [],
             currentMode:   initialMode(),
@@ -70,7 +70,7 @@ ${
     // dispatcher owns the transition contract back to .InCode (or to
     // .InTemplateBody for the template-interp resume case). The lex loop
     // is a thin trampoline.
-    export function lex(source) {
+    export fn lex(source) {
         const cursor = makeCursor(source)
         const ctx = makeLexContext()
 

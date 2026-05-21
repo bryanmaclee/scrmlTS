@@ -64,23 +64,23 @@ ${
 
     // makeBracketStack — STATE constructor. Per the canonical .Balanced
     // initial state, the stack starts empty.
-    export function makeBracketStack() {
+    export fn makeBracketStack() {
         return { frames: [] }
     }
 
     // depth — CALCULATION (read).
-    export function depth(stack) {
+    export fn depth(stack) {
         return stack.frames.length
     }
 
     // isBalanced — CALCULATION (predicate matching .Balanced variant).
-    export function isBalanced(stack) {
+    export fn isBalanced(stack) {
         return stack.frames.length == 0
     }
 
     // push — STATE write (open-bracket character). Matches .Balanced -> .OpenAt
     // or .OpenAt(depth=N) -> .OpenAt(depth=N+1).
-    export function push(stack, opener, span) {
+    export fn push(stack, opener, span) {
         stack.frames.push({ opener, span })
     }
 
@@ -88,20 +88,20 @@ ${
     // (.Balanced if N==1 else .OpenAt(depth=N-1)).
     // Returns the popped frame (for caller to verify opener/closer match),
     // or null if the stack was already empty (caller dispatches ErrorRecovery).
-    export function pop(stack) {
+    export fn pop(stack) {
         if (stack.frames.length == 0) return not
         return stack.frames.pop()
     }
 
     // topOpener — CALCULATION (peek).
-    export function topOpener(stack) {
+    export fn topOpener(stack) {
         if (stack.frames.length == 0) return not
         return stack.frames[stack.frames.length - 1].opener
     }
 
     // closerMatchesOpener — CALCULATION (pure predicate). Used by the
     // lexer's close-bracket-character handler to validate frame pairing.
-    export function closerMatchesOpener(closerChar, opener) {
+    export fn closerMatchesOpener(closerChar, opener) {
         if (opener == BracketKind.Paren)   return closerChar == ")"
         if (opener == BracketKind.Brace)   return closerChar == "}"
         if (opener == BracketKind.Bracket) return closerChar == "]"

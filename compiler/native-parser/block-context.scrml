@@ -261,7 +261,7 @@ ${
 
     // initialBlockContext — calculation (pure fn: returns the .Variant the
     // engine starts in). Matches `initial=.TopLevel` on the engine above.
-    export function initialBlockContext() {
+    export fn initialBlockContext() {
         return BlockContext.TopLevel
     }
 
@@ -269,12 +269,12 @@ ${
     // In the canonical form this would be `@blockContext = .NewContext`.
     // The runtime engine's rule= contract validates legal transitions;
     // at MK1.1 the dispatch sites honor the rule= matrix.
-    export function setBlockContext(ctx, context) {
+    export fn setBlockContext(ctx, context) {
         ctx.blockContext = context
     }
 
     // getBlockContext — calculation (read).
-    export function getBlockContext(ctx) {
+    export fn getBlockContext(ctx) {
         return ctx.blockContext
     }
 
@@ -321,7 +321,7 @@ ${
     // literally trips the same BS-layer bracket-matching issue as a
     // literal sigil in a comment). This table REPLACES the
     // block-splitter's sigil-guessing — a closed lookup, not a heuristic.
-    export function makeSigilTable() {
+    export fn makeSigilTable() {
         const brace = "{"
         const table = {}
         table["$" + brace] = BlockContext.InLogicEscape
@@ -342,7 +342,7 @@ ${
     // enters, or `not` if the two characters are not a block-opener
     // sigil. A closed-name-set lookup — the heuristic-elimination shape
     // per charter Q2.
-    export function contextForSigil(twoChar) {
+    export fn contextForSigil(twoChar) {
         const ctxName = SIGIL_TO_CONTEXT[twoChar]
         if (ctxName is not) return not
         return ctxName
@@ -350,7 +350,7 @@ ${
 
     // isBlockOpenerSigil — CALCULATION (predicate). Is this two-character
     // string one of the seven block-opener sigils?
-    export function isBlockOpenerSigil(twoChar) {
+    export fn isBlockOpenerSigil(twoChar) {
         return contextForSigil(twoChar) is not given
     }
 
@@ -360,13 +360,13 @@ ${
     // context); a `<` followed by whitespace, `/`, or EOF does not.
     // The deep tag-TREE recognition (opener/closer pairing, TagKind) is
     // MK2 — this predicate only recognizes the .InMarkupTag BOUNDARY.
-    export function isMarkupTagOpener(lessThanChar, nextChar) {
+    export fn isMarkupTagOpener(lessThanChar, nextChar) {
         if (lessThanChar != "<") return false
         return isAsciiLetter(nextChar)
     }
 
     // isAsciiLetter — CALCULATION (predicate). ASCII a-z / A-Z.
-    export function isAsciiLetter(ch) {
+    export fn isAsciiLetter(ch) {
         if (ch == "") return false
         const c = ch.charCodeAt(0)
         const isUpper = c >= 65 && c <= 90
@@ -414,14 +414,14 @@ ${
 
     // ensureBlockContextStack — lazy init the per-ctx BlockContext stack.
     // Mirrors lex-in-template.scrml's ensureTemplateStack.
-    export function ensureBlockContextStack(ctx) {
+    export fn ensureBlockContextStack(ctx) {
         if (ctx.blockContextStack is not) {
             ctx.blockContextStack = []
         }
     }
 
     // pushBlockContextFrame — STATE write: a context opens.
-    export function pushBlockContextFrame(ctx, frame) {
+    export fn pushBlockContextFrame(ctx, frame) {
         ensureBlockContextStack(ctx)
         ctx.blockContextStack.push(frame)
     }
@@ -429,7 +429,7 @@ ${
     // popBlockContextFrame — STATE write: a context closes. Returns the
     // popped frame, or `not` if the stack was empty (an unbalanced close
     // — the caller dispatches ErrorRecovery).
-    export function popBlockContextFrame(ctx) {
+    export fn popBlockContextFrame(ctx) {
         ensureBlockContextStack(ctx)
         if (ctx.blockContextStack.length == 0) return not
         return ctx.blockContextStack.pop()
@@ -437,7 +437,7 @@ ${
 
     // topBlockContextFrame — CALCULATION (peek). The frame whose close
     // the cursor is currently watching for.
-    export function topBlockContextFrame(ctx) {
+    export fn topBlockContextFrame(ctx) {
         ensureBlockContextStack(ctx)
         if (ctx.blockContextStack.length == 0) return not
         return ctx.blockContextStack[ctx.blockContextStack.length - 1]
@@ -445,7 +445,7 @@ ${
 
     // blockContextDepth — CALCULATION (read). How many block contexts
     // are open.
-    export function blockContextDepth(ctx) {
+    export fn blockContextDepth(ctx) {
         ensureBlockContextStack(ctx)
         return ctx.blockContextStack.length
     }
@@ -462,7 +462,7 @@ ${
     // DelegationFrame of kind .LogicEscape, closeOn .BraceDepth(...) is
     // pushed — the markup→JS delegation point; the JS-layer parse-
     // delegation lands at MK4.
-    export function enterBlockContext(ctx, cursor, context, sigil) {
+    export fn enterBlockContext(ctx, cursor, context, sigil) {
         const openSpan = makeSpan(
             cursor.pos,
             cursor.pos + sigil.length,
@@ -533,7 +533,7 @@ ${
     // — name + attributes + `>` — from the byte AFTER the `<`; the
     // openSpan anchor lets the opener's span still cover the `<`). The
     // openSpan is also the unterminated-tag blame locus.
-    export function enterMarkupTagContext(ctx, cursor) {
+    export fn enterMarkupTagContext(ctx, cursor) {
         const openSpan = makeSpan(cursor.pos, cursor.pos + 1, cursor.line, cursor.col)
 
         // Consume the `<` boundary marker only — the tag name + the
@@ -566,7 +566,7 @@ ${
     // depthAtOpen + 1 (only this frame's own sigil brace still open).
     // Mirrors lex-in-template.scrml's isTemplateInterpClose depth check.
     // A markup-tag frame's -1 depthAtOpen never matches here.
-    export function isBlockContextClose(ctx, cursor) {
+    export fn isBlockContextClose(ctx, cursor) {
         const frame = topBlockContextFrame(ctx)
         if (frame is not) return false
         if (frame.depthAtOpen < 0) return false
@@ -579,7 +579,7 @@ ${
     // ANOMALY-1 string-literal workaround (a literal closing brace in a
     // string inside a logic-escape block trips the BS-layer bracket
     // matcher — same class as the SIGIL_TO_CONTEXT table's concat form).
-    export function closingBrace() {
+    export fn closingBrace() {
         return String.fromCharCode(125)
     }
 
@@ -591,7 +591,7 @@ ${
     // brace off ctx.brackets, pops the DelegationFrame for .InLogicEscape
     // (P3), and writes @blockContext back to frame.priorContext. Returns
     // the popped frame, or `not` if no context was open.
-    export function closeBlockContext(ctx, cursor) {
+    export fn closeBlockContext(ctx, cursor) {
         const frame = popBlockContextFrame(ctx)
         if (frame is not) return not
 
@@ -620,7 +620,7 @@ ${
 
     // noteBraceOpen — STATE write. Push a Brace frame for an ordinary
     // open brace in a block-context body.
-    export function noteBraceOpen(ctx, cursor) {
+    export fn noteBraceOpen(ctx, cursor) {
         pushBracket(
             ctx.brackets,
             BracketKind.Brace,
@@ -631,7 +631,7 @@ ${
     // noteBraceClose — STATE write. Pop a Brace frame for an ordinary
     // close brace in a block-context body (a close brace that is NOT the
     // context's matching close — isBlockContextClose returned false).
-    export function noteBraceClose(ctx) {
+    export fn noteBraceClose(ctx) {
         popBracket(ctx.brackets)
     }
 
@@ -684,19 +684,19 @@ ${
     // closingBrace / openBrace concat form — a forward-slash pair is not
     // itself brace-bearing, but a uniform assembly form keeps the .scrml
     // free of any literal sigil run a future BS-layer scan might trip).
-    export function doubleSlash() {
+    export fn doubleSlash() {
         return String.fromCharCode(47) + String.fromCharCode(47)
     }
 
     // htmlCommentOpen — CALCULATION (pure fn). The four-character `<!--`
     // HTML-comment opener.
-    export function htmlCommentOpen() {
+    export fn htmlCommentOpen() {
         return "<" + "!" + String.fromCharCode(45) + String.fromCharCode(45)
     }
 
     // htmlCommentClose — CALCULATION (pure fn). The three-character `-->`
     // HTML-comment closer.
-    export function htmlCommentClose() {
+    export fn htmlCommentClose() {
         return String.fromCharCode(45) + String.fromCharCode(45) + ">"
     }
 
@@ -711,7 +711,7 @@ ${
     // contexts; in a free-text markup body — MK3's BodyMode.FreeText —
     // `//` is text). The recognizer answers only "is the byte sequence at
     // the cursor a comment opener, and which form?".
-    export function recognizeCommentForm(cursor) {
+    export fn recognizeCommentForm(cursor) {
         if (peekStr(cursor, 2) == doubleSlash()) return CommentForm.Line
         if (peekStr(cursor, 4) == htmlCommentOpen()) return CommentForm.Html
         return not
@@ -728,7 +728,7 @@ ${
     // `\n` (or the source length, if the comment runs to EOF with no
     // newline). This is the structural extent — the trampoline consumes
     // up to it.
-    export function lineCommentExtent(cursor) {
+    export fn lineCommentExtent(cursor) {
         const source = cursor.source
         const len = source.length
         let p = cursor.pos
@@ -753,7 +753,7 @@ ${
     // An unterminated `<!--` runs to EOF (best-effort recovery, the same
     // disposition the BS uses; a diagnostic for the unterminated case is
     // a later milestone, matching the M1 string-body precedent).
-    export function htmlCommentExtent(cursor) {
+    export fn htmlCommentExtent(cursor) {
         const source = cursor.source
         const len = source.length
         const close = htmlCommentClose()
@@ -772,7 +772,7 @@ ${
     // commentExtent — CALCULATION (pure fn). Dispatch on the recognized
     // CommentForm: the END offset of the comment at the cursor. Returns
     // `not` if no comment opener is at the cursor.
-    export function commentExtent(cursor) {
+    export fn commentExtent(cursor) {
         const form = recognizeCommentForm(cursor)
         if (form is not) return not
         if (form == CommentForm.Line) return lineCommentExtent(cursor)

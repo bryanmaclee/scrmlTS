@@ -79,24 +79,24 @@ ${
     // instances per §51.0.Q.1 — each `${` opens a new inner-engine
     // instance, each matching `}` closes it.
     // ---------------------------------------------------------------------
-    export function ensureTemplateStack(ctx) {
+    export fn ensureTemplateStack(ctx) {
         if (ctx.templateStack is not) {
             ctx.templateStack = []
         }
     }
 
-    export function pushTemplateFrame(ctx, bracketDepthAtOpen) {
+    export fn pushTemplateFrame(ctx, bracketDepthAtOpen) {
         ensureTemplateStack(ctx)
         ctx.templateStack.push({ bracketDepthAtOpen })
     }
 
-    export function popTemplateFrame(ctx) {
+    export fn popTemplateFrame(ctx) {
         ensureTemplateStack(ctx)
         if (ctx.templateStack.length == 0) return not
         return ctx.templateStack.pop()
     }
 
-    export function topTemplateFrame(ctx) {
+    export fn topTemplateFrame(ctx) {
         ensureTemplateStack(ctx)
         if (ctx.templateStack.length == 0) return not
         return ctx.templateStack[ctx.templateStack.length - 1]
@@ -116,7 +116,7 @@ ${
     // (InTemplateBody → InCode → InTemplateBody cycles are explicitly
     // sanctioned by the inner-engine semantics).
     // ---------------------------------------------------------------------
-    export function isTemplateInterpClose(cursor, ctx) {
+    export fn isTemplateInterpClose(cursor, ctx) {
         if (getMode(ctx) != LexMode.InCode) return false
         ensureTemplateStack(ctx)
         if (ctx.templateStack.length == 0) return false
@@ -131,7 +131,7 @@ ${
     // frame, transitions outer LexMode to InTemplateBody so the next
     // iteration of the lex loop resumes chunk scanning.
     // ---------------------------------------------------------------------
-    export function emitTemplateInterpClose(cursor, ctx) {
+    export fn emitTemplateInterpClose(cursor, ctx) {
         const startPos = cursor.pos
         const startLine = cursor.line
         const startCol = cursor.col
@@ -162,7 +162,7 @@ ${
     //   - AT the `$` of `${` (terminator="interp")
     //   - at EOF (terminator="eof")
     // ---------------------------------------------------------------------
-    export function scanTemplateChunk(cursor) {
+    export fn scanTemplateChunk(cursor) {
         const start = cursor.pos
         const line = cursor.line
         const col = cursor.col
@@ -218,7 +218,7 @@ ${
     // because each `${...}` produces exactly one template frame; nested
     // templates produce stacked frames, never multi-instance.
     // ---------------------------------------------------------------------
-    export function dispatchInTemplateBody(cursor, ctx) {
+    export fn dispatchInTemplateBody(cursor, ctx) {
         const { raw, cooked, span, terminator } = scanTemplateChunk(cursor)
 
         // Emit the chunk token (may be empty for adjacent ${} occurrences;

@@ -289,7 +289,7 @@ ${
     // Payload fields are merged via the spread (e.g., NumberLit carries
     // `value`; StringLit carries `cooked` + `quote`; Ident carries `name`).
     // ---------------------------------------------------------------------
-    export function makeToken(kind, text, span, payload) {
+    export fn makeToken(kind, text, span, payload) {
         return { kind, text, span, ...(payload ?? {}) }
     }
 
@@ -302,7 +302,7 @@ ${
     // inherited Object.prototype member instead of absent, mis-lexing that
     // identifier to a non-string `kind`. hasOwnProperty.call restricts the
     // lookup to the keyword table's OWN entries.
-    export function makeIdentOrKeyword(text, span) {
+    export fn makeIdentOrKeyword(text, span) {
         if (Object.prototype.hasOwnProperty.call(JS_KEYWORDS, text) == false) {
             return makeToken(TokenKind.Ident, text, span, { name: text })
         }
@@ -311,7 +311,7 @@ ${
     }
 
     // Convenience: EOF token. End span is zero-width per pointSpan idiom.
-    export function makeEof(pos, line, col) {
+    export fn makeEof(pos, line, col) {
         return makeToken(TokenKind.EOF, "", { start: pos, end: pos, line, col }, {})
     }
 }

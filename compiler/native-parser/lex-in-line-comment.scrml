@@ -44,7 +44,7 @@ ${
     // predicate. LF, CR, LS (U+2028), PS (U+2029). Matches the predicate
     // used by lex-in-code's whitespace skip (isNewlineCode).
     // ---------------------------------------------------------------------
-    export function isLineTerminatorCode(c) {
+    export fn isLineTerminatorCode(c) {
         return c == 10 || c == 13 || c == 0x2028 || c == 0x2029
     }
 
@@ -58,7 +58,7 @@ ${
     // Cursor is positioned AT the first `/` of `//` on entry; advances
     // past both slashes + the comment body on return.
     // ---------------------------------------------------------------------
-    export function scanLineCommentBody(cursor) {
+    export fn scanLineCommentBody(cursor) {
         advance(cursor, 2) // consume the opening `//`
         while (!isEof(cursor) && !isLineTerminatorCode(peekCharCode(cursor, 0))) {
             advance(cursor, 1)
@@ -78,7 +78,7 @@ ${
     // The wrapper is state-aware (mode transition out); the body scanner
     // (scanLineCommentBody) is pure calculation. The boundary is clean.
     // ---------------------------------------------------------------------
-    export function dispatchInLineComment(cursor, ctx) {
+    export fn dispatchInLineComment(cursor, ctx) {
         scanLineCommentBody(cursor)
         setMode(ctx, LexMode.InCode)
     }

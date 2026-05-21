@@ -27,7 +27,7 @@
 ${
     // Construct a cursor over a source string.
     // Calculation: pure fn from input → starting cursor state.
-    export function makeCursor(source) {
+    export fn makeCursor(source) {
         return {
             source,            // immutable source buffer
             pos:    0,         // current byte offset (advances; the STATE field)
@@ -38,7 +38,7 @@ ${
 
     // peekChar — calculation (pure fn, no state mutation).
     // Returns the character at `cursor.pos + k`, or "" if past EOF.
-    export function peekChar(cursor, k) {
+    export fn peekChar(cursor, k) {
         const offset = cursor.pos + (k ?? 0)
         if (offset >= cursor.source.length) return ""
         return cursor.source.charAt(offset)
@@ -46,7 +46,7 @@ ${
 
     // peekCharCode — calculation; faster numeric branch (matches Acorn idiom).
     // Returns -1 if past EOF (so callers can use a single numeric compare).
-    export function peekCharCode(cursor, k) {
+    export fn peekCharCode(cursor, k) {
         const offset = cursor.pos + (k ?? 0)
         if (offset >= cursor.source.length) return -1
         return cursor.source.charCodeAt(offset)
@@ -54,12 +54,12 @@ ${
 
     // peekStr — calculation; multi-character lookahead for keyword/operator
     // disambiguation (e.g., "===", "...", "=>", "**=", "//", "/*").
-    export function peekStr(cursor, n) {
+    export fn peekStr(cursor, n) {
         return cursor.source.substr(cursor.pos, n)
     }
 
     // isEof — calculation (predicate).
-    export function isEof(cursor) {
+    export fn isEof(cursor) {
         return cursor.pos >= cursor.source.length
     }
 
@@ -68,7 +68,7 @@ ${
     // Per V5-strict the body would be `@cursor.pos = ...`; the live-surface
     // mutation mirrors that. Returns nothing — the side-effect IS the point
     // (this is the one declared mutation site for cursor position).
-    export function advance(cursor, n) {
+    export fn advance(cursor, n) {
         const steps = n ?? 1
         let i = 0
         while (i < steps) {
@@ -89,12 +89,12 @@ ${
     // snapshot — capture a checkpoint (pos/line/col).
     // Per DD §D4 P3, bounded backtracking is `lin`-typed in canonical scrml.
     // Live surface returns a plain {} for lookahead-with-commit patterns.
-    export function snapshot(cursor) {
+    export fn snapshot(cursor) {
         return { pos: cursor.pos, line: cursor.line, col: cursor.col }
     }
 
     // restore — apply a snapshot back to a cursor (STATE write).
-    export function restore(cursor, snap) {
+    export fn restore(cursor, snap) {
         cursor.pos = snap.pos
         cursor.line = snap.line
         cursor.col = snap.col

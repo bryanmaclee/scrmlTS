@@ -31,7 +31,7 @@ ${
     // inside `"..."`; the `\"` escape is legal and needed; both pass through
     // the shared scanStringEscape per ECMA-262 §12.8.4).
     // ---------------------------------------------------------------------
-    export function scanDoubleQuotedString(cursor) {
+    export fn scanDoubleQuotedString(cursor) {
         const start = cursor.pos
         const line = cursor.line
         const col = cursor.col
@@ -62,7 +62,7 @@ ${
     // form). Transition InCode → InDoubleString → InCode satisfies the
     // LexMode rule= contract (§51.0.F).
     // ---------------------------------------------------------------------
-    export function dispatchInDoubleString(cursor, ctx) {
+    export fn dispatchInDoubleString(cursor, ctx) {
         setMode(ctx, LexMode.InDoubleString)
         const { raw, cooked, span } = scanDoubleQuotedString(cursor)
         ctx.tokens.push(makeToken(TokenKind.StringLit, raw, span, { raw, cooked, quote: QuoteKind.Double }))

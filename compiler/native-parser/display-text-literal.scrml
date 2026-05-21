@@ -285,7 +285,7 @@ ${
     // initialDisplayTextLiteral — CALCULATION (pure fn: the .Variant the
     // engine starts in). Matches `initial=.Outside` on the engine above —
     // a code-default body begins OUTSIDE any display-text literal.
-    export function initialDisplayTextLiteral() {
+    export fn initialDisplayTextLiteral() {
         return DisplayTextLiteral.Outside
     }
 
@@ -294,7 +294,7 @@ ${
     // `"` is not itself brace-bearing, but a uniform character-code
     // assembly form keeps this file consistent with the markup-layer
     // files' ANOMALY-1 string-literal workaround discipline.
-    export function doubleQuote() {
+    export fn doubleQuote() {
         return String.fromCharCode(34)
     }
 
@@ -302,7 +302,7 @@ ${
     // introducer (SPEC §4.18.3 — `\` introduces `\"` / `\\` / `\${`).
     // Assembled via char-code per the markup-layer ANOMALY-1 discipline
     // (a literal backslash in scrml source needs escaping).
-    export function backslash() {
+    export fn backslash() {
         return String.fromCharCode(92)
     }
 
@@ -311,7 +311,7 @@ ${
     // markup-layer ANOMALY-1 discipline (a brace-bearing literal opens a
     // spurious context). MK3.2's scanner recognizes this sequence as a
     // segment boundary; MK3.3's scanInterpolation consumes the body.
-    export function interpolationOpen() {
+    export fn interpolationOpen() {
         return String.fromCharCode(36) + String.fromCharCode(123)
     }
 
@@ -340,7 +340,7 @@ ${
     // — if any — does the `\` introduce? One of "quote" / "backslash" /
     // "dollarBrace" / "malformed". A `\` at EOF (no following char) is
     // "malformed".
-    export function classifyEscape(afterBackslash, afterAfter) {
+    export fn classifyEscape(afterBackslash, afterAfter) {
         if (afterBackslash === doubleQuote()) { return "quote" }
         if (afterBackslash === backslash())   { return "backslash" }
         if (afterBackslash === String.fromCharCode(36) &&
@@ -355,7 +355,7 @@ ${
     // escape and return { cooked, malformed }. A malformed escape consumes
     // only the `\` (1 char) and leaves the offending character for the
     // caller's next scan iteration.
-    export function scanLiteralEscape(cursor) {
+    export fn scanLiteralEscape(cursor) {
         advance(cursor, 1)
         if (isEof(cursor)) {
             return { cooked: backslash(), malformed: true }
@@ -394,13 +394,13 @@ ${
 
     // makeLiteralSegment — CALCULATION (pure data builder). One literal-
     // text segment: { raw, cooked }.
-    export function makeLiteralSegment(raw, cooked) {
+    export fn makeLiteralSegment(raw, cooked) {
         return { raw, cooked }
     }
 
     // makeDisplayTextLiteralNode — CALCULATION (pure data builder). The
     // DisplayTextLiteral AST node.
-    export function makeDisplayTextLiteralNode(segments, exprs, span, terminated) {
+    export fn makeDisplayTextLiteralNode(segments, exprs, span, terminated) {
         return { kind: "DisplayTextLiteral", segments, exprs, span, terminated }
     }
 
@@ -415,7 +415,7 @@ ${
 
     // ensureDiagnostics — STATE write (lazy init). A parse context built
     // before MK2.2 has no `diagnostics` slot; this keeps the helper total.
-    export function ensureDiagnostics(ctx) {
+    export fn ensureDiagnostics(ctx) {
         if (ctx.diagnostics === undefined || ctx.diagnostics === null) {
             ctx.diagnostics = []
         }
@@ -423,12 +423,12 @@ ${
 
     // makeDiagnostic — CALCULATION (pure data builder). One structured
     // diagnostic: { code, message, span }.
-    export function makeDiagnostic(code, message, span) {
+    export fn makeDiagnostic(code, message, span) {
         return { code, message, span }
     }
 
     // pushDiagnostic — STATE write: append a diagnostic to ctx.diagnostics.
-    export function pushDiagnostic(ctx, diagnostic) {
+    export fn pushDiagnostic(ctx, diagnostic) {
         ensureDiagnostics(ctx)
         ctx.diagnostics.push(diagnostic)
     }
@@ -461,7 +461,7 @@ ${
     // ONE PAST the matching `}`, or -1 if no matching `}` exists (an
     // unterminated interpolation). The leading LBrace opens depth 1; the
     // RBrace that brings depth to 0 is the matching close.
-    export function findInterpolationCloseOffset(braceOnwardSource) {
+    export fn findInterpolationCloseOffset(braceOnwardSource) {
         const tokens = lex(braceOnwardSource)
         if (tokens.length === 0) { return -1 }
         if (tokens[0].kind !== TokenKind.LBrace) { return -1 }
@@ -487,7 +487,7 @@ ${
     // text via the M2 JS expression parser. An empty / whitespace-only
     // body parses to `not`. The M2 parser's diagnostics are forwarded into
     // `ctx.diagnostics`.
-    export function parseInterpolationBody(bodyText, ctx) {
+    export fn parseInterpolationBody(bodyText, ctx) {
         if (bodyText === undefined || bodyText === null) { return null }
         if (bodyText.trim().length === 0) { return null }
         const tokens = lex(bodyText)
@@ -509,7 +509,7 @@ ${
     // to the M2 JS expression parser. Returns { expr, terminated }. On
     // exit the cursor is ONE PAST the matching `}` (terminated) or AT EOF
     // (unterminated — E-CTX-001 against the `${`).
-    export function scanInterpolation(cursor, ctx) {
+    export fn scanInterpolation(cursor, ctx) {
         const interpPos = cursor.pos
         const interpLine = cursor.line
         const interpCol = cursor.col
@@ -564,7 +564,7 @@ ${
     // shape stability and is always `false` (MK3.3's scan consumes
     // interpolations in-line).
     // ===================================================================
-    export function scanDisplayTextLiteral(cursor, ctx) {
+    export fn scanDisplayTextLiteral(cursor, ctx) {
         const openPos = cursor.pos
         const openLine = cursor.line
         const openCol = cursor.col

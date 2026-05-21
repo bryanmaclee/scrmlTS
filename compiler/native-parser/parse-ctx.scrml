@@ -147,7 +147,7 @@ ${
     // one-recovery / one-error-stream invariant (P1) holds by
     // construction: there is exactly one of each, and it came from the
     // single makeLexContext call.
-    export function makeParseContext() {
+    export fn makeParseContext() {
         const lexCtx = makeLexContext()
         return {
             // --- inherited from M1's makeLexContext (the JS-layer state) ---
@@ -199,12 +199,12 @@ ${
     // -------------------------------------------------------------------
 
     // appendNode — append a produced AST node to the shared node sink.
-    export function appendNode(ctx, node) {
+    export fn appendNode(ctx, node) {
         ctx.nodes.push(node)
     }
 
     // nodeCount — read.
-    export function nodeCount(ctx) {
+    export fn nodeCount(ctx) {
         return ctx.nodes.length
     }
 
@@ -265,7 +265,7 @@ ${
     // body `"..."` display-text-literal node, distinct from a free-text
     // `Text` block. The kind is in the catalog at MK3.1; MK3.2's literal
     // scanner emits it.
-    export function blockKinds() {
+    export fn blockKinds() {
         return {
             Text:               "Text",
             DisplayTextLiteral: "DisplayTextLiteral",
@@ -283,14 +283,14 @@ ${
 
     // makeBlockNode — CALCULATION (pure fn building the block-node data
     // struct). One typed block in the markup block-stream.
-    export function makeBlockNode(kind, span, commentForm) {
+    export fn makeBlockNode(kind, span, commentForm) {
         return { kind, span, commentForm }
     }
 
     // appendBlock — STATE write: append a typed block to the block-stream
     // (the shared ctx.nodes sink). A thin wrapper over appendNode so the
     // trampoline reads at the block-stream's level of abstraction.
-    export function appendBlock(ctx, block) {
+    export fn appendBlock(ctx, block) {
         ctx.nodes.push(block)
     }
 
@@ -301,7 +301,7 @@ ${
     // -------------------------------------------------------------------
 
     // delegationKinds — the seven DelegationKind variant tags.
-    export function delegationKinds() {
+    export fn delegationKinds() {
         return {
             LogicEscape:   "LogicEscape",
             FunctionBody:  "FunctionBody",
@@ -316,7 +316,7 @@ ${
     // closeConditionKinds — the four CloseCondition variant tags. The
     // payload-bearing ones (BraceDepth, TagFrameBalanced) carry their
     // payload via the constructors below.
-    export function closeConditionKinds() {
+    export fn closeConditionKinds() {
         return {
             BraceDepth:       "BraceDepth",
             TagFrameBalanced: "TagFrameBalanced",
@@ -334,23 +334,23 @@ ${
     // closeOnBraceDepth — CloseCondition.BraceDepth(depthAtOpen). Close
     // at the `}` that returns the BracketStack to depthAtOpen — M1's
     // template-interp close mechanism.
-    export function closeOnBraceDepth(depthAtOpen) {
+    export fn closeOnBraceDepth(depthAtOpen) {
         return { kind: "BraceDepth", depthAtOpen }
     }
 
     // closeOnTagFrameBalanced — CloseCondition.TagFrameBalanced(...). The
     // JS→markup direction's close datum (MK2 supplies the tag depth).
-    export function closeOnTagFrameBalanced(tagDepthAtOpen) {
+    export fn closeOnTagFrameBalanced(tagDepthAtOpen) {
         return { kind: "TagFrameBalanced", tagDepthAtOpen }
     }
 
     // closeOnAttrTerminator — CloseCondition.AttrTerminator (bare).
-    export function closeOnAttrTerminator() {
+    export fn closeOnAttrTerminator() {
         return { kind: "AttrTerminator" }
     }
 
     // closeOnShorthandEol — CloseCondition.ShorthandEol (bare).
-    export function closeOnShorthandEol() {
+    export fn closeOnShorthandEol() {
         return { kind: "ShorthandEol" }
     }
 
@@ -358,7 +358,7 @@ ${
     // makeDelegationFrame — CALCULATION (pure fn building the
     // DelegationFrame data struct). One frame on ctx.delegationStack.
     // -------------------------------------------------------------------
-    export function makeDelegationFrame(kind, closeOn, openSpan, bodyMode) {
+    export fn makeDelegationFrame(kind, closeOn, openSpan, bodyMode) {
         return { kind, closeOn, openSpan, bodyMode }
     }
 
@@ -372,21 +372,21 @@ ${
     // -------------------------------------------------------------------
 
     // pushDelegationFrame — STATE write: a delegation opens.
-    export function pushDelegationFrame(ctx, frame) {
+    export fn pushDelegationFrame(ctx, frame) {
         ctx.delegationStack.push(frame)
     }
 
     // popDelegationFrame — STATE write: a delegation closes. Returns the
     // popped frame, or `not` if the stack was empty (caller dispatches
     // ErrorRecovery — an unbalanced close).
-    export function popDelegationFrame(ctx) {
+    export fn popDelegationFrame(ctx) {
         if (ctx.delegationStack.length == 0) return not
         return ctx.delegationStack.pop()
     }
 
     // topDelegationFrame — CALCULATION (peek). The frame whose close
     // condition the cursor is currently watching for.
-    export function topDelegationFrame(ctx) {
+    export fn topDelegationFrame(ctx) {
         if (ctx.delegationStack.length == 0) return not
         return ctx.delegationStack[ctx.delegationStack.length - 1]
     }
@@ -394,12 +394,12 @@ ${
     // delegationDepth — CALCULATION (read). How many delegation frames
     // are live. The R1 spike's deep-nesting smoke test (punch-list P11)
     // asserts on this reaching 5+.
-    export function delegationDepth(ctx) {
+    export fn delegationDepth(ctx) {
         return ctx.delegationStack.length
     }
 
     // inDelegation — CALCULATION (predicate). Is any delegation live?
-    export function inDelegation(ctx) {
+    export fn inDelegation(ctx) {
         return ctx.delegationStack.length > 0
     }
 }
