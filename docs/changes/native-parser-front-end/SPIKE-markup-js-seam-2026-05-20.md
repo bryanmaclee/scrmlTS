@@ -723,7 +723,7 @@ milestone.
   surface; M1 only exercises 2 frames.
 
 **Cross-cutting (PA / brief authors):**
-- P12. The dive's Anomaly A1 is already reconciled — `docs/changes/quoted-text-model/IMPLEMENTATION-ROADMAP.md`
+- P12. The dive's Anomaly A1 is already reconciled — `scrml-support/archive/changes/quoted-text-model/IMPLEMENTATION-ROADMAP.md` (dereffed S114)
   now carries a "STATUS SUPERSEDED — S111 charter-B pivot" banner (verified). No action;
   noted so the MK-brief authors do not re-flag it.
 - P13. OQ-2 (the dive's R3 — §4.18.1 vs §40.8 program/page body mode) is **not** a seam
