@@ -40,7 +40,10 @@ import * as acorn from "acorn";
 
 import { lex as scrmlNativeLex } from "../native-parser/lex.js";
 import { parseExpr as scrmlNativeParseExpr } from "../native-parser/parse-expr.js";
-import { ExprKind, ArrayElementKind, ObjectPropertyKind } from "../native-parser/ast-expr.js";
+import {
+    ExprKind, ArrayElementKind, ObjectPropertyKind,
+    IsCheckOp, MatchArmPatternKind,
+} from "../native-parser/ast-expr.js";
 
 const ACORN_OPTS = {
     ecmaVersion: 2025,
@@ -1599,5 +1602,612 @@ describe("M2.1 expression-parser — error paths (diagnostics, no throw)", () =>
         // The deferral diagnostic is retired — no code path emits it.
         const codes = n.errors.map((e) => e.code);
         expect(codes).not.toContain("E-EXPR-OBJECT-METHOD-UNSUPPORTED");
+    });
+});
+
+// =============================================================================
+// M2.4 — scrml-extension expression forms (D5 MUST ADD).
+//
+// These forms are scrml-language extensions stock Acorn cannot parse — they are
+// exactly the forms the legacy `preprocessForAcorn` regex cascade rewrites into
+// JS placeholders before handing the string to Acorn. The native parser parses
+// them DIRECTLY. Acorn cannot oracle these (per DD §D6 — scrml extensions are
+// documented intentional divergences); the SPEC is the oracle. The tests below
+// are therefore native-only structural assertions.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// M2 GATING CRITERION — one regression test per `preprocessForAcorn` Acorn-
+// workaround class. Each test proves the native parser handles the form
+// DIRECTLY, where the legacy Acorn preprocessor had to rewrite it into a
+// placeholder (and, per the class's documented failure mode, sometimes mangled
+// it). `compiler/src/expression-parser.ts` `preprocessForAcorn` +
+// `replaceSqlBlockPlaceholder` + the `<#id>` rewrites enumerate the 9 classes.
+// -----------------------------------------------------------------------------
+describe("M2.4 — preprocessForAcorn workaround-class elimination (M2 gating)", () => {
+    // Class 1 — `::` -> `.` rewrite. Failure mode: the scrmlEnumPlugin emits a
+    // STRING token for `::Variant` AFTER the enum-type IDENT, and Acorn
+    // silently drops the trailing STRING (no operator between them) — wrong
+    // codegen for `MarioState::Small`. The native parser parses `::` directly.
+    test("class 1 — `::` qualified variant: no STRING-token drop", () => {
+        const n = parseWithNative("MarioState::Small");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        // A structured Member node — NOT a bare `MarioState` Ident with the
+        // `Small` silently dropped (the documented Acorn failure).
+        expect(n.ast.kind).toBe(ExprKind.Member);
+        expect(n.ast.object.kind).toBe(ExprKind.Ident);
+        expect(n.ast.object.name).toBe("MarioState");
+        expect(n.ast.property.kind).toBe(ExprKind.Ident);
+        expect(n.ast.property.name).toBe("Small");
+    });
+
+    // Class 2 — `match expr { arms }` -> `__scrml_match__()` placeholder.
+    // The native parser parses `match` into a structured Match node.
+    test("class 2 — `match expr {}`: structured Match node, no placeholder", () => {
+        const n = parseWithNative("match @state { .Loading => 1, .Ready => 2, else => 0 }");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Match);
+        expect(n.ast.arms.length).toBe(3);
+        // Not a Call to a `__scrml_match__` placeholder identifier.
+        expect(n.ast.kind).not.toBe(ExprKind.Call);
+    });
+
+    // Class 3 — `rewriteIsPredicates`. Failure mode (Phase A): the brittle
+    // multi-pass regex produced INVALID JS on nested parens inside a tail
+    // segment — `re.exec(str.trim()) is some` became
+    // `re.exec(str.trim()).__scrml_is_some_suffix__`. The native parser parses
+    // `is` directly with a structural left operand — no regex, no mangling.
+    test("class 3 — `is` predicate on a nested-paren call LHS: no mangling", () => {
+        const n = parseWithNative("re.exec(str.trim()) is some");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.IsCheck);
+        expect(n.ast.op).toBe(IsCheckOp.Some);
+        // The LHS is the full Call node `re.exec(str.trim())` — intact.
+        expect(n.ast.operand.kind).toBe(ExprKind.Call);
+        expect(n.ast.operand.callee.kind).toBe(ExprKind.Member);
+    });
+
+    // Class 4 — bare-dot `.Variant` -> `__scrml_bare_variant_*__` placeholder.
+    // Acorn cannot parse `.Idle` as a primary (it expects an object before
+    // the dot). The native parser lexes + parses it as a BareVariant atom.
+    test("class 4 — bare `.Variant` primary: BareVariant node, no placeholder", () => {
+        const n = parseWithNative(".Idle");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.BareVariant);
+        expect(n.ast.name).toBe("Idle");
+    });
+
+    // Class 5 — `not (expr)` / `not @x` -> `!`-rewrite. Failure mode: Acorn
+    // parses `not @x` as Identifier `not` followed by a dropped operand. The
+    // native parser parses `not` as the absence-VALUE atom (§42.10 — `not` is
+    // NOT a prefix operator; `not (expr)` is E-TYPE-045, a typer concern).
+    // The native parser does NOT silently rewrite `not` to `!`.
+    test("class 5 — `not` value atom: NotValue node, not a `!`-rewrite", () => {
+        const n = parseWithNative("not");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.NotValue);
+        // `not` is NOT a UnaryExpression — the legacy `!`-rewrite is gone.
+        expect(n.ast.kind).not.toBe(ExprKind.Unary);
+    });
+
+    // Class 6 — `render name()` -> `__scrml_render_*__()` placeholder.
+    // The native parser parses `render` into a structured Render node.
+    test("class 6 — `render name()`: Render node, no placeholder identifier", () => {
+        const n = parseWithNative("render footer()");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Render);
+        expect(n.ast.name).toBe("footer");
+    });
+
+    // Class 7 — `~` -> `__scrml_tilde__` placeholder. The native parser
+    // parses a standalone `~` as the Tilde accumulator atom.
+    test("class 7 — `~` accumulator: Tilde node, no placeholder identifier", () => {
+        const n = parseWithNative("process(~)");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Call);
+        expect(n.ast.args.length).toBe(1);
+        expect(n.ast.args[0].kind).toBe(ExprKind.Tilde);
+    });
+
+    // Class 8 — `?{sql}` -> `replaceSqlBlockPlaceholder` bracket-matched scan
+    // (F-SQL-001). The native parser captures the `?{...}` block as a Sql atom
+    // carrying its raw text; the chained `.all()` is the ordinary postfix
+    // chain — no placeholder.
+    test("class 8 — `?{sql}` block + chain: Sql node, no placeholder", () => {
+        const n = parseWithNative("?{`SELECT id FROM users WHERE n = ${name}`}.all()");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        // The outer node is a Call (`.all()`) on a Member on the Sql block.
+        expect(n.ast.kind).toBe(ExprKind.Call);
+        expect(n.ast.callee.kind).toBe(ExprKind.Member);
+        expect(n.ast.callee.object.kind).toBe(ExprKind.Sql);
+        expect(n.ast.callee.object.raw).toContain("SELECT id FROM users");
+    });
+
+    // Class 9 — `<#id>` / `<#id>.send()` -> `__scrml_input_*__` /
+    // `__scrml_worker_*__` rewrite. Acorn cannot parse `<#id>`. The native
+    // parser re-composes the `< # ident >` token run into an InputStateRef
+    // atom; the chained member/call is the ordinary postfix chain.
+    test("class 9 — `<#id>` input-state ref + chain: InputStateRef, no placeholder", () => {
+        const n = parseWithNative("<#keys>.pressed(\"Space\")");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Call);
+        expect(n.ast.callee.kind).toBe(ExprKind.Member);
+        expect(n.ast.callee.object.kind).toBe(ExprKind.InputStateRef);
+        expect(n.ast.callee.object.id).toBe("keys");
+    });
+
+    // `<#id>.send()` — the worker-ref shape (the legacy
+    // `__scrml_worker_*__.send(` rewrite). Same InputStateRef recomposition.
+    test("class 9b — `<#id>.send()` worker ref: InputStateRef base", () => {
+        const n = parseWithNative("<#heavyCompute>.send([1, 2, 3])");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Call);
+        expect(n.ast.callee.object.kind).toBe(ExprKind.InputStateRef);
+        expect(n.ast.callee.object.id).toBe("heavyCompute");
+    });
+});
+
+// -----------------------------------------------------------------------------
+// M2.4 — `is` predicate family node shape (§42 / §18.17, native-only).
+// -----------------------------------------------------------------------------
+describe("M2.4 expression-parser — `is` predicate node shape (native-only)", () => {
+    test("`is not` — absence check (§42.2.2)", () => {
+        const n = parseWithNative("@name is not");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.IsCheck);
+        expect(n.ast.op).toBe(IsCheckOp.Not);
+        expect(n.ast.operand.kind).toBe(ExprKind.AtCell);
+        expect(n.ast.variant).toBeNull();
+    });
+
+    test("`is some` — presence check (§42.2.2a)", () => {
+        const n = parseWithNative("@name is some");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.IsCheck);
+        expect(n.ast.op).toBe(IsCheckOp.Some);
+    });
+
+    test("`is given` — presence alias of `is some` (§42.2.4)", () => {
+        const n = parseWithNative("(getUser(id)) is given");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.IsCheck);
+        expect(n.ast.op).toBe(IsCheckOp.Given);
+        // The LHS is the parenthesized call.
+        expect(n.ast.operand.kind).toBe(ExprKind.Paren);
+    });
+
+    test("`is not not` — double-negative presence (§42.2.4 / §42.8)", () => {
+        const n = parseWithNative("@x is not not");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.IsCheck);
+        expect(n.ast.op).toBe(IsCheckOp.NotNot);
+    });
+
+    test("`is .Variant` — single-variant check (§18.17)", () => {
+        const n = parseWithNative("@filter is .Active");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.IsCheck);
+        expect(n.ast.op).toBe(IsCheckOp.Variant);
+        expect(n.ast.variant.kind).toBe(ExprKind.BareVariant);
+        expect(n.ast.variant.name).toBe("Active");
+    });
+
+    test("`is Type.Variant` — qualified single-variant check (§18.13)", () => {
+        const n = parseWithNative("@filter is FilterMode.Active");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.IsCheck);
+        expect(n.ast.op).toBe(IsCheckOp.Variant);
+        // The qualified variant is a Member node.
+        expect(n.ast.variant.kind).toBe(ExprKind.Member);
+        expect(n.ast.variant.object.name).toBe("FilterMode");
+        expect(n.ast.variant.property.name).toBe("Active");
+    });
+
+    test("`is Type::Variant` — qualified variant via the `::` alias (§14.4)", () => {
+        const n = parseWithNative("@filter is FilterMode::Active");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.IsCheck);
+        expect(n.ast.variant.kind).toBe(ExprKind.Member);
+        expect(n.ast.variant.property.name).toBe("Active");
+    });
+
+    test("`is` binds tighter than `&&` — `a is .X && b is .Y` is `(..) && (..)`", () => {
+        // The legacy `rewriteIsPredicates` LHS scan stops at `&&` — `is` binds
+        // tighter. The result is a Logical && of two IsCheck nodes.
+        const n = parseWithNative("@a is .Big && @b is .Small");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Logical);
+        expect(n.ast.op).toBe("&&");
+        expect(n.ast.left.kind).toBe(ExprKind.IsCheck);
+        expect(n.ast.right.kind).toBe(ExprKind.IsCheck);
+    });
+
+    test("`is` binds tighter than `||` — `a || b is some` is `a || (b is some)`", () => {
+        const n = parseWithNative("@a || @b is some");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Logical);
+        expect(n.ast.op).toBe("||");
+        expect(n.ast.left.kind).toBe(ExprKind.AtCell);
+        // The `is some` wraps only `@b`, not the whole `@a || @b`.
+        expect(n.ast.right.kind).toBe(ExprKind.IsCheck);
+        expect(n.ast.right.operand.kind).toBe(ExprKind.AtCell);
+    });
+
+    test("`is` is usable as a ternary test — `(@x is .A) ? 1 : 2`", () => {
+        const n = parseWithNative("@x is .A ? 1 : 2");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Conditional);
+        expect(n.ast.test.kind).toBe(ExprKind.IsCheck);
+    });
+});
+
+// -----------------------------------------------------------------------------
+// M2.4 — `match expr { arms }` JS-style value form node shape (§18, native).
+// -----------------------------------------------------------------------------
+describe("M2.4 expression-parser — `match` node shape (native-only)", () => {
+    test("match — subject + arm count + unit-variant arms (§18.2)", () => {
+        const n = parseWithNative("match direction { .North => 1, .South => 2 }");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Match);
+        expect(n.ast.subject.kind).toBe(ExprKind.Ident);
+        expect(n.ast.subject.name).toBe("direction");
+        expect(n.ast.arms.length).toBe(2);
+        expect(n.ast.arms[0].pattern.patternKind).toBe(MatchArmPatternKind.Variant);
+        expect(n.ast.arms[0].pattern.variantName).toBe("North");
+        expect(n.ast.arms[0].pattern.typeName).toBeNull();
+    });
+
+    test("match — payload positional binding `.Circle(r)` (§18.7)", () => {
+        const n = parseWithNative("match shape { .Circle(r) => r, .Point => 0 }");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Match);
+        const arm0 = n.ast.arms[0];
+        expect(arm0.pattern.variantName).toBe("Circle");
+        expect(arm0.pattern.bindings.length).toBe(1);
+        expect(arm0.pattern.bindings[0].fieldName).toBeNull();   // positional
+        expect(arm0.pattern.bindings[0].local).toBe("r");
+        // The arm with no payload carries `null` bindings (no `( ... )`).
+        expect(n.ast.arms[1].pattern.bindings).toBeNull();
+    });
+
+    test("match — payload named binding `.Rectangle(width: w)` (§18.7)", () => {
+        const n = parseWithNative("match s { .Rectangle(width: w, height: h) => w }");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        const b = n.ast.arms[0].pattern.bindings;
+        expect(b.length).toBe(2);
+        expect(b[0].fieldName).toBe("width");
+        expect(b[0].local).toBe("w");
+        expect(b[1].fieldName).toBe("height");
+        expect(b[1].local).toBe("h");
+    });
+
+    test("match — `else` wildcard arm (§18.6)", () => {
+        const n = parseWithNative("match s { .A => 1, else => 0 }");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        const last = n.ast.arms[n.ast.arms.length - 1];
+        expect(last.pattern.patternKind).toBe(MatchArmPatternKind.Wildcard);
+        expect(last.pattern.keyword).toBe("else");
+    });
+
+    test("match — `_` wildcard alias (§18.6)", () => {
+        const n = parseWithNative("match s { .A => 1, _ => 0 }");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        const last = n.ast.arms[n.ast.arms.length - 1];
+        expect(last.pattern.patternKind).toBe(MatchArmPatternKind.Wildcard);
+        expect(last.pattern.keyword).toBe("_");
+    });
+
+    test("match — `->` arm separator alias (§18.2)", () => {
+        const n = parseWithNative("match s { .A -> 1, .B -> 2 }");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.arms[0].separator).toBe("->");
+        expect(n.ast.arms[1].separator).toBe("->");
+    });
+
+    test("match — qualified variant arm `Type.Variant` (§18.2)", () => {
+        const n = parseWithNative("match s { Tab.Overview => 1, Tab::Activity => 2 }");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.arms[0].pattern.typeName).toBe("Tab");
+        expect(n.ast.arms[0].pattern.variantName).toBe("Overview");
+        expect(n.ast.arms[1].pattern.typeName).toBe("Tab");
+        expect(n.ast.arms[1].pattern.variantName).toBe("Activity");
+    });
+
+    test("match — block arm body is a BlockStub (the M3 seam, §18.5)", () => {
+        // A `{ ... }` arm body forward-references M3's statement parser; M2.4
+        // captures it as a BlockStub. The concise arm body parses fully.
+        const n = parseWithNative("match s { .A => { let x = 1 }, .B => 2 }");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.arms[0].body.kind).toBe(ExprKind.BlockStub);
+        expect(n.ast.arms[1].body.kind).toBe(ExprKind.NumberLit);
+    });
+
+    test("match — `is .Variant` is-pattern arm (§18.17)", () => {
+        const n = parseWithNative("match s { is .Ready => 1, else => 0 }");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.arms[0].pattern.patternKind).toBe(MatchArmPatternKind.Is);
+        expect(n.ast.arms[0].pattern.variantName).toBe("Ready");
+    });
+});
+
+// -----------------------------------------------------------------------------
+// M2.4 — keyword-headed forms: `render` / `lift` / `fail` node shape (native).
+// -----------------------------------------------------------------------------
+describe("M2.4 expression-parser — render / lift / fail node shape (native-only)", () => {
+    test("render — zero-parameter snippet invocation (§14.9)", () => {
+        const n = parseWithNative("render header()");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Render);
+        expect(n.ast.name).toBe("header");
+        expect(n.ast.args.length).toBe(0);
+    });
+
+    test("render — parametric snippet invocation (§14.9)", () => {
+        const n = parseWithNative("render row(item, index)");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Render);
+        expect(n.ast.name).toBe("row");
+        expect(n.ast.args.length).toBe(2);
+    });
+
+    test("lift — value-lift of a scalar expression (§10)", () => {
+        const n = parseWithNative("lift computeTotal(items)");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Lift);
+        expect(n.ast.argument.kind).toBe(ExprKind.Call);
+    });
+
+    test("lift — lifting the `~` accumulator (§10 / §32)", () => {
+        const n = parseWithNative("lift ~");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Lift);
+        expect(n.ast.argument.kind).toBe(ExprKind.Tilde);
+    });
+
+    test("fail — error variant with a payload (§19.3)", () => {
+        const n = parseWithNative('fail PaymentError::InvalidAmount("must be positive")');
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Fail);
+        // The variant carries a payload — a Call wrapping the variant Member.
+        expect(n.ast.variant.kind).toBe(ExprKind.Call);
+        expect(n.ast.variant.callee.kind).toBe(ExprKind.Member);
+        expect(n.ast.variant.callee.object.name).toBe("PaymentError");
+        expect(n.ast.variant.callee.property.name).toBe("InvalidAmount");
+        expect(n.ast.variant.args.length).toBe(1);
+    });
+
+    test("fail — unit error variant, no payload (§19.3)", () => {
+        const n = parseWithNative("fail PaymentError::ExpiredCard");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Fail);
+        // No payload — the variant is the bare Member node.
+        expect(n.ast.variant.kind).toBe(ExprKind.Member);
+        expect(n.ast.variant.property.name).toBe("ExpiredCard");
+    });
+
+    test("fail — dot-notation variant `Type.Variant` (§19.3)", () => {
+        const n = parseWithNative("fail Error.Generic(msg)");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Fail);
+        expect(n.ast.variant.kind).toBe(ExprKind.Call);
+        expect(n.ast.variant.callee.object.name).toBe("Error");
+    });
+});
+
+// -----------------------------------------------------------------------------
+// M2.4 — primary-atom extensions: not / ~ / ?{sql} / <#id> / ::Variant (native).
+// -----------------------------------------------------------------------------
+describe("M2.4 expression-parser — scrml-extension primary atoms (native-only)", () => {
+    test("`not` — the absence-value atom (§42)", () => {
+        const n = parseWithNative("not");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.NotValue);
+    });
+
+    test("`not` as a call argument — `setUser(not)` (§42.2.1)", () => {
+        const n = parseWithNative("setUser(not)");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Call);
+        expect(n.ast.args[0].kind).toBe(ExprKind.NotValue);
+    });
+
+    test("`~` — the standalone pipeline-accumulator atom (§32)", () => {
+        const n = parseWithNative("~");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Tilde);
+    });
+
+    test("`~x` — bitwise-NOT, NOT the accumulator (operand source-adjacent)", () => {
+        // M1 lexes `~` as BitNot; `~x` (operand adjacent) stays bitwise-NOT —
+        // a Unary node, NOT a Tilde atom.
+        const n = parseWithNative("~x");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Unary);
+        expect(n.ast.op).toBe("~");
+    });
+
+    test("`~.ok` — member access on the accumulator (§32)", () => {
+        const n = parseWithNative("~.ok");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Member);
+        expect(n.ast.object.kind).toBe(ExprKind.Tilde);
+        expect(n.ast.property.name).toBe("ok");
+    });
+
+    test("`?{sql}` — a SQL block atom carrying its raw text (§8)", () => {
+        const n = parseWithNative("?{`SELECT * FROM items`}");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Sql);
+        expect(n.ast.raw).toContain("SELECT * FROM items");
+    });
+
+    test("`?{sql}` with a bound `${param}` — interpolation stays in raw (§8.1)", () => {
+        const n = parseWithNative("?{`SELECT * FROM u WHERE id = ${userId}`}.get()");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Call);
+        expect(n.ast.callee.object.kind).toBe(ExprKind.Sql);
+        expect(n.ast.callee.object.raw).toContain("${userId}");
+    });
+
+    test("`<#id>` — an input-state reference atom (§36)", () => {
+        const n = parseWithNative("<#price>");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.InputStateRef);
+        expect(n.ast.id).toBe("price");
+    });
+
+    test("`<#id>.value` — member access on an input-state ref (§36)", () => {
+        const n = parseWithNative("<#price>.value");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Member);
+        expect(n.ast.object.kind).toBe(ExprKind.InputStateRef);
+        expect(n.ast.property.name).toBe("value");
+    });
+
+    test("`::Variant` — a leading bare variant via the `::` alias (§14.4)", () => {
+        const n = parseWithNative("::Loading");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        // `::Variant` re-composes to the SAME BareVariant node `.Variant`
+        // produces — the `::` form is a pure alias.
+        expect(n.ast.kind).toBe(ExprKind.BareVariant);
+        expect(n.ast.name).toBe("Loading");
+    });
+
+    test("`::Variant` and `.Variant` produce the identical node kind (§14.4)", () => {
+        const colon = parseWithNative("::Big");
+        const dot = parseWithNative(".Big");
+        expect(colon.ok).toBe(true);
+        expect(dot.ok).toBe(true);
+        expect(colon.ast.kind).toBe(dot.ast.kind);
+        expect(colon.ast.name).toBe(dot.ast.name);
+    });
+
+    test("`Type::Variant` — the `::` member-access alias in a chain (§14.4)", () => {
+        const n = parseWithNative("PowerUp::Mushroom");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Member);
+        expect(n.ast.object.name).toBe("PowerUp");
+        expect(n.ast.property.name).toBe("Mushroom");
+    });
+
+    test("`Type::Variant(args)` — constructor call via the `::` alias (§14.4)", () => {
+        const n = parseWithNative("PowerUp::Mushroom(1)");
+        expect(n.ok).toBe(true);
+        expect(n.errors).toEqual([]);
+        expect(n.ast.kind).toBe(ExprKind.Call);
+        expect(n.ast.callee.kind).toBe(ExprKind.Member);
+        expect(n.ast.callee.property.name).toBe("Mushroom");
+        expect(n.ast.args.length).toBe(1);
+    });
+});
+
+// -----------------------------------------------------------------------------
+// M2.4 — span preservation (DD §D6 Tier 3) + error paths (diagnostics, no
+// throw). The scrml-extension forms carry a Span on every node; malformed
+// forms record a structured diagnostic rather than throwing.
+// -----------------------------------------------------------------------------
+describe("M2.4 expression-parser — span preservation (Tier 3 spot-check)", () => {
+    const spanCases = [
+        { src: "not" },
+        { src: "~" },
+        { src: "<#price>" },
+        { src: "::Idle" },
+        { src: "@x is some" },
+        { src: "match s { .A => 1 }" },
+        { src: "render header()" },
+    ];
+    for (const c of spanCases) {
+        test(`(tier3) outer span covers source — ${c.src}`, () => {
+            const n = parseWithNative(c.src);
+            expect(n.ok).toBe(true);
+            expect(n.ast).toBeDefined();
+            expect(n.ast.span).toBeDefined();
+            expect(n.ast.span.start).toBe(0);
+            expect(n.ast.span.end).toBe(c.src.length);
+        });
+    }
+});
+
+describe("M2.4 expression-parser — error paths (diagnostics, no throw)", () => {
+    test("malformed `is` — bare `is` with no suffix records E-EXPR-IS-SUFFIX", () => {
+        const n = parseWithNative("@x is");
+        expect(n.ok).toBe(true);
+        const codes = n.errors.map((e) => e.code);
+        expect(codes).toContain("E-EXPR-IS-SUFFIX");
+    });
+
+    test("malformed `match` — missing `{` records E-EXPR-MATCH-BRACE", () => {
+        const n = parseWithNative("match s");
+        expect(n.ok).toBe(true);
+        const codes = n.errors.map((e) => e.code);
+        expect(codes).toContain("E-EXPR-MATCH-BRACE");
+    });
+
+    test("malformed `render` — missing `(` records E-EXPR-RENDER-CALL", () => {
+        const n = parseWithNative("render footer");
+        expect(n.ok).toBe(true);
+        const codes = n.errors.map((e) => e.code);
+        expect(codes).toContain("E-EXPR-RENDER-CALL");
+    });
+
+    test("malformed `fail` — no variant after `fail` records E-EXPR-FAIL-VARIANT", () => {
+        const n = parseWithNative("fail 42");
+        expect(n.ok).toBe(true);
+        const codes = n.errors.map((e) => e.code);
+        expect(codes).toContain("E-EXPR-FAIL-VARIANT");
+    });
+
+    test("malformed match arm — bad pattern records E-EXPR-MATCH-PATTERN", () => {
+        const n = parseWithNative("match s { 42 => 1 }");
+        expect(n.ok).toBe(true);
+        const codes = n.errors.map((e) => e.code);
+        expect(codes).toContain("E-EXPR-MATCH-PATTERN");
     });
 });

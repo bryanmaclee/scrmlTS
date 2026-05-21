@@ -2,7 +2,7 @@
 // See span.js header for the .scrml<->.js duplication rationale.
 // PILLAR 5b classification mirrors parse-expr.scrml's header — see that file.
 //
-// SCOPE — M2.1 + M2.2 + M2.3.
+// SCOPE — M2.1 + M2.2 + M2.3 + M2.4 (M2 COMPLETE).
 //   M2.1: PRIMARY EXPRESSIONS. M2.2: OPERATOR EXPRESSIONS — binary
 //   (precedence-climbing core), logical, unary prefix, update (++/--),
 //   assignment, conditional ?:, sequence ,.
@@ -12,13 +12,20 @@
 //   function expressions (the HEAD is parsed; the block body of a
 //   block-body arrow / function expression is captured as a BlockStub
 //   that forward-references M3's statement parser — see parseBlockStub).
+//   M2.4: scrml-EXTENSION EXPRESSION FORMS (D5 MUST ADD) — the `not`
+//   absence value, the `~` accumulator atom, `?{sql}` blocks, `<#id>`
+//   input-state refs, `::Variant` / `Type::Variant` alias, the `is`
+//   predicate family (`is not`/`is some`/`is given`/`is not not`/`is
+//   .Variant`), `match expr {}`, `render name()`, `lift expr`, `fail
+//   Type::Variant(args)`. These eliminate the 9 preprocessForAcorn
+//   Acorn-workaround classes (M2 gating criterion).
 //
 //   parseExpression is the single recursion seam (full sequence-level).
 //   parseAssignmentExpr is the no-comma entry used by element positions
 //   (array elements, object values, spread args). parsePostfix is the
-//   M2.3 seam — it dispatches arrow / function-expression / `new` heads,
-//   then parses an atom and a postfix chain (calls / members / optional
-//   chain / tagged template). scrml-extension expression forms are M2.4.
+//   M2.3/M2.4 seam — it dispatches arrow / function-expression / `new` /
+//   `match` / `render` / `lift` / `fail` heads, then parses an atom and a
+//   postfix chain (calls / members / optional chain / tagged template).
 
 import { makeTokenCursor, current, currentKind, peek, peekKind, advance, atEnd, snapshot, restore } from "./token-cursor.js";
 import { TokenKind } from "./token.js";
@@ -35,6 +42,10 @@ import {
     makeConditional, makeSequence,
     makeCall, makeNew, makeMember, makeTaggedTemplate, makeArrow, makeFunction,
     makeRestElement, makeAssignmentPattern, makeBlockStub,
+    IsCheckOp,
+    makeNotValue, makeTilde, makeSql, makeInputStateRef, makeIsCheck,
+    makeMatch, makeMatchArm, makeVariantPattern, makeWildcardPattern,
+    makeIsPattern, makeMatchBinding, makeRender, makeLift, makeFail,
 } from "./ast-expr.js";
 
 // --- makeParseExprContext — parser state constructor ---
@@ -335,6 +346,23 @@ function isUnparenthesizedLogical(node, ops) {
     return ops.indexOf(node.op) !== -1;
 }
 
+// --- maybeWrapIsCheck — wrap `operand` in an `is` predicate if `is` follows ---
+// The scrml `is` operator (§42 / §18.17 — M2.4) is a postfix predicate: when
+// the cursor sits at the `is` keyword, `operand` is consumed as the left-hand
+// side and parseIsCheckSuffix parses the suffix (`not` / `not not` / `some` /
+// `given` / `.Variant` / `Type.Variant`). When no `is` follows, `operand` is
+// returned unchanged. A SINGLE wrap is applied — an `is` result is a boolean,
+// so a chained `x is some is .Y` is a type error (E-TYPE-062, a later-stage
+// concern); the parser does not chain `is`.
+export function maybeWrapIsCheck(ctx, operand) {
+    const cursor = ctx.cursor;
+    if (currentKind(cursor) !== TokenKind.KwIs) {
+        return operand;
+    }
+    const isTok = advance(cursor);   // consume `is`
+    return parseIsCheckSuffix(ctx, operand, isTok);
+}
+
 // --- parseBinary — the precedence-climbing core (binary + logical) ---
 // minPrec is the minimum binding precedence this call will consume. The loop
 // reads an operator, and if it binds at >= minPrec, recurses for the right
@@ -348,7 +376,14 @@ function isUnparenthesizedLogical(node, ops) {
 // un-parenthesized ?? operand — that is the illegal mix.
 export function parseBinary(ctx, minPrec) {
     const cursor = ctx.cursor;
-    let left = parseUnary(ctx);
+    // The left operand. An `is` predicate (§42 / §18.17 — M2.4) is a postfix
+    // wrap on a unary-level operand: `is` binds tighter than every binary
+    // operator (the legacy `rewriteIsPredicates` LHS scan stops at `+`/`||`/
+    // comparisons), so `a + b is some` is `a + (b is some)` and `a is .X &&
+    // b is .Y` is `(a is .X) && (b is .Y)`. maybeWrapIsCheck applies the wrap
+    // here AND in the right-operand recursion below (which re-enters
+    // parseBinary, hence re-enters this wrap).
+    let left = maybeWrapIsCheck(ctx, parseUnary(ctx));
 
     while (true) {
         const kind = currentKind(cursor);
@@ -432,6 +467,17 @@ export function parseUnary(ctx) {
         return makeUpdate(opText, operand, true, span);
     }
 
+    // `~` disambiguation (§32 — M2.4): M1 lexes a `~` as a BitNot token.
+    // A `~` is bitwise-NOT only when it is SOURCE-ADJACENT to an operand
+    // (`~x`, `~5`); a `~` followed by whitespace, a non-operand token, or
+    // EOF is the standalone pipeline-accumulator atom (§32). This mirrors
+    // the legacy regex `~(?![A-Za-z0-9_$])` — a standalone `~` cannot be a
+    // well-formed bitwise-NOT. When `~` is the accumulator, fall through so
+    // parsePrimary builds the Tilde atom.
+    if (kind === TokenKind.BitNot && tildeIsStandalone(cursor)) {
+        return parseUpdate(ctx);
+    }
+
     // Prefix unary operators
     const unaryOpText = prefixUnaryOpText(kind);
     if (unaryOpText !== null) {
@@ -450,6 +496,68 @@ export function parseUnary(ctx) {
     }
 
     return parseUpdate(ctx);
+}
+
+// --- tildeIsStandalone — is the cursor's `~` the standalone accumulator? ---
+// True iff the current token is BitNot AND it is NOT source-adjacent to an
+// operand-starting token. `~x` / `~5` (adjacent operand) -> bitwise-NOT (false);
+// `~`, `~ x`, `~)`, `~.ok` (no adjacent operand) -> standalone `~` (true).
+// (`~.ok` reads `~` then `.ok` — member access on the accumulator; M1 lexes
+// `.ok` after `~` as a BareVariant, which is NOT operand-adjacent in the
+// bitwise sense — the `~` is the accumulator, the `.ok` chains off it.)
+export function tildeIsStandalone(cursor) {
+    if (currentKind(cursor) !== TokenKind.BitNot) {
+        return false;
+    }
+    const here = current(cursor);
+    const next = peek(cursor, 1);
+    if (here === undefined || here === null || next === undefined || next === null) {
+        return true;
+    }
+    if (here.span === undefined || next.span === undefined) {
+        return true;
+    }
+    // Not source-adjacent — whitespace (or EOF) between `~` and the next
+    // token: the `~` is the standalone accumulator.
+    if (next.span.start !== here.span.end) {
+        return true;
+    }
+    // Source-adjacent: bitwise-NOT only if the next token starts a unary
+    // operand. A BareVariant `.ok` adjacent to `~` is member access on the
+    // accumulator (`~.ok`), NOT a bitwise operand — so it is still standalone.
+    if (next.kind === TokenKind.BareVariant) {
+        return true;
+    }
+    return canStartUnaryOperand(next.kind) === false;
+}
+
+// --- canStartUnaryOperand — can a token of `kind` begin a unary operand? ---
+// The operand-starting token kinds: literals, identifiers, `@`-cells, `(`,
+// `[`, `{`, template chunks, and the nested-unary / keyword-atom starts.
+export function canStartUnaryOperand(kind) {
+    return kind === TokenKind.NumberLit
+        || kind === TokenKind.StringLit
+        || kind === TokenKind.TemplateChunk
+        || kind === TokenKind.RegexLit
+        || kind === TokenKind.Ident
+        || kind === TokenKind.ScrmlAt
+        || kind === TokenKind.KwTrue
+        || kind === TokenKind.KwFalse
+        || kind === TokenKind.KwThis
+        || kind === TokenKind.KwSuper
+        || kind === TokenKind.KwNew
+        || kind === TokenKind.KwTypeof
+        || kind === TokenKind.KwVoid
+        || kind === TokenKind.KwDelete
+        || kind === TokenKind.LParen
+        || kind === TokenKind.LBracket
+        || kind === TokenKind.LBrace
+        || kind === TokenKind.Bang
+        || kind === TokenKind.Minus
+        || kind === TokenKind.Plus
+        || kind === TokenKind.BitNot
+        || kind === TokenKind.Increment
+        || kind === TokenKind.Decrement;
 }
 
 // --- prefixUnaryOpText — the ESTree operator string for a prefix unary op ---
@@ -550,6 +658,23 @@ export function parsePostfix(ctx) {
         return parsePostfixChain(ctx, newExpr);
     }
 
+    // --- M2.4 keyword-headed expression forms. `match` / `render` produce
+    // values that may take a trailing postfix chain (a `match` expression is
+    // valid in any expression position per §18.3); `lift` / `fail` are
+    // statement-shaped terminal forms — no chain ON the Lift / Fail node. ---
+    if (kind === TokenKind.KwMatch) {
+        return parsePostfixChain(ctx, parseMatchExpr(ctx));
+    }
+    if (kind === TokenKind.KwRender) {
+        return parsePostfixChain(ctx, parseRenderExpr(ctx));
+    }
+    if (kind === TokenKind.KwLift) {
+        return parseLiftExpr(ctx);
+    }
+    if (kind === TokenKind.KwFail) {
+        return parseFailExpr(ctx);
+    }
+
     // --- `ident =>` — single-identifier-param arrow (no parens). ---
     if (kind === TokenKind.Ident && peekKind(cursor, 1) === TokenKind.Arrow) {
         return parseSingleIdentArrow(ctx, false, null);
@@ -581,6 +706,34 @@ export function parsePostfixChain(ctx, base) {
         if (kind === TokenKind.Dot) {
             advance(cursor);   // consume .
             const prop = parseMemberProperty(ctx);
+            const span = makeSpan(startOf(node), endOf(prop), lineOf(node), colOf(node));
+            node = makeMember(node, prop, false, false, span);
+            continue;
+        }
+
+        // `::property` — the `::` member-access alias (§14.4 — M2.4).
+        // `Type::Variant` is a pure alias for `Type.Variant`; it produces
+        // the same Member node. M1 lexes `::` as two adjacent Colon tokens.
+        if (kind === TokenKind.Colon && isDoubleColonAhead(cursor)) {
+            advance(cursor);   // consume first :
+            advance(cursor);   // consume second :
+            const prop = parseMemberProperty(ctx);
+            const span = makeSpan(startOf(node), endOf(prop), lineOf(node), colOf(node));
+            node = makeMember(node, prop, false, false, span);
+            continue;
+        }
+
+        // `.member` lexed as a BareVariant — M2.4 re-composition. M1 lexes
+        // `.ident` as a BareVariant token when the preceding token allows a
+        // regex context (`regexAllowedAfter` — true after `~`, `(`, an
+        // operator, etc.). When such a BareVariant is SOURCE-ADJACENT to the
+        // end of `node`, it is member access on `node` — the prime case is
+        // `~.ok` (member access on the `~` accumulator, §32). A gap (`~ .ok`)
+        // means a standalone `~` then a separate bare variant. Same parse-
+        // layer re-composition shape as the M2.3 `?.ident` handling (K4).
+        if (kind === TokenKind.BareVariant && isBareVariantMemberAfter(cursor, node)) {
+            const tok = advance(cursor);
+            const prop = makeIdent(tok.name, tok.span);
             const span = makeSpan(startOf(node), endOf(prop), lineOf(node), colOf(node));
             node = makeMember(node, prop, false, false, span);
             continue;
@@ -835,6 +988,26 @@ export function isOptionalChainAhead(cursor) {
         return false;
     }
     return q.span.end === next.span.start;
+}
+
+// --- isBareVariantMemberAfter — is the cursor's BareVariant a `.member`
+// access on `node`? (M2.4 — see parsePostfixChain.) ---
+// True iff the current token is a BareVariant whose `span.start` is exactly
+// the end of `node`'s span — i.e. the `.ident` is source-adjacent to the
+// base, making it member access (`~.ok`) rather than a separate bare variant
+// (`~ .ok`).
+export function isBareVariantMemberAfter(cursor, node) {
+    if (currentKind(cursor) !== TokenKind.BareVariant) {
+        return false;
+    }
+    const tok = current(cursor);
+    if (tok === undefined || tok === null || tok.span === undefined) {
+        return false;
+    }
+    if (node === undefined || node === null || node.span === undefined || node.span === null) {
+        return false;
+    }
+    return tok.span.start === node.span.end;
 }
 
 // --- scanArrowParens — bounded lookahead: do the parens at offset `from`
@@ -1242,6 +1415,53 @@ export function parsePrimary(ctx) {
         return makeBareVariant(tok.name, tok.span);
     }
 
+    // --- M2.4 scrml-extension primary atoms ---
+
+    // `not` — the absence-value atom (§42). `not` is a VALUE, not a prefix
+    // operator: `not` at expression-head position is the absence sentinel.
+    // (Prefix `not (expr)` is E-TYPE-045 per §42.10 — a typer concern; the
+    // parser parses the `not` atom and the parenthesized expression is then
+    // a separate primary that would not be consumed, surfacing the misuse
+    // to a later stage rather than silently rewriting it to `!`.)
+    if (kind === TokenKind.KwNot) {
+        const tok = advance(cursor);
+        return makeNotValue(tok.span);
+    }
+
+    // `~` — the pipeline-accumulator atom (§32). M1 lexes a bare `~` as a
+    // BitNot token; `~x` (bitwise-not) is consumed by parseUnary BEFORE the
+    // cursor reaches parsePrimary — so a BitNot arriving HERE is the
+    // standalone `~` accumulator (it has no operand). (Parse-layer
+    // disambiguation, the same shape as K3/K4 — see IMPLEMENTATION-ROADMAP
+    // §4.4. The canonical fix is M1 lexing a standalone `~` as a Tilde
+    // token; reported for a K-class roadmap entry.)
+    if (kind === TokenKind.BitNot) {
+        const tok = advance(cursor);
+        return makeTilde(tok.span);
+    }
+
+    // `?{ sql }` — a SQL block (§8). M1 lexes the whole `?{...}` as one
+    // SqlBlock token carrying `.raw` (the verbatim source incl. delimiters).
+    // The block is captured as an atom; chained `.all()` / `.get()` calls
+    // are the ordinary postfix chain (M2.3).
+    if (kind === TokenKind.SqlBlock) {
+        const tok = advance(cursor);
+        return makeSql(tok.raw, tok.span);
+    }
+
+    // `<#id>` — an input-state reference (§36). See parseInputStateRef for
+    // the parse-layer re-composition (M1 does not lex `<#` / `#`).
+    if (kind === TokenKind.LessThan && isInputStateRefAhead(cursor)) {
+        return parseInputStateRef(ctx);
+    }
+
+    // `::Variant` — a bare variant via the `::` alias (§14.4). M1 lexes `::`
+    // as two adjacent Colon tokens; `::Variant` re-composes to the same
+    // BareVariant node `.Variant` produces (the `::` form is a pure alias).
+    if (kind === TokenKind.Colon && isQualifiedVariantColonAhead(cursor)) {
+        return parseLeadingDoubleColonVariant(ctx);
+    }
+
     // Parenthesized expression ( expr )
     if (kind === TokenKind.LParen) {
         return parseParenExpression(ctx);
@@ -1262,6 +1482,571 @@ export function parsePrimary(ctx) {
     const span = (here === undefined || here === null) ? makeSpan(0, 0, 1, 1) : here.span;
     recordError(ctx, "E-EXPR-UNEXPECTED", "unexpected token in expression position: " + String(kind), span);
     return null;
+}
+
+// =============================================================================
+// M2.4 — scrml-extension expression forms (D5 MUST ADD).
+//
+// These are the scrml-language extensions stock Acorn cannot parse — exactly
+// the forms the legacy `preprocessForAcorn` regex cascade rewrites into JS
+// placeholders. The native parser parses them DIRECTLY, with no preprocessing
+// pass and no placeholder round-trip:
+//
+//   `not` value · `~` accumulator · `?{sql}` · `<#id>` · `::Variant`  — primary
+//                                                                       atoms
+//   `is` / `is not` / `is some` / `is given` / `is not not` / `is .Variant`
+//                                                                — postfix
+//                                                                  predicate
+//   `match expr { arms }` · `render name(args)` · `lift expr` ·
+//   `fail Type::Variant(args)`                              — keyword heads
+//
+// Three forms re-compose at the parse layer because M1's lexer does not munch
+// them into single tokens (the same shape as roadmap §4.4 K3/K4):
+//   - `<#id>`     — M1 does not lex `#`; `<#id>` arrives as LessThan, Ident,
+//                   GreaterThan with a one-char span gap where the `#` was.
+//   - `::Variant` — M1 lexes `::` as two adjacent Colon tokens.
+//   - `~`         — M1 lexes a standalone `~` as a BitNot token.
+// Each re-composition is span-adjacency-checked and AST-equivalent to the
+// canonical form. The canonical fix (M1 lexing `<#` / `::` / standalone `~`)
+// is a NEW K-class roadmap item reported alongside this dispatch.
+// =============================================================================
+
+// --- isInputStateRefAhead — bounded lookahead: is the cursor at `<#id>`? ---
+// M1 does not recognize `#`: it lexes `<#price>` as `LessThan Ident("price")
+// GreaterThan` and the `#` is silently skipped (lex-in-code's "Unknown — skip"
+// path). The skipped `#` is exactly one source char, so the recomposition
+// signal is: a LessThan token, then an Ident whose `span.start` is exactly
+// `LessThan.span.end + 1` (the one-char gap is the `#`), then a GreaterThan
+// SOURCE-ADJACENT to the Ident. A plain `<` (less-than operator) never reaches
+// parsePrimary as a head, and `< ident >` is not a JS expression — so within
+// the JS-expression layer this shape is unambiguously `<#id>`.
+export function isInputStateRefAhead(cursor) {
+    if (currentKind(cursor) !== TokenKind.LessThan) {
+        return false;
+    }
+    if (peekKind(cursor, 1) !== TokenKind.Ident) {
+        return false;
+    }
+    if (peekKind(cursor, 2) !== TokenKind.GreaterThan) {
+        return false;
+    }
+    const lt = current(cursor);
+    const id = peek(cursor, 1);
+    const gt = peek(cursor, 2);
+    if (lt === undefined || lt === null || id === undefined || id === null
+        || gt === undefined || gt === null) {
+        return false;
+    }
+    if (lt.span === undefined || id.span === undefined || gt.span === undefined) {
+        return false;
+    }
+    // One-char gap between `<` and the ident — the skipped `#`.
+    if (id.span.start !== lt.span.end + 1) {
+        return false;
+    }
+    // The `>` is source-adjacent to the ident (`<#id>`, not `<#id ...>`).
+    return gt.span.start === id.span.end;
+}
+
+// --- parseInputStateRef — `<#id>` input-state reference (§36) ---
+// Consumes the LessThan, Ident, GreaterThan token triple isInputStateRefAhead
+// confirmed. The resulting InputStateRef is an atom; a trailing `.pressed(...)`
+// / `.value` member-or-call chain is the ordinary postfix chain (M2.3).
+export function parseInputStateRef(ctx) {
+    const cursor = ctx.cursor;
+    const lt = advance(cursor);          // consume `<`
+    const idTok = advance(cursor);       // consume the id Ident
+    const gt = advance(cursor);          // consume `>`
+    const span = makeSpan(lt.span.start, gt.span.end, lt.span.line, lt.span.col);
+    return makeInputStateRef(idTok.name, span);
+}
+
+// --- isQualifiedVariantColonAhead — is the cursor at a leading `::Variant`? ---
+// `::` lexes as two adjacent Colon tokens. A leading `::Variant` is: Colon,
+// SOURCE-ADJACENT Colon, then an Ident. (A single `:` is the ternary / object
+// colon — never an expression head; a leading `::` is unambiguously the
+// bare-variant `::` alias.)
+export function isQualifiedVariantColonAhead(cursor) {
+    if (currentKind(cursor) !== TokenKind.Colon) {
+        return false;
+    }
+    if (peekKind(cursor, 1) !== TokenKind.Colon) {
+        return false;
+    }
+    if (peekKind(cursor, 2) !== TokenKind.Ident) {
+        return false;
+    }
+    const c1 = current(cursor);
+    const c2 = peek(cursor, 1);
+    if (c1 === undefined || c1 === null || c2 === undefined || c2 === null) {
+        return false;
+    }
+    if (c1.span === undefined || c2.span === undefined) {
+        return false;
+    }
+    return c1.span.end === c2.span.start;   // the two colons are adjacent (`::`)
+}
+
+// --- parseLeadingDoubleColonVariant — `::Variant` bare variant (§14.4) ---
+// `::Variant` is a pure alias for `.Variant` — it re-composes to the SAME
+// BareVariant node `.Variant` produces. Consumes the two Colon tokens + the
+// variant Ident.
+export function parseLeadingDoubleColonVariant(ctx) {
+    const cursor = ctx.cursor;
+    const c1 = advance(cursor);          // consume first `:`
+    advance(cursor);                     // consume second `:`
+    const nameTok = advance(cursor);     // consume the variant Ident
+    const span = makeSpan(c1.span.start, nameTok.span.end, c1.span.line, c1.span.col);
+    return makeBareVariant(nameTok.name, span);
+}
+
+// --- isDoubleColonAhead — is the cursor at a `::` member-access alias? ---
+// Used by parsePostfixChain: after a base expression, `::Variant` is the
+// qualified-variant alias for `.Variant` (§14.4). Two adjacent Colon tokens.
+export function isDoubleColonAhead(cursor) {
+    if (currentKind(cursor) !== TokenKind.Colon) {
+        return false;
+    }
+    if (peekKind(cursor, 1) !== TokenKind.Colon) {
+        return false;
+    }
+    const c1 = current(cursor);
+    const c2 = peek(cursor, 1);
+    if (c1 === undefined || c1 === null || c2 === undefined || c2 === null) {
+        return false;
+    }
+    if (c1.span === undefined || c2.span === undefined) {
+        return false;
+    }
+    return c1.span.end === c2.span.start;
+}
+
+// --- parseIsCheckSuffix — the right-hand side of an `is` predicate ---
+// The cursor is positioned just AFTER the `is` keyword has been consumed.
+// `left` is the already-parsed left-hand operand. Recognizes the five `is`
+// suffixes (§42 + §18.17):
+//   `is not`        — absence check        -> IsCheck(op = Not)
+//   `is not not`    — double-negative      -> IsCheck(op = NotNot)
+//   `is some`       — presence check       -> IsCheck(op = Some)
+//   `is given`      — presence (alias)     -> IsCheck(op = Given)
+//   `is .Variant`   — single-variant check -> IsCheck(op = Variant, variant)
+// Returns the IsCheck node. `isTok` is the consumed `is` token (for the span
+// when the suffix is malformed).
+export function parseIsCheckSuffix(ctx, left, isTok) {
+    const cursor = ctx.cursor;
+    const kind = currentKind(cursor);
+
+    // `is not` / `is not not`
+    if (kind === TokenKind.KwNot) {
+        const firstNot = advance(cursor);   // consume `not`
+        if (currentKind(cursor) === TokenKind.KwNot) {
+            const secondNot = advance(cursor);   // consume the second `not`
+            const span = makeSpan(startOf(left), secondNot.span.end, lineOf(left), colOf(left));
+            return makeIsCheck(left, IsCheckOp.NotNot, null, span);
+        }
+        const span = makeSpan(startOf(left), firstNot.span.end, lineOf(left), colOf(left));
+        return makeIsCheck(left, IsCheckOp.Not, null, span);
+    }
+
+    // `is some`
+    if (kind === TokenKind.KwSome) {
+        const someTok = advance(cursor);
+        const span = makeSpan(startOf(left), someTok.span.end, lineOf(left), colOf(left));
+        return makeIsCheck(left, IsCheckOp.Some, null, span);
+    }
+
+    // `is given`
+    if (kind === TokenKind.KwGiven) {
+        const givenTok = advance(cursor);
+        const span = makeSpan(startOf(left), givenTok.span.end, lineOf(left), colOf(left));
+        return makeIsCheck(left, IsCheckOp.Given, null, span);
+    }
+
+    // `is .Variant` — M1 lexes `.Variant` as one BareVariant token.
+    if (kind === TokenKind.BareVariant) {
+        const varTok = advance(cursor);
+        const variant = makeBareVariant(varTok.name, varTok.span);
+        const span = makeSpan(startOf(left), varTok.span.end, lineOf(left), colOf(left));
+        return makeIsCheck(left, IsCheckOp.Variant, variant, span);
+    }
+
+    // `is Type.Variant` / `is Type::Variant` — qualified variant. The
+    // qualified form parses the variant as a member access on the type name.
+    if (kind === TokenKind.Ident) {
+        const variant = parseQualifiedVariant(ctx);
+        const span = makeSpan(startOf(left), endOf(variant), lineOf(left), colOf(left));
+        return makeIsCheck(left, IsCheckOp.Variant, variant, span);
+    }
+
+    // Malformed `is` — no recognized suffix.
+    recordError(ctx, "E-EXPR-IS-SUFFIX",
+        "expected 'not', 'some', 'given', or a '.Variant' after 'is'", isTok.span);
+    const span = makeSpan(startOf(left), isTok.span.end, lineOf(left), colOf(left));
+    return makeIsCheck(left, IsCheckOp.Some, null, span);
+}
+
+// --- parseQualifiedVariant — `Type.Variant` / `Type::Variant` ---
+// Parses a type-qualified variant reference: a type-name Ident, then `.` or
+// `::`, then the variant-name Ident. Produced as a Member node (the same
+// shape `Type.Variant` member access produces). Used by `is` / `fail`.
+export function parseQualifiedVariant(ctx) {
+    const cursor = ctx.cursor;
+    const typeTok = advance(cursor);   // consume the type-name Ident
+    let node = makeIdent(typeTok.name, typeTok.span);
+
+    if (isDoubleColonAhead(cursor)) {
+        advance(cursor);   // consume first `:`
+        advance(cursor);   // consume second `:`
+    } else if (currentKind(cursor) === TokenKind.Dot) {
+        advance(cursor);   // consume `.`
+    } else {
+        // No separator — the type name alone is the result (a degenerate
+        // qualified variant; a later stage surfaces the missing variant).
+        recordError(ctx, "E-EXPR-QUALIFIED-VARIANT",
+            "expected '.' or '::' after the enum-type name", typeTok.span);
+        return node;
+    }
+
+    const variantTok = current(cursor);
+    if (variantTok !== undefined && variantTok !== null
+        && (variantTok.kind === TokenKind.Ident || isKeywordKind(variantTok.kind))) {
+        advance(cursor);
+        const prop = makeIdent(identTextOf(variantTok), variantTok.span);
+        const span = makeSpan(startOf(node), endOf(prop), lineOf(node), colOf(node));
+        return makeMember(node, prop, false, false, span);
+    }
+
+    recordError(ctx, "E-EXPR-QUALIFIED-VARIANT",
+        "expected a variant name after the enum-type separator", typeTok.span);
+    return node;
+}
+
+// --- parseRenderExpr — `render name(args)` snippet invocation (§14.9) ---
+// The cursor is at the `render` keyword. `render` is followed by the snippet
+// prop name (an identifier) and a `(args)` call. `render name` with no `(`
+// records a diagnostic (the snippet-invocation form always has the call).
+export function parseRenderExpr(ctx) {
+    const cursor = ctx.cursor;
+    const renderTok = advance(cursor);   // consume `render`
+
+    if (currentKind(cursor) !== TokenKind.Ident) {
+        const here = current(cursor);
+        const span = (here === undefined || here === null) ? renderTok.span : here.span;
+        recordError(ctx, "E-EXPR-RENDER-NAME", "expected a snippet name after 'render'", span);
+        return makeRender("", [], renderTok.span);
+    }
+    const nameTok = advance(cursor);     // consume the snippet name
+
+    let args = [];
+    let endPos = nameTok.span.end;
+    if (currentKind(cursor) === TokenKind.LParen) {
+        const callInfo = parseCallArguments(ctx);
+        args = callInfo.args;
+        endPos = callInfo.endPos;
+    } else {
+        recordError(ctx, "E-EXPR-RENDER-CALL",
+            "expected '(' to open the 'render' argument list", nameTok.span);
+    }
+
+    const span = makeSpan(renderTok.span.start, endPos, renderTok.span.line, renderTok.span.col);
+    return makeRender(nameTok.name, args, span);
+}
+
+// --- parseLiftExpr — `lift expr` (§10) ---
+// The cursor is at the `lift` keyword. `lift` lifts a following expression.
+// The argument parses at ASSIGNMENT level (a `lift` argument is a single
+// expression, not a comma sequence). `lift` is statement-shaped — it does NOT
+// take a postfix chain ON the Lift node.
+export function parseLiftExpr(ctx) {
+    const cursor = ctx.cursor;
+    const liftTok = advance(cursor);   // consume `lift`
+    const prior = enterMode(ctx, ParseMode.InExpression);
+    const argument = parseAssignmentExpr(ctx);
+    exitMode(ctx, prior);
+    const span = makeSpan(liftTok.span.start, endOf(argument), liftTok.span.line, liftTok.span.col);
+    return makeLift(argument, span);
+}
+
+// --- parseFailExpr — `fail Type::Variant(args)` (§19.3) ---
+// The cursor is at the `fail` keyword. Per §19.3:
+//   fail-stmt ::= 'fail' enum-type ('.' | '::') variant-name ('(' arg-list ')')?
+// The variant reference (`Type.Variant` / `Type::Variant`) parses via
+// parseQualifiedVariant; an optional `(args)` payload becomes a Call wrapping
+// it. `fail` is statement-shaped — no postfix chain ON the Fail node.
+export function parseFailExpr(ctx) {
+    const cursor = ctx.cursor;
+    const failTok = advance(cursor);   // consume `fail`
+
+    if (currentKind(cursor) !== TokenKind.Ident) {
+        const here = current(cursor);
+        const span = (here === undefined || here === null) ? failTok.span : here.span;
+        recordError(ctx, "E-EXPR-FAIL-VARIANT",
+            "expected an error-enum variant after 'fail'", span);
+        return makeFail(null, failTok.span);
+    }
+
+    let variant = parseQualifiedVariant(ctx);
+    let endPos = endOf(variant);
+
+    // Optional payload — `fail Type::Variant(args)`.
+    if (currentKind(cursor) === TokenKind.LParen) {
+        const callInfo = parseCallArguments(ctx);
+        const callSpan = makeSpan(startOf(variant), callInfo.endPos, lineOf(variant), colOf(variant));
+        variant = makeCall(variant, callInfo.args, false, callSpan);
+        endPos = callInfo.endPos;
+    }
+
+    const span = makeSpan(failTok.span.start, endPos, failTok.span.line, failTok.span.col);
+    return makeFail(variant, span);
+}
+
+// --- parseMatchExpr — `match expr { arms }` JS-style value form (§18) ---
+// Per SPEC §18.2:
+//   match-expr ::= 'match' expression '{' match-arm+ '}'
+// The cursor is at the `match` keyword. The subject parses at ASSIGNMENT level
+// (a match subject is one expression, not a sequence). Each arm is parsed by
+// parseMatchArm. The match is an expression — it produces a value (§18.3).
+export function parseMatchExpr(ctx) {
+    const cursor = ctx.cursor;
+    const matchTok = advance(cursor);   // consume `match`
+
+    // The subject expression.
+    const subjectPrior = enterMode(ctx, ParseMode.InExpression);
+    const subject = parseAssignmentExpr(ctx);
+    exitMode(ctx, subjectPrior);
+
+    // The `{` arm block.
+    if (currentKind(cursor) !== TokenKind.LBrace) {
+        const here = current(cursor);
+        const span = (here === undefined || here === null) ? matchTok.span : here.span;
+        recordError(ctx, "E-EXPR-MATCH-BRACE", "expected '{' to open the match arms", span);
+        return makeMatch(subject, [], makeSpan(matchTok.span.start, endOf(subject), matchTok.span.line, matchTok.span.col));
+    }
+    const open = advance(cursor);   // consume `{`
+
+    const arms = [];
+    while (atEnd(cursor) === false && currentKind(cursor) !== TokenKind.RBrace) {
+        const arm = parseMatchArm(ctx);
+        if (arm === undefined || arm === null) {
+            break;
+        }
+        arms.push(arm);
+        // A `,` between arms is optional (arms are newline- or comma-
+        // separated in practice); consume it if present.
+        if (currentKind(cursor) === TokenKind.Comma) {
+            advance(cursor);
+        }
+    }
+
+    const close = expectRBrace(ctx, open);
+    const span = makeSpan(matchTok.span.start, close.end, matchTok.span.line, matchTok.span.col);
+    return makeMatch(subject, arms, span);
+}
+
+// --- parseMatchArm — one arm of a match expression (§18.2) ---
+//   match-arm ::= arm-pattern ('=>' | '->') arm-body
+// Parses the arm pattern, the `=>` / `->` separator, and the arm body. A
+// block arm body (`{ ... }`) is captured as a BlockStub (M3 parses the
+// statements); a concise arm body is an assignment-level expression.
+export function parseMatchArm(ctx) {
+    const cursor = ctx.cursor;
+
+    const pattern = parseMatchArmPattern(ctx);
+    if (pattern === undefined || pattern === null) {
+        return null;
+    }
+
+    // The separator — `=>` (canonical) or `->` (alias). M1 lexes `->` as a
+    // Minus token followed by a GreaterThan token (no single `->` token);
+    // re-compose it here when the two are source-adjacent.
+    let separator = "=>";
+    if (currentKind(cursor) === TokenKind.Arrow) {
+        advance(cursor);   // consume `=>`
+    } else if (isArrowAliasAhead(cursor)) {
+        advance(cursor);   // consume `-`
+        advance(cursor);   // consume `>`
+        separator = "->";
+    } else {
+        const here = current(cursor);
+        const span = (here === undefined || here === null) ? makeSpan(0, 0, 1, 1) : here.span;
+        recordError(ctx, "E-EXPR-MATCH-ARROW", "expected '=>' or '->' in a match arm", span);
+    }
+
+    // The arm body — a `{ ... }` block (BlockStub, M3 seam) or a concise
+    // assignment-level expression.
+    let body;
+    if (currentKind(cursor) === TokenKind.LBrace) {
+        body = parseBlockStub(ctx);
+    } else {
+        const bodyPrior = enterMode(ctx, ParseMode.InExpression);
+        body = parseAssignmentExpr(ctx);
+        exitMode(ctx, bodyPrior);
+    }
+
+    return makeMatchArm(pattern, body, separator);
+}
+
+// --- isArrowAliasAhead — is the cursor at a `->` match-arm separator? ---
+// M1 lexes `->` as a Minus then a GreaterThan token. The `->` alias is the
+// two source-adjacent.
+export function isArrowAliasAhead(cursor) {
+    if (currentKind(cursor) !== TokenKind.Minus) {
+        return false;
+    }
+    if (peekKind(cursor, 1) !== TokenKind.GreaterThan) {
+        return false;
+    }
+    const m = current(cursor);
+    const g = peek(cursor, 1);
+    if (m === undefined || m === null || g === undefined || g === null) {
+        return false;
+    }
+    if (m.span === undefined || g.span === undefined) {
+        return false;
+    }
+    return m.span.end === g.span.start;
+}
+
+// --- parseMatchArmPattern — the pattern of one match arm (§18.2) ---
+//   arm-pattern ::= variant-pattern | wildcard-arm | is-pattern
+//   variant-pattern ::= ('.' | '::') VariantName ('(' binding-list ')')?
+//                     | TypeName ('.' | '::') VariantName ('(' binding-list ')')?
+//   wildcard-arm    ::= 'else' | '_'
+//   is-pattern      ::= 'is' '.' VariantName
+export function parseMatchArmPattern(ctx) {
+    const cursor = ctx.cursor;
+    const kind = currentKind(cursor);
+
+    // Wildcard — `else` / `_`. `_` lexes as an Ident named "_".
+    if (kind === TokenKind.KwElse) {
+        const tok = advance(cursor);
+        return makeWildcardPattern("else", tok.span);
+    }
+    if (kind === TokenKind.Ident) {
+        const here = current(cursor);
+        if (here !== undefined && here !== null && here.name === "_") {
+            advance(cursor);
+            return makeWildcardPattern("_", here.span);
+        }
+    }
+
+    // is-pattern — `is .Variant` (§18.17 is-pattern in arm position).
+    if (kind === TokenKind.KwIs) {
+        const isTok = advance(cursor);   // consume `is`
+        if (currentKind(cursor) === TokenKind.BareVariant) {
+            const varTok = advance(cursor);
+            const span = makeSpan(isTok.span.start, varTok.span.end, isTok.span.line, isTok.span.col);
+            return makeIsPattern(varTok.name, span);
+        }
+        recordError(ctx, "E-EXPR-MATCH-IS-PATTERN",
+            "expected a '.Variant' after 'is' in a match arm pattern", isTok.span);
+        return makeIsPattern("", isTok.span);
+    }
+
+    // Bare variant-pattern — `.Variant ( bindings )?`.
+    if (kind === TokenKind.BareVariant) {
+        const varTok = advance(cursor);
+        const bindings = parseMatchBindingsOpt(ctx);
+        const endPos = (bindings === null) ? varTok.span.end : cursor.tokens[cursor.idx - 1].span.end;
+        const span = makeSpan(varTok.span.start, endPos, varTok.span.line, varTok.span.col);
+        return makeVariantPattern(null, varTok.name, bindings, span);
+    }
+
+    // Leading `::Variant` — the bare-variant `::` alias in arm position.
+    if (kind === TokenKind.Colon && isQualifiedVariantColonAhead(cursor)) {
+        const c1 = advance(cursor);   // consume first `:`
+        advance(cursor);             // consume second `:`
+        const nameTok = advance(cursor);   // consume the variant Ident
+        const bindings = parseMatchBindingsOpt(ctx);
+        const endPos = (bindings === null) ? nameTok.span.end : cursor.tokens[cursor.idx - 1].span.end;
+        const span = makeSpan(c1.span.start, endPos, c1.span.line, c1.span.col);
+        return makeVariantPattern(null, nameTok.name, bindings, span);
+    }
+
+    // Qualified variant-pattern — `TypeName.Variant ( bindings )?` /
+    // `TypeName::Variant ( bindings )?`.
+    if (kind === TokenKind.Ident) {
+        const typeTok = advance(cursor);   // consume the type-name Ident
+        if (isDoubleColonAhead(cursor)) {
+            advance(cursor);   // consume first `:`
+            advance(cursor);   // consume second `:`
+        } else if (currentKind(cursor) === TokenKind.Dot) {
+            advance(cursor);   // consume `.`
+        } else {
+            recordError(ctx, "E-EXPR-MATCH-PATTERN",
+                "expected '.' or '::' after the enum-type name in a match arm", typeTok.span);
+            return makeVariantPattern(typeTok.name, "", null, typeTok.span);
+        }
+        if (currentKind(cursor) !== TokenKind.Ident) {
+            recordError(ctx, "E-EXPR-MATCH-PATTERN",
+                "expected a variant name in a match arm pattern", typeTok.span);
+            return makeVariantPattern(typeTok.name, "", null, typeTok.span);
+        }
+        const nameTok = advance(cursor);   // consume the variant Ident
+        const bindings = parseMatchBindingsOpt(ctx);
+        const endPos = (bindings === null) ? nameTok.span.end : cursor.tokens[cursor.idx - 1].span.end;
+        const span = makeSpan(typeTok.span.start, endPos, typeTok.span.line, typeTok.span.col);
+        return makeVariantPattern(typeTok.name, nameTok.name, bindings, span);
+    }
+
+    const here = current(cursor);
+    const span = (here === undefined || here === null) ? makeSpan(0, 0, 1, 1) : here.span;
+    recordError(ctx, "E-EXPR-MATCH-PATTERN", "expected a match arm pattern", span);
+    return null;
+}
+
+// --- parseMatchBindingsOpt — the optional `( binding-list )` of a
+// variant-pattern (§18.7) ---
+// Returns the binding array, or `null` when the variant carries no `(...)`.
+// Each binding is positional (`w`) or named (`width: w`). Mixed forms are a
+// later-stage error (E-TYPE-021); the parser records both shapes faithfully.
+export function parseMatchBindingsOpt(ctx) {
+    const cursor = ctx.cursor;
+    if (currentKind(cursor) !== TokenKind.LParen) {
+        return null;
+    }
+    advance(cursor);   // consume `(`
+    const bindings = [];
+
+    while (atEnd(cursor) === false && currentKind(cursor) !== TokenKind.RParen) {
+        if (currentKind(cursor) !== TokenKind.Ident) {
+            const here = current(cursor);
+            const span = (here === undefined || here === null) ? makeSpan(0, 0, 1, 1) : here.span;
+            recordError(ctx, "E-EXPR-MATCH-BINDING", "expected a binding name", span);
+            break;
+        }
+        const firstTok = advance(cursor);   // consume the first Ident
+
+        // Named form — `fieldName : local`.
+        if (currentKind(cursor) === TokenKind.Colon) {
+            advance(cursor);   // consume `:`
+            if (currentKind(cursor) !== TokenKind.Ident) {
+                recordError(ctx, "E-EXPR-MATCH-BINDING",
+                    "expected a local name after the field name", firstTok.span);
+                break;
+            }
+            const localTok = advance(cursor);
+            bindings.push(makeMatchBinding(firstTok.name, localTok.name));
+        } else {
+            // Positional form — the Ident is the bound local.
+            bindings.push(makeMatchBinding(null, firstTok.name));
+        }
+
+        if (currentKind(cursor) === TokenKind.Comma) {
+            advance(cursor);   // consume the separator `,`
+        } else {
+            break;
+        }
+    }
+
+    // Consume the closing `)`.
+    if (currentKind(cursor) === TokenKind.RParen) {
+        advance(cursor);
+    } else {
+        recordError(ctx, "E-EXPR-MATCH-BINDING",
+            "expected ')' to close a match arm payload binding list", makeSpan(0, 0, 1, 1));
+    }
+    return bindings;
 }
 
 // --- parseParenExpression — ( expr ) ---
