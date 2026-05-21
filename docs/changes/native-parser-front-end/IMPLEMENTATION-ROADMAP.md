@@ -238,16 +238,54 @@ does NOT create or edit the markup-layer files.
 
 ---
 
+### §3.3 MK3 — `BodyMode` + `DisplayTextLiteral` (§4.18 quoted-text) (DECOMPOSED S113 — DISPATCH-READY)
+
+**Decomposed S113** (PA, from charter dive Q1.D `BodyMode` sketch + Q1.E
+`DisplayTextLiteral` sketch + Q3 §4.18 mapping + Q4.B; SPEC §4.18). MK3's turn in the
+markup chain — MK1 + MK2 ✅ complete; M2 (the JS expression parser MK3.3's interpolation
+delegates to) ✅ complete.
+
+**Goal (charter Q4.A MK3 gating):** every SPEC §4.18 worked example parses correctly;
+`E-UNQUOTED-DISPLAY-TEXT` fires per §4.18.7; a display-text literal with interpolation
+produces ONE AST node per §4.18.4. This is the milestone that implements §4.18 natively
+— the paused quoted-text BS-retrofit becomes unnecessary.
+
+**Scope boundary:** MK3 is §4.18 — the code-default body MODE + the `"..."` display-text
+literal. It is NOT the markup↔JS seam (MK4). MK3.3's `${...}` interpolation delegates to
+M2's JS expression parser via the established delegation pattern; the full seam contract
+(cross-seam errors, re-tokenizer-scaffolding deletion) is MK4.
+
+**Inputs:** charter dive Q1.D (`BodyMode` — 2-variant; `.CodeDefault` is a composite
+state-child carrying `DisplayTextLiteral`) + Q1.E (`DisplayTextLiteral` — 3-variant:
+Outside / InLiteralText / InInterpolation) + Q3.A (the §4.18-sub→construct mapping) +
+Q3.B (worked-example trace). SPEC §4.18 (§4.18.1-§4.18.9 — the normative definition;
+read IN FULL via SPEC-INDEX). R1 seam punch-list P6 (reuse the M1 template-literal
+engine shape) + P7 (thread `bodyMode` into delegation frames). MK2's `tag-frame` (the
+`bodyMode` payload field, currently null) + `parse-markup` + `block-context` are the
+substrate. M1's template-literal engine (`lex-mode.scrml`'s `InTemplateBody`
+nested-engine) is the shape MK3.3 reuses.
+
+**File ownership (new files under `compiler/native-parser/`):** `body-mode.scrml`/.js +
+`display-text-literal.scrml`/.js. MK3 EXTENDS `parse-markup` + `tag-frame` (populates the
+`bodyMode` payload) + `block-context` (**K1** — the `.InMarkupTag` forward-ref to
+`<engine for=BodyMode>` RESOLVES when MK3.1 lands `BodyMode`). MK3 does NOT touch the
+JS-layer files (M*).
+
+| Sub-step | Scope | Est. | Depends |
+|---|---|---|---|
+| **MK3.1** | **`BodyMode` engine + `DisplayTextLiteral` engine skeleton + body-mode establishment + P7.** `body-mode.scrml`/.js — `type BodyMode:enum = {FreeText, CodeDefault}` + `<engine for=BodyMode initial=.FreeText>` (`.CodeDefault` is a composite state-child per Q1.D). `display-text-literal.scrml`/.js — `type DisplayTextLiteral:enum = {Outside, InLiteralText, InInterpolation}` + the `<engine>` decl SKELETON (the literal-scanning logic is MK3.2). Body-mode ESTABLISHMENT — a body is `.CodeDefault` iff its opening tag is an `<engine>`/`<match>` state-child or a `:`-shorthand body (consult MK2's `TagKind`/`TagClass`); plain-markup bodies stay `.FreeText` (§4.18.1). Populate `tag-frame`'s `bodyMode` payload (currently null). Punch-list **P7** — thread `bodyMode` into every markup→JS `DelegationFrame`. Declare the `DisplayTextLiteral` AST node kind (distinct from `TextNode` per §4.18.8). **Resolves roadmap §4.4 K1.** | 6-13h | MK2 ✅ |
+| **MK3.2** | **`DisplayTextLiteral` literal scanning (non-interpolation).** `display-text-literal`'s `Outside`/`InLiteralText` logic: `"` opens (→`.InLiteralText`) / closes (→`.Outside`); `\"`/`\\`/`\${` escapes consumed within `InLiteralText`; whitespace accumulated VERBATIM into the text segment (§4.18.5); `'` and `` ` `` are ordinary characters — no transition (§4.18.3). Emit the `DisplayTextLiteral` AST node with its text segment(s). Unterminated literal → `E-CTX-001` against the opening `"` (SPEC §4.18 recovery, lines ~1159/1237 — verify in-spec before encoding). | 6-13h | MK3.1 |
+| **MK3.3** | **`${...}` interpolation + `E-UNQUOTED-DISPLAY-TEXT` + §4.18 conformance close.** `DisplayTextLiteral.InInterpolation` — a composite state-child; `${` opens an interpolation that delegates to M2's JS expression parser (punch-list **P6** — reuse the M1 template-literal engine shape; the matching `}` returns to `.InLiteralText`). A literal with interpolations produces ONE `DisplayTextLiteral` node (`{segments, exprs}` — the §4.18.4 / D3 `Template`-node shape). **`E-UNQUOTED-DISPLAY-TEXT`** (§4.18.7) — fires as a parse OUTCOME: in a `.CodeDefault` body, a bare run that is neither valid code nor a `"..."` literal fails the parse → emit `E-UNQUOTED-DISPLAY-TEXT` + the "did you mean `\"...\"`" suggestion. Conformance: every SPEC §4.18 worked example parses; a regression test for `E-UNQUOTED-DISPLAY-TEXT`. | 6-12h | MK3.2 |
+
+---
+
 - **M3 — JS statement parser** — ✅ DECOMPOSED S113 into M3.1 / M3.2 / M3.3 / M3.4; see §3.2 above.
 - **M4 — full bounded JS subset.** All D5 MUST PARSE + MUST ADD; `preprocessForAcorn`
   regex cascades NOT NEEDED. Gating: Tier 1+2 full corpus; Tier 3 spans PASS-with-deltas.
 - **MK2 — `TagFrame` engine** — ✅ DECOMPOSED S113 into MK2.1 / MK2.2 / MK2.3; see §3.1
   above. (Blocked-precondition OQ-2/R3 §4.18.1/§40.8 program-body mode was RESOLVED S111
   `78faa65` — `default-logic` is a distinct THIRD body-mode; MK2 honors all three modes.)
-- **MK3 — `BodyMode` + `DisplayTextLiteral`.** §4.18 native quoted-text. Punch-list P6
-  (reuse M1's template-literal engine shape), P7 (thread `bodyMode` into delegation
-  frames). Gating: every §4.18 worked example parses; `E-UNQUOTED-DISPLAY-TEXT` fires
-  per §4.18.7. **Needs M2** (interpolation bodies delegate to the JS expression parser).
+- **MK3 — `BodyMode` + `DisplayTextLiteral`** — ✅ DECOMPOSED S113 into MK3.1 / MK3.2 / MK3.3; see §3.3 above.
 - **MK4 — markup↔JS seam.** Lift R1 spike §3 as the contract; punch-list P8/P9/P10/P11
   (incl. the deep-nesting smoke test). Re-tokenizer scaffolding deleted. Needs M3/M4.
 - **M5 — pipeline swap behind `--parser=scrml-native`** + canary soak.
@@ -321,6 +359,9 @@ within one quarter.
 | **M3.2** control-flow statements | ✅ landed S113 | scrml-js-codegen-engineer (worktree) | S113 | if/else (+else-if, dangling-else) + while + do-while + for (C-style/in/of + for-await-of) + return/break/continue (no-LineTerminator restricted production) + labels; `forHeadKind` for-head disambiguator (parse-expr NOT touched — noIn-flag threading is M4); +126 tests; full suite 17,284/0. |
 | M3.3 functions/classes + in-line bodies (subsumes BPP) + import/export + try/throw | ⬜ pending | — | — | §3.2 — depends M3.1 |
 | M3.4 error-recovery integration + conformance | ⬜ pending | — | — | §3.2 — depends M3.2+M3.3 |
-| M4 / MK3 / MK4 / M5 / M6 | ⬜ pending | — | — | decompose when scheduled (§3) |
+| **MK3.1** BodyMode + DisplayTextLiteral skeleton + body-mode establishment + P7 | ⬜ pending | — | — | §3.3 — DISPATCH-READY (resolves K1) |
+| MK3.2 DisplayTextLiteral literal scanning (non-interpolation) | ⬜ pending | — | — | §3.3 — depends MK3.1 |
+| MK3.3 ${...} interpolation + E-UNQUOTED-DISPLAY-TEXT + §4.18 conformance | ⬜ pending | — | — | §3.3 — depends MK3.2 |
+| M4 / MK4 / M5 / M6 | ⬜ pending | — | — | decompose when scheduled (§3) |
 
 **Legend:** ⬜ pending · ⏳ in flight · ✅ complete · 🟥 blocked
