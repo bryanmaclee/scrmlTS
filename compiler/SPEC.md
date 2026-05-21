@@ -712,6 +712,7 @@ The following `<program>` attributes are valid in nested positions:
 | `route=`  | YES | Declares the nested program as a server endpoint at the given route |
 | `protect=` | YES | Declares protected field names for data isolation |
 | `callchar=` | YES | Maps a single character to this nested program for call-char sigils (§23.3) |
+| `story=`  | YES (nested only) | References a build story by name from the `scrml.toml` `[story]` table — compiles this nested `<program>` under that build story (§58). On the top-level `<program>` it emits `W-STORY-ON-TOP-LEVEL` and is ignored. |
 
 The top-level `<program>` MUST NOT have a `name=` attribute (it is the implicit root).
 Nested `<program>` elements SHOULD have a `name=` attribute for reference and diagnostics;
@@ -868,6 +869,8 @@ mechanism depends on the execution context type:
 | E-PROGRAM-001 | Circular `<program>` nesting (a `<program>` is a descendant of itself) | Error |
 | W-PROGRAM-001 | Nested `<program>` has no `name=` attribute | Warning |
 | W-PROGRAM-TITLE-NESTED | Documentary attribute (`title=`, `description=`, `version=`, `author=`, `license=`) appears on a nested `<program>` (see §40.7) | Warning |
+| E-STORY-UNKNOWN | `story="<name>"` references a build story not declared in the `scrml.toml` `[story]` table (see §58) | Error |
+| W-STORY-ON-TOP-LEVEL | `story=` appears on the top-level `<program>`; ignored — the top-level build story is owned by `[story] default` (see §58) | Warning |
 
 ### 4.13 Rule: `angleDepth` Tracking in Expression Attribute Value Scanning (PA-005)
 
@@ -13853,6 +13856,8 @@ host-import = "disabled"          # default for user project manifests
 - The `"self-host-only"` value is the canonical bootstrap setting. Future SPEC extensions may add `"trusted-allowlist"` or per-package permissions; v1 ratifies only `"disabled"` and `"self-host-only"`.
 - Any other manifest value SHALL be a compile error (`E-MANIFEST-001` — invalid `host-import` value; only `"disabled"` and `"self-host-only"` are recognized in v1). Note: `E-MANIFEST-001` is the manifest-validation code; not registered here — manifest validation is owned by the project-config subsystem and surfaces its own error catalog.
 
+**See also.** `scrml.toml` also carries the `[story]` table (§58.4) — the project's build-story declarations. The `[story]` table is a sibling of `[capabilities]`; like `[capabilities]`, it is read at compile-time before any parse begins. See §58 (Build Story).
+
 ---
 
 ## 23. Foreign Code Contexts (`_{}`)
@@ -15126,6 +15131,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-FOREIGN-004 | §23.2 | `_{}` block appears in an invalid context (not a direct child of `<program>`) | Error |
 | E-PROGRAM-001 | §4.12 | Circular `<program>` nesting detected | Error |
 | W-PROGRAM-TITLE-NESTED | §40.7 | A documentary attribute (`title=`, `description=`, `version=`, `author=`, `license=`) appears on a nested `<program>`. Documentary attributes are meaningful only at the top level (HTML `<head>` semantics); workers have no DOM `<head>`. Move the attribute to the top-level `<program>` or remove it. (Phase A1a) | Warning |
+| E-STORY-UNKNOWN | §58.9 | A `story="<name>"` attribute on a nested `<program>` references a `<name>` with no corresponding `[story.<name>]` entry in the project manifest (`scrml.toml`). Declare the build story in the manifest's `[story]` table, or correct the name. (S118 — Build Story, §58) | Error |
+| W-STORY-ON-TOP-LEVEL | §58.8 | A `story=` attribute appears on the top-level `<program>` (§40.8). The attribute is ignored — the top-level build story is owned exclusively by `[story] default` in `scrml.toml`. Remove the attribute, or set the project default in the manifest. (S118 — Build Story, §58) | Warning |
 | E-SQL-004 | §8.1.1 | `?{}` block has no `db=` declaration in any ancestor `<program>` | Error |
 | E-SQL-005 | §8.1.1 | Unrecognized database connection string prefix in `db=` attribute | Error |
 | E-WASM-001 | §23.3 | Call char not in default registry and no `callchar=` declaration | Error |
@@ -18394,6 +18401,7 @@ No `<page>` sibling is present; the application has a single route inferred from
 - §39.12.0 — db-anchor `<program db=>` workaround for schema/seeds files (v0.3 only; v0.4 promotes `<schema db=>` direct).
 - §43 — nested `<program>` (worker / sidecar execution-context boundary; distinct from the one-program-per-application rule which governs TOP-LEVEL `<program>`).
 - §47.9.2 — output path / route URL inference from source filesystem layout.
+- §58 — Build Story. The top-level `<program>`'s build story is owned by `[story] default` in `scrml.toml`; `story=` on the top-level `<program>` fires `W-STORY-ON-TOP-LEVEL` (per-`<program>` build stories are nested-only — §58.8).
 - §34 — `E-PAGE-ROUTE-ATTR-FORBIDDEN`, `E-PAGE-INVALID-ATTR`, `E-CHANNEL-OUTSIDE-PROGRAM`, `E-CHANNEL-INSIDE-PAGE`, `W-PROGRAM-REDUNDANT-LOGIC`, `W-PROGRAM-SPA-INFERRED`.
 
 ### 40.8.1 RESOLVED — SPA-vs-multi-page is filesystem-inferred + `W-PROGRAM-SPA-INFERRED` info lint (Option C)
@@ -20468,6 +20476,8 @@ Encoded names do NOT apply to:
 **Cross-reference — closure-analysis determinism (§40.9.8).** Added 2026-05-12 (v0.3 Approach A spec-amendment). The §40.9 closure-analysis pass (PIPELINE.md Stage 7.6 Reachability Solver) produces per-entry-point chunk assignments that the codegen pass at §Stage 8 consumes alongside the encoded-name surface defined here. The closure-analysis output is **deterministic-from-source-only**: all inputs to `playable_surface(E, N)` are static (source files + spec semantics + the app-scope role enum). The §47 content-addressing surface incorporates the closure-analysis output without modification — same source produces same closure produces same per-tier chunk assignments produces same content addresses per chunk. No additional axis (telemetry version, environment variable, build timestamp) participates in chunk content addresses in v0.3. The Approach B telemetry-PGO surface (dive H §"Approach B"; Insight 29 M2 deferral) is OUT OF SCOPE for v0.3 and queued to v2; when B is reconsidered, the spec extension MUST preserve §47 content-addressing by treating the telemetry artifact as a versioned, addressable input. v0.3's deterministic-from-source-only behaviour is the FLOOR that B extends — B does not replace A.
 
 **Cross-reference — `chunks.json` `compiler` identity field (Q-OPEN-4, S92).** Added 2026-05-14. The per-route artifact splitter (§40.9.7; PIPELINE.md Stage 8 sub-emit) writes a `chunks.json` manifest alongside the per-(entry-point, role, tier) chunk JS files. The manifest carries a top-level `compiler` field whose value SHALL be the string `"scrml-" + V`, where `V` is the literal value of the `version` field in the scrmlTS `package.json` at compile time (e.g. `"scrml-0.3.0-alpha.0"`). The field is **informational only** — adopter tooling (debug inspectors, future Approach B telemetry-PGO surfaces, deployment provenance pipelines) MAY read it to identify which scrmlTS version produced the manifest. The compiler version SHALL NOT be a content-addressing hash input (§40.9.8 normative — all content-address inputs are deterministic-from-source-only); two chunks produced by different scrmlTS versions but with identical post-canonicalization payload bytes SHALL produce identical FNV-1a hashes. If `package.json` cannot be read, cannot be parsed, or has no string `version` field, codegen SHALL emit the sentinel `"scrml-unknown"` rather than failing the build — the field is informational and its absence MUST NOT block artifact emission. Adopter tooling SHOULD treat `"scrml-unknown"` as a "version not determinable from this build" signal.
+
+**S118 amendment — per-`<program>` build stories (§58).** Under per-`<program>` build stories, the `compiler` field is recorded **per chunk-set**, not as a single app-wide value: a worker or sidecar chunk set compiled under a non-default build story (a nested `<program story=>` per §58.8) carries the identity of *that* build story rather than the project default. The field remains **informational** and remains **NOT a content-addressing hash input** — §58.7 normatively keeps compiler identity in the build-story layer, not the §47 payload-hash layer. See §58.7 ("Relationship to §47 content-addressing").
 
 ---
 
@@ -28804,6 +28814,241 @@ This forward-compatibility guarantee is intentional and is part of why OQ-2 (b) 
 - §42.5 — codegen `not` → JS `null` (the runtime ABI; §57 is wire-only).
 - §42.8 — runtime representation (JS `null`; §57.6 forward-compat with a hypothetical sentinel migration).
 - §42.9 — JS interop boundary (foreign `null` / `undefined` normalised to scrml `not` at assignment; §57 is the wire-side analogue).
+
+---
+
+## 58. Build Story
+
+**Added:** S118, 2026-05-21. **Source:** deep-dives `compiler-story-living-compiler-2026-05-21.md` (the build-story artifact + four-component composite) and `per-program-build-identifier-2026-05-21.md` (the per-`<program>` tier); debate `debate-build-story-artifact-2026-05-21.md` (Approach A vs B); `~/.claude/design-insights.md` build-story entry. **Authority:** Approach B (content-addressed Merkle closure) ratified by PA/user decision S117 (2026-05-21).
+
+> **Nominal section.** This section describes scrml's build-story model **as designed**. It is **spec-ahead-of-implementation** — Wave 1 of the build-story arc. No build-story implementation exists in the compiler as of S118; this section is the normative target a later implementation wave wires. Clauses marked `*` describe a guarantee that is **specified but not yet proven for the scrml toolchain** — §58.12 enumerates each `*` gap factually. The concrete byte-level file format of the build story and its `build-story.lock` sidecar is a deliberate follow-on, NOT this section (§58.5 specifies the sidecar's role and required properties; not its serialization).
+
+### 58.1 Overview — compilation as a pure function
+
+scrml treats compilation as a **pure function of two inputs**:
+
+```
+compile(source, buildStory) → artifact
+```
+
+The first input is the `.scrml` source. The second is the **build story** — an explicit, committed, content-addressed record of *what "the compiler" is* for this build. Given the same `(source, buildStory)` pair, any party SHALL be able to reconstruct the exact compiler and produce a **bit-identical artifact**.\*
+
+The build story is what dissolves the apparent paradox of a compiler that is *customizable to a project* yet *universally reproducible*: because every part of the compiler — including the compiler itself — is identified by the hash of its content, a customized compiler is just a *different pinned build story*, and "pinned" is exactly what makes it portable.
+
+This is **deliberately not a live or hot-swappable compiler.** The build story is **static** — read once, before any parse begins (mirroring the §22.13 manifest-read-before-parse rule) — and never mutated mid-compile. Only *authorship* of the compiler is customizable; never the running compile. The image-based / hot-swappable-capture model is rejected (the Smalltalk image-problem: opacity, source-truth tension, non-portable image formats).
+
+**Normative statements:**
+
+- The compiler SHALL treat the build story as an explicit, immutable second input to compilation. No build axis outside `(source, buildStory)` — wall-clock time, environment variables, build-host identity, telemetry — SHALL participate in artifact content.
+- The build story SHALL be read once, before any parse begins, and SHALL NOT be mutated during a compile.
+- There is no live, hot-swappable, or mid-compile-mutable compiler surface. Any future proposal for one is out of scope of this section and contradicts it.
+
+### 58.2 The four-component composite
+
+"The compiler" that a build story pins is a governed composite of **four components**, ordered here by blast radius (lowest → highest):
+
+| # | Component | What it is | Adoption-process risk class |
+|---|-----------|-----------|------------------------------|
+| 1 | Standard library | The `scrml:NAME` shim modules (§47.11) — capability surface, no codegen-semantics change | LOWEST |
+| 2 | Language tools | LSP, `bun scrml promote` (§56), `bun scrml migrate`, regen scripts — change developer *experience*, not artifact bytes | MEDIUM |
+| 3 | Compiler source | `compiler/src/` and the native parser — codegen authority; a change here changes artifact bytes | HIGH |
+| 4 | Vendored edge code | `vendor/` units (§41.6) and `import:host` host-bridge files (§21.3.1) — outside code; admission is a supply-chain *trust* decision | STRICTEST |
+
+Component 4 is the strictest **not** because it is the largest but because admitting outside code is a *trust* decision, not a quality one — it is the `event-stream` / `xz-utils` / supply-chain-injection attack class. Admission is by content-hash (the hash IS the admission token), copy-source-in only (§41.6 — the toolchain SHALL NOT download anything automatically), and `host-import` capability-gating (§22.13).
+
+Approach C (§22.12) is what makes this composite a **finite, auditable surface** rather than an open plugin space: because compile-time code execution is bounded, the four components enumerate the entire compiler — and a finite surface is a closable one.
+
+### 58.3 The build-story artifact — a content-addressed Merkle closure
+
+The build-story artifact is a **content-addressed Merkle closure** over the four components and their transitive inputs (Approach B). It is a *proof object*, not merely a record: possessing the closure root and a content-addressed store, any party reconstructs the exact four-component compiler.
+
+**Normative statements:**
+
+- A build story SHALL be a Merkle DAG whose leaves are the content hashes of the four components (and the components' own transitive inputs) and whose root is a single content hash — the **build-story root**.
+- Each non-leaf node SHALL record its dependency edges *by the content hash of the dependency*. A language-tool node SHALL list, by hash, the compiler-source node it was built against; a vendored-unit node SHALL list its own transitive inputs by hash. Internal consistency of the four components is therefore **structural** — it is encoded in the closure, not asserted alongside it.
+- The build-story root SHALL be sufficient, together with a content-addressed store holding the closure's nodes, to reconstruct every component bit-for-bit.
+- Names appearing anywhere in or beside a build story SHALL be **metadata pointers only** — a human-facing UI over the closure. A name SHALL NOT participate in build-story identity or in any trust decision; the content hash is identity.
+- The build story SHALL pin the **compiler** (component 3). This is the load-bearing property that makes `compile(source, buildStory)` a function rather than a family of functions — see §58.7.
+
+### 58.4 The `[story]` manifest table
+
+A project declares its build stories in a `[story]` table in the project manifest (`scrml.toml`). The table is a sibling of the `[capabilities]` table (§22.13).
+
+```toml
+# scrml.toml
+
+[story]
+default = "sha256:c0ffee42deadbeef0011223344556677889900aabbccddeeff00112233445566"
+
+[story.legacy-ml]
+root    = "sha256:9z8y7x6w5v4u3t2s..."   # a pinned older compiler closure
+```
+
+**Normative statements:**
+
+- The `[story]` table's `default` key SHALL hold the build-story root for the project's **default build story** — the build story under which the top-level `<program>` (§40.8) and any nested `<program>` that does not override it are compiled.
+- Each `[story.<name>]` sub-table SHALL declare one named build story, with a `root` key holding its build-story root. The `<name>` is the metadata pointer a `story=` attribute (§58.8) resolves against.
+- The `[story]` table SHALL be read at compile-time before any parse begins, alongside the `[capabilities]` table (§22.13 read-before-parse rule).
+- If the manifest is absent, or the `[story]` table is absent, the project has no pinned build story; the compiler compiles under its own ambient identity. A build with no `[story]` table is permitted (build stories are opt-in for v0.x adopters) but is **not reproducible-by-construction** — a project that requires reproducibility SHALL declare `[story] default`.
+- A malformed `[story]` table entry (a missing `root` key, a `root` value that is not a well-formed build-story root per §58.6) is a **manifest-validation** error, owned by the project-config subsystem and surfaced through its own catalog — it is not a §34 source-position code (mirroring the §22.13 `E-MANIFEST-001` precedent).
+
+### 58.5 The `build-story.lock` sidecar — mandatory, human-inspectable
+
+A Merkle root alone is opaque. To prevent the build story from becoming an un-auditable black box (the Smalltalk image-problem), every build story SHALL carry an **expanded, human-inspectable sidecar** — `build-story.lock`.
+
+**Normative statements:**
+
+- A `build-story.lock` sidecar SHALL be generated for, and committed alongside, every build story a project pins. The sidecar is **mandatory**, not optional.
+- The sidecar SHALL be the human-readable expansion of the closure: every node listed by content hash, kind, and dependency edges, with the name→hash pointer map.
+- The sidecar SHALL be a *generated, verifiable* artifact — it SHALL be re-derivable from the build-story root and the content-addressed store, and a sidecar that does not re-derive to its stated root SHALL be rejected.
+- The sidecar's concrete serialization format is a follow-on specification (see the §58 Nominal banner). This section fixes only its **role** (human inspection + verifiability) and its **mandatory existence**.
+
+### 58.6 Closure encoding — canonical, bit-stable, collision-resistant
+
+The build-story root is a trust artifact: it is the verification-layer answer to "given this artifact, can you prove it came from the compiler you audited?" Its encoding SHALL therefore be **canonical** (one closure → exactly one root, bit-for-bit) and **collision-resistant** at cryptographic strength.
+
+**Normative statements:**
+
+- The build-story closure SHALL have a **normatively-specified canonical encoding** — node ordering, edge ordering, field ordering, and byte representation SHALL be fully determined by the closure's content, so that one closure produces exactly one root on every conforming implementation.
+- The build-story root SHALL be computed with a **cryptographic-strength content hash**. v1 specifies **SHA-256**; the root is written `"sha256:" + <64 lowercase hex digits>`. The algorithm tag (`sha256:`) is part of the canonical encoding, so a future revision MAY introduce an additional algorithm without ambiguity.
+- The build-story hash is **deliberately NOT the §47 FNV-1a 32-bit scheme.** §47 hashes output-name payloads, where 32 bits plus the `E-CG-010` collision-halt is adequate *because a collision is a local, detectable, build-halting defect*. The build story is a **supply-chain trust artifact** where an undetected collision is an attack primitive (a malicious closure forged to a benign root); cryptographic collision resistance is load-bearing. The two hash schemes serve different purposes and are intentionally distinct.
+- The whole-compiler determinism this encoding's reproducibility claim rests on is **not yet proven for the scrml toolchain** — see §58.12.\*
+
+### 58.7 Relationship to §47 content-addressing — closing the compiler-in-the-hash gap
+
+§47.5 normatively states that the **compiler version SHALL NOT be a content-addressing hash input** — two chunks produced by different compiler versions but with byte-identical post-canonicalization payloads produce identical FNV-1a hashes, so a payload-identical chunk deduplicates across compiler versions. This is correct and is **not changed** by this section.
+
+The build story operates in a **different layer**. §47 hashes *payloads* and stays compiler-agnostic *by design*. The build story hashes *the compiler that produced those payloads*. The two are **complementary, not contradictory**:
+
+- §47 answers: "are these two chunks the same bytes?" — and intentionally does not care which compiler emitted them.
+- §58 answers: "which compiler — exactly, reconstructably — produced this build?" — which §47 deliberately does not encode.
+
+**Normative statements:**
+
+- The build story SHALL be the sole locus at which compiler identity is pinned. §47 payload hashing SHALL remain compiler-agnostic.
+- The `chunks.json` `compiler` field (§47.5 cross-reference) remains informational. Under per-`<program>` build stories (§58.8), the field SHALL record the identity of *the build story that produced that specific chunk set* rather than a single app-wide value — a worker or sidecar chunk compiled under a non-default build story carries that build story's identity. This is an informational refinement of the §47.5 field; it does NOT make compiler identity a payload-hash input.
+
+### 58.8 Per-`<program>` build stories — the `story=` attribute
+
+A nested `<program>` (§43) is a **separate compilation unit** — §4.12.1 normatively requires the compiler to compile nested `<program>` elements independently, with total shared-nothing isolation (§43.3) and an RPC/message-passing-only communication surface (§43.5). A nested `<program>` is therefore a sound granularity at which to attach a build story: each nested `<program>` is already its own `compile()` invocation.
+
+A nested `<program>` MAY declare a `story=` attribute to compile under a non-default build story.
+
+```scrml
+# scrml.toml
+# [story]
+# default      = "sha256:c0ffee42..."
+# [story.legacy-ml]
+# root         = "sha256:9z8y7x6w..."
+
+<program title="Logistics Dashboard" db="./app.db">
+
+  <count> = 0
+  <button onclick=${@count = @count + 1}>+1</button>
+  <span>${@count}</span>
+
+  # A worker pinned to an older build story — its codegen stays
+  # reproducible under a closure the rest of the app has moved past.
+  <program name="riskModel" story="legacy-ml">
+    ${ export function score(features: number[]) -> number {
+        let acc = 0
+        for (let i = 0; i < features.length; i++) { acc = acc + features[i] }
+        return acc
+    } }
+  </>
+
+</>
+```
+
+**Normative statements:**
+
+- `story=` is a **nested-`<program>`-only** attribute. Its value SHALL be a name resolved against the project manifest's `[story]` table (§58.4) — `story="legacy-ml"` resolves to `[story.legacy-ml].root`.
+- `story=` SHALL be a *reference into the manifest*, never an inline build-story root. Build-story roots SHALL NOT appear inline in `.scrml` source — the set of build stories a project uses SHALL be enumerable in one place (`scrml.toml`).
+- `story=` SHALL be read at unit-extraction time — when the compiler extracts the nested `<program>` as an independent compilation unit (§4.12.8 normative: extraction precedes any analysis pass), before that unit's parse begins.
+- `story=` on the **top-level** `<program>` (§40.8) SHALL emit `W-STORY-ON-TOP-LEVEL` and SHALL be ignored — the top-level build story is owned exclusively by `[story] default` in the manifest, so that the application's default build story has exactly one source of truth.
+- `story=` is not a `<page>` attribute. A `<page>` (§40.8) is not a separate compilation unit — it shares the application `<program>` scope — so a per-`<program>` build story does not extend to it. `story=` on a `<page>` falls under the existing `E-PAGE-INVALID-ATTR`.
+
+### 58.9 Build-story resolution and inheritance
+
+A build story is a compile-axis attribute in the same family as `db=` and `lang=` (§4.12.2): it governs *how a subtree is compiled*. Like `db=`, it **inherits down and may be overridden**.
+
+**Normative statements:**
+
+- The **effective build story** of the top-level `<program>` SHALL be `[story] default` from the manifest (or, if no `[story]` table is declared, the compiler's own ambient identity — §58.4).
+- A nested `<program>` with no `story=` attribute SHALL inherit the **effective build story of its nearest enclosing `<program>`**.
+- A nested `<program>` with a `story=` attribute SHALL be compiled under the referenced build story; that build story becomes the effective build story for the subtree, inherited in turn by its own descendants until the next override.
+- `story="<name>"` where `<name>` has no corresponding `[story.<name>]` entry in the manifest SHALL be `E-STORY-UNKNOWN`.
+
+### 58.10 Dialect islands — Tier-2 customization
+
+Customization of the compiler is tiered by blast radius:
+
+- **Tier 0 — diagnostic / ergonomic.** Diagnostic text, LSP hints, editor keyword aliases. Does not touch codegen — changes *experience*, not artifact bytes. Free and composable.
+- **Tier 1 — stdlib capability additions.** A new `scrml:NAME` shim (§47.11) adds surface without changing the semantics of existing code. Low-risk.
+- **Tier 2 — codegen customization (a "dialect island").** Changing how scrml *emits* code changes artifact bytes. A Tier-2 customization SHALL be expressed as a nested `<program>` subtree carrying a `story=` attribute that references a build story with a *different compiler-source hash*.
+
+**Normative statements:**
+
+- A dialect island SHALL be a nested `<program>` compilation-unit boundary — never a finer-grained (block-level, mid-file) one. The `<program>` boundary is recognized structurally before per-unit compilation begins (§4.1, §4.12.8), so an inner build story may differ in *early-phase* grammar without any phasing inversion: the *outer* grammar rule that finds the boundary is build-story-invariant; only the *inner* compilation varies.
+- A dialect island SHALL NOT leak: §43 shared-nothing isolation guarantees a dialect's codegen choices cannot affect sibling or parent `<program>` units — they are separate `compile()` invocations.
+- An artifact built under a dialect island SHALL remain reproducible: any party with the project's `scrml.toml` and the referenced build stories rebuilds every `<program>`, dialect islands included, bit-for-bit.\* A dialect island produces a *different* artifact than the default compiler would — an *equally reproducible* one.
+
+### 58.11 Cross-`<program>` ABI invariance
+
+Two `<program>` units compiled under different build stories communicate only across the §43 RPC / message-passing boundary. For that boundary to remain sound, its wire contract SHALL NOT vary by build story.
+
+**Normative statements:**
+
+- The cross-`<program>` communication ABI SHALL be **build-story-invariant** — it is part of scrml's stable language ABI, not a per-build-story codegen choice. The invariant ABI surface comprises at minimum:
+  - the §57 wire format (the `{"__scrml_absent": true}` absence envelope and its encoder/decoder rules);
+  - the §43.5.1 RPC calling convention (cross-program calls return `Promise<T>`);
+  - the §43.5.2 message-passing framing (`<#name>.send` / `when message`);
+  - the §4.12.5 foreign-sidecar marshaling format.
+- Every build story SHALL conform to this invariant ABI surface. A build story whose compiler emits a divergent cross-`<program>` wire contract is non-conforming.
+- This is the same guarantee that already lets a `lang=` foreign-language sidecar (§4.12.5) interoperate with its scrml parent — two build stories of *the same* language are a strictly weaker case than two *different* languages, which scrml already supports at this boundary.
+
+> **Open item — build-story skew checking.** Whether the compiler should additionally *verify*, at a cross-`<program>` call site, that caller and callee build stories agree on the RPC *interface type* — and at what severity (a `W-STORY-SKEW` lint) — is **not specified in v1**. The §58.11 ABI-invariance rule is the structural guarantee that makes skew safe at the wire level; a type-level skew check is a reserved future refinement and does not gate this section.
+
+### 58.12 Determinism — specified vs. not-yet-proven (the `*` gaps)
+
+The bit-identical-artifact claim (§58.1, §58.6, §58.10, each marked `*`) is only as strong as scrml's whole-compiler determinism. This subsection states factually what is specified versus what the claim still requires. It states the **gap**, not a plan.
+
+**Specified and solid:**
+
+- §47 content-addressing of output names — deterministic, FNV-1a over canonical strings (§47.1.3–§47.1.4).
+- §40.9.8 closure-analysis determinism — "deterministic-from-source-only"; no telemetry, environment variable, or timestamp participates (§47.5 cross-reference).
+
+**`*` — specified as a target, not yet proven for the scrml toolchain:**
+
+1. **Whole-compiler stage determinism.** §40.9.8 specifies determinism for the *closure-analysis* pass only. There is no spec statement, and no audit, establishing that *every* compiler stage (tokenize → parse → type → codegen) is free of nondeterministic iteration order, hash-map ordering, wall-clock, or randomness. The bit-identical claim requires a whole-compiler determinism audit and a normative "every stage SHALL be deterministic" statement. Achievable in principle (the reproducible-builds field demonstrates it); unproven for scrml as of S118.
+2. **Worker / `Atomics` output ordering.** The compiler runs on Bun with workers and `SharedArrayBuffer`/`Atomics` (§2.4). A pass that writes shared output in completion order rather than a canonical order would introduce ordering nondeterminism. Whether a normative "canonical output order" rule is needed, and at which stage, is unaudited.
+
+A build story is a sound *design* for reproducible compilation, and the *output-addressing* half of determinism is specified and solid. The *whole-compile* half is the concrete work a later implementation wave must complete before the `*`-marked guarantees become unqualified. Until then, this section is honest that they are nominal.
+
+### 58.13 Error codes
+
+| Code | Trigger | Severity |
+|------|---------|----------|
+| E-STORY-UNKNOWN | A `story="<name>"` attribute references a `<name>` with no corresponding `[story.<name>]` entry in the project manifest (§58.9). | Error |
+| W-STORY-ON-TOP-LEVEL | A `story=` attribute appears on the top-level `<program>` (§40.8). The attribute is ignored; the top-level build story is owned by `[story] default` in `scrml.toml` (§58.8). | Warning |
+
+Manifest-level faults (a malformed or missing `[story]` table entry) are project-config-subsystem manifest-validation errors, not §34 source-position codes (§58.4, mirroring §22.13).
+
+### 58.14 Cross-references
+
+- §2.2–§2.4 — file format and compilation model (compilation as source → output).
+- §4.12.1–§4.12.2 — nested `<program>` as a separate compilation unit; the `story=` attribute row.
+- §4.12.8 — unit-extraction precedes analysis (the phase at which `story=` is read).
+- §22.12 — Approach C (bounds compile-time code execution; what makes the four-component composite finite).
+- §22.13 — `[capabilities]` manifest table (the read-before-parse precedent; the `[story]` table is its sibling).
+- §40.8 — one-program-per-application; the top-level `<program>`.
+- §41.6 — vendoring (`vendor/` copy-source-in; component 4 admission mechanism).
+- §43 — nested `<program>` shared-nothing isolation + RPC/message-passing boundary.
+- §47.1.3–§47.1.4 — the §47 FNV-1a content-addressing scheme (distinct in purpose from §58.6).
+- §47.5 — content-addressing scope; the `chunks.json` `compiler` field (informational; refined per-`<program>` by §58.7).
+- §47.11 — `scrml:NAME` stdlib shims (component 1).
+- §56 — `bun scrml promote` (a component-2 language tool).
+- §57 — the wire format (a build-story-invariant ABI surface per §58.11).
 
 ---
 
