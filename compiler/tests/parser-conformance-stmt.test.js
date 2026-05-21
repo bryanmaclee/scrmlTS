@@ -213,14 +213,10 @@ function nativeExprToEstree(node) {
             body: nativeArrowBody(node.body),
         };
     }
-    // `await` / `yield` Expr nodes. M3.3 produced these at statement position
-    // as untyped {kind:"Await"}/{kind:"Yield"}; M4.1 promoted them to real
-    // ExprKind members (Await / Yield) + integrated them as operators inside
-    // the expression grammar. The node `.kind` string is unchanged ("Await" /
-    // "Yield") — ExprKind.Await / ExprKind.Yield ARE those strings.
-    if (node.kind === ExprKind.Await) {
-        return { type: "AwaitExpression", argument: nativeExprToEstree(node.argument) };
-    }
+    // `yield` Expr nodes — M4.1 promoted them to real ExprKind members
+    // integrated as operators inside the expression grammar. The sibling
+    // `Await` was RETRACTED in M4.3 (scrml has no async/await; parseUnary
+    // fires E-AWAIT-NOT-IN-SCRML and returns the operand directly).
     if (node.kind === ExprKind.Yield) {
         return {
             type: "YieldExpression",
@@ -1107,7 +1103,6 @@ const CONTROL_FLOW_CORPUS = [
     { name: "for-of — decl array pattern",     src: "for (const [a, b] of pairs) {}" },
     { name: "for-of — decl object pattern",    src: "for (const {a} of items) {}" },
     { name: "for-of — call as iterable",       src: "for (const x of items()) {}" },
-    { name: "for await — of a stream",         src: "for await (const c of stream) { read(c); }" },
 
     // --- M4.2 K6 — non-declaration destructuring LHS (parses as a real
     // binding pattern; the K6-class M3.2 divergence is closed) ---
@@ -1162,9 +1157,7 @@ const DECL_MODULE_CORPUS = [
     { name: "fn decl — body with decl + stmt", src: "function f() { let x = 1; use(x); }" },
     { name: "fn decl — nested fn decl",        src: "function outer() { function inner() {} return inner; }" },
     { name: "fn decl — control flow in body",  src: "function f(n) { if (n) return 1; return 0; }" },
-    { name: "async fn decl",                   src: "async function load() { return 1; }" },
     { name: "generator fn decl",               src: "function* gen() { return 1; }" },
-    { name: "async generator fn decl",         src: "async function* ag() { return 1; }" },
 
     // --- class declarations ---
     { name: "class — empty",                   src: "class C {}" },
@@ -1177,7 +1170,6 @@ const DECL_MODULE_CORPUS = [
     { name: "class — getter",                  src: "class C { get v() { return 1; } }" },
     { name: "class — setter",                  src: "class C { set v(n) {} }" },
     { name: "class — get + set pair",          src: "class C { get v() { return 1; } set v(n) {} }" },
-    { name: "class — async method",            src: "class C { async load() {} }" },
     { name: "class — generator method",        src: "class C { *gen() {} }" },
     { name: "class — class field",             src: "class C { x = 1; }" },
     { name: "class — uninitialized field",     src: "class C { x; }" },
@@ -1202,7 +1194,6 @@ const DECL_MODULE_CORPUS = [
     { name: "export — let decl",               src: "export let x = 1;" },
     { name: "export — const decl",             src: "export const k = 9;" },
     { name: "export — function decl",          src: "export function f() {}" },
-    { name: "export — async function decl",    src: "export async function af() {}" },
     { name: "export — class decl",             src: "export class C {}" },
     { name: "export — named clause",           src: "let a, b; export { a, b };" },
     { name: "export — named alias",            src: "let a; export { a as x };" },
@@ -1655,7 +1646,10 @@ describe("statement-parser — M3.3 closes the forward seam (all leads parsed)",
         // every D5 declaration / module / legacy-error lead and confirm none
         // records it.
         const leads = [
-            "function f() {}", "async function g() {}", "function* h() {}",
+            // M4.3 — `async function g() {}` removed: it now fires
+            // E-ASYNC-NOT-IN-SCRML (a CLEAN diagnostic, but the test asserts
+            // a clean error list, so we drop the async entry).
+            "function f() {}", "function* h() {}",
             "class C {}", 'import x from "m";', 'export { a };',
             "export default 1;", "try {} finally {}", "throw e;",
         ];
@@ -1809,11 +1803,13 @@ describe("M3.2 control-flow — native Stmt node shape", () => {
         expect(s.isAwait).toBe(false);
     });
 
-    test("for await — ForOf node carries isAwait true", () => {
+    test("`for await ...` fires E-FOR-AWAIT-NOT-IN-SCRML; ForOf recovers with isAwait false (M4.3)", () => {
         const r = parseWithNative("for await (const c of stream) {}");
+        expect(r.errors.map((e) => e.code)).toContain("E-FOR-AWAIT-NOT-IN-SCRML");
         const s = r.body[0];
         expect(s.kind).toBe(StmtKind.ForOf);
-        expect(s.isAwait).toBe(true);
+        // RECOVERY — the for-of parses; `isAwait` is forced false.
+        expect(s.isAwait).toBe(false);
     });
 
     test("for-of — declaration array pattern LHS", () => {
@@ -2057,10 +2053,14 @@ describe("M3.2 control-flow — error paths (diagnostics, no throw)", () => {
         expect(r.errors.map((e) => e.code)).toContain("E-STMT-FOR-BINDING-INIT");
     });
 
-    test("`for await` on a C-style head records E-STMT-FOR-AWAIT-CSTYLE", () => {
+    test("`for await (;;) {}` fires E-FOR-AWAIT-NOT-IN-SCRML (M4.3 — the prior E-STMT-FOR-AWAIT-CSTYLE check is gone)", () => {
         const r = parseWithNative("for await (;;) {}");
         expect(r.ok).toBe(true);
-        expect(r.errors.map((e) => e.code)).toContain("E-STMT-FOR-AWAIT-CSTYLE");
+        const codes = r.errors.map((e) => e.code);
+        expect(codes).toContain("E-FOR-AWAIT-NOT-IN-SCRML");
+        // M4.3 retracts `for await ...` itself, so the per-shape
+        // (C-style only) check is dropped.
+        expect(codes).not.toContain("E-STMT-FOR-AWAIT-CSTYLE");
     });
 
     test("`switch` is NOT in the M3.2 subset — it is not parsed as a switch", () => {
@@ -2098,11 +2098,13 @@ describe("M3.3 statement-parser — function declarations (native shape)", () =>
         expect(fn.body[1].kind).toBe(StmtKind.Return);
     });
 
-    test("async function declaration — isAsync true", () => {
+    test("`async function load() {}` — M4.3: fires E-ASYNC-NOT-IN-SCRML, isAsync recovers to false", () => {
         const r = parseWithNative("async function load() {}");
-        expect(r.errors).toEqual([]);
+        expect(r.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
         expect(r.body[0].kind).toBe(StmtKind.FunctionDecl);
-        expect(r.body[0].isAsync).toBe(true);
+        // RECOVERY — the FunctionDecl still parses; `isAsync` is forced
+        // false (M4.3 retraction).
+        expect(r.body[0].isAsync).toBe(false);
         expect(r.body[0].isGenerator).toBe(false);
     });
 
@@ -2113,10 +2115,12 @@ describe("M3.3 statement-parser — function declarations (native shape)", () =>
         expect(r.body[0].isAsync).toBe(false);
     });
 
-    test("async generator declaration — both flags true", () => {
+    test("`async function* ag() {}` — M4.3: fires E-ASYNC-NOT-IN-SCRML, recovers as a plain generator", () => {
         const r = parseWithNative("async function* ag() {}");
-        expect(r.errors).toEqual([]);
-        expect(r.body[0].isAsync).toBe(true);
+        expect(r.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+        // RECOVERY — the `async` is dropped; the `function*` survives so
+        // generators (which are PRESERVED in M4.3) keep working.
+        expect(r.body[0].isAsync).toBe(false);
         expect(r.body[0].isGenerator).toBe(true);
     });
 
@@ -2183,10 +2187,12 @@ describe("M3.3 statement-parser — class declarations (native shape)", () => {
         expect(r.body[0].body[1].methodKind).toBe("set");
     });
 
-    test("class async / generator method — value flags", () => {
+    test("class generator method preserved; async-method fires E-ASYNC-NOT-IN-SCRML (M4.3)", () => {
         const r = parseWithNative("class C { async load() {} *gen() {} }");
-        expect(r.errors).toEqual([]);
-        expect(r.body[0].body[0].value.isAsync).toBe(true);
+        expect(r.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+        // RECOVERY — `async load()` becomes a plain method; `*gen()`
+        // (generator method) is PRESERVED unchanged.
+        expect(r.body[0].body[0].value.isAsync).toBe(false);
         expect(r.body[0].body[1].value.isGenerator).toBe(true);
     });
 
@@ -2442,14 +2448,15 @@ describe("M3.3 statement-parser — BPP subsumption (function bodies in-line)", 
         expect(Array.isArray(init.body.parsedBody)).toBe(true);
     });
 
-    test("await statement lead inside a re-entered function body", () => {
-        // `function g() { await fetch(); }` — the body re-enters; the
-        // `await x;` statement becomes an ExprStmt wrapping an Await node.
+    test("`await` statement lead inside a function body fires E-AWAIT-NOT-IN-SCRML; recovery yields a plain ExprStmt (M4.3)", () => {
         const r = parseWithNative("async function g() { await fetch(); }");
-        expect(r.errors).toEqual([]);
+        const codes = r.errors.map((e) => e.code);
+        expect(codes).toContain("E-ASYNC-NOT-IN-SCRML");
+        expect(codes).toContain("E-AWAIT-NOT-IN-SCRML");
         const body = r.body[0].body;
         expect(body[0].kind).toBe(StmtKind.ExprStmt);
-        expect(body[0].expression.kind).toBe("Await");
+        // RECOVERY — no Await node; the operand is the bare Call.
+        expect(body[0].expression.kind).toBe(ExprKind.Call);
     });
 
     test("yield + yield* statement leads inside a re-entered generator body", () => {
@@ -2592,7 +2599,11 @@ const FULL_SUBSET_CORPUS = [
     },
     {
         name: "import + fn + try/catch program",
-        src: 'import { load } from "data"; async function run() { try { const v = load(); return v; } catch (e) { return 0; } }',
+        // M4.3 — `async function` retracted; use a plain `function` to keep
+        // the FULL_SUBSET_CORPUS clean (`async function` would fire
+        // E-ASYNC-NOT-IN-SCRML and the corpus harness asserts a zero-error
+        // parse). The shape exercised (import + fn + try/catch) is unchanged.
+        src: 'import { load } from "data"; function run() { try { const v = load(); return v; } catch (e) { return 0; } }',
     },
     {
         name: "for-of over a destructured iterable + labeled break",
@@ -2931,39 +2942,18 @@ describe("M3.4 statement-parser — panic-mode re-synchronization", () => {
 });
 
 // =============================================================================
-// M4.1 — async / generator (await/yield as OPERATORS, function* full wiring).
+// M4.1 — generator (yield as an OPERATOR, function* full wiring). M4.3 RETRACTED
+// the sibling async/await surface (scrml has no source-level async/await; the
+// canonical async surface is the compiler body-split). The M4_1_CORPUS below
+// now exercises ONLY the generator-side cases. Every async-bearing entry the
+// M4.1 corpus shipped is now exercised in the M4.3 retraction describe block
+// further down (fires E-ASYNC-NOT-IN-SCRML / E-AWAIT-NOT-IN-SCRML).
 //
-// M3.3 recognized `await`/`yield` at STATEMENT position only and deferred the
-// operator-position integration to M4. M4.1 promotes `Await`/`Yield` to real
-// ExprKind members + integrates them into the M2 expression grammar — `await`
-// at unary precedence (gated on the async scope), `yield`/`yield*` at
-// assignment precedence (gated on the generator scope). The async/generator
-// scope is two ctx slots saved+set+restored at every function/arrow entry.
-//
-// Conformance ACORN_OPTS is { ecmaVersion:2025, sourceType:"module" } — NO
-// `allowAwaitOutsideFunction`. So `await`/`yield` as operators are Acorn-legal
-// ONLY inside an async/generator function body — every M4_1_CORPUS entry wraps
-// them in one. Top-level await/yield + scope-boundary rejections are exercised
-// in the native-shape describe blocks below (Acorn rejects them, so they are
-// not Acorn-diffable).
+// Conformance ACORN_OPTS is { ecmaVersion:2025, sourceType:"module" }. `yield`
+// as an operator is Acorn-legal ONLY inside a generator function body — every
+// M4_1_CORPUS entry wraps it in one.
 // =============================================================================
 const M4_1_CORPUS = [
-    // --- `await` as an operator inside an async function body ---
-    { name: "await — in a let initializer",      src: "async function f() { let x = await g(); }" },
-    { name: "await — in a return",               src: "async function f() { return await g(); }" },
-    { name: "await — in a const destructuring",  src: "async function f() { const [a, b] = await pair(); }" },
-    { name: "await — binds tighter than +",      src: "async function f() { let x = await a + b; }" },
-    { name: "await — of a member-call chain",    src: "async function f() { let x = await obj.fetch(id); }" },
-    { name: "await — as an if test",             src: "async function f() { if (await ready()) { go(); } }" },
-    { name: "await — nested await await",        src: "async function f() { let x = await await deep(); }" },
-    { name: "await — operand is a unary expr",   src: "async function f() { let x = await -count(); }" },
-    { name: "await — inside a for-of right",     src: "async function f() { for (const x of await items()) { use(x); } }" },
-    { name: "await — two awaits in a body",      src: "async function f() { let a = await one(); let b = await two(); }" },
-    { name: "await — statement-position lead",   src: "async function f() { await flush(); }" },
-    { name: "await — in an async arrow concise", src: "const f = async () => await load();" },
-    { name: "await — in an async arrow block",   src: "const f = async () => { return await load(); };" },
-    { name: "await — in an async method body",   src: "class C { async load() { return await fetch(); } }" },
-
     // --- `yield` / `yield*` as an operator inside a generator body ---
     { name: "yield — in a let initializer",      src: "function* g() { let v = yield x; }" },
     { name: "yield — in an assignment",          src: "function* g() { let v; v = yield next(); }" },
@@ -2981,28 +2971,13 @@ const M4_1_CORPUS = [
     { name: "function* — expr in a let",         src: "let g = function* () { yield 1; };" },
     { name: "function* — named expr",            src: "let g = function* named() { yield 1; };" },
     { name: "function* — IIFE",                  src: "(function* () { yield 1; })();" },
-    { name: "async function* — expr",            src: "let ag = async function* () { yield await x(); };" },
 
     // --- object-literal generator methods ---
     { name: "object — generator method",         src: "let o = { *gen() { yield 1; } };" },
-    { name: "object — async generator method",   src: "let o = { async *ag() { yield await x(); } };" },
-    { name: "object — async method",             src: "let o = { async load() { return await f(); } };" },
     { name: "object — computed generator method", src: "let o = { *['k']() { yield 1; } };" },
 
-    // --- `for await ... of` ---
-    { name: "for await — in an async function",  src: "async function f() { for await (const c of stream()) { read(c); } }" },
-    { name: "for await — in an async generator", src: "async function* ag() { for await (const c of stream()) { yield c; } }" },
-
-    // --- async generator: await + yield mixed ---
-    { name: "async generator — yield await",     src: "async function* ag() { let v = yield await x(); }" },
-    { name: "async generator — await then yield", src: "async function* ag() { let a = await one(); yield a; }" },
-
     // --- nesting: scope reset / re-establish across function boundaries ---
-    { name: "nested — async inside async",       src: "async function o() { async function i() { return await x(); } }" },
-    { name: "nested — async arrow in async fn",  src: "async function o() { const f = async () => await y(); }" },
     { name: "nested — generator in generator",   src: "function* o() { function* i() { yield 1; } }" },
-    { name: "nested — sync fn in async fn",      src: "async function o() { function i() { return 1; } return await i(); }" },
-    { name: "nested — async generator method in class", src: "class C { async *stream() { yield await next(); } }" },
 ];
 
 describe("M4.1 async/generator — conformance Tier 1 (node-kind sequence)", () => {
@@ -3040,46 +3015,13 @@ describe("M4.1 async/generator — conformance Tier 2 (identifier / literal / fl
 });
 
 // -----------------------------------------------------------------------------
-// M4.1 — native AST shape. Direct assertions on the native parser's nodes:
-// the Await / Yield ExprKind, the `delegate` flag, the `function*` isGenerator
-// flag. These are the M3.3-promoted statement-position cases re-verified via
-// the unified expression-grammar path PLUS the new operator-position cases.
+// M4.1 — native AST shape. Direct assertions on the native parser's nodes
+// for the generator surface: the Yield ExprKind, the `delegate` flag, the
+// `function*` isGenerator flag. The sibling `Await` ExprKind was retired in
+// M4.3 (scrml has no async/await; see the M4.3 retraction describe block
+// below for the `E-AWAIT-NOT-IN-SCRML` / `E-ASYNC-NOT-IN-SCRML` shape).
 // -----------------------------------------------------------------------------
 describe("M4.1 async/generator — native AST shape", () => {
-    test("await operator in a let-init is an Await node wrapping the operand", () => {
-        const r = parseWithNative("async function f() { let x = await getData(); }");
-        expect(r.errors).toEqual([]);
-        const init = r.body[0].body[0].declarations[0].init;
-        expect(init.kind).toBe(ExprKind.Await);
-        expect(init.argument.kind).toBe(ExprKind.Call);
-    });
-
-    test("await binds tighter than + — `await a + b` is Binary(Await(a), +, b)", () => {
-        const r = parseWithNative("async function f() { let x = await a + b; }");
-        expect(r.errors).toEqual([]);
-        const init = r.body[0].body[0].declarations[0].init;
-        expect(init.kind).toBe(ExprKind.Binary);
-        expect(init.op).toBe("+");
-        expect(init.left.kind).toBe(ExprKind.Await);
-        expect(init.right.kind).toBe(ExprKind.Ident);
-    });
-
-    test("await in a return position is an Await node", () => {
-        const r = parseWithNative("async function f() { return await g(); }");
-        expect(r.errors).toEqual([]);
-        const ret = r.body[0].body[0];
-        expect(ret.kind).toBe(StmtKind.Return);
-        expect(ret.argument.kind).toBe(ExprKind.Await);
-    });
-
-    test("nested `await await x` is an Await wrapping an Await", () => {
-        const r = parseWithNative("async function f() { let x = await await deep(); }");
-        expect(r.errors).toEqual([]);
-        const init = r.body[0].body[0].declarations[0].init;
-        expect(init.kind).toBe(ExprKind.Await);
-        expect(init.argument.kind).toBe(ExprKind.Await);
-    });
-
     test("yield operator in a let-init is a Yield node, delegate false", () => {
         const r = parseWithNative("function* g() { let v = yield next(); }");
         expect(r.errors).toEqual([]);
@@ -3132,15 +3074,6 @@ describe("M4.1 async/generator — native AST shape", () => {
         expect(fn.isAsync).toBe(false);
     });
 
-    test("an `async function*` expression carries isAsync + isGenerator", () => {
-        const r = parseWithNative("let ag = async function* () { yield await x(); };");
-        expect(r.errors).toEqual([]);
-        const fn = r.body[0].declarations[0].init;
-        expect(fn.kind).toBe(ExprKind.Function);
-        expect(fn.isAsync).toBe(true);
-        expect(fn.isGenerator).toBe(true);
-    });
-
     test("a plain `function` expression carries isGenerator false", () => {
         const r = parseWithNative("let g = function () { return 1; };");
         expect(r.errors).toEqual([]);
@@ -3158,15 +3091,6 @@ describe("M4.1 async/generator — native AST shape", () => {
         expect(method.value.isAsync).toBe(false);
     });
 
-    test("an object-literal async generator method carries isAsync + isGenerator", () => {
-        const r = parseWithNative("let o = { async *ag() { yield await x(); } };");
-        expect(r.errors).toEqual([]);
-        const method = r.body[0].declarations[0].init.properties[0];
-        expect(method.kind).toBe("Method");
-        expect(method.value.isAsync).toBe(true);
-        expect(method.value.isGenerator).toBe(true);
-    });
-
     test("a generator function declaration carries isGenerator true", () => {
         const r = parseWithNative("function* gen() { yield 1; }");
         expect(r.errors).toEqual([]);
@@ -3176,36 +3100,19 @@ describe("M4.1 async/generator — native AST shape", () => {
 });
 
 // -----------------------------------------------------------------------------
-// M4.1 — async/generator SCOPE BOUNDARY. `await`/`yield` are operators ONLY
-// inside the matching function scope. A function ESTABLISHES its own scope —
-// it does NOT inherit the enclosing function's (Acorn-verified). Outside the
-// scope the keyword reaches parsePrimary unhandled and the parse records a
-// diagnostic (no throw — the no-throw discipline). Acorn rejects all of these
-// too, so they are exercised native-only (not Acorn-diffable).
+// M4.1 — generator scope boundary. `yield` is an operator ONLY inside a
+// generator function. A function ESTABLISHES its own scope — it does NOT
+// inherit the enclosing function's (Acorn-verified). Outside the scope the
+// keyword reaches parsePrimary unhandled and the parse records a diagnostic
+// (no throw — the no-throw discipline). Acorn rejects all of these too, so
+// they are exercised native-only (not Acorn-diffable). The sibling async/
+// await side of this boundary is gone — M4.3 fires E-AWAIT-NOT-IN-SCRML at
+// EVERY `await` keyword regardless of scope (see the retraction describe
+// block below).
 // -----------------------------------------------------------------------------
-describe("M4.1 async/generator — scope boundary (await/yield gated on scope)", () => {
-    test("`await` in a plain (non-async) function is a parse error", () => {
-        const r = parseWithNative("function f() { let x = await g(); }");
-        expect(r.ok).toBe(true);          // no throw
-        expect(r.errors.length).toBeGreaterThan(0);
-    });
-
+describe("M4.1 generator — scope boundary (yield gated on generator scope)", () => {
     test("`yield` in a plain (non-generator) function is a parse error", () => {
         const r = parseWithNative("function f() { let v = yield x; }");
-        expect(r.ok).toBe(true);
-        expect(r.errors.length).toBeGreaterThan(0);
-    });
-
-    test("a plain arrow inside an async function cannot use `await`", () => {
-        // The arrow ESTABLISHES its own scope — a non-async arrow resets
-        // inAsync to false, so `await` inside it is out-of-scope.
-        const r = parseWithNative("async function o() { const f = () => await x; }");
-        expect(r.ok).toBe(true);
-        expect(r.errors.length).toBeGreaterThan(0);
-    });
-
-    test("a sync function nested in an async function cannot use `await`", () => {
-        const r = parseWithNative("async function o() { function i() { return await x; } }");
         expect(r.ok).toBe(true);
         expect(r.errors.length).toBeGreaterThan(0);
     });
@@ -3216,24 +3123,111 @@ describe("M4.1 async/generator — scope boundary (await/yield gated on scope)",
         expect(r.errors.length).toBeGreaterThan(0);
     });
 
-    test("a non-async generator body permits `yield` but not `await`", () => {
-        // `function* g` is a generator but NOT async — `yield` is an
-        // operator, `await` is not.
-        const ok = parseWithNative("function* g() { let v = yield x; }");
-        expect(ok.errors).toEqual([]);
-        const bad = parseWithNative("function* g() { let v = await x; }");
-        expect(bad.errors.length).toBeGreaterThan(0);
-    });
-
-    test("the async scope is restored after a nested function returns", () => {
-        // `await` works in the outer body, the nested sync fn rejects it,
-        // and `await` works AGAIN in the outer body after the nested fn —
+    test("the generator scope is restored after a nested function returns", () => {
+        // `yield` works in the outer body, the nested sync fn rejects it,
+        // and `yield` works AGAIN in the outer body after the nested fn —
         // the scope save/restore round-trips.
         const r = parseWithNative(
-            "async function o() { let a = await one(); function i() {} let b = await two(); }");
+            "function* o() { let a = yield one(); function i() {} let b = yield two(); }");
         expect(r.errors).toEqual([]);
         const body = r.body[0].body;
-        expect(body[0].declarations[0].init.kind).toBe(ExprKind.Await);
-        expect(body[2].declarations[0].init.kind).toBe(ExprKind.Await);
+        expect(body[0].declarations[0].init.kind).toBe(ExprKind.Yield);
+        expect(body[2].declarations[0].init.kind).toBe(ExprKind.Yield);
+    });
+});
+
+// =============================================================================
+// M4.3 — async / await RETRACTION at the statement layer (mirror of the
+// expression-layer describe in parser-conformance-expr.test.js).
+// scrml has no `async` / `await` keyword at the language level. The parser
+// still LEXES `async` / `await` (M1 keyword catalog stable for tooling) but
+// every production-position appearance fires a scrml-level error code and
+// recovers (no throw):
+//   - E-ASYNC-NOT-IN-SCRML — `async function` decl / expr; `async` arrow /
+//     method (class/object); `export async function` / `export default
+//     async function`.
+//   - E-AWAIT-NOT-IN-SCRML — `await` used as a unary operator anywhere.
+//   - E-FOR-AWAIT-NOT-IN-SCRML — `for await ( ... )` in any shape.
+// Generators (`yield` / `yield*` / `function*`) are PRESERVED (separate
+// conversation per S114). The retracted forms recover so the rest of the
+// program stays diagnosable.
+// =============================================================================
+describe("M4.3 — async/await retraction (statement layer)", () => {
+    test("`async function load() {}` fires E-ASYNC-NOT-IN-SCRML; isAsync recovers to false", () => {
+        const r = parseWithNative("async function load() {}");
+        expect(r.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+        expect(r.body[0].kind).toBe(StmtKind.FunctionDecl);
+        expect(r.body[0].isAsync).toBe(false);
+    });
+
+    test("`async function* ag() {}` retracts the `async`, keeps the generator", () => {
+        const r = parseWithNative("async function* ag() {}");
+        expect(r.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+        expect(r.body[0].isAsync).toBe(false);
+        expect(r.body[0].isGenerator).toBe(true);
+    });
+
+    test("`await` in a function body fires E-AWAIT-NOT-IN-SCRML; recovery returns the operand", () => {
+        const r = parseWithNative("function f() { let x = await g(); }");
+        expect(r.errors.map((e) => e.code)).toContain("E-AWAIT-NOT-IN-SCRML");
+        // RECOVERY — no Await node; the operand (g()) is the initializer.
+        const init = r.body[0].body[0].declarations[0].init;
+        expect(init.kind).toBe(ExprKind.Call);
+    });
+
+    test("`await` at the program top level also fires E-AWAIT-NOT-IN-SCRML", () => {
+        const r = parseWithNative("await fetch();");
+        expect(r.errors.map((e) => e.code)).toContain("E-AWAIT-NOT-IN-SCRML");
+    });
+
+    test("`for await (... of ...)` fires E-FOR-AWAIT-NOT-IN-SCRML; for-of recovers", () => {
+        const r = parseWithNative("for await (const c of stream()) { read(c); }");
+        expect(r.errors.map((e) => e.code)).toContain("E-FOR-AWAIT-NOT-IN-SCRML");
+        // RECOVERY — the for-of parses; `isAwait` is forced false.
+        const f = r.body[0];
+        expect(f.kind).toBe(StmtKind.ForOf);
+        expect(f.isAwait).toBe(false);
+    });
+
+    test("class async method fires E-ASYNC-NOT-IN-SCRML; method recovers as plain", () => {
+        const r = parseWithNative("class C { async load() {} }");
+        expect(r.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+        expect(r.body[0].body[0].value.isAsync).toBe(false);
+    });
+
+    test("object-literal async method fires E-ASYNC-NOT-IN-SCRML; method recovers as plain", () => {
+        const r = parseWithNative("let o = { async load() {} };");
+        expect(r.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+    });
+
+    test("`export async function af() {}` fires E-ASYNC-NOT-IN-SCRML; export recovers", () => {
+        const r = parseWithNative("export async function af() {}");
+        expect(r.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+    });
+
+    test("`export default async function () {}` fires E-ASYNC-NOT-IN-SCRML; export recovers", () => {
+        const r = parseWithNative("export default async function () {}");
+        expect(r.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+    });
+
+    test("`async function* ag() { let v = yield await x(); }` — both retractions fire; yield preserved", () => {
+        const r = parseWithNative("async function* ag() { let v = yield await x(); }");
+        const codes = r.errors.map((e) => e.code);
+        expect(codes).toContain("E-ASYNC-NOT-IN-SCRML");
+        expect(codes).toContain("E-AWAIT-NOT-IN-SCRML");
+        // RECOVERY — the `function*` survives (still a generator); the
+        // `yield` still parses as a Yield node wrapping the operand (which
+        // is now the unwrapped `x()` call after await recovery).
+        const fn = r.body[0];
+        expect(fn.isAsync).toBe(false);
+        expect(fn.isGenerator).toBe(true);
+    });
+
+    test("`await` keyword as a plain identifier still parses (M1 keyword catalog is unchanged) — but fires the retraction code if reached at unary level", () => {
+        // M1 always lexes `await` as KwAwait. parseUnary fires the retraction
+        // error at every occurrence regardless of context. This test pins the
+        // shape "every `await` token records E-AWAIT-NOT-IN-SCRML".
+        const r = parseWithNative("await x;");
+        expect(r.errors.map((e) => e.code)).toContain("E-AWAIT-NOT-IN-SCRML");
     });
 });

@@ -58,12 +58,11 @@ export const ExprKind = Object.freeze({
     Lift:          "Lift",           // `lift expr` (§10)
     Fail:          "Fail",           // `fail Type::Variant(args)` (§19)
 
-    // async / generator operator expressions (M4.1 — D5 MUST PARSE).
-    // M3.3 produced Await/Yield as untyped {kind:"Await"}/{kind:"Yield"}
-    // nodes at STATEMENT position only (a local parse-stmt shape, NOT in
-    // ExprKind); M4.1 PROMOTES them into the catalog so the M2 expression
-    // grammar can build them as operators inside a larger expression.
-    Await: "Await",                  // `await expr` (unary-prec; §13 / D5)
+    // Generator operator expression (M4.1 — D5 MUST PARSE).
+    // `Yield` is built by parseAssignmentExpr when the cursor is inside a
+    // `function*` body (`ctx.inGenerator`). The M4.3 async retraction
+    // REMOVED the sibling `Await` kind — scrml has no `async`/`await` at the
+    // language level; see parseUnary's E-AWAIT-NOT-IN-SCRML site.
     Yield: "Yield",                  // `yield expr` / `yield* expr` (§37 / D5)
 });
 
@@ -375,22 +374,15 @@ export function makeFail(variant, span) {
     return { kind: ExprKind.Fail, variant, span };
 }
 
-// --- async / generator operator-expression constructors (M4.1 — D5 MUST
-// PARSE). Calculation (pure fns over already-confirmed parts; DD §D1). ---
-
-// makeAwait — an `await argument` expression (§13). `await` is a UNARY-
-// precedence operator: it binds tighter than every binary operator
-// (`await a + b` is `(await a) + b`) and, like a prefix unary, cannot be the
-// un-parenthesized left operand of `**`. `await` is legal only inside an
-// async function body (or — with the Acorn `allowAwaitOutsideFunction`
-// option — at module top level). M4.1's expression grammar consults the
-// parse context's async-scope flag to decide when `await` is an operator;
-// the §13.1 "developer SHALL NOT write await" rule is a LATER-STAGE
-// diagnostic, not a parse concern. The conformance normalizer maps this to
-// ESTree's AwaitExpression.
-export function makeAwait(argument, span) {
-    return { kind: ExprKind.Await, argument, span };
-}
+// --- Generator operator-expression constructor (M4.1 — D5 MUST PARSE).
+// Calculation (pure fns over already-confirmed parts; DD §D1).
+//
+// M4.3 — `makeAwait` is RETIRED. scrml has no `async`/`await` at the language
+// level (parallel-by-default, no colored functions; the canonical async
+// surface is the compiler body-split). parseUnary now fires
+// E-AWAIT-NOT-IN-SCRML at the `await` keyword site and recovers by parsing
+// the operand as a unary tail. Generators (`yield` / `yield*` / `function*`)
+// are preserved — they are a separate conversation. ---
 
 // makeYield — a `yield argument` / `yield* argument` / bare `yield`
 // expression (§37). `yield` is an ASSIGNMENT-precedence operator — the

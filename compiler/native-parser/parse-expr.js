@@ -20,7 +20,7 @@
 //   Type::Variant(args)`. These eliminate the 9 preprocessForAcorn
 //   Acorn-workaround classes (M2 gating criterion).
 //   M4.1: ASYNC / GENERATOR OPERATOR EXPRESSIONS (D5 MUST PARSE) — `await`
-//   as a unary-precedence operator (gated on `ctx.inAsync`); `yield` /
+//   as a unary-precedence operator (M4.3 RETRACTED — see parseUnary); `yield` /
 //   `yield*` as an assignment-precedence operator (gated on
 //   `ctx.inGenerator`); the `function*` generator-flag full wiring onto
 //   function expressions + object methods (the M2.3 deferral). The
@@ -63,7 +63,7 @@ import {
     makeNotValue, makeTilde, makeSql, makeInputStateRef, makeIsCheck,
     makeMatch, makeMatchArm, makeVariantPattern, makeWildcardPattern,
     makeIsPattern, makeMatchBinding, makeRender, makeLift, makeFail,
-    makeAwait, makeYield,
+    makeYield,
 } from "./ast-expr.js";
 // M4.2 — binding-pattern constructors (ast-stmt's BindingKind catalog —
 // the declaration-target shapes M3.1 produces for vardecl destructuring).
@@ -85,28 +85,28 @@ import {
 } from "./ast-stmt.js";
 
 // --- makeParseExprContext — parser state constructor ---
-// M4.1 — adds two ASYNC/GENERATOR SCOPE slots:
-//   - `inAsync`     — true iff the cursor is inside an `async` function body.
-//     `await` is an operator (parseUnary) only when this is true.
+// M4.1 added an ASYNC/GENERATOR SCOPE pair (`inAsync` / `inGenerator`). M4.3
+// REMOVED `inAsync` — scrml has no `async`/`await` at the language level
+// (parallel-by-default, no colored functions; the canonical async surface is
+// the compiler body-split). The remaining slot:
 //   - `inGenerator` — true iff the cursor is inside a `function*` body.
 //     `yield` / `yield*` are operators (parseAssignmentExpr) only when true.
-// These are NOT a ParseMode engine variant: ParseMode discriminates WHICH
-// grammar production runs (the object-vs-block `{` ambiguity, etc.); async /
-// generator scope is the orthogonal question "is `await`/`yield` a legal
-// operator here". Folding it into ParseMode forces a combinatorial
-// cross-product (InFunctionBody × {sync, async, gen, async-gen}) — the
-// variant explosion DD §D3 explicitly rejects. The slots mirror M3.4's
-// `functionDepth` pattern (a function-scoped slot saved+set+restored at
-// function entry/exit — see withFunctionScope). A standalone parseExpr call
-// starts OUTSIDE any function: both flags default false.
+// This is NOT a ParseMode engine variant: ParseMode discriminates WHICH
+// grammar production runs (the object-vs-block `{` ambiguity, etc.);
+// generator scope is the orthogonal question "is `yield` a legal operator
+// here". Folding it into ParseMode forces a combinatorial cross-product
+// (InFunctionBody × {sync, gen}) — the variant explosion DD §D3 explicitly
+// rejects. The slot mirrors M3.4's `functionDepth` pattern (a function-
+// scoped slot saved+set+restored at function entry/exit). A standalone
+// parseExpr call starts OUTSIDE any function: default false.
 //
 // M4.2 — adds `noIn` (the JS "no-In context" of ECMA-262). True iff the
 // cursor is parsing a `for` head's init / LHS clause and the `in` keyword is
 // the for-in disambiguator, NOT a relational binary operator. parseBinary
 // consults this to skip KwIn (otherwise `in` binds as a relational operator
 // at precedence 8 and swallows the for-in disambiguator). Same orthogonal-
-// to-ParseMode pattern as inAsync/inGenerator: it is a question ABOUT the
-// climb, not a rule-dispatch variant. Default false. The for-head parser
+// to-ParseMode pattern as inGenerator: it is a question ABOUT the climb,
+// not a rule-dispatch variant. Default false. The for-head parser
 // (parse-stmt) wraps init-clause parsing in enterNoInScope/exitNoInScope;
 // sub-expressions that REOPEN the `in` operator (a paren / array element /
 // object value / call argument / template `${...}`) use
@@ -116,7 +116,6 @@ export function makeParseExprContext(tokens) {
         cursor:           makeTokenCursor(tokens),
         currentParseMode: initialParseMode(),
         errors:           [],
-        inAsync:          false,
         inGenerator:      false,
         noIn:             false,
     };
@@ -175,25 +174,24 @@ export function restoreNoIn(ctx, prior) {
     ctx.noIn = prior;
 }
 
-// --- enterFunctionScope / exitFunctionScope — async/generator scope save +
-// set + restore (M4.1). Every JS function / arrow ESTABLISHES its OWN
-// async/generator scope — it does NOT inherit the enclosing function's
-// (Acorn-verified: a plain arrow / plain function nested inside an `async`
-// function CANNOT use `await`; a non-generator nested inside a generator
-// cannot `yield`). enterFunctionScope captures the prior {inAsync,
-// inGenerator}, sets the new pair, and returns the saved pair; the caller
-// passes it to exitFunctionScope on the function's exit. This mirrors
-// enterMode/exitMode (and M3.4's functionDepth save-restore). Arrows are
-// never generators — pass isGenerator false for an arrow.
+// --- enterFunctionScope / exitFunctionScope — generator scope save +
+// set + restore (M4.1; M4.3 simplified). Every JS function / arrow
+// ESTABLISHES its OWN generator scope — it does NOT inherit the enclosing
+// function's (a non-generator nested inside a generator cannot `yield`).
+// enterFunctionScope captures the prior {inGenerator}, sets the new value,
+// and returns the saved pair; the caller passes it to exitFunctionScope on
+// the function's exit. This mirrors enterMode/exitMode (and M3.4's
+// functionDepth save-restore). Arrows are never generators — pass
+// isGenerator false for an arrow. The `isAsync` parameter is retained for
+// call-site stability (every Function/Arrow constructor still ferries it
+// onto the AST) but is IGNORED here — M4.3 retracted source-level `async`.
 export function enterFunctionScope(ctx, isAsync, isGenerator) {
-    const prior = { inAsync: ctx.inAsync, inGenerator: ctx.inGenerator };
-    ctx.inAsync = isAsync === true;
+    const prior = { inGenerator: ctx.inGenerator };
     ctx.inGenerator = isGenerator === true;
     return prior;
 }
 
 export function exitFunctionScope(ctx, prior) {
-    ctx.inAsync = prior.inAsync;
     ctx.inGenerator = prior.inGenerator;
 }
 
@@ -689,23 +687,19 @@ export function parseUnary(ctx) {
     const cursor = ctx.cursor;
     const kind = currentKind(cursor);
 
-    // M4.1 — `await operand` (AwaitExpression). `await` is a unary-precedence
-    // operator: it binds tighter than every binary operator (`await a + b` is
-    // `(await a) + b`) and its operand is a UnaryExpression (`await -x`,
-    // `await typeof x`, `await await x` all parse). It is recognized here —
-    // at unary level — when the cursor is inside an async function body
-    // (`ctx.inAsync`). Like every other prefix unary it cannot be the
-    // un-parenthesized left of `**` (`await a ** b` is a SyntaxError).
-    if (kind === TokenKind.KwAwait && ctx.inAsync === true) {
+    // M4.3 — `await` is RETRACTED at the language level (scrml has no
+    // async/await; the canonical async surface is the compiler body-split /
+    // CPS mechanism — A9 / Insight 26 / S72). At this site we emit
+    // E-AWAIT-NOT-IN-SCRML and RECOVER by parsing the operand as a unary
+    // tail, returning the operand directly (no Await node — `Await` ExprKind
+    // is retired in ast-expr). The parse continues; downstream stages see a
+    // unary chain and the recorded diagnostic surfaces the user-facing error.
+    if (kind === TokenKind.KwAwait) {
         const opTok = advance(cursor);   // consume `await`
-        const operand = parseUnary(ctx);
-        const span = makeSpan(opTok.span.start, endOf(operand), opTok.span.line, opTok.span.col);
-        if (currentKind(cursor) === TokenKind.StarStar) {
-            recordError(ctx, "E-EXPR-UNARY-EXPONENT",
-                "'await' cannot directly precede '**'; wrap the operand in parentheses",
-                current(cursor).span);
-        }
-        return makeAwait(operand, span);
+        recordError(ctx, "E-AWAIT-NOT-IN-SCRML",
+            "scrml has no `await` keyword. The canonical async surface is the compiler body-split (server functions, reactive state) — no source-level async/await is needed.",
+            opTok.span);
+        return parseUnary(ctx);
     }
 
     // Prefix update operators ++ / --
@@ -874,24 +868,38 @@ export function parsePostfix(ctx) {
         return parseFunctionExpr(ctx, false);
     }
 
-    // --- `async` head — async function expr, async arrow, or `async` used
-    // as a plain identifier. `async` is NOT a reserved word; M1 always lexes
-    // it as KwAsync, so the parser decides the role by what follows. ---
+    // --- `async` head (M4.3 — RETRACTION).
+    // scrml has no `async` modifier at the language level. When `async` heads
+    // a function expression / arrow we emit E-ASYNC-NOT-IN-SCRML at the
+    // `async` keyword site and RECOVER by parsing the form as if the `async`
+    // were absent (the underlying function/arrow stays parseable so error
+    // recovery surfaces useful diagnostics on the rest of the program). When
+    // `async` is followed by no function-head shape, it is a plain identifier
+    // (`{ async: 1 }`, `async.then`) — unchanged. ---
     if (kind === TokenKind.KwAsync) {
         if (peekKind(cursor, 1) === TokenKind.KwFunction) {
-            advance(cursor);   // consume `async`
-            return parseFunctionExpr(ctx, true);
+            const asyncTok = advance(cursor);   // consume `async`
+            recordError(ctx, "E-ASYNC-NOT-IN-SCRML",
+                "scrml has no `async` keyword. The canonical async surface is the compiler body-split (server functions, reactive state) — no source-level async/await is needed.",
+                asyncTok.span);
+            return parseFunctionExpr(ctx, false);
         }
         // `async ident =>` — async single-identifier-param arrow.
         if (peekKind(cursor, 1) === TokenKind.Ident
             && peekKind(cursor, 2) === TokenKind.Arrow) {
             const asyncTok = advance(cursor);   // consume `async`
-            return parseSingleIdentArrow(ctx, true, asyncTok);
+            recordError(ctx, "E-ASYNC-NOT-IN-SCRML",
+                "scrml has no `async` keyword. The canonical async surface is the compiler body-split (server functions, reactive state) — no source-level async/await is needed.",
+                asyncTok.span);
+            return parseSingleIdentArrow(ctx, false, asyncTok);
         }
         // `async ( params ) =>` — async parenthesized-param arrow.
         if (peekKind(cursor, 1) === TokenKind.LParen && scanArrowParens(cursor, 1)) {
             const asyncTok = advance(cursor);   // consume `async`
-            return parseParenArrow(ctx, true, asyncTok);
+            recordError(ctx, "E-ASYNC-NOT-IN-SCRML",
+                "scrml has no `async` keyword. The canonical async surface is the compiler body-split (server functions, reactive state) — no source-level async/await is needed.",
+                asyncTok.span);
+            return parseParenArrow(ctx, false, asyncTok);
         }
         // Otherwise `async` is a plain identifier — emit it and run the
         // postfix chain (so `async.then`, `async(x)` parse as a member /
@@ -2453,20 +2461,25 @@ export function parseObjectProperty(ctx) {
     const cursor = ctx.cursor;
 
     // --- `async` method prefix — `{ async foo() { ... } }` / `{ async
-    // *gen() {} }`. `async` lexes as KwAsync; it is an async-method prefix
-    // only when a method-shaped key follows (possibly via a `*` generator
-    // marker — an `async *` async-generator method). Otherwise `async` is
-    // itself a property key (`{ async: 1 }`). M4.1 adds the `async *` case. ---
+    // *gen() {} }`. M4.3 — RETRACTED. scrml has no `async` at the language
+    // level. When the `async` method prefix is seen we fire
+    // E-ASYNC-NOT-IN-SCRML at the `async` token and recover by parsing the
+    // method as a plain (or generator) method — keeping the rest of the
+    // object literal parseable. Otherwise `async` is itself a property key
+    // (`{ async: 1 }`, falls through to the key parse). ---
     if (currentKind(cursor) === TokenKind.KwAsync
         && (isMethodPrefixAhead(cursor) || isGeneratorMethodPrefixAhead(cursor))) {
-        advance(cursor);   // consume `async`
+        const asyncTok = advance(cursor);   // consume `async`
+        recordError(ctx, "E-ASYNC-NOT-IN-SCRML",
+            "scrml has no `async` keyword. The canonical async surface is the compiler body-split (server functions, reactive state) — no source-level async/await is needed.",
+            asyncTok.span);
         let isGen = false;
         if (currentKind(cursor) === TokenKind.Star) {
-            advance(cursor);   // consume `*` — an async-generator method
+            advance(cursor);   // consume `*` — was an async-generator method
             isGen = true;
         }
         const keyInfo = parseObjectPropertyKey(ctx);
-        const fn = parseMethodTail(ctx, true, isGen);
+        const fn = parseMethodTail(ctx, false, isGen);
         return makeObjectMethod(keyInfo.key, fn, keyInfo.computed, "init");
     }
 

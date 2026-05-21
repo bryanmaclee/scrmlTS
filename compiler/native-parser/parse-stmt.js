@@ -145,10 +145,11 @@ import {
 //     across nested `{}` blocks (a `return` in a nested block sees `.InBlock`,
 //     not `.InFunctionBody`). 0 = program scope; >= 1 = inside N function
 //     bodies. parseFunctionBodyInline increments / decrements it.
-// M4.1 — `inAsync` / `inGenerator` are part of the SHARED core (parse-expr's
-// parseUnary / parseAssignmentExpr read them to decide when `await`/`yield`
-// are operators). parseFunctionBodyInline saves+sets+restores them around a
-// function body — the same shape as its functionDepth inc/dec.
+// M4.1 — `inGenerator` is part of the SHARED core (parse-expr's
+// parseAssignmentExpr reads it to decide when `yield` is an operator).
+// parseFunctionBodyInline saves+sets+restores it around a function body —
+// the same shape as its functionDepth inc/dec. M4.3 retracted the sibling
+// `inAsync` slot (no source-level `async`/`await`).
 export function makeParseStmtContext(tokens) {
     return {
         cursor:           makeTokenCursor(tokens),
@@ -156,7 +157,6 @@ export function makeParseStmtContext(tokens) {
         errors:           [],
         recovery:         makeRecovery(),
         functionDepth:    0,
-        inAsync:          false,
         inGenerator:      false,
     };
 }
@@ -522,15 +522,20 @@ export function parseStatement(ctx) {
         return parseFunctionDecl(ctx, false);
     }
 
-    // An `async function` declaration. `async` is NOT a reserved word — M1
-    // lexes it as KwAsync — so the parser decides the role by what follows.
-    // `async function ...` (with no LineTerminator between) is an async
-    // function declaration; any other `async` lead (`async ident =>`,
-    // `async ( ) =>`, a bare `async` identifier) is an expression statement
-    // — parseExpression (M2.3's parsePostfix) handles those.
+    // M4.3 — RETRACTED. An `async function` declaration is no longer valid in
+    // scrml. We fire E-ASYNC-NOT-IN-SCRML at the `async` keyword and recover
+    // by parsing the form as a plain function declaration (the underlying
+    // function still parses cleanly so error recovery surfaces useful
+    // diagnostics on the rest of the program). Any other `async` lead
+    // (`async ident =>`, `async ( ) =>`, a bare `async` identifier) reaches
+    // parseExprStatement; parse-expr's parsePostfix fires the same code at
+    // its own `async`-head dispatch.
     if (kind === TokenKind.KwAsync && peekKind(cursor, 1) === TokenKind.KwFunction) {
-        advance(cursor);   // consume `async`
-        return parseFunctionDecl(ctx, true);
+        const asyncTok = advance(cursor);   // consume `async`
+        recordError(ctx, "E-ASYNC-NOT-IN-SCRML",
+            "scrml has no `async` keyword. The canonical async surface is the compiler body-split (server functions, reactive state) — no source-level async/await is needed.",
+            asyncTok.span);
+        return parseFunctionDecl(ctx, false);
     }
 
     // A class declaration — `class Name extends Base { ... }`. A bare `class`
@@ -563,7 +568,7 @@ export function parseStatement(ctx) {
     // An `await` / `yield` statement lead — `await x;` / `yield x;` inside an
     // async / generator body — is handled by parseExprStatement: the M4.1
     // expression grammar parses `await` (at unary precedence, gated on
-    // `ctx.inAsync`) and `yield` / `yield*` (at assignment precedence, gated
+    // M4.3 RETRACTED `await`/`async`) and `yield` / `yield*` (at assignment precedence, gated
     // on `ctx.inGenerator`) AS operators, so an `await x;` statement is just
     // an expression statement wrapping an Await node. M3.3 had a dedicated
     // statement-lead path here; M4.1 unifies statement-position and
@@ -1004,13 +1009,17 @@ export function parseFor(ctx) {
     const cursor = ctx.cursor;
     const kw = advance(cursor);   // consume `for`
 
-    // `for await ( ... of ... )` — recognize the `await` keyword in the for
-    // head. `for await` is only legal on a for-of; `for await (;;)` records
-    // E-STMT-FOR-AWAIT-CSTYLE.
+    // M4.3 — `for await ... of` is RETRACTED. scrml has no async/await at the
+    // language level (parallel-by-default, no colored functions). When `await`
+    // appears in the for head we fire E-FOR-AWAIT-NOT-IN-SCRML at the keyword
+    // and recover by parsing the form as a plain `for` (the `isAwait` flag is
+    // forced false; the rest of the for parses normally).
     let isAwait = false;
     if (currentKind(cursor) === TokenKind.KwAwait) {
-        advance(cursor);   // consume `await`
-        isAwait = true;
+        const awaitTok = advance(cursor);   // consume `await`
+        recordError(ctx, "E-FOR-AWAIT-NOT-IN-SCRML",
+            "scrml has no `for await ... of`. The canonical async surface is the compiler body-split (server functions, reactive state) — no source-level async/await is needed.",
+            awaitTok.span);
     }
 
     expectLParen(ctx, "for");
@@ -1116,12 +1125,10 @@ function finishForInOf(ctx, kw, isAwait, initNode, initIsDecl, sepKind) {
 function finishForCStyle(ctx, kw, isAwait, initNode) {
     const cursor = ctx.cursor;
 
-    // `for await` is only legal on a for-of — a `for await (;;)` C-style is a
-    // syntax error.
-    if (isAwait === true) {
-        recordError(ctx, "E-STMT-FOR-AWAIT-CSTYLE",
-            "'for await' is only valid with a 'for-of' loop", kw.span);
-    }
+    // M4.3 — the prior E-STMT-FOR-AWAIT-CSTYLE check is GONE; the
+    // `for await ...` form is itself retracted (E-FOR-AWAIT-NOT-IN-SCRML
+    // fires at the `await` keyword site in parseFor). `isAwait` is always
+    // false post-retraction; no C-style/for-of-only check is needed here.
 
     if (currentKind(cursor) === TokenKind.Semicolon) {
         advance(cursor);   // consume the init/test separator ;
@@ -1309,7 +1316,7 @@ export function parseLabeledStatement(ctx) {
 // a top-level `return` sees depth 0 and fires E-STMT-RETURN-OUTSIDE-FUNCTION.
 //
 // M4.1 — `isAsync` / `isGenerator` are the body's OWN async/generator scope.
-// The body parses with `ctx.inAsync`/`ctx.inGenerator` set to this function's
+// The body parses with `ctx.inGenerator` set to this function's
 // flags (so `await`/`yield` are operators inside it); the prior scope is
 // saved and restored, mirroring the functionDepth inc/dec. A function
 // ESTABLISHES its own scope — it does not inherit the enclosing function's.
@@ -1325,12 +1332,9 @@ function parseFunctionBodyInline(ctx, isAsync, isGenerator) {
 
     const prior = enterMode(ctx, ParseMode.InFunctionBody);
     ctx.functionDepth = ctx.functionDepth + 1;
-    const priorAsync = ctx.inAsync;
     const priorGenerator = ctx.inGenerator;
-    ctx.inAsync = isAsync === true;
     ctx.inGenerator = isGenerator === true;
     const body = parseStatementList(ctx, TokenKind.RBrace);
-    ctx.inAsync = priorAsync;
     ctx.inGenerator = priorGenerator;
     ctx.functionDepth = ctx.functionDepth - 1;
     exitMode(ctx, prior);
@@ -1514,12 +1518,16 @@ function parseClassMember(ctx) {
         isStatic = true;
     }
 
-    // `async` method prefix — `async name(...)` / `async *name(...)`. Present
-    // iff `async` is followed by another member head.
+    // M4.3 — RETRACTED. The `async` class-method prefix is no longer valid in
+    // scrml. We fire E-ASYNC-NOT-IN-SCRML at the `async` keyword and recover
+    // by parsing the method as a plain (or generator) method — keeping the
+    // rest of the class body parseable. `isAsync` is forced false.
     let isAsync = false;
     if (classMemberNameKind(cursor) === "async-prefix") {
-        advance(cursor);   // consume `async`
-        isAsync = true;
+        const asyncTok = advance(cursor);   // consume `async`
+        recordError(ctx, "E-ASYNC-NOT-IN-SCRML",
+            "scrml has no `async` keyword. The canonical async surface is the compiler body-split (server functions, reactive state) — no source-level async/await is needed.",
+            asyncTok.span);
     }
 
     // `*` generator method prefix.
@@ -1928,8 +1936,14 @@ function parseExportDefault(ctx, kw) {
     if (k === TokenKind.KwFunction) {
         declaration = parseFunctionDecl(ctx, false, true);
     } else if (k === TokenKind.KwAsync && peekKind(cursor, 1) === TokenKind.KwFunction) {
-        advance(cursor);   // consume `async`
-        declaration = parseFunctionDecl(ctx, true, true);
+        // M4.3 — `export default async function` is RETRACTED. Fire
+        // E-ASYNC-NOT-IN-SCRML at the `async` keyword and recover as a
+        // plain default-function export.
+        const asyncTok = advance(cursor);   // consume `async`
+        recordError(ctx, "E-ASYNC-NOT-IN-SCRML",
+            "scrml has no `async` keyword. The canonical async surface is the compiler body-split (server functions, reactive state) — no source-level async/await is needed.",
+            asyncTok.span);
+        declaration = parseFunctionDecl(ctx, false, true);
     } else if (k === TokenKind.KwClass) {
         declaration = parseClassDecl(ctx, true);
     } else {
@@ -1967,8 +1981,14 @@ function parseExportedDeclaration(ctx) {
         return parseFunctionDecl(ctx, false);
     }
     if (k === TokenKind.KwAsync && peekKind(cursor, 1) === TokenKind.KwFunction) {
-        advance(cursor);   // consume `async`
-        return parseFunctionDecl(ctx, true);
+        // M4.3 — `export async function` is RETRACTED. Fire
+        // E-ASYNC-NOT-IN-SCRML at the `async` keyword and recover as a plain
+        // named-function export.
+        const asyncTok = advance(cursor);   // consume `async`
+        recordError(ctx, "E-ASYNC-NOT-IN-SCRML",
+            "scrml has no `async` keyword. The canonical async surface is the compiler body-split (server functions, reactive state) — no source-level async/await is needed.",
+            asyncTok.span);
+        return parseFunctionDecl(ctx, false);
     }
     if (k === TokenKind.KwClass) {
         return parseClassDecl(ctx);
@@ -2170,14 +2190,16 @@ export function parseThrow(ctx) {
 // all three. Returns { body, errors } — `body` is the Stmt array, `errors`
 // the diagnostics raised while re-parsing the body.
 //
-// M4.1 — `isAsync` / `isGenerator` are the async/generator scope of the
-// FUNCTION/ARROW whose body this BlockStub is. A block body parsed in
-// parse-expr is captured as a token range, NOT parsed in-line — so the scope
-// the enclosing function established (parse-expr's enterFunctionScope) does
-// not reach the re-entered body. reenterBlockStubs threads the function's
-// flags here so the re-parsed body sees `await`/`yield` as operators (a
-// match-arm block body is not inside a function — reenterBlockStubs passes
-// the enclosing scope through; both default false for a standalone re-entry).
+// M4.1 — `isGenerator` is the generator scope of the FUNCTION/ARROW whose
+// body this BlockStub is. A block body parsed in parse-expr is captured as
+// a token range, NOT parsed in-line — so the scope the enclosing function
+// established (parse-expr's enterFunctionScope) does not reach the
+// re-entered body. reenterBlockStubs threads the function's flag here so
+// the re-parsed body sees `yield` as an operator (a match-arm block body
+// is not inside a function — reenterBlockStubs passes the enclosing scope
+// through; defaults false for a standalone re-entry). The `isAsync` param
+// is retained for call-site stability (M4.3 retracted source-level `async`)
+// but is IGNORED — Function/Arrow nodes carry isAsync:false after M4.3.
 export function parseBlockStubBody(stub, isAsync, isGenerator) {
     const stubTokens = (stub === undefined || stub === null || stub.tokens === undefined
         || stub.tokens === null) ? [] : stub.tokens;
@@ -2212,9 +2234,8 @@ export function parseBlockStubBody(stub, isAsync, isGenerator) {
     // legal — including in a nested `{}` block, where the depth counter (not
     // the single-slot ParseMode) is what proves function scope.
     ctx.functionDepth = 1;
-    // M4.1 — seed the async/generator scope from the enclosing function so
-    // `await`/`yield` parse as operators inside the re-entered body.
-    ctx.inAsync = isAsync === true;
+    // M4.1 — seed the generator scope from the enclosing function so
+    // `yield` parses as an operator inside the re-entered body.
     ctx.inGenerator = isGenerator === true;
     const body = parseStatementList(ctx, undefined);
     return { body, errors: ctx.errors };

@@ -316,7 +316,7 @@ gating; the parse-layer re-compositions are correct + verified).
 ---
 
 - **M3 — JS statement parser** — ✅ DECOMPOSED S113 into M3.1 / M3.2 / M3.3 / M3.4; see §3.2 above.
-- **M4 — full bounded JS subset** — ✅ DECOMPOSED S113 into M4.1 / M4.2 / M4.3; see §3.4 above.
+- **M4 — full bounded JS subset** — ✅ COMPLETE S114 (M4.1 + M4.2 + M4.3 all landed). M4.3 retracted source-level async/await (parallel-by-default, no colored functions; the canonical async surface is the compiler body-split). The JS-subset bound is now corpus-gated. Cascade-removal bound closed (M5/M6 can retire preprocessForAcorn). MK4 (markup↔JS seam) is next.
 - **MK2 — `TagFrame` engine** — ✅ DECOMPOSED S113 into MK2.1 / MK2.2 / MK2.3; see §3.1
   above. (Blocked-precondition OQ-2/R3 §4.18.1/§40.8 program-body mode was RESOLVED S111
   `78faa65` — `default-logic` is a distinct THIRD body-mode; MK2 honors all three modes.)
@@ -402,8 +402,8 @@ within one quarter.
 | **MK3.2** DisplayTextLiteral literal scanning (non-interpolation) | ✅ landed S113 | scrml-js-codegen-engineer (worktree) | S113 | `scanDisplayTextLiteral` — `"..."` open/close, `\"`/`\\`/`\${` escapes, verbatim whitespace, the `{segments, exprs}` AST node, unterminated → E-CTX-001; +53 tests; full suite 17,609/0. (Surfaced a SPEC §4.18.3/§4.18.4 escape-count inconsistency — implemented the 3-escape union; see hand-off.) |
 | **MK3.3** ${...} interpolation + E-UNQUOTED-DISPLAY-TEXT + §4.18 conformance | ✅ landed S113 | scrml-js-codegen-engineer (worktree) | S113 | DisplayTextLiteral.InInterpolation (`${...}` delegates to the M2 expr parser; ONE `{segments, exprs}` node) + code-default-body dispatch + E-UNQUOTED-DISPLAY-TEXT (§4.18.7); +52 tests; full suite 17,706/0. **MK3 MILESTONE COMPLETE** (charter Q4.A gating met). |
 | **M4.1** async / generator (await/yield operators, function*) | ✅ landed S113 | scrml-js-codegen-engineer (worktree) | S113 | await/yield/yield* as expression operators (`inAsync`/`inGenerator` ctx slots — NOT a ParseMode variant); `function*` expr + object-method generator wiring; Await/Yield promoted into `ast-expr` ExprKind; +106 tests; full suite 17,812/0. |
-| M4.2 destructuring unification (K6) + noIn | ⬜ pending | — | — | §3.4 — depends M4.1 |
-| M4.3 full-corpus conformance + Tier 1-4 + residual D5 | ⬜ pending | — | — | §3.4 — depends M4.2 |
+| **M4.2** destructuring unification (K6) + noIn | ✅ landed S114 | scrml-js-codegen-engineer (worktree) | S114 | K6 — parseParamTarget builds REAL ObjectPattern/ArrayPattern binding nodes; toBindingPattern transform on non-decl for-in/of LHS; `noIn` flag threaded into M2's binary climber (parseBinary skips KwIn when noIn=true); +K9 (markup-layer circular import) resolved in flight. Full suite 17,831/0. |
+| **M4.3** full-corpus conformance + Tier 1-4 + residual D5 + async/await RETRACTION | ✅ landed S114 | scrml-token-and-ast-engineer (worktree) | S114 | **Thread A** — async/await RETRACTED at language level (E-ASYNC-NOT-IN-SCRML / E-AWAIT-NOT-IN-SCRML / E-FOR-AWAIT-NOT-IN-SCRML); `inAsync` ctx slot removed; `Await` ExprKind retired; generators (`yield`/`yield*`/`function*`) PRESERVED. **Thread B** — parser-conformance-corpus.test.js: bench corpus (12 fixtures) parses cleanly at raw source (preprocessForAcorn-NOT-NEEDED bound closed); .scrml corpus (~1000 files) smoke-passes (no-throw discipline). Bench async/await/null fixtures scrubbed. Full suite 17,769/0. **M4 MILESTONE COMPLETE.** |
 | MK4 / M5 / M6 | ⬜ pending | — | — | decompose when scheduled (§3) |
 
 **Legend:** ⬜ pending · ⏳ in flight · ✅ complete · 🟥 blocked

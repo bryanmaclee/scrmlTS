@@ -1182,17 +1182,14 @@ const CALL_MEMBER_CORPUS = [
     { name: "arrow — empty block body",         src: "() => {}" },
     { name: "arrow — param + empty block",      src: "(a) => {}" },
 
-    // --- async arrows ---
-    { name: "async arrow — single param",       src: "async x => x" },
-    { name: "async arrow — no params",          src: "async () => 1" },
-    { name: "async arrow — two params",         src: "async (a, b) => a" },
-    { name: "async arrow — empty block",        src: "async () => {}" },
+    // --- async arrows / async function expr (M4.3 RETRACTED — no longer in
+    // the conformance corpus; their parse fires E-ASYNC-NOT-IN-SCRML, see
+    // the dedicated describe block below) ---
 
     // --- function expressions — empty block body ---
     { name: "function expr — anonymous",        src: "function () {}" },
     { name: "function expr — named",            src: "function f() {}" },
     { name: "function expr — params",           src: "function f(a, b) {}" },
-    { name: "async function expr",              src: "async function () {}" },
 
     // --- call / member interacting with operators + composites ---
     { name: "member in binary",                 src: "a.b + c.d" },
@@ -1347,11 +1344,14 @@ describe("M2.3 expression-parser — call/member/arrow node shape (native AST)",
         expect(n.ast.body.tokens.length).toBeGreaterThan(0);
     });
 
-    test("async arrow node — isAsync flag true", () => {
+    test("`async x => x` fires E-ASYNC-NOT-IN-SCRML; recovery keeps isAsync false (M4.3)", () => {
         const n = parseWithNative("async x => x");
         expect(n.ok).toBe(true);
+        expect(n.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+        // RECOVERY — the arrow still parses (so the rest of the program is
+        // diagnosable); the `async` flag is forced false (M4.3 retraction).
         expect(n.ast.kind).toBe(ExprKind.Arrow);
-        expect(n.ast.isAsync).toBe(true);
+        expect(n.ast.isAsync).toBe(false);
     });
 
     test("function expression node — name + params + BlockStub body", () => {
@@ -2268,3 +2268,85 @@ describe("M2.4 expression-parser — error paths (diagnostics, no throw)", () =>
         expect(codes).toContain("E-EXPR-MATCH-PATTERN");
     });
 });
+
+// =============================================================================
+// M4.3 — async / await RETRACTION (the language-level decision that scrml has
+// no `async` / `await`). The parser ENCOUNTERS the keyword forms (M1 still
+// lexes `async` / `await` as keywords for tooling-compatibility), but every
+// production-position appearance fires a scrml-level error code:
+//   - E-ASYNC-NOT-IN-SCRML — `async` on a function decl / expr, arrow, or
+//     method (class/object); also `export async function` / `export default
+//     async function`.
+//   - E-AWAIT-NOT-IN-SCRML  — `await` used as a unary operator anywhere.
+//   - E-FOR-AWAIT-NOT-IN-SCRML — `for await ( ... )` in any shape.
+// The parse RECOVERS so the rest of the program stays diagnosable; the
+// retracted AST flag (isAsync) is forced false. The `Await` ExprKind itself
+// is RETIRED — parseUnary returns the operand directly. Generators
+// (`yield`/`yield*`/`function*`) are PRESERVED.
+// =============================================================================
+describe("M4.3 — async/await retraction (expression layer)", () => {
+    test("`async function () {}` — fires E-ASYNC-NOT-IN-SCRML; isAsync recovers to false", () => {
+        const n = parseWithNative("async function () {}");
+        expect(n.ok).toBe(true);
+        expect(n.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+        expect(n.ast.kind).toBe(ExprKind.Function);
+        expect(n.ast.isAsync).toBe(false);
+    });
+
+    test("`async x => x` — fires E-ASYNC-NOT-IN-SCRML; arrow recovers with isAsync false", () => {
+        const n = parseWithNative("async x => x");
+        expect(n.ok).toBe(true);
+        expect(n.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+        expect(n.ast.kind).toBe(ExprKind.Arrow);
+        expect(n.ast.isAsync).toBe(false);
+    });
+
+    test("`async () => 1` — fires E-ASYNC-NOT-IN-SCRML; arrow recovers", () => {
+        const n = parseWithNative("async () => 1");
+        expect(n.ok).toBe(true);
+        expect(n.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+        expect(n.ast.kind).toBe(ExprKind.Arrow);
+        expect(n.ast.isAsync).toBe(false);
+    });
+
+    test("`{ async load() {} }` — fires E-ASYNC-NOT-IN-SCRML; object method recovers", () => {
+        const n = parseWithNative("({ async load() {} })");
+        expect(n.ok).toBe(true);
+        expect(n.errors.map((e) => e.code)).toContain("E-ASYNC-NOT-IN-SCRML");
+    });
+
+    test("`await x` — fires E-AWAIT-NOT-IN-SCRML; recovery returns the operand", () => {
+        const n = parseWithNative("await x");
+        expect(n.ok).toBe(true);
+        expect(n.errors.map((e) => e.code)).toContain("E-AWAIT-NOT-IN-SCRML");
+        // RECOVERY — no Await node; the operand (`x`) flows through as the
+        // unary tail.
+        expect(n.ast.kind).toBe(ExprKind.Ident);
+        expect(n.ast.name).toBe("x");
+    });
+
+    test("`await await deep()` — recovery returns the innermost operand (no Await nodes)", () => {
+        const n = parseWithNative("await await deep()");
+        expect(n.ok).toBe(true);
+        const codes = n.errors.map((e) => e.code);
+        // Both `await` keywords fire the code (one for each occurrence).
+        expect(codes.filter((c) => c === "E-AWAIT-NOT-IN-SCRML").length).toBe(2);
+        // The recovery returns `deep()` (a Call node), unwrapped.
+        expect(n.ast.kind).toBe(ExprKind.Call);
+    });
+
+    test("`async` as a plain identifier still parses (`async.then`, `async(1)`) — no error", () => {
+        const n1 = parseWithNative("async.then");
+        expect(n1.errors).toEqual([]);
+        expect(n1.ast.kind).toBe(ExprKind.Member);
+        const n2 = parseWithNative("async(1)");
+        expect(n2.errors).toEqual([]);
+        expect(n2.ast.kind).toBe(ExprKind.Call);
+    });
+
+    test("`{ async: 1 }` — `async` as a property key is NOT a retraction (no error)", () => {
+        const n = parseWithNative("({ async: 1 })");
+        expect(n.errors).toEqual([]);
+    });
+});
+
