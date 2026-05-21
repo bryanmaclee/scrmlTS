@@ -64,6 +64,11 @@ import {
     closeMarkupElement,
     handleCloser,
     closeUnterminatedTags,
+    // MK3.3 — the §4.18 code-default body dispatch surface.
+    dispatchCodeDefaultBody,
+    isBodyWhitespace,
+    scanCodeDefaultRunExtent,
+    isValidCodeRun,
 } from "../native-parser/parse-markup.js";
 import { makeParseContext, delegationDepth } from "../native-parser/parse-ctx.js";
 import { makeCursor, isEof, advance } from "../native-parser/cursor.js";
@@ -137,6 +142,10 @@ import {
 // MK3.2 — the §4.18.3/.4 `.Outside` / `.InLiteralText` literal-scanning
 // surface: the escape scanner, the AST-node builders, the diagnostic
 // sink, and scanDisplayTextLiteral itself.
+// MK3.3 — the §4.18.4 `.InInterpolation` interpolation surface:
+// findInterpolationCloseOffset (the matching-`}` extent scan),
+// parseInterpolationBody (the M2-expression-parser delegation), and
+// scanInterpolation (the `${expr}` scan).
 import {
     DisplayTextLiteral,
     initialDisplayTextLiteral,
@@ -147,6 +156,9 @@ import {
     makeLiteralSegment,
     makeDisplayTextLiteralNode,
     scanDisplayTextLiteral,
+    findInterpolationCloseOffset,
+    parseInterpolationBody,
+    scanInterpolation,
 } from "../native-parser/display-text-literal.js";
 // MK3.1 — the parse-ctx block-kind catalog (the DisplayTextLiteral kind).
 import { blockKinds } from "../native-parser/parse-ctx.js";
@@ -3611,44 +3623,55 @@ describe("MK3.2 malformed escape — E-PARSE-001 (SPEC §4.18.3)", () => {
 });
 
 // =============================================================================
-// MK3.2 §52 — the `${` interpolation-stop seam (MK3.3 forward-ref).
+// MK3.2 §52 — the `${`-recognition seam (MK3.3 consumes it; this section
+// holds the still-valid MK3.2-vintage assertions, updated for MK3.3).
 // =============================================================================
-describe("MK3.2 interpolation-stop — the un-escaped `${` MK3.3 resume seam", () => {
-    test("an un-escaped `${` STOPS the scan — `stoppedAtInterp` is true", () => {
-        // MK3.2's scanner recognizes `${` as the .InInterpolation
-        // transition (SPEC §4.18.4) and STOPS — the interpolation
-        // delegation itself is MK3.3.
+describe("MK3.2 ${} recognition — the un-escaped `${` interpolation seam", () => {
+    // MK3.3 NOTE — MK3.2 STOPPED the scan at an un-escaped `${`
+    // (`stoppedAtInterp: true`, cursor left AT the `$`); MK3.3 consumes
+    // the interpolation in-line, so the scan now runs through to the
+    // closing `"`. `stoppedAtInterp` is retained as a return field for
+    // caller-shape stability and is always `false` post-MK3.3.
+
+    test("an un-escaped `${` is consumed in-line — `stoppedAtInterp` is false (MK3.3)", () => {
+        // MK3.3 — the scanner consumes the `${x}` interpolation and
+        // continues to the closing `"`; the scan does not stop.
         const r = scanLiteral(DQ + "hi " + INTERP + "x} bye" + DQ);
-        expect(r.stoppedAtInterp).toBe(true);
+        expect(r.stoppedAtInterp).toBe(false);
+        expect(r.node.terminated).toBe(true);
     });
 
     test("the segment before the `${` is the literal text up to the opener", () => {
-        // The scan accumulates `hi ` then stops AT the `${` — the first
-        // segment is `hi `.
+        // The scan accumulates `hi ` then closes the segment AT the `${`
+        // — the first segment is `hi `.
         const r = scanLiteral(DQ + "hi " + INTERP + "x}" + DQ);
         expect(r.node.segments[0].cooked).toBe("hi ");
     });
 
-    test("the `${` is NOT consumed — the cursor lands AT the `$` (MK3.3 reads it)", () => {
-        // `"hi ${...` — `"`(0) `h`(1) `i`(2) ` `(3) `$`(4). The scan stops
-        // with the cursor at offset 4 so MK3.3's resume reads the `${`.
-        const r = scanLiteral(DQ + "hi " + INTERP + "x}" + DQ);
-        expect(r.endPos).toBe(4);
+    test("a literal with one interpolation has 2 segments + 1 expr (MK3.3)", () => {
+        // SPEC §4.18.4 — one interpolation splits the literal into 2
+        // literal-text segments interleaved with 1 expression.
+        const r = scanLiteral(DQ + "hi " + INTERP + "x} bye" + DQ);
+        expect(r.node.segments.length).toBe(2);
+        expect(r.node.exprs.length).toBe(1);
     });
 
-    test("a scan stopped at `${` is NOT terminated and fires NO E-CTX-001", () => {
-        // Stopping at an interpolation is a clean MK3.3 hand-off — it is
-        // neither a terminated literal nor an unterminated-literal error.
-        const r = scanLiteral(DQ + "before " + INTERP + "expr}");
-        expect(r.node.terminated).toBe(false);
+    test("a clean interpolated literal is terminated and fires NO E-CTX-001", () => {
+        // A `${...}` followed by a closing `"` is a clean, terminated
+        // literal — no unterminated-literal error.
+        const r = scanLiteral(DQ + "before " + INTERP + "expr}" + DQ);
+        expect(r.node.terminated).toBe(true);
         expect(r.diagnostics.filter((d) => d.code === "E-CTX-001").length).toBe(0);
     });
 
-    test("a literal that is ONLY an interpolation — segment empty, stopped at `${`", () => {
+    test("a literal that is ONLY an interpolation — empty bracketing segments (MK3.3)", () => {
+        // `"${x}"` — segment "" + expr + segment "" (the §4.18.4 N+1
+        // segments / N exprs shape with N = 1).
         const r = scanLiteral(DQ + INTERP + "x}" + DQ);
+        expect(r.node.segments.length).toBe(2);
         expect(r.node.segments[0].cooked).toBe("");
-        expect(r.stoppedAtInterp).toBe(true);
-        expect(r.endPos).toBe(1);
+        expect(r.node.segments[1].cooked).toBe("");
+        expect(r.node.exprs.length).toBe(1);
     });
 });
 
@@ -3726,5 +3749,518 @@ describe("MK3.2 SPEC §4.18 worked examples — display-text literals scan corre
     test("§4.18.5 example — `\"two  spaces\"` keeps both spaces", () => {
         const r = scanLiteral(DQ + "two  spaces" + DQ);
         expect(r.node.segments[0].cooked).toBe("two  spaces");
+    });
+});
+
+// #############################################################################
+// ##  MK3.3 — ${...} interpolation + E-UNQUOTED-DISPLAY-TEXT + §4.18 close.   ##
+// ##                                                                         ##
+// ##  Per IMPLEMENTATION-ROADMAP §3.3 (the MK3.3 row) + charter dive Q1.E     ##
+// ##  (the DisplayTextLiteral .InInterpolation composite state-child) +       ##
+// ##  Q3.A/Q3.B (the §4.18 mapping + worked-example trace) + SPEC §4.18.4     ##
+// ##  (${...} interpolation) + §4.18.7 (E-UNQUOTED-DISPLAY-TEXT).             ##
+// ##                                                                         ##
+// ##  MK3.1 landed the engine skeleton; MK3.2 the `.Outside`/.InLiteralText  ##
+// ##  literal scanning; MK3.3 — THIS section — fills `.InInterpolation` (the  ##
+// ##  ${...} interpolation, delegating to the M2 JS expression parser) and   ##
+// ##  wires the code-default body dispatch + E-UNQUOTED-DISPLAY-TEXT. MK3.3   ##
+// ##  COMPLETES the MK3 milestone (§4.18 native quoted-text).                 ##
+// ##                                                                         ##
+// ##  §55-§57 are a UNIT suite over the MK3.3 interpolation surface; §58-§62  ##
+// ##  exercise the trampoline body dispatch + the SPEC §4.18 worked examples  ##
+// ##  end-to-end (the MK3 milestone gating — charter Q4.A).                   ##
+// #############################################################################
+
+// MK3.3 char-code constants for the interpolation sources. DOLLAR + LBRACE
+// build the `${` opener; RBRACE the matching `}`.
+const RBRACE = String.fromCharCode(125); // }
+
+// scanInterp — drive scanInterpolation over a source string. The cursor is
+// positioned at offset 0 (the source begins with the `${`'s `$`). Returns
+// { expr, terminated, endPos, diagnostics }.
+function scanInterp(source) {
+    const cursor = makeCursor(source);
+    const ctx = makeParseContext();
+    const { expr, terminated } = scanInterpolation(cursor, ctx);
+    return {
+        expr,
+        terminated,
+        endPos: cursor.pos,
+        diagnostics: ctx.diagnostics ?? [],
+    };
+}
+
+// bodyTrace — run the markup trampoline over a source string and return the
+// full observation surface { blocks, diagnostics } — `blocks` is the
+// block-stream (ctx.nodes), `diagnostics` is the ctx.diagnostics stream.
+function bodyTrace(source) {
+    const { ctx } = parseMarkupTrace(source);
+    return { blocks: ctx.nodes, diagnostics: ctx.diagnostics ?? [] };
+}
+
+// collectBlocks — recursively flatten the markup block tree into a flat
+// array (a Markup block's children are nested; this walk surfaces every
+// block at any depth so a test can assert on a deeply-nested
+// DisplayTextLiteral / Text block).
+function collectBlocks(blocks) {
+    const out = [];
+    function walk(b) {
+        out.push(b);
+        if (Array.isArray(b.children)) {
+            for (const c of b.children) walk(c);
+        }
+    }
+    for (const b of blocks) walk(b);
+    return out;
+}
+
+// firstOfKind — the first block of `kind` anywhere in the tree, or null.
+function firstOfKind(blocks, kind) {
+    const all = collectBlocks(blocks);
+    for (const b of all) {
+        if (b.kind === kind) return b;
+    }
+    return null;
+}
+
+// codesOf — the diagnostic-code list of a diagnostics array.
+function codesOf(diags) {
+    return diags.map((d) => d.code);
+}
+
+// =============================================================================
+// MK3.3 §55 — findInterpolationCloseOffset: the matching-`}` extent scan.
+// =============================================================================
+describe("MK3.3 findInterpolationCloseOffset — the matching-`}` brace count (§4.18.4)", () => {
+    test("a simple `{x}` — the close is one past the `}`", () => {
+        // `{x}` — `{`(0) `x`(1) `}`(2); one-past the `}` is offset 3.
+        expect(findInterpolationCloseOffset(LBRACE + "x" + RBRACE)).toBe(3);
+    });
+
+    test("nested braces — an object literal `{f({a: 1})}` finds the OUTER `}`", () => {
+        // The interior `{a: 1}` braces must not close the interpolation —
+        // the matching `}` is the one balancing the LEADING `{`.
+        const src = LBRACE + "f({a: 1})" + RBRACE;
+        expect(findInterpolationCloseOffset(src)).toBe(src.length);
+    });
+
+    test("a `}` inside a string literal in the body is NOT the closer", () => {
+        // M1's lexer consumes a string body in its own LexMode dispatcher
+        // and emits no brace token from inside it — so a `}` inside a
+        // double-quoted string is not counted.
+        const src = LBRACE + "f(" + DQ + "}" + DQ + ")" + RBRACE;
+        expect(findInterpolationCloseOffset(src)).toBe(src.length);
+    });
+
+    test("an unterminated interpolation — no matching `}` — returns -1", () => {
+        expect(findInterpolationCloseOffset(LBRACE + "x + y")).toBe(-1);
+    });
+
+    test("a body that does not begin with `{` returns -1 (defensive)", () => {
+        expect(findInterpolationCloseOffset("x" + RBRACE)).toBe(-1);
+    });
+});
+
+// =============================================================================
+// MK3.3 §56 — scanInterpolation: the `${expr}` scan + M2 delegation.
+// =============================================================================
+describe("MK3.3 scanInterpolation — `${expr}` scan + the M2 delegation (§4.18.4)", () => {
+    test("a `${@x}` interpolation parses the body to an Expr AST node", () => {
+        const r = scanInterp(INTERP + "@x" + RBRACE);
+        expect(r.terminated).toBe(true);
+        expect(r.expr).not.toBe(null);
+        expect(r.expr.kind).toBe("AtCell");
+    });
+
+    test("a `${@result.count}` interpolation parses to a Member expression", () => {
+        // The charter Q3.B step-5 interpolation — `@result.count` is a
+        // member-access expression (the M2 JS expression parser builds it).
+        const r = scanInterp(INTERP + "@result.count" + RBRACE);
+        expect(r.expr.kind).toBe("Member");
+    });
+
+    test("the cursor lands ONE PAST the matching `}` on a clean scan", () => {
+        // `${x}` — `$`(0) `{`(1) `x`(2) `}`(3); one-past the `}` is 4.
+        const r = scanInterp(INTERP + "x" + RBRACE);
+        expect(r.endPos).toBe(4);
+    });
+
+    test("nested braces in the body — `${f({a: 1})}` scans to the outer `}`", () => {
+        const src = INTERP + "f({a: 1})" + RBRACE;
+        const r = scanInterp(src);
+        expect(r.terminated).toBe(true);
+        expect(r.endPos).toBe(src.length);
+        expect(r.expr.kind).toBe("Call");
+    });
+
+    test("an unterminated `${...` interpolation — E-CTX-001 against the `${`", () => {
+        const r = scanInterp(INTERP + "x + y");
+        expect(r.terminated).toBe(false);
+        expect(codesOf(r.diagnostics)).toContain("E-CTX-001");
+    });
+
+    test("an unterminated interpolation consumes to EOF (progress)", () => {
+        const src = INTERP + "x + y";
+        const r = scanInterp(src);
+        expect(r.endPos).toBe(src.length);
+    });
+});
+
+// =============================================================================
+// MK3.3 §57 — parseInterpolationBody: the M2-expression-parser delegation.
+// =============================================================================
+describe("MK3.3 parseInterpolationBody — lex + parseExpr the interpolation body", () => {
+    test("a valid body text parses to an Expr AST node", () => {
+        const ctx = makeParseContext();
+        const expr = parseInterpolationBody("a + b", ctx);
+        expect(expr).not.toBe(null);
+        expect(expr.kind).toBe("Binary");
+    });
+
+    test("an empty body text parses to `null` (an empty `${}` has no expr)", () => {
+        const ctx = makeParseContext();
+        expect(parseInterpolationBody("", ctx)).toBe(null);
+    });
+
+    test("a whitespace-only body text parses to `null`", () => {
+        const ctx = makeParseContext();
+        expect(parseInterpolationBody("   ", ctx)).toBe(null);
+    });
+
+    test("a malformed body forwards the M2 parser's diagnostics into ctx", () => {
+        // `@` with nothing after it is a malformed @-cell — the M2 parser
+        // records a diagnostic; parseInterpolationBody forwards it into
+        // the shared ctx.diagnostics stream.
+        const ctx = makeParseContext();
+        parseInterpolationBody("@", ctx);
+        expect((ctx.diagnostics ?? []).length).toBeGreaterThan(0);
+    });
+});
+
+// =============================================================================
+// MK3.3 §58 — an interpolated literal produces ONE node (SPEC §4.18.4).
+// =============================================================================
+describe("MK3.3 interpolated literal — ONE `{segments, exprs}` node (SPEC §4.18.4)", () => {
+    test("a one-interpolation literal is ONE node with 2 segments + 1 expr", () => {
+        // SPEC §4.18.4 — `"Loaded ${@result.count} rows"` is ONE display-
+        // text node interleaving the literal segments + the interpolation.
+        const r = scanLiteral(DQ + "Loaded " + INTERP + "@result.count" + RBRACE + " rows" + DQ);
+        expect(r.node.segments.length).toBe(2);
+        expect(r.node.exprs.length).toBe(1);
+        expect(r.node.segments[0].cooked).toBe("Loaded ");
+        expect(r.node.segments[1].cooked).toBe(" rows");
+    });
+
+    test("N interpolations split the literal into N+1 segments + N exprs", () => {
+        // Two interpolations -> 3 segments, 2 exprs (the §4.18.4 shape).
+        const r = scanLiteral(
+            DQ + "a" + INTERP + "x" + RBRACE + "b" + INTERP + "y" + RBRACE + "c" + DQ);
+        expect(r.node.segments.length).toBe(3);
+        expect(r.node.exprs.length).toBe(2);
+        expect(r.node.segments.map((s) => s.cooked)).toEqual(["a", "b", "c"]);
+    });
+
+    test("a literal that is ONLY an interpolation — 2 empty bracketing segments", () => {
+        const r = scanLiteral(DQ + INTERP + "x" + RBRACE + DQ);
+        expect(r.node.segments.length).toBe(2);
+        expect(r.node.segments[0].cooked).toBe("");
+        expect(r.node.segments[1].cooked).toBe("");
+        expect(r.node.exprs.length).toBe(1);
+    });
+
+    test("the interpolated literal is ONE node — not decomposed into siblings (§4.18.4)", () => {
+        // SPEC §4.18.4 — "a display-text literal carrying ${...} is a
+        // single body child ... NOT decomposed into sibling text +
+        // interpolation children." The scan returns ONE node.
+        const r = scanLiteral(DQ + "x" + INTERP + "y" + RBRACE + "z" + DQ);
+        expect(r.node.kind).toBe("DisplayTextLiteral");
+        expect(Array.isArray(r.node.segments)).toBe(true);
+        expect(Array.isArray(r.node.exprs)).toBe(true);
+    });
+
+    test("an interpolated literal is terminated by its closing `\"`", () => {
+        const r = scanLiteral(DQ + "v=" + INTERP + "@x" + RBRACE + DQ);
+        expect(r.node.terminated).toBe(true);
+        expect(r.diagnostics.length).toBe(0);
+    });
+
+    test("an escaped `\\${` stays a literal `${` — NOT an interpolation", () => {
+        // SPEC §4.18.4 — `\${` escapes the interpolation opener. The
+        // literal `${` is segment text; no interpolation, no expr.
+        const r = scanLiteral(DQ + "price " + BS + INTERP + "x" + RBRACE + DQ);
+        expect(r.node.exprs.length).toBe(0);
+        expect(r.node.segments.length).toBe(1);
+        expect(r.node.segments[0].cooked).toBe("price " + INTERP + "x" + RBRACE);
+    });
+});
+
+// =============================================================================
+// MK3.3 §59 — the trampoline code-default body dispatch (DisplayTextLiteral).
+// =============================================================================
+describe("MK3.3 code-default body dispatch — a `\"` emits a DisplayTextLiteral block", () => {
+    test("a `\"...\"` in an engine state-child body emits a DisplayTextLiteral block", () => {
+        // SPEC §4.18.1 — an engine state-child body is code-default; a `"`
+        // there opens a display-text literal. The trampoline emits a
+        // DisplayTextLiteral block (not a Text block).
+        const src = "<engine for=M initial=.A><A>" + DQ + "Ready" + DQ + "</></>";
+        const { blocks } = bodyTrace(src);
+        const lit = firstOfKind(blocks, "DisplayTextLiteral");
+        expect(lit).not.toBe(null);
+        expect(lit.literal.segments[0].cooked).toBe("Ready");
+    });
+
+    test("the DisplayTextLiteral block carries the `{segments, exprs}` node as `.literal`", () => {
+        const src = "<engine for=M initial=.A><A>" + DQ + "hi " + INTERP + "@x" + RBRACE + DQ + "</></>";
+        const { blocks } = bodyTrace(src);
+        const lit = firstOfKind(blocks, "DisplayTextLiteral");
+        expect(lit.literal.kind).toBe("DisplayTextLiteral");
+        expect(lit.literal.exprs.length).toBe(1);
+    });
+
+    test("a code-default body literal block is NOT a Text block (§4.18.8)", () => {
+        // SPEC §4.18.8 — a code-default body produces DisplayTextLiteral
+        // nodes; the Text/TextNode kind is for free-text bodies. The
+        // engine state-child body here has no Text block.
+        const src = "<engine for=M initial=.A><A>" + DQ + "x" + DQ + "</></>";
+        const { blocks } = bodyTrace(src);
+        expect(firstOfKind(blocks, "Text")).toBe(null);
+        expect(firstOfKind(blocks, "DisplayTextLiteral")).not.toBe(null);
+    });
+
+    test("a free-text body keeps a bare run as a Text block (§4.18.8 — UNCHANGED)", () => {
+        // SPEC §4.18.8 — a plain-markup `<p>` body is free-text mode; a
+        // bare prose run there is a Text block, unchanged by §4.18.
+        const { blocks } = bodyTrace("<p>Ready to fetch.</p>");
+        expect(firstOfKind(blocks, "Text")).not.toBe(null);
+        expect(firstOfKind(blocks, "DisplayTextLiteral")).toBe(null);
+    });
+
+    test("whitespace between values in a code-default body is formatting, not a Text block (§4.18.5)", () => {
+        // SPEC §4.18.5 — whitespace between a literal and the closer in a
+        // code-default body is source formatting, NOT content. No Text
+        // block is emitted for it.
+        const src = "<engine for=M initial=.A><A>  " + DQ + "x" + DQ + "  </></>";
+        const { blocks } = bodyTrace(src);
+        expect(firstOfKind(blocks, "Text")).toBe(null);
+    });
+});
+
+// =============================================================================
+// MK3.3 §60 — E-UNQUOTED-DISPLAY-TEXT (SPEC §4.18.7) — the regression test.
+// =============================================================================
+describe("MK3.3 E-UNQUOTED-DISPLAY-TEXT — bare prose in a code-default body (SPEC §4.18.7)", () => {
+    test("bare prose in an engine state-child body fires E-UNQUOTED-DISPLAY-TEXT", () => {
+        // SPEC §4.18.7 worked example — `<Idle>Ready to fetch.</>` — the
+        // bare run `Ready to fetch.` is not valid code and not a `"..."`
+        // literal -> E-UNQUOTED-DISPLAY-TEXT.
+        const { diagnostics } = bodyTrace(
+            "<engine for=FetchPhase initial=.Idle><Idle>Ready to fetch.</></>");
+        expect(codesOf(diagnostics)).toContain("E-UNQUOTED-DISPLAY-TEXT");
+    });
+
+    test("the E-UNQUOTED-DISPLAY-TEXT diagnostic suggests the `\"...\"` quoted form", () => {
+        // SPEC §4.18.7 — "The diagnostic SHALL ... suggest wrapping the
+        // run in a display-text literal." The message carries the quoted
+        // form of the offending run.
+        const { diagnostics } = bodyTrace(
+            "<engine for=M initial=.A><A>Ready to fetch</></>");
+        const d = diagnostics.find((x) => x.code === "E-UNQUOTED-DISPLAY-TEXT");
+        expect(d).not.toBe(undefined);
+        expect(d.message).toContain(DQ + "Ready to fetch" + DQ);
+    });
+
+    test("E-UNQUOTED-DISPLAY-TEXT does NOT fire in a free-text body (§4.18.7)", () => {
+        // SPEC §4.18.7 — "does NOT fire in free-text-mode bodies." A bare
+        // prose run in a `<p>` body is display text, unchanged.
+        const { diagnostics } = bodyTrace("<p>Ready to fetch.</p>");
+        expect(codesOf(diagnostics)).not.toContain("E-UNQUOTED-DISPLAY-TEXT");
+    });
+
+    test("a quoted literal in a code-default body does NOT fire E-UNQUOTED-DISPLAY-TEXT", () => {
+        // The display-text literal is the correct code-default-body form
+        // for display text — no error.
+        const { diagnostics } = bodyTrace(
+            "<engine for=M initial=.A><A>" + DQ + "Ready to fetch" + DQ + "</></>");
+        expect(codesOf(diagnostics)).not.toContain("E-UNQUOTED-DISPLAY-TEXT");
+    });
+
+    test("valid code in a code-default body does NOT fire E-UNQUOTED-DISPLAY-TEXT", () => {
+        // SPEC §4.18.2 — a bare run that IS a valid scrml expression (here
+        // a member access) is code, not prose — no error.
+        const { diagnostics } = bodyTrace(
+            "<engine for=M initial=.A><A>@result.count</></>");
+        expect(codesOf(diagnostics)).not.toContain("E-UNQUOTED-DISPLAY-TEXT");
+    });
+
+    test("a bare identifier in a code-default body does NOT fire E-UNQUOTED-DISPLAY-TEXT", () => {
+        const { diagnostics } = bodyTrace(
+            "<engine for=M initial=.A><A>computeThing</></>");
+        expect(codesOf(diagnostics)).not.toContain("E-UNQUOTED-DISPLAY-TEXT");
+    });
+
+    test("a bare call in a code-default body does NOT fire E-UNQUOTED-DISPLAY-TEXT", () => {
+        const { diagnostics } = bodyTrace(
+            "<engine for=M initial=.A><A>doThing(1, 2)</></>");
+        expect(codesOf(diagnostics)).not.toContain("E-UNQUOTED-DISPLAY-TEXT");
+    });
+
+    test("E-UNQUOTED-DISPLAY-TEXT severity is Error (SPEC §34)", () => {
+        // SPEC §34 — E-UNQUOTED-DISPLAY-TEXT is an Error-severity code.
+        // The native parser's diagnostic carries the `E-` prefix that the
+        // pipeline's stream partition routes to the fatal error stream.
+        const { diagnostics } = bodyTrace(
+            "<engine for=M initial=.A><A>bare prose run</></>");
+        const d = diagnostics.find((x) => x.code === "E-UNQUOTED-DISPLAY-TEXT");
+        expect(d.code.startsWith("E-")).toBe(true);
+    });
+});
+
+// =============================================================================
+// MK3.3 §61 — isValidCodeRun / scanCodeDefaultRunExtent unit tests.
+// =============================================================================
+describe("MK3.3 isValidCodeRun — the §4.18.2 valid-code predicate", () => {
+    test("a single identifier is valid code", () => {
+        expect(isValidCodeRun("count")).toBe(true);
+    });
+
+    test("an `@`-cell is valid code", () => {
+        expect(isValidCodeRun("@count")).toBe(true);
+    });
+
+    test("a member access is valid code", () => {
+        expect(isValidCodeRun("a.b.c")).toBe(true);
+    });
+
+    test("a call is valid code", () => {
+        expect(isValidCodeRun("f(1, 2)")).toBe(true);
+    });
+
+    test("two adjacent identifiers (`Ready to`) are NOT valid code — prose", () => {
+        // `Ready to` lexes to two adjacent Ident tokens; parseExpression
+        // consumes only `Ready` and leaves `to` — not a single expression,
+        // so the run is bare prose.
+        expect(isValidCodeRun("Ready to")).toBe(false);
+    });
+
+    test("a three-word prose run (`Ready to fetch`) is NOT valid code", () => {
+        expect(isValidCodeRun("Ready to fetch")).toBe(false);
+    });
+
+    test("an empty run is NOT valid code (vacuously)", () => {
+        expect(isValidCodeRun("")).toBe(false);
+    });
+
+    test("a whitespace-only run is NOT valid code", () => {
+        expect(isValidCodeRun("   ")).toBe(false);
+    });
+});
+
+describe("MK3.3 scanCodeDefaultRunExtent — the bare-run boundary scan", () => {
+    test("the run ends at a `<` (a nested tag / closer boundary)", () => {
+        // `abc<` — the bare run `abc` ends at offset 3 (the `<`).
+        const cursor = makeCursor("abc</>");
+        expect(scanCodeDefaultRunExtent(cursor)).toBe(3);
+    });
+
+    test("the run ends at a `\"` (a display-text literal boundary)", () => {
+        const cursor = makeCursor("xy" + DQ + "z" + DQ);
+        expect(scanCodeDefaultRunExtent(cursor)).toBe(2);
+    });
+
+    test("the run ends at a `${` (a sigil-context boundary)", () => {
+        const cursor = makeCursor("ab" + INTERP + "x" + RBRACE);
+        expect(scanCodeDefaultRunExtent(cursor)).toBe(2);
+    });
+
+    test("the run ends at EOF when no boundary follows", () => {
+        const cursor = makeCursor("abcdef");
+        expect(scanCodeDefaultRunExtent(cursor)).toBe(6);
+    });
+});
+
+// =============================================================================
+// MK3.3 §62 — SPEC §4.18 worked examples end-to-end (the MK3 milestone gate).
+// =============================================================================
+describe("MK3.3 SPEC §4.18 worked examples — the MK3 milestone gating (charter Q4.A)", () => {
+    test("§4.18.3 — the `<engine for=FetchPhase>` quoted-literals example parses clean", () => {
+        // SPEC §4.18.3 worked example — three state-child bodies, each a
+        // `"..."` display-text literal; the `'` chars are interior chars.
+        const src =
+            "<engine for=FetchPhase initial=.Idle>" +
+            "<Idle>" + DQ + "Ready to fetch." + DQ + "</>" +
+            "<Loading>" + DQ + "Loading…" + DQ + "</>" +
+            "<Error>" + DQ + "Don't panic — it's recoverable." + DQ + "</>" +
+            "</>";
+        const { blocks, diagnostics } = bodyTrace(src);
+        const lits = collectBlocks(blocks).filter((b) => b.kind === "DisplayTextLiteral");
+        expect(lits.length).toBe(3);
+        expect(lits[2].literal.segments[0].cooked).toBe("Don't panic — it's recoverable.");
+        expect(codesOf(diagnostics)).not.toContain("E-UNQUOTED-DISPLAY-TEXT");
+    });
+
+    test("§4.18.4 — the charter Q3.B trace — `\"Loaded ${@result.count} rows\"` is ONE node", () => {
+        // The charter Q3.B step-5 canonical trace: the interpolation
+        // produces ONE DisplayTextLiteral node, `{ segments: ["Loaded ",
+        // " rows"], exprs: [<member @result.count>] }`.
+        const src =
+            "<engine for=FetchPhase initial=.Idle>" +
+            "<Success>" + DQ + "Loaded " + INTERP + "@result.count" + RBRACE + " rows" + DQ + "</>" +
+            "</>";
+        const { blocks, diagnostics } = bodyTrace(src);
+        const lit = firstOfKind(blocks, "DisplayTextLiteral");
+        expect(lit).not.toBe(null);
+        expect(lit.literal.segments.map((s) => s.cooked)).toEqual(["Loaded ", " rows"]);
+        expect(lit.literal.exprs.length).toBe(1);
+        expect(lit.literal.exprs[0].kind).toBe("Member");
+        expect(diagnostics.length).toBe(0);
+    });
+
+    test("§4.18.4 — the second interpolation example — `\"Failed: ${@result.message}\"`", () => {
+        const src =
+            "<engine for=FetchPhase initial=.Idle>" +
+            "<Error>" + DQ + "Failed: " + INTERP + "@result.message" + RBRACE + DQ + "</>" +
+            "</>";
+        const { blocks } = bodyTrace(src);
+        const lit = firstOfKind(blocks, "DisplayTextLiteral");
+        expect(lit.literal.segments[0].cooked).toBe("Failed: ");
+        expect(lit.literal.exprs.length).toBe(1);
+    });
+
+    test("§4.18.6 — `\"a literal <tag> and an & ampersand\"` — the parser keeps the text verbatim", () => {
+        // SPEC §4.18.6 — the `<`/`>`/`&` HTML-escaping is a CODEGEN
+        // concern; the parser captures the literal characters verbatim
+        // (inside the `"..."` they are literal text, not tag/entity
+        // syntax).
+        const src =
+            "<engine for=Mode initial=.ShowTag>" +
+            "<ShowTag>" + DQ + "a literal <tag> and an & ampersand" + DQ + "</>" +
+            "</>";
+        const { blocks } = bodyTrace(src);
+        const lit = firstOfKind(blocks, "DisplayTextLiteral");
+        expect(lit.literal.segments[0].cooked).toBe("a literal <tag> and an & ampersand");
+    });
+
+    test("§4.18.7 — the bare-prose example fires E-UNQUOTED-DISPLAY-TEXT", () => {
+        // SPEC §4.18.7 worked example — `<Idle>Ready to fetch.</>` (bare,
+        // no quotes) is the canonical E-UNQUOTED-DISPLAY-TEXT case.
+        const { diagnostics } = bodyTrace(
+            "<engine for=FetchPhase initial=.Idle><Idle>Ready to fetch.</></>");
+        const d = diagnostics.find((x) => x.code === "E-UNQUOTED-DISPLAY-TEXT");
+        expect(d).not.toBe(undefined);
+        expect(d.message).toContain(DQ + "Ready to fetch." + DQ);
+    });
+
+    test("an interpolation with nested object braces parses end-to-end", () => {
+        // A `${...}` body containing an object literal — the nested braces
+        // do not prematurely close the interpolation.
+        const src =
+            "<engine for=M initial=.A>" +
+            "<A>" + DQ + "v=" + INTERP + "pick({a: 1, b: 2})" + RBRACE + DQ + "</>" +
+            "</>";
+        const { blocks, diagnostics } = bodyTrace(src);
+        const lit = firstOfKind(blocks, "DisplayTextLiteral");
+        expect(lit.literal.exprs.length).toBe(1);
+        expect(lit.literal.exprs[0].kind).toBe("Call");
+        expect(diagnostics.length).toBe(0);
     });
 });

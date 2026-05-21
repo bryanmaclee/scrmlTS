@@ -238,7 +238,7 @@ does NOT create or edit the markup-layer files.
 
 ---
 
-### §3.3 MK3 — `BodyMode` + `DisplayTextLiteral` (§4.18 quoted-text) (DECOMPOSED S113 — DISPATCH-READY)
+### §3.3 MK3 — `BodyMode` + `DisplayTextLiteral` (§4.18 quoted-text) (✅ COMPLETE S113 — MK3.1 + MK3.2 + MK3.3)
 
 **Decomposed S113** (PA, from charter dive Q1.D `BodyMode` sketch + Q1.E
 `DisplayTextLiteral` sketch + Q3 §4.18 mapping + Q4.B; SPEC §4.18). MK3's turn in the
@@ -363,7 +363,7 @@ within one quarter.
 | **M3.4** error-recovery integration + conformance | ✅ landed S113 | scrml-js-codegen-engineer (worktree) | S113 | ErrorRecovery-engine panic-mode resync (skipped-token accumulation + resync on `;`/statement-start/`}`) + return-legality (`functionDepth`) + full-statement-subset conformance; +45 tests; full suite 17,654/0. **M3 MILESTONE COMPLETE** (S98 D7 gating met). |
 | **MK3.1** BodyMode + DisplayTextLiteral skeleton + body-mode establishment + P7 | ✅ landed S113 | scrml-js-codegen-engineer (worktree) | S113 | body-mode + display-text-literal (skeleton) engine files; body-mode establishment (per §4.18.1's 3 code-bearing loci) + tag-frame `bodyMode` payload + P7 DelegationFrame threading + `DisplayTextLiteral` block kind; **K1 RESOLVED**; +36 tests; full suite 17,371/0. |
 | **MK3.2** DisplayTextLiteral literal scanning (non-interpolation) | ✅ landed S113 | scrml-js-codegen-engineer (worktree) | S113 | `scanDisplayTextLiteral` — `"..."` open/close, `\"`/`\\`/`\${` escapes, verbatim whitespace, the `{segments, exprs}` AST node, unterminated → E-CTX-001; +53 tests; full suite 17,609/0. (Surfaced a SPEC §4.18.3/§4.18.4 escape-count inconsistency — implemented the 3-escape union; see hand-off.) |
-| MK3.3 ${...} interpolation + E-UNQUOTED-DISPLAY-TEXT + §4.18 conformance | ⬜ pending | — | — | §3.3 — depends MK3.2 |
+| **MK3.3** ${...} interpolation + E-UNQUOTED-DISPLAY-TEXT + §4.18 conformance | ✅ landed S113 | scrml-js-codegen-engineer (worktree) | S113 | DisplayTextLiteral.InInterpolation (`${...}` delegates to the M2 expr parser; ONE `{segments, exprs}` node) + code-default-body dispatch + E-UNQUOTED-DISPLAY-TEXT (§4.18.7); +52 tests; full suite 17,706/0. **MK3 MILESTONE COMPLETE** (charter Q4.A gating met). |
 | M4 / MK4 / M5 / M6 | ⬜ pending | — | — | decompose when scheduled (§3) |
 
 **Legend:** ⬜ pending · ⏳ in flight · ✅ complete · 🟥 blocked

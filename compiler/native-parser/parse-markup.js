@@ -81,6 +81,26 @@ import {
     reportUnterminatedTags,
     classifyTagFrame,
 } from "./tag-frame.js";
+// MK3.3 — the §4.18 code-default body dispatch. In a code-default body
+// (an engine state-child / match-arm / `:`-shorthand body — currentBodyMode
+// CodeDefault) a `"` begins a DisplayTextLiteral; a bare prose run is
+// E-UNQUOTED-DISPLAY-TEXT.
+import { currentBodyMode, isCodeDefault } from "./body-mode.js";
+import {
+    scanDisplayTextLiteral,
+    doubleQuote,
+    makeDiagnostic,
+    pushDiagnostic,
+} from "./display-text-literal.js";
+// MK3.3 — E-UNQUOTED-DISPLAY-TEXT detection. A bare run in a code-default
+// body is valid code (no error) iff the M2 expression parser consumes the
+// WHOLE run with zero diagnostics. `lex` tokenizes the run; the M2
+// expression parser (makeParseExprContext + parseExpression) builds the
+// Expr AST; `atEnd` confirms the whole run was consumed (parseExpression
+// parses ONE expression — a leftover token means the run was not all code).
+import { lex } from "./lex.js";
+import { makeParseExprContext, parseExpression } from "./parse-expr.js";
+import { atEnd } from "./token-cursor.js";
 
 // blockKindForContext — calculation. Maps a BlockContext variant to the
 // BlockKind a closed context of that variant emits. The seven
@@ -199,7 +219,8 @@ export function emitContextBlock(ctx, frame, endPos) {
 }
 
 // dispatchTopLevel — the `.TopLevel` BlockContext state-child body (MK2.2 —
-// block-stream production + structural comments + closer pairing).
+// block-stream production + structural comments + closer pairing; MK3.3 —
+// the §4.18 code-default body branch).
 //
 // At each cursor position:
 //   - a `//` / `<!-- -->` comment -> flush the text run + emit a Comment
@@ -208,6 +229,10 @@ export function emitContextBlock(ctx, frame, endPos) {
 //     its open TagFrame (handleCloser — the tag-tree pairing, MK2.2);
 //   - a block-opener SIGIL -> flush the text run + enter the context;
 //   - a `<ident` boundary -> flush the text run + enter .InMarkupTag;
+//   - MK3.3 — when the cursor sits inside a CODE-DEFAULT body (an engine
+//     state-child / match-arm body — SPEC §4.18.1), a `"` begins a
+//     DisplayTextLiteral and a bare prose run is E-UNQUOTED-DISPLAY-TEXT.
+//     The body-mode-aware recognition is dispatchCodeDefaultBody;
 //   - anything else -> accumulate into the open text run.
 //
 // Closer recognition runs BEFORE the context-entry recognition: a `</`
@@ -250,9 +275,215 @@ export function dispatchTopLevel(run, cursor, ctx) {
         return;
     }
 
-    // Ordinary top-level text — open / continue the text run, advance.
+    // MK3.3 — the §4.18 code-default body branch. When the innermost open
+    // TagFrame's body is a code-default body (an engine state-child /
+    // match-arm body — SPEC §4.18.1), bare text is NOT free-text display
+    // text: a `"` begins a DisplayTextLiteral and a bare prose run is
+    // E-UNQUOTED-DISPLAY-TEXT. The comment / closer / sigil / `<ident`
+    // recognizers above run first — they apply in EVERY body mode (a
+    // code-default body still has nested `<tag>` and `${...}` and
+    // closers). dispatchCodeDefaultBody handles only what the code-default
+    // mode changes: the `"` literal + the bare-run text/code decision.
+    if (isCodeDefault(currentBodyMode(ctx))) {
+        dispatchCodeDefaultBody(run, cursor, ctx);
+        return;
+    }
+
+    // Ordinary top-level / free-text-body text — open / continue the text
+    // run, advance.
     beginTextRun(run, cursor);
     advance(cursor, 1);
+}
+
+// --- MK3.3 — the §4.18 CODE-DEFAULT BODY DISPATCH ---------------------------
+//
+// SPEC §4.18.1 — a code-default body (an engine state-child body §51.0, a
+// match block-form arm body §18.0.1, a `:`-shorthand body §4.14) scans
+// bare runs as CODE, not free-text display text. SPEC §4.18.2 — a bare run
+// is an identifier / keyword / call / member access / literal / nested
+// `<tag>` / `${...}`; display text MUST be a `"..."` display-text literal
+// (§4.18.3). A bare prose run that is neither valid code nor a literal is
+// E-UNQUOTED-DISPLAY-TEXT (§4.18.7).
+//
+// dispatchTopLevel's comment / closer / sigil / `<ident` recognizers run
+// BEFORE this — they cover the nested-`<tag>` and `${...}` cases in EVERY
+// body mode. dispatchCodeDefaultBody handles what the code-default mode
+// CHANGES relative to free-text mode:
+//   - whitespace between values is source FORMATTING (§4.18.5) — skipped,
+//     it is not content (unlike a free-text body, where it would be a
+//     text run);
+//   - a `"` opens a DisplayTextLiteral — scanDisplayTextLiteral consumes
+//     the whole literal (incl. `${...}` interpolations — MK3.3) and a
+//     DisplayTextLiteral block is emitted;
+//   - any other non-whitespace run is a candidate CODE run — it is
+//     validated by the M2 expression parser; a run that does NOT parse as
+//     valid code is bare prose -> E-UNQUOTED-DISPLAY-TEXT (§4.18.7).
+//
+// SCOPE — the FULL code-default body grammar (a real code-default-body
+// AST node interleaving the parsed code expressions) is the MK4 markup<->JS
+// seam. MK3.3 lands the §4.18 quoted-text surface: the `"..."` literal
+// recognition + the E-UNQUOTED-DISPLAY-TEXT parse outcome. A valid-code
+// bare run is consumed (the cursor advances past it) but its parsed Expr
+// is NOT yet woven into a body node — that weaving is MK4. The
+// DisplayTextLiteral block + the E-UNQUOTED diagnostic ARE the MK3.3
+// deliverables; the code-run consumption keeps the trampoline progressing
+// without misclassifying valid code as prose.
+export function dispatchCodeDefaultBody(run, cursor, ctx) {
+    // Whitespace between values in a code-default body is source
+    // formatting (SPEC §4.18.5), not content — skip it. (A free-text
+    // body would accumulate it into a text run; the two regimes split by
+    // body mode, the §4.18.5 consequence.)
+    const here = peekChar(cursor, 0);
+    if (isBodyWhitespace(here)) {
+        advance(cursor, 1);
+        return;
+    }
+
+    // A `"` opens a display-text literal (SPEC §4.18.3). scanDisplayText
+    // Literal consumes the whole literal — every literal-text segment +
+    // every `${...}` interpolation (MK3.3) — and a DisplayTextLiteral
+    // block is emitted carrying the node.
+    if (here === doubleQuote()) {
+        emitDisplayTextLiteral(cursor, ctx);
+        return;
+    }
+
+    // Any other non-whitespace run is a candidate CODE run. Scan its
+    // extent (to the next body-structural boundary) and validate it as
+    // code via the M2 expression parser. A run that is NOT valid code is
+    // bare prose — E-UNQUOTED-DISPLAY-TEXT (SPEC §4.18.7).
+    emitCodeDefaultRun(cursor, ctx);
+}
+
+// isBodyWhitespace — calculation (predicate). A space / tab / carriage
+// return / newline — whitespace that, BETWEEN values in a code-default
+// body, is source formatting (SPEC §4.18.5).
+export function isBodyWhitespace(ch) {
+    return ch === " " || ch === "\t" || ch === "\r" || ch === "\n";
+}
+
+// emitDisplayTextLiteral — state write. The cursor is AT the opening `"`
+// of a display-text literal in a code-default body. scanDisplayText
+// Literal (display-text-literal.js) consumes the whole literal and
+// produces the DisplayTextLiteral node (with its `{segments, exprs}` —
+// §4.18.4); a DisplayTextLiteral block is appended to the block-stream.
+//
+// The DisplayTextLiteral node carries its own whole-literal span; the
+// emitted block reuses it (the block's span IS the literal's span — the
+// opening `"` through the closing `"`). The node is carried on the block
+// as `.literal` so a downstream consumer (codegen's §4.18.6 auto-HTML-
+// escape path) reads the segments + exprs.
+export function emitDisplayTextLiteral(cursor, ctx) {
+    const result = scanDisplayTextLiteral(cursor, ctx);
+    const node = result.node;
+    const k = blockKinds();
+    const block = makeBlockNode(k.DisplayTextLiteral, node.span, null);
+    // The DisplayTextLiteral node — the §4.18.4 `{segments, exprs}` carrier.
+    block.literal = node;
+    appendBlock(ctx, block);
+}
+
+// scanCodeDefaultRunExtent — calculation. The cursor is AT the first
+// character of a candidate code run in a code-default body. Return the
+// END offset of the run — the maximal stretch up to the next body-
+// structural boundary: a `<` (a nested `<tag>` or a `</` closer), a `${`
+// (a sigil context), a `"` (a display-text literal), the `}` that would
+// close the body context at brace-depth 0, a `//` line comment, or EOF.
+//
+// The run between two structural boundaries is the unit the code-default
+// body grammar classifies (valid code vs prose). The scan does NOT
+// advance the live cursor — it reads ahead; the caller advances.
+export function scanCodeDefaultRunExtent(cursor) {
+    let i = cursor.pos;
+    const src = cursor.source;
+    const len = src.length;
+    while (i < len) {
+        const ch = src.charAt(i);
+        // A `<` — a nested `<tag>` opener or a `</` closer. Either way the
+        // bare run ends here.
+        if (ch === "<") break;
+        // A `"` — a display-text literal begins.
+        if (ch === doubleQuote()) break;
+        // A `${` — a sigil context (logic escape, etc.).
+        if (ch === "$" && i + 1 < len && src.charAt(i + 1) === "{") break;
+        // A `//` — a line comment.
+        if (ch === "/" && i + 1 < len && src.charAt(i + 1) === "/") break;
+        i = i + 1;
+    }
+    return i;
+}
+
+// emitCodeDefaultRun — state write. The cursor is AT the first character
+// of a candidate code run in a code-default body. Scan the run's extent,
+// validate it as code via the M2 expression parser, and either consume it
+// (valid code — MK4 weaves the parsed Expr into a body node) or emit
+// E-UNQUOTED-DISPLAY-TEXT (SPEC §4.18.7 — the run is bare prose).
+//
+// The validity test: lex the run, run the M2 expression parser, and
+// require BOTH zero parser diagnostics AND that the parser consumed the
+// WHOLE run (parseExpression parses ONE expression — a leftover non-EOF
+// token means the run is more than one expression's worth of tokens,
+// i.e. prose like `Ready to fetch`). A trailing-whitespace-only remainder
+// is fine (the lexer drops inter-token whitespace). The cursor advances
+// past the whole run in BOTH cases — progress is guaranteed; the
+// diagnostic, not a stall, is the prose signal.
+export function emitCodeDefaultRun(cursor, ctx) {
+    const runStart = cursor.pos;
+    const runLine = cursor.line;
+    const runCol = cursor.col;
+    const runEnd = scanCodeDefaultRunExtent(cursor);
+    const runText = cursor.source.substring(runStart, runEnd);
+
+    // A run that is only whitespace cannot occur here (dispatchCodeDefault
+    // Body skips leading whitespace before calling this) — but stay
+    // defensive: an empty run advances nothing, so guard the trampoline
+    // sentinel by consuming one char.
+    if (runEnd <= runStart) {
+        advance(cursor, 1);
+        return;
+    }
+
+    const valid = isValidCodeRun(runText);
+
+    // Advance past the whole run (valid code OR prose — progress is
+    // guaranteed either way; MK4 weaves a valid run's parsed Expr into a
+    // code-default-body node).
+    advance(cursor, runEnd - runStart);
+
+    if (!valid) {
+        // SPEC §4.18.7 — a bare run in a code-default body that is neither
+        // valid code nor a `"..."` literal is E-UNQUOTED-DISPLAY-TEXT. The
+        // diagnostic identifies the run and suggests the quoted form.
+        const trimmed = runText.trim();
+        const dq = doubleQuote();
+        pushDiagnostic(ctx, makeDiagnostic(
+            "E-UNQUOTED-DISPLAY-TEXT",
+            "Display text in a code-default body must be a quoted " +
+            "display-text literal. Did you mean " + dq + trimmed + dq + " ?",
+            makeSpan(runStart, runEnd, runLine, runCol),
+        ));
+    }
+}
+
+// isValidCodeRun — calculation (predicate). Is `runText` a valid scrml
+// expression per §4.18.2 (an identifier / keyword / call / member access /
+// literal / `${...}`)? It is iff the M2 expression parser parses the WHOLE
+// run with zero diagnostics. parseExpression parses ONE (sequence-level)
+// expression; a leftover non-EOF token means the run is not a single
+// expression's worth of tokens — bare prose (`Ready to fetch` lexes to
+// three adjacent identifier tokens; parseExpression consumes only the
+// first). An empty / whitespace-only run is vacuously not a code run
+// (the caller never passes one — dispatchCodeDefaultBody skips
+// whitespace), so this returns false for it.
+export function isValidCodeRun(runText) {
+    if (runText === undefined || runText === null) return false;
+    if (runText.trim().length === 0) return false;
+    const tokens = lex(runText);
+    const exprCtx = makeParseExprContext(tokens);
+    parseExpression(exprCtx);
+    // Valid iff the parse produced no diagnostics AND consumed the whole
+    // run (the token cursor is at the trailing EOF — no leftover token).
+    return exprCtx.errors.length === 0 && atEnd(exprCtx.cursor);
 }
 
 // stampTagDepthAtOpen — state write. Record the current tag-tree depth
