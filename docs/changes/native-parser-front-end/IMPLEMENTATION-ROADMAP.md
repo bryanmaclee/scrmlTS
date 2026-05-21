@@ -196,9 +196,49 @@ owns those) and does NOT create `body-mode.scrml` (MK3 owns it).
 
 ---
 
-- **M3 — JS statement parser.** Statement grammar; function bodies parsed **in-line**
-  (subsumes BPP — `body-pre-parser.ts` deletes by construction); error-recovery engine
-  accumulates skipped tokens + re-syncs. Gating: Tier 1+2 PASS full statement subset.
+### §3.2 M3 — JS statement parser (DECOMPOSED S113 — DISPATCH-READY)
+
+**Decomposed S113** (PA, from S98 DD D5 MUST-PARSE statement rows + D7 M3 gating +
+charter Q4.A/Q4.B). M3's turn in the JS chain — M2 (M2.1-M2.4) ✅ complete.
+
+**Goal (S98 D7 M3 gating):** conformance Tier 1+2 PASS on the full statement subset;
+the error-recovery engine demonstrably accumulates skipped tokens + re-synchronizes
+(panic-mode on `;` / statement-start keywords / closing braces); function bodies
+parsed IN-LINE — `body-pre-parser.ts` (BPP) deletes by construction.
+
+**Scope boundary:** M3 is the JS STATEMENT grammar. It re-enters the `BlockStub` token
+ranges M2.3 (function/arrow block bodies) + M2.4 (match-arm block bodies) left as
+forward-seams. M3 does NOT touch the markup layer (MK*).
+
+**Subset bound (S98 D5 — per pa.md Rule 4, D5 is the scope authority):** the MUST-PARSE
+statement features are `let`/`const`/`var` (+ destructuring), block / `if`-`else` /
+`for` / `for-in` / `for-of` / `while` / `do`-`while`, `return` / `break` / `continue`,
+function + class declarations & expressions, `import`/`export`, `async`/`await`,
+`yield`/`yield*`, and `try`/`catch`/`finally`+`throw` (parsed for legacy + JS-import
+inputs; REJECTED from scrml source per primer §6 — scrml uses `fail`/`!{}`). A
+statement form NOT in D5 (`switch`, `with`, decorators, …) is `E-PARSER-OUT-OF-SUBSET`
+per D5/OQ6 — surface to PA, do NOT silently widen scope.
+
+**Inputs:** S98 DD D5 + D7 M3 gating + D3 (AST shape) + charter dive Q4.A/Q4.B. M2's
+`parse-expr.scrml`/.js (the expression parser M3 calls into) + `parse-mode.scrml`/.js
+(the `ParseMode` engine M3 extends with statement-context variants) + the `BlockStub`
+Expr node are the substrate.
+
+**File ownership (new files under `compiler/native-parser/`):** `parse-stmt.scrml`/.js
+(the statement parser) + `ast-stmt.scrml`/.js (the `Stmt` AST enum + constructors per
+D3). M3 EXTENDS `parse-mode.scrml`/.js (statement-context `ParseMode` variants). M3
+does NOT create or edit the markup-layer files.
+
+| Sub-step | Scope | Est. | Depends |
+|---|---|---|---|
+| **M3.1** | **Statement-parser substrate + declarations + block/expression statements + `BlockStub` re-entry.** `ast-stmt.scrml`/.js — the `Stmt` enum + node constructors (per D3). `parse-stmt.scrml`/.js — the statement-list parser. `parse-mode` extended with statement-context `ParseMode` variants. Parse: variable declarations (`let`/`const`/`var`, incl. object/array destructuring patterns), expression statements, block statements `{}`, the empty statement `;`. **`BlockStub` re-entry** — the mechanism that takes a `BlockStub`'s captured token range (left by M2.3 function/arrow block bodies + M2.4 match-arm block bodies) and re-parses it into a real `Stmt` list. New conformance harness `parser-conformance-stmt.test.js`. | 10-18h | M2 ✅ |
+| **M3.2** | **Control-flow statements.** `if`/`else`, `while`, `do`-`while`, `for` (C-style three-clause), `for-in`, `for-of`; `return`, `break`, `continue`; labels + labeled statements. D5-enumerated control flow only — `switch` is NOT in the subset; if the corpus surfaces one, it is `E-PARSER-OUT-OF-SUBSET` (report to PA). | 9-18h | M3.1 |
+| **M3.3** | **Functions/classes + in-line bodies (subsumes BPP) + import/export + try/throw.** Function declarations + expressions, bodies parsed IN-LINE via M3.1's statement-list parser — THE BPP subsumption (`body-pre-parser.ts` deletes by construction). `async`/`await`; `function*` / `yield` / `yield*` generators. Class declarations + expressions. `import`/`export` (named / default / namespace / re-export). `try`/`catch`/`finally`+`throw` — parsed for legacy + JS-import inputs (a later stage rejects them in scrml source). | 10-20h | M3.1 |
+| **M3.4** | **Error-recovery engine integration + full statement conformance.** Wire statement-level panic-mode recovery into M1's `ErrorRecovery` engine — accumulate skipped tokens, re-synchronize on `;` / statement-start keywords / closing braces. Conformance: Tier 1+2 PASS on the FULL statement subset of the conformance corpus. S98 D7 M3 mutual-recursion gating clause — `fn`-form parse-function mutual recursion works (SPEC §48.6.4) OR `function`-form with a documented refactor-to-`fn` TODO. | 6-14h | M3.2 + M3.3 |
+
+---
+
+- **M3 — JS statement parser** — ✅ DECOMPOSED S113 into M3.1 / M3.2 / M3.3 / M3.4; see §3.2 above.
 - **M4 — full bounded JS subset.** All D5 MUST PARSE + MUST ADD; `preprocessForAcorn`
   regex cascades NOT NEEDED. Gating: Tier 1+2 full corpus; Tier 3 spans PASS-with-deltas.
 - **MK2 — `TagFrame` engine** — ✅ DECOMPOSED S113 into MK2.1 / MK2.2 / MK2.3; see §3.1
@@ -276,6 +316,10 @@ within one quarter.
 | **MK2.1** TagFrame engine + opener recognition + TagKind | ✅ landed S113 | scrml-js-codegen-engineer (worktree) | S113 | tag-frame.scrml/.js — TagFrame 3-variant engine + TagKind calc + §4.15/§24.4 structural registry + one-pass opener tokenizer + recognizeOpener; block-context + parse-markup extended to dispatch TagFrame at .InMarkupTag. Markup conformance suite 163/0 (+~50 MK2.1 tests, 6 describe blocks). Agent stalled mid-test-write — PA crash-recovery salvage (missing `advance` import). |
 | MK2.2 closer forms + tag-tree pairing + mismatch recovery | ⬜ pending | — | — | §3.1 — depends MK2.1 |
 | MK2.3 TagKind classification + P4/P5 + conformance | ⬜ pending | — | — | §3.1 — depends MK2.2 |
-| M3 / M4 / MK3 / MK4 / M5 / M6 | ⬜ pending | — | — | decompose when scheduled (§3) |
+| **M3.1** statement substrate + declarations + BlockStub re-entry | ⬜ pending | — | — | §3.2 — DISPATCH-READY |
+| M3.2 control-flow statements | ⬜ pending | — | — | §3.2 — depends M3.1 |
+| M3.3 functions/classes + in-line bodies (subsumes BPP) + import/export + try/throw | ⬜ pending | — | — | §3.2 — depends M3.1 |
+| M3.4 error-recovery integration + conformance | ⬜ pending | — | — | §3.2 — depends M3.2+M3.3 |
+| M4 / MK3 / MK4 / M5 / M6 | ⬜ pending | — | — | decompose when scheduled (§3) |
 
 **Legend:** ⬜ pending · ⏳ in flight · ✅ complete · 🟥 blocked

@@ -1,134 +1,143 @@
-# scrmlTS — Session 113 (OPEN)
+# scrmlTS — Session 113 (OPEN — mid-session)
 
 **Date:** 2026-05-20
 **Previous:** `handOffs/hand-off-115.md` (S112 CLOSE — rotated at S113 OPEN)
 **Machine:** single-machine (S100 directive holds)
-**HEAD at S113 OPEN:** `87453fb`
-**Origin sync at S113 OPEN:** scrmlTS clean, 0/0 vs origin/main · scrml-support clean, 0/0 vs origin/main
+**HEAD at S113 OPEN:** `87453fb` · **HEAD now:** `226797c`+ (see commit ledger)
+**Origin sync:** scrmlTS — unpushed S113 commits (housekeeping + 2 landings + M3-decomp); scrml-support — clean.
 
 ---
 
-## S113 session-start state
+## S113 net so far — native-parser arc, two parallel rounds
 
-PA caught up via the full session-start checklist: pa.md (→ `../scrml-support/pa-scrmlTS.md`
-IN FULL), PRIMER, SPEC-INDEX, master-list §0, S112 CLOSE hand-off, last ~11 contentful
-user-voice entries (S99-S111; no S112 user-voice — S112 was an autonomous workhorse
-session), native-parser IMPLEMENTATION-ROADMAP.
+S113 is running the charter-B native-parser arc as a work-horse session, same shape
+as S112. **Round 1: M2.4 + MK2.1 dispatched in parallel, both landed clean.** Round 2
+(MK2.2 + M3.1) dispatched.
 
-- **Git sync:** scrmlTS + scrml-support both clean and in sync with origin (0/0).
-- **Hooks:** Configuration B — `core.hooksPath = .git/hooks`; pre-commit + post-commit
-  + pre-push all installed. Leave as-is.
-- **Inbox:** `handOffs/incoming/` empty.
-- **Worktrees:** main only (S112 cleaned 8 at wrap).
-- **Maps:** `.claude/maps/` STALE — watermark `78faa65`, HEAD `87453fb` (12 commits
-  behind; 49 files changed). The native-parser dir (M2 + MK1 files) is unmapped.
+- **M2 ladder COMPLETE** — M2.1-M2.4 all landed (M2.4 this session).
+- **MK2.1 landed** — first sub-step of the MK2 markup `TagFrame` engine.
+- Maps cold-refreshed (watermark `87453fb`; `compiler/native-parser/` now mapped).
+- M3 decomposed into M3.1-M3.4 (roadmap §3.2).
+- Tests: S112 close 16,840 → **16,954 / 0 fail / 169 skip / 1 todo** (+114, 0 regressions).
 
----
-
-## NEXT PRIORITY (S113)
-
-The native-parser charter-B implementation arc is the top thread. Next two dispatches
-parallelize (same as M2.x / MK1.x in S112):
-
-1. **M2.4** — JS scrml-extension expression forms (`is`/`is not`/`is some`/`not`/`match`/
-   `~`/`?{}`/`<#id>`/`render`/`lift`/`fail`/`::Variant`/`.Variant`). Closes the 5+
-   `preprocessForAcorn` Acorn-workaround failure modes. Roadmap §1, ~7-15h. Depends M2.3 ✅.
-2. **MK2** — markup `TagFrame` engine (tag tree, 3 closer forms, `TagKind`, structural-
-   element recognition). Roadmap §3, ~25-55h. Depends MK1 ✅.
-
-Both are compiler-source dispatches: `scrml-js-codegen-engineer`, `isolation:"worktree"`,
-F4 startup-verification block, **+ the `git merge main --no-edit` startup step** (S112
-HARNESS FINDING — mandatory). M3 follows M2.4.
-
-Also queued (not blocking the arc):
-- **M1.x cleanup cluster** — one dispatch: M1.5 (conformance flip) + K2 (M1 circular
-  import — load-bearing, must precede M6) + K3/K4 (M1 lexer maximal-munch gaps). Roadmap §4.4.
-- **Maps refresh** — `.claude/maps/` stale; run `/map incremental` or cold refresh early.
+No `compiler/src/` changes — native parser ships ALONGSIDE the live pipeline
+(`compiler/native-parser/`); swap is M5/M6.
 
 ---
 
 ## THREAD 1 (primary) — native-parser charter-B implementation arc
 
 **Tracker:** `docs/changes/native-parser-front-end/IMPLEMENTATION-ROADMAP.md` — §5 progress
-table is the source of truth; §4.4 records 4 known issues (K1-K4).
+table is source of truth; §3.1 = MK2 decomposition; §3.2 = M3 decomposition; §4.4 = K1-K5.
 
-**M-ladder status at S113 OPEN:**
+**M-ladder status at this point in S113:**
 
 | Mn | Layer | Status |
 |---|---|---|
 | M1 — composed-engines lexer | JS | ✅ COMPLETE (S99-S103) |
 | M1.5 — expr-literals.js conformance flip | JS | ⬜ pending — minor polish |
-| M2.1 substrate + ParseMode + primary exprs | JS | ✅ landed S112 (`b47c860`) |
-| M2.2 operator expressions | JS | ✅ landed S112 (`bcb4df2`) |
-| M2.3 call/member/optional-chain/new/arrow-heads | JS | ✅ landed S112 (`4c2c4a0`) |
-| **M2.4** scrml-extension expression forms | JS | ⬜ **NEXT** (roadmap §1) |
-| M3 — statement parser (subsumes BPP) | JS | ⬜ pending — re-enters M2.3's `BlockStub` token ranges |
+| **M2 — JS expression parser** | JS | ✅ **COMPLETE** — M2.1-M2.3 (S112) + M2.4 (S113 `17e1099`) |
+| **M3 — JS statement parser** | JS | ⬜ DECOMPOSED S113 (§3.2): M3.1 dispatched · M3.2/M3.3/M3.4 pending |
 | M4 — full bounded JS subset | JS | ⬜ pending |
-| MK1 — `BlockContext` engine + context-grid | Markup | ✅ COMPLETE S112 (MK1.1+MK1.2+MK1.3) |
-| **MK2** — `TagFrame` engine | Markup | ⬜ **NEXT (markup side)** (roadmap §3) |
+| **MK1 — `BlockContext` engine** | Markup | ✅ COMPLETE (S112) |
+| **MK2 — `TagFrame` engine** | Markup | ⬜ DECOMPOSED S113 (§3.1): MK2.1 landed (`226797c`) · MK2.2 dispatched · MK2.3 pending |
 | MK3 — `BodyMode` + `DisplayTextLiteral` (§4.18) | Markup | ⬜ pending — resolves K1 |
 | MK4 — markup↔JS seam; re-tokenizer scaffolding deletion | Markup | ⬜ pending |
 | M5 — pipeline swap behind `--parser=scrml-native` | Both | ⬜ pending — incremental-components-DD revisit gate |
 | M6 — joint retirement (BS + Acorn + BPP deleted) | Both | ⬜ pending |
 
-**No `compiler/src/` changes through the arc** — the native parser ships ALONGSIDE the
-live pipeline (`compiler/native-parser/`); swap is M5/M6. Per-file discipline: `.scrml`
-canonical + `.js` shadow; tests import the `.js`. The native-parser `.scrml` files do NOT
-compile cleanly (K1 BodyMode forward-ref + K2 circular import) — EXPECTED; the `.js`
-shadows are the executable surface. Do not "fix" by chasing compile errors.
+**In-flight dispatches (Round 2, S113):** MK2.2 + M3.1, both `scrml-js-codegen-engineer`,
+worktree-isolated, background. When they land: MK2.3 next (markup), M3.2/M3.3 next (JS —
+they parallelize; both depend only on M3.1).
 
 **Authority docs:** charter dive `scrml-support/docs/deep-dives/scrml-native-parser-front-end-charter-2026-05-20.md`;
-S98 DD `scrml-native-parser-design-2026-05-17.md`; R1 seam spike
-`docs/changes/native-parser-front-end/SPIKE-markup-js-seam-2026-05-20.md`;
-`compiler/native-parser/README.md`.
-
-**Grain debate** (whole-stage vs nanopass for post-front-end stages) — PARKED for the
-M5 revisit (S112 user decision). Do not run early.
+S98 DD `scrml-native-parser-design-2026-05-17.md`; roadmap §3.1/§3.2/§4.4.
 
 ---
 
-## Open questions / carry-forwards to surface at S113
+## S113 ANOMALIES + carry-forward notes
 
-1. **Native-parser arc** — M2.4 + MK2 next dispatches; M3 after M2.4. (Top priority.)
-2. **M1.x cleanup cluster** (M1.5 + K2 + K3 + K4) — one dispatch; K2 must precede M6.
-3. **Maps refresh** — `.claude/maps/` stale at `78faa65`; refresh early S113.
-4. **§29 vanilla-interop** — retire vs implement — undecided (S110 carry; user has not ruled).
-5. **v0.4 release-cut** — queued, unscheduled. v0.4 = release-cut of accumulated post-v0.3.0
-   work (L22 family, §26 Tailwind, S107-110 bug arc, native-parser M1, SPEC §4.18). The
-   native-parser whole-front-end charter B is v0.5+/multi-quarter — NOT v0.4.
-6. **`docs/changes/` regrowth** — flagged S111 (88 dirs); deref hygiene carry-forward.
+**MK2.1 agent STALLED (Round 1) — recovered.** The MK2.1 agent stalled (600s
+watchdog) with its implementation fully committed (5 WIP commits) but the test file
+uncommitted + 1 bug (`advance` used in 2 test helpers, never imported — 18 identical
+`ReferenceError`s). PA crash-recovery salvage: one-word import fix, verified
+145/18→163/0, committed to the worktree branch (`f759f0f`), landed via file-delta.
+Established uncommitted-work-recovery pattern. **Watch:** if a future native-parser
+dispatch stalls, check the worktree — implementation is usually committed; the
+uncommitted remainder is salvageable.
+
+**M2.4 agent used `--no-verify` on intermediate WIP commits without authorization.**
+Substantively harmless under the file-delta protocol (its final commit + both PA
+landing commits ran the full gate), but a pa.md-rule deviation. **Round-2 briefs
+were amended** to explicitly state the intermediate-WIP-hook policy (PA's landing
+commit is the real gate; the brief now says so + says ask before `--no-verify` on
+anything else).
+
+**Brief-vs-SPEC `not` correction (Rule 4).** M2.4 brief (echoing roadmap §1) said
+`not` has a "prefix form" — SPEC §42.10 + E-TYPE-045: prefix `not (expr)` is a
+compile error, `!` is negation. M2.4 agent parsed `not` as the absence-value atom
+only + flagged it; roadmap §1 corrected.
+
+**K5 surfaced + logged (roadmap §4.4):** M1 lexer gaps — `#` has no lex branch
+(`<#id>` lexes with a span gap), standalone `~` lexes as `BitNot`, `::` lexes as two
+`Colon`s. M2.4 re-composes all three at the parse layer (same class as K3/K4).
+Canonical fix is M1's lexer — sequence with the M1.x cleanup cluster.
+
+---
+
+## Open questions / carry-forwards
+
+1. **Native-parser arc** — Round 2 (MK2.2 + M3.1) in flight; then MK2.3 + M3.2/M3.3.
+2. **M1.x cleanup cluster** (M1.5 + K2 + K3 + K4 + **K5**) — one dispatch; K2 must
+   precede M6. Queued.
+3. **§29 vanilla-interop** — retire vs implement — undecided (S110 carry).
+4. **v0.4 release-cut** — queued, unscheduled. v0.4 = release-cut of accumulated
+   post-v0.3.0 work; charter-B native parser is v0.5+/multi-quarter, NOT v0.4.
+5. **`docs/changes/` regrowth** — flagged S111 (now 91 dirs per the S113 maps
+   non-compliance report); deref hygiene carry-forward.
+6. **Push** — S113 commits unpushed (housekeeping `7c3d898`, M2.4 `17e1099`, MK2.1
+   `226797c`, + M3-decomp commit). Pre-push hook is a ~5-min full gate.
 7. Pre-existing carries (see `handOffs/hand-off-114.md`): bare-variant-inference-nested
-   fix (SCOPED ~3-4h); PRIMER match-block section; Bug 1 ring-offset; tableFor v1.next
-   impl (~10-15h, SPEC §41.16 spec'd); formFor v1.next; quoted-text BS-retrofit Waves 2-7
-   CANCELLED (native parser implements §4.18 at MK3).
+   fix; PRIMER match-block section; Bug 1 ring-offset; tableFor v1.next impl; etc.
 
-## Things S113 PA must NOT screw up
+## Things S113+ PA must NOT screw up
 
 - Every compiler-source `isolation:"worktree"` dispatch brief MUST carry the
-  `git merge main --no-edit` startup step + a predecessor-file check (S112 HARNESS FINDING).
-- The native-parser `.scrml` files do NOT compile cleanly (K1 + K2) — EXPECTED; the `.js`
-  shadows are the executable surface. Do not chase compile errors.
+  `git merge main --no-edit` startup step + a predecessor-file check (S112 finding).
+- The native-parser `.scrml` files do NOT compile cleanly (K1 + K2) — EXPECTED; the
+  `.js` shadows are the executable surface. Do not chase compile errors.
+- Roadmap §5 progress table is PA-owned — when a dev agent edits the roadmap, do NOT
+  file-delta the roadmap from the agent branch; PA flips the row. (Round-2 briefs
+  forbid agents touching the roadmap at all.)
 - The grain debate is PARKED for M5 — do not run it early.
-- Roadmap §5 tracker is PA-owned — when a dev agent edits it, do NOT file-delta the
-  roadmap from the agent branch; PA flips the row (avoids the shared-table conflict).
 
 ---
 
-## State-as-of-S113-OPEN
+## State-as-of (S113 mid-session)
 
 | Item | Status |
 |---|---|
-| HEAD | `87453fb` |
-| Tests (S112 CLOSE) | 16,840 pass / 0 fail / 169 skip / 1 todo / 49,417 expect / 730 files |
-| `compiler/src/` changes | none planned this arc — native parser ships alongside |
-| Worktrees | main only |
-| scrmlTS / scrml-support origin sync | both clean, 0/0 |
+| HEAD | `226797c` + the M3-decomposition commit (this commit) |
+| Tests | **16,954 pass / 0 fail / 169 skip / 1 todo** (+114 vs S112; 0 regressions) |
+| `compiler/src/` changes | none — native parser ships alongside |
+| Worktrees | main + 2 retained (agent-a3f3d6857a42bf077 M2.4, agent-a98858e25af967172 MK2.1) — clean at wrap; +2 Round-2 worktrees will allocate |
+| scrmlTS origin sync | unpushed S113 commits |
+| scrml-support origin sync | clean |
 | Inbox `handOffs/incoming/` | empty |
 | Hook gate | Configuration B (pre-commit + post-commit + pre-push) |
 | pkg.json version | 0.3.3 |
-| `.claude/maps/` | STALE — watermark `78faa65`; refresh deferred to S113 |
-| `.claude/agents/` | gitignored; elm/jsx/clojure-expert retained |
+| `.claude/maps/` | fresh — cold-refreshed S113 at `87453fb` |
+
+## S113 commit ledger
+
+| Commit | What |
+|---|---|
+| `7c3d898` | chore(s113-open) — maps cold-refresh + roadmap MK2 §3.1 decomposition + hand-off rotation |
+| `17e1099` | feat(native-parser) M2.4 — JS expression parser scrml-extension forms (M2 ladder complete) |
+| `226797c` | feat(native-parser) MK2.1 — TagFrame engine + opener recognition + TagKind |
+| `<this>` | chore(s113) — roadmap M3 §3.2 decomposition + hand-off refresh |
 
 ## Tags
 
-#session-113 #OPEN #native-parser #charter-B #implementation-arc #M2.4 #MK2
+#session-113 #OPEN #native-parser #charter-B #implementation-arc #M2-complete
+#MK2.1-landed #M3-decomposed #round-2-dispatched #stall-recovery
