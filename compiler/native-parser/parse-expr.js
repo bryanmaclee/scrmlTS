@@ -278,41 +278,29 @@ const BINARY_OP_TEXT = Object.freeze({
     [TokenKind.LogicalAnd]:            "&&",
 });
 
-// SIMPLE_ASSIGN_OPS — the four compound-assignment operators M1 lexes as a
-// SINGLE token, plus plain `=`. Keyed by TokenKind, valued by the ESTree
-// operator string.
-const SIMPLE_ASSIGN_OPS = Object.freeze({
-    [TokenKind.Assign]:      "=",
-    [TokenKind.PlusAssign]:  "+=",
-    [TokenKind.MinusAssign]: "-=",
-    [TokenKind.StarAssign]:  "*=",
-    [TokenKind.SlashAssign]: "/=",
-});
-
-// TWO_TOKEN_ASSIGN_OPS — the eleven compound-assignment operators M1's lexer
-// (lex-in-code) does NOT munch into one token: it emits the operator token
-// then a separate `Assign`. The native parser re-composes them HERE, at the
-// parse layer, when the two tokens are SOURCE-ADJACENT (no gap between
-// `<op>.span.end` and `<Assign>.span.start`). Adjacency matters: `a %= b` is
-// valid but `a % = b` is two separate operators. Keyed by the leading token's
-// kind, valued by the ESTree operator string.
-//
-// (This re-composition is a deliberate M2.2 design choice — M1 is frozen for
-// this dispatch per the brief. It is documented as deferred-M1.x cleanup: the
-// canonical fix is the lexer doing maximal munch for these eleven. The parse-
-// layer re-composition is AST-equivalent to Acorn either way.)
-const TWO_TOKEN_ASSIGN_OPS = Object.freeze({
-    [TokenKind.Percent]:               "%=",
-    [TokenKind.StarStar]:              "**=",
-    [TokenKind.BitShiftLeft]:          "<<=",
-    [TokenKind.BitShiftRight]:         ">>=",
-    [TokenKind.BitShiftRightUnsigned]: ">>>=",
-    [TokenKind.BitAnd]:                "&=",
-    [TokenKind.BitOr]:                 "|=",
-    [TokenKind.BitXor]:                "^=",
-    [TokenKind.LogicalAnd]:            "&&=",
-    [TokenKind.LogicalOr]:             "||=",
-    [TokenKind.NullishCoalesce]:       "??=",
+// ASSIGN_OPS — every assignment operator M1 lexes as a SINGLE token (S114
+// K3 maximal-munch closure). Keyed by TokenKind, valued by the ESTree
+// operator string. The 11 compound-assigns previously re-composed at the
+// parse layer (TWO_TOKEN_ASSIGN_OPS — retired S114) are now first-class
+// TokenKinds; matchAssignmentOperator is a simple table lookup.
+const ASSIGN_OPS = Object.freeze({
+    [TokenKind.Assign]:                       "=",
+    [TokenKind.PlusAssign]:                   "+=",
+    [TokenKind.MinusAssign]:                  "-=",
+    [TokenKind.StarAssign]:                   "*=",
+    [TokenKind.SlashAssign]:                  "/=",
+    // S114 K3 — 11 compound-assigns now single tokens.
+    [TokenKind.PercentAssign]:                "%=",
+    [TokenKind.StarStarAssign]:               "**=",
+    [TokenKind.BitShiftLeftAssign]:           "<<=",
+    [TokenKind.BitShiftRightAssign]:          ">>=",
+    [TokenKind.BitShiftRightUnsignedAssign]:  ">>>=",
+    [TokenKind.BitAndAssign]:                 "&=",
+    [TokenKind.BitOrAssign]:                  "|=",
+    [TokenKind.BitXorAssign]:                 "^=",
+    [TokenKind.LogicalAndAssign]:             "&&=",
+    [TokenKind.LogicalOrAssign]:              "||=",
+    [TokenKind.NullishCoalesceAssign]:        "??=",
 });
 
 // =============================================================================
@@ -390,65 +378,25 @@ export function parseAssignmentExpr(ctx) {
         return left;
     }
 
-    // Consume the operator token(s). A two-token compound (`%=` etc.) is two
-    // adjacent tokens; a simple operator is one.
+    // Consume the operator token (S114 K3 — every assignment operator is a
+    // single token; the M2.2 two-token re-composition has been retired).
     advance(cursor);
-    if (assignInfo.twoToken) {
-        advance(cursor);   // consume the trailing Assign
-    }
 
     const value = parseAssignmentExpr(ctx);   // right-assoc recursion
     const span = spanOf(left, value);
     return makeAssignment(assignInfo.op, left, value, span);
 }
 
-// --- isTwoTokenAssignLead — is the cursor at the leading half of a `%=` etc.? ---
-// True iff the current token is a TWO_TOKEN_ASSIGN_OPS key AND the immediately
-// following token is a SOURCE-ADJACENT `Assign` (no gap between the operator's
-// `span.end` and the `Assign`'s `span.start`). `a %= b` (adjacent) -> true;
-// `a % = b` (gap) -> false (that is `%` then `=`, two distinct operators).
-//
-// parseBinary calls this so it does NOT consume `%` / `**` / `<<` / ... as a
-// binary operator when the token is actually the head of `%=` / `**=` / `<<=` /
-// ... — that compound operator belongs to parseAssignmentExpr's layer.
-export function isTwoTokenAssignLead(ctx) {
-    const cursor = ctx.cursor;
-    const kind = currentKind(cursor);
-
-    if (TWO_TOKEN_ASSIGN_OPS[kind] === undefined) {
-        return false;
-    }
-    if (peekKind(cursor, 1) !== TokenKind.Assign) {
-        return false;
-    }
-    const here = current(cursor);
-    const next = peek(cursor, 1);
-    if (here === undefined || here === null || next === undefined || next === null) {
-        return false;
-    }
-    if (here.span === undefined || next.span === undefined) {
-        return false;
-    }
-    return here.span.end === next.span.start;
-}
-
 // --- matchAssignmentOperator — recognize an assignment operator at cursor ---
-// Returns { op, twoToken } or null. The four compound operators M1 munches
-// into one token (`+= -= *= /=`) plus `=` are SIMPLE_ASSIGN_OPS; the eleven
-// M1 does NOT munch are re-composed from two adjacent tokens (see
-// isTwoTokenAssignLead).
+// Returns the ESTree operator string, or null. S114 K3 — every assignment
+// operator is a single TokenKind (the M2.2 two-token re-composition has
+// been retired); this is a simple ASSIGN_OPS lookup.
 export function matchAssignmentOperator(ctx) {
     const kind = currentKind(ctx.cursor);
-
-    const simple = SIMPLE_ASSIGN_OPS[kind];
-    if (simple !== undefined) {
-        return { op: simple, twoToken: false };
+    const op = ASSIGN_OPS[kind];
+    if (op !== undefined) {
+        return { op };
     }
-
-    if (isTwoTokenAssignLead(ctx)) {
-        return { op: TWO_TOKEN_ASSIGN_OPS[kind], twoToken: true };
-    }
-
     return null;
 }
 
@@ -628,13 +576,10 @@ export function parseBinary(ctx, minPrec) {
             break;
         }
 
-        // The operator token is also the LEADING half of a compound-assignment
-        // operator (`%` -> `%=`, `**` -> `**=`, `&&` -> `&&=`, ...). When an
-        // adjacent `Assign` follows, this is an assignment, NOT a binary op —
-        // stop the climb so parseAssignmentExpr's layer re-composes it.
-        if (isTwoTokenAssignLead(ctx)) {
-            break;
-        }
+        // S114 K3 — the lexer now emits every compound-assign as a single
+        // TokenKind (e.g. PercentAssign for `%=`); the parseBinary climb is
+        // therefore never standing at the leading half of an assignment-only
+        // operator. The M2.2 isTwoTokenAssignLead check is retired.
 
         const opTok = advance(cursor);   // consume the operator
         const opText = BINARY_OP_TEXT[kind];
@@ -971,10 +916,10 @@ export function parsePostfixChain(ctx, base) {
 
         // `::property` — the `::` member-access alias (§14.4 — M2.4).
         // `Type::Variant` is a pure alias for `Type.Variant`; it produces
-        // the same Member node. M1 lexes `::` as two adjacent Colon tokens.
-        if (kind === TokenKind.Colon && isDoubleColonAhead(cursor)) {
-            advance(cursor);   // consume first :
-            advance(cursor);   // consume second :
+        // the same Member node. S114 K5c — `::` is now a single DoubleColon
+        // token; the M2.4 two-Colon re-composition has been retired.
+        if (kind === TokenKind.DoubleColon) {
+            advance(cursor);   // consume `::`
             const prop = parseMemberProperty(ctx);
             const span = makeSpan(startOf(node), endOf(prop), lineOf(node), colOf(node));
             node = makeMember(node, prop, false, false, span);
@@ -1017,30 +962,13 @@ export function parsePostfixChain(ctx, base) {
             continue;
         }
 
-        // `?.` optional chain — `?.prop`, `?.[expr]`, `?.(args)`.
-        // isOptionalChainAhead handles both M1 lexings of `?.` (Question +
-        // adjacent Dot, and Question + adjacent BareVariant — see that fn).
-        if (kind === TokenKind.Question && isOptionalChainAhead(cursor)) {
-            advance(cursor);   // consume ?
-            const afterQuestion = current(cursor);
-
-            // `a?.b` — M1 lexed `.b` as one BareVariant token. The `?` is
-            // consumed; this BareVariant token carries the property name.
-            if (afterQuestion !== undefined && afterQuestion !== null
-                && afterQuestion.kind === TokenKind.BareVariant) {
-                advance(cursor);   // consume the BareVariant `.prop`
-                const prop = makeIdent(afterQuestion.name, afterQuestion.span);
-                const span = makeSpan(startOf(node), endOf(prop), lineOf(node), colOf(node));
-                node = makeMember(node, prop, false, true, span);
-                continue;
-            }
-
-            // Otherwise the `.` is a Dot token — consume it. M1 keeps `.` a
-            // Dot (not a BareVariant) after `?` only when the next char is
-            // NOT an identifier start — i.e. the `?.[expr]` and `?.(args)`
-            // forms. (`?.identifier` and `?.keyword` both arrive as a
-            // BareVariant, handled in the branch above.)
-            advance(cursor);   // consume the Dot (the `?.` is now consumed)
+        // `?.` optional chain — `?.prop`, `?.[expr]`, `?.(args)`. S114 K4
+        // — the lexer now emits `?.` as a single OptionalChain token; the
+        // post-`?.` token is the property name (Ident or keyword), `[`, or
+        // `(`. The M2.3 Question + adjacent Dot/BareVariant re-composition
+        // has been retired.
+        if (kind === TokenKind.OptionalChain) {
+            advance(cursor);   // consume `?.`
             const afterKind = currentKind(cursor);
 
             if (afterKind === TokenKind.LBracket) {
@@ -1061,9 +989,8 @@ export function parsePostfixChain(ctx, base) {
                 node = makeCall(node, callInfo.args, true, span);
                 continue;
             }
-            // `?.prop` where `prop` is a keyword (M1 keeps the `.` a Dot when
-            // an identifier does NOT follow the `?` — but a keyword property
-            // after `?.` still arrives as a Dot then a Kw* token).
+            // `?.prop` — Ident or keyword property name. parseMemberProperty
+            // accepts either.
             const prop = parseMemberProperty(ctx);
             const span = makeSpan(startOf(node), endOf(prop), lineOf(node), colOf(node));
             node = makeMember(node, prop, false, true, span);
@@ -1218,39 +1145,10 @@ export function parseMemberOnlyChain(ctx, base) {
     return node;
 }
 
-// --- isOptionalChainAhead — is the cursor at a `?.` optional-chain operator? ---
-// True iff the current token is Question AND it is SOURCE-ADJACENT to the next
-// token AND that next token is one of:
-//   - Dot          — the `?.[` / `?.(` forms (and `?.` followed by a keyword
-//                     property name), where M1 keeps `.` as a Dot token.
-//   - BareVariant  — the `?.ident` form. M1's lexer treats `.ident` AFTER a
-//                     `?` as a BareVariant token (`?` is a regex-permissive
-//                     context per the M1 `regexAllowedAfter` heuristic), so
-//                     `a?.b` lexes as Ident Question BareVariant. The native
-//                     parser RE-COMPOSES the `?.ident` form here at the parse
-//                     layer (the same parse-layer re-composition pattern M2.2
-//                     uses for the two-token compound-assign operators — see
-//                     IMPLEMENTATION-ROADMAP §4.4 K3).
-// A gap (`? .` / `? .b` with whitespace) means a ternary `?` then a member /
-// bare-variant — NOT an optional chain.
-export function isOptionalChainAhead(cursor) {
-    if (currentKind(cursor) !== TokenKind.Question) {
-        return false;
-    }
-    const nextKind = peekKind(cursor, 1);
-    if (nextKind !== TokenKind.Dot && nextKind !== TokenKind.BareVariant) {
-        return false;
-    }
-    const q = current(cursor);
-    const next = peek(cursor, 1);
-    if (q === undefined || q === null || next === undefined || next === null) {
-        return false;
-    }
-    if (q.span === undefined || next.span === undefined) {
-        return false;
-    }
-    return q.span.end === next.span.start;
-}
+// S114 K4 — isOptionalChainAhead retired. The lexer now emits `?.` as a
+// single OptionalChain TokenKind; the postfix-chain dispatch tests
+// `currentKind === TokenKind.OptionalChain` directly. See
+// IMPLEMENTATION-ROADMAP §4.4 K4 RESOLVED.
 
 // --- isBareVariantMemberAfter — is the cursor's BareVariant a `.member`
 // access on `node`? (M2.4 — see parsePostfixChain.) ---
@@ -1746,10 +1644,10 @@ export function parsePrimary(ctx) {
         return parseInputStateRef(ctx);
     }
 
-    // `::Variant` — a bare variant via the `::` alias (§14.4). M1 lexes `::`
-    // as two adjacent Colon tokens; `::Variant` re-composes to the same
+    // `::Variant` — a bare variant via the `::` alias (§14.4). S114 K5c —
+    // `::` is now a single DoubleColon token; `::Variant` produces the same
     // BareVariant node `.Variant` produces (the `::` form is a pure alias).
-    if (kind === TokenKind.Colon && isQualifiedVariantColonAhead(cursor)) {
+    if (kind === TokenKind.DoubleColon && isQualifiedVariantColonAhead(cursor)) {
         return parseLeadingDoubleColonVariant(ctx);
     }
 
@@ -1803,49 +1701,55 @@ export function parsePrimary(ctx) {
 // =============================================================================
 
 // --- isInputStateRefAhead — bounded lookahead: is the cursor at `<#id>`? ---
-// M1 does not recognize `#`: it lexes `<#price>` as `LessThan Ident("price")
-// GreaterThan` and the `#` is silently skipped (lex-in-code's "Unknown — skip"
-// path). The skipped `#` is exactly one source char, so the recomposition
-// signal is: a LessThan token, then an Ident whose `span.start` is exactly
-// `LessThan.span.end + 1` (the one-char gap is the `#`), then a GreaterThan
-// SOURCE-ADJACENT to the Ident. A plain `<` (less-than operator) never reaches
-// parsePrimary as a head, and `< ident >` is not a JS expression — so within
-// the JS-expression layer this shape is unambiguously `<#id>`.
+// S114 K5a — the lexer now emits `#` as a single Hash TokenKind, so `<#id>`
+// lexes as `LessThan Hash Ident GreaterThan` (all source-adjacent — no gap).
+// A plain `<` (less-than operator) never reaches parsePrimary as a head, and
+// `< # ident >` is not a JS expression — within the JS-expression layer this
+// shape is unambiguously the §36 input-state reference.
 export function isInputStateRefAhead(cursor) {
     if (currentKind(cursor) !== TokenKind.LessThan) {
         return false;
     }
-    if (peekKind(cursor, 1) !== TokenKind.Ident) {
+    if (peekKind(cursor, 1) !== TokenKind.Hash) {
         return false;
     }
-    if (peekKind(cursor, 2) !== TokenKind.GreaterThan) {
+    if (peekKind(cursor, 2) !== TokenKind.Ident) {
+        return false;
+    }
+    if (peekKind(cursor, 3) !== TokenKind.GreaterThan) {
         return false;
     }
     const lt = current(cursor);
-    const id = peek(cursor, 1);
-    const gt = peek(cursor, 2);
-    if (lt === undefined || lt === null || id === undefined || id === null
-        || gt === undefined || gt === null) {
+    const hash = peek(cursor, 1);
+    const id = peek(cursor, 2);
+    const gt = peek(cursor, 3);
+    if (lt === undefined || lt === null || hash === undefined || hash === null
+        || id === undefined || id === null || gt === undefined || gt === null) {
         return false;
     }
-    if (lt.span === undefined || id.span === undefined || gt.span === undefined) {
+    if (lt.span === undefined || hash.span === undefined
+        || id.span === undefined || gt.span === undefined) {
         return false;
     }
-    // One-char gap between `<` and the ident — the skipped `#`.
-    if (id.span.start !== lt.span.end + 1) {
+    // All four tokens source-adjacent — `<#id>`, not `< # id >`.
+    if (hash.span.start !== lt.span.end) {
         return false;
     }
-    // The `>` is source-adjacent to the ident (`<#id>`, not `<#id ...>`).
+    if (id.span.start !== hash.span.end) {
+        return false;
+    }
     return gt.span.start === id.span.end;
 }
 
 // --- parseInputStateRef — `<#id>` input-state reference (§36) ---
-// Consumes the LessThan, Ident, GreaterThan token triple isInputStateRefAhead
-// confirmed. The resulting InputStateRef is an atom; a trailing `.pressed(...)`
-// / `.value` member-or-call chain is the ordinary postfix chain (M2.3).
+// Consumes the LessThan, Hash, Ident, GreaterThan four-token sequence
+// isInputStateRefAhead confirmed. The resulting InputStateRef is an atom; a
+// trailing `.pressed(...)` / `.value` member-or-call chain is the ordinary
+// postfix chain (M2.3).
 export function parseInputStateRef(ctx) {
     const cursor = ctx.cursor;
     const lt = advance(cursor);          // consume `<`
+    advance(cursor);                     // consume `#` (S114 K5a Hash token)
     const idTok = advance(cursor);       // consume the id Ident
     const gt = advance(cursor);          // consume `>`
     const span = makeSpan(lt.span.start, gt.span.end, lt.span.line, lt.span.col);
@@ -1853,63 +1757,36 @@ export function parseInputStateRef(ctx) {
 }
 
 // --- isQualifiedVariantColonAhead — is the cursor at a leading `::Variant`? ---
-// `::` lexes as two adjacent Colon tokens. A leading `::Variant` is: Colon,
-// SOURCE-ADJACENT Colon, then an Ident. (A single `:` is the ternary / object
-// colon — never an expression head; a leading `::` is unambiguously the
-// bare-variant `::` alias.)
+// S114 K5c — the lexer emits `::` as a single DoubleColon TokenKind. A leading
+// `::Variant` is therefore DoubleColon then Ident. (A bare DoubleColon at
+// expression head can be nothing else — the `::` is unambiguously the
+// bare-variant alias once it appears in primary position.)
 export function isQualifiedVariantColonAhead(cursor) {
-    if (currentKind(cursor) !== TokenKind.Colon) {
+    if (currentKind(cursor) !== TokenKind.DoubleColon) {
         return false;
     }
-    if (peekKind(cursor, 1) !== TokenKind.Colon) {
-        return false;
-    }
-    if (peekKind(cursor, 2) !== TokenKind.Ident) {
-        return false;
-    }
-    const c1 = current(cursor);
-    const c2 = peek(cursor, 1);
-    if (c1 === undefined || c1 === null || c2 === undefined || c2 === null) {
-        return false;
-    }
-    if (c1.span === undefined || c2.span === undefined) {
-        return false;
-    }
-    return c1.span.end === c2.span.start;   // the two colons are adjacent (`::`)
+    return peekKind(cursor, 1) === TokenKind.Ident;
 }
 
 // --- parseLeadingDoubleColonVariant — `::Variant` bare variant (§14.4) ---
 // `::Variant` is a pure alias for `.Variant` — it re-composes to the SAME
-// BareVariant node `.Variant` produces. Consumes the two Colon tokens + the
-// variant Ident.
+// BareVariant node `.Variant` produces. S114 K5c — the lexer emits `::` as a
+// single DoubleColon token; consume DoubleColon + the variant Ident.
 export function parseLeadingDoubleColonVariant(ctx) {
     const cursor = ctx.cursor;
-    const c1 = advance(cursor);          // consume first `:`
-    advance(cursor);                     // consume second `:`
+    const dc = advance(cursor);          // consume `::`
     const nameTok = advance(cursor);     // consume the variant Ident
-    const span = makeSpan(c1.span.start, nameTok.span.end, c1.span.line, c1.span.col);
+    const span = makeSpan(dc.span.start, nameTok.span.end, dc.span.line, dc.span.col);
     return makeBareVariant(nameTok.name, span);
 }
 
 // --- isDoubleColonAhead — is the cursor at a `::` member-access alias? ---
-// Used by parsePostfixChain: after a base expression, `::Variant` is the
-// qualified-variant alias for `.Variant` (§14.4). Two adjacent Colon tokens.
+// S114 K5c — the lexer now emits `::` as a single DoubleColon TokenKind; the
+// predicate is a direct kind check. (Kept as a named predicate for parity
+// with isOptionalChainAhead's call-site shape, even though it has reduced to
+// a one-line lookup — the call sites read clearly with the named predicate.)
 export function isDoubleColonAhead(cursor) {
-    if (currentKind(cursor) !== TokenKind.Colon) {
-        return false;
-    }
-    if (peekKind(cursor, 1) !== TokenKind.Colon) {
-        return false;
-    }
-    const c1 = current(cursor);
-    const c2 = peek(cursor, 1);
-    if (c1 === undefined || c1 === null || c2 === undefined || c2 === null) {
-        return false;
-    }
-    if (c1.span === undefined || c2.span === undefined) {
-        return false;
-    }
-    return c1.span.end === c2.span.start;
+    return currentKind(cursor) === TokenKind.DoubleColon;
 }
 
 // --- parseIsCheckSuffix — the right-hand side of an `is` predicate ---
@@ -1986,8 +1863,7 @@ export function parseQualifiedVariant(ctx) {
     let node = makeIdent(typeTok.name, typeTok.span);
 
     if (isDoubleColonAhead(cursor)) {
-        advance(cursor);   // consume first `:`
-        advance(cursor);   // consume second `:`
+        advance(cursor);   // consume `::` (S114 K5c — single DoubleColon token)
     } else if (currentKind(cursor) === TokenKind.Dot) {
         advance(cursor);   // consume `.`
     } else {
@@ -2244,13 +2120,12 @@ export function parseMatchArmPattern(ctx) {
     }
 
     // Leading `::Variant` — the bare-variant `::` alias in arm position.
-    if (kind === TokenKind.Colon && isQualifiedVariantColonAhead(cursor)) {
-        const c1 = advance(cursor);   // consume first `:`
-        advance(cursor);             // consume second `:`
+    if (kind === TokenKind.DoubleColon && isQualifiedVariantColonAhead(cursor)) {
+        const dc = advance(cursor);   // consume `::` (S114 K5c — single DoubleColon token)
         const nameTok = advance(cursor);   // consume the variant Ident
         const bindings = parseMatchBindingsOpt(ctx);
         const endPos = (bindings === null) ? nameTok.span.end : cursor.tokens[cursor.idx - 1].span.end;
-        const span = makeSpan(c1.span.start, endPos, c1.span.line, c1.span.col);
+        const span = makeSpan(dc.span.start, endPos, dc.span.line, dc.span.col);
         return makeVariantPattern(null, nameTok.name, bindings, span);
     }
 
@@ -2259,8 +2134,7 @@ export function parseMatchArmPattern(ctx) {
     if (kind === TokenKind.Ident) {
         const typeTok = advance(cursor);   // consume the type-name Ident
         if (isDoubleColonAhead(cursor)) {
-            advance(cursor);   // consume first `:`
-            advance(cursor);   // consume second `:`
+            advance(cursor);   // consume `::` (S114 K5c — single DoubleColon token)
         } else if (currentKind(cursor) === TokenKind.Dot) {
             advance(cursor);   // consume `.`
         } else {

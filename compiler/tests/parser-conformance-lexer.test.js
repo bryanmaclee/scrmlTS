@@ -59,6 +59,7 @@ const ACORN_LABEL_TO_KIND = {
     "=>": TokenKind.Arrow,
     ":": TokenKind.Colon,
     "?": TokenKind.Question,
+    "?.": TokenKind.OptionalChain,  // S114 K4 — single-token optional-chain operator
 
     // Operators — Acorn collapses several into shared TokenType labels;
     // text-driven disambiguation lives below in normalizeAcornToken.
@@ -203,6 +204,19 @@ function normalizeAcornToken(tok, source) {
         if (text === "-=") return { kind: TokenKind.MinusAssign, text, start: tok.start, end: tok.end };
         if (text === "*=") return { kind: TokenKind.StarAssign, text, start: tok.start, end: tok.end };
         if (text === "/=") return { kind: TokenKind.SlashAssign, text, start: tok.start, end: tok.end };
+        // S114 K3 — the eleven previously two-token compound-assigns now
+        // map to dedicated single TokenKinds in the native lexer.
+        if (text === "%=")   return { kind: TokenKind.PercentAssign, text, start: tok.start, end: tok.end };
+        if (text === "**=")  return { kind: TokenKind.StarStarAssign, text, start: tok.start, end: tok.end };
+        if (text === "<<=")  return { kind: TokenKind.BitShiftLeftAssign, text, start: tok.start, end: tok.end };
+        if (text === ">>=")  return { kind: TokenKind.BitShiftRightAssign, text, start: tok.start, end: tok.end };
+        if (text === ">>>=") return { kind: TokenKind.BitShiftRightUnsignedAssign, text, start: tok.start, end: tok.end };
+        if (text === "&=")   return { kind: TokenKind.BitAndAssign, text, start: tok.start, end: tok.end };
+        if (text === "|=")   return { kind: TokenKind.BitOrAssign, text, start: tok.start, end: tok.end };
+        if (text === "^=")   return { kind: TokenKind.BitXorAssign, text, start: tok.start, end: tok.end };
+        if (text === "&&=")  return { kind: TokenKind.LogicalAndAssign, text, start: tok.start, end: tok.end };
+        if (text === "||=")  return { kind: TokenKind.LogicalOrAssign, text, start: tok.start, end: tok.end };
+        if (text === "??=")  return { kind: TokenKind.NullishCoalesceAssign, text, start: tok.start, end: tok.end };
         // Other _= forms — accept as Assign-family but tag the text
         return { kind: TokenKind.Assign, text, start: tok.start, end: tok.end };
     }
@@ -240,7 +254,7 @@ function tokenizeWithAcorn(source) {
     const out = [];
     // M1.5 template-mode tracking — Acorn emits backticks + braces around
     // template-literal interpolations as separate tokens with their own
-    // labels (`"\`"`, `"${"`, `"}"`). The native lexer deliberately coalesces
+    // labels (`"'"`, `"${"`, `"}"`). The native lexer deliberately coalesces
     // backticks into the TemplateChunk stream + uses dedicated
     // TemplateInterpStart/End kinds for the ${ } interp boundaries. The
     // re-classifier below brings Acorn's stream into native shape:
@@ -490,7 +504,7 @@ describe("M1.1 lexer conformance — bench corpus", () => {
             // against Acorn is deferred to a later M1.x — Acorn's
             // per-substructure template-token model differs from our
             // §51.0.Q.1 nested-engine surface in opinionated ways
-            // (Acorn emits template-boundary `\`` / `${` / `}` as separate
+            // (Acorn emits template-boundary `'` / `${` / `}` as separate
             // token kinds; we emit TemplateChunk + TemplateInterpStart +
             // TemplateInterpEnd). A normalizing comparator is M1.3+ work.
             if (disposition === "full") {
@@ -779,7 +793,7 @@ describe("M1.1 lexer conformance — inline micro-corpus", () => {
         expect(kinds).toContain("RBrace");
     });
 
-    test(`(M1.2-template) interp with member access — \`val \${obj.x} done\``, () => {
+    test(`(M1.2-template) interp with member access — 'val \${obj.x} done'`, () => {
         const n = tokenizeWithNative("`val ${obj.x} done`");
         expect(n.ok).toBe(true);
         const kinds = n.tokens.map(t => t.kind);
@@ -886,5 +900,199 @@ describe("M1.1 lexer conformance — inline micro-corpus", () => {
             const raw = nativeRaw.find(t => t.kind === TokenKind.NumberLit);
             expect(raw.value).toBe(value);
         }
+    });
+
+    // -------------------------------------------------------------------
+    // S114 K3 — 11 compound-assigns the lexer now munches into single
+    // tokens (was: two adjacent tokens re-composed at the parse layer in
+    // M2.2's TWO_TOKEN_ASSIGN_OPS table). Each case asserts the operator
+    // emits as exactly one token of the dedicated TokenKind, AND that the
+    // ADJACENT-ONLY policy is upheld: `a %= b` is PercentAssign,
+    // `a % = b` (whitespace between % and =) is Percent + Assign.
+    // -------------------------------------------------------------------
+
+    const K3_COMPOUND_ASSIGNS = [
+        { src: "a %= b",   kind: TokenKind.PercentAssign,                op: "%=" },
+        { src: "a **= b",  kind: TokenKind.StarStarAssign,               op: "**=" },
+        { src: "a <<= b",  kind: TokenKind.BitShiftLeftAssign,           op: "<<=" },
+        { src: "a >>= b",  kind: TokenKind.BitShiftRightAssign,          op: ">>=" },
+        { src: "a >>>= b", kind: TokenKind.BitShiftRightUnsignedAssign,  op: ">>>=" },
+        { src: "a &= b",   kind: TokenKind.BitAndAssign,                 op: "&=" },
+        { src: "a |= b",   kind: TokenKind.BitOrAssign,                  op: "|=" },
+        { src: "a ^= b",   kind: TokenKind.BitXorAssign,                 op: "^=" },
+        { src: "a &&= b",  kind: TokenKind.LogicalAndAssign,             op: "&&=" },
+        { src: "a ||= b",  kind: TokenKind.LogicalOrAssign,              op: "||=" },
+        { src: "a ??= b",  kind: TokenKind.NullishCoalesceAssign,        op: "??=" },
+    ];
+
+    for (const { src, kind, op } of K3_COMPOUND_ASSIGNS) {
+        test(`(K3-compound-assign) '${src}' lexes as one ${kind}`, () => {
+            const raw = scrmlNativeLex(src);
+            const tok = raw.find(t => t.kind === kind);
+            expect(tok).toBeDefined();
+            expect(tok.text).toBe(op);
+            // No leftover `Assign` token — the operator munched as ONE token.
+            const assignCount = raw.filter(t => t.kind === TokenKind.Assign).length;
+            expect(assignCount).toBe(0);
+        });
+    }
+
+    test(`(K3-compound-assign) adjacency policy — 'a % = b' is Percent + Assign (NOT PercentAssign)`, () => {
+        // A space between `%` and `=` means two distinct operators per
+        // ECMA-262 maximal-munch. The lexer must NOT join them.
+        const raw = scrmlNativeLex("a % = b");
+        const pa = raw.find(t => t.kind === TokenKind.PercentAssign);
+        expect(pa).toBeUndefined();
+        const pct = raw.find(t => t.kind === TokenKind.Percent);
+        const asn = raw.find(t => t.kind === TokenKind.Assign);
+        expect(pct).toBeDefined();
+        expect(asn).toBeDefined();
+    });
+
+    // -------------------------------------------------------------------
+    // S114 K4 — `?.` optional-chain maximal-munch.
+    // -------------------------------------------------------------------
+
+    test(`(K4-optional-chain) 'a?.b' lexes as Ident OptionalChain Ident`, () => {
+        const n = tokenizeWithNative("a?.b");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        expect(kinds).toEqual([
+            TokenKind.Ident,
+            TokenKind.OptionalChain,
+            TokenKind.Ident,
+            TokenKind.EOF,
+        ]);
+    });
+
+    test(`(K4-optional-chain) 'a?.[0]' lexes with OptionalChain then LBracket`, () => {
+        const n = tokenizeWithNative("a?.[0]");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        expect(kinds).toEqual([
+            TokenKind.Ident,
+            TokenKind.OptionalChain,
+            TokenKind.LBracket,
+            TokenKind.NumberLit,
+            TokenKind.RBracket,
+            TokenKind.EOF,
+        ]);
+    });
+
+    test(`(K4-optional-chain) 'a?.()' lexes with OptionalChain then LParen`, () => {
+        const n = tokenizeWithNative("a?.()");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        expect(kinds).toEqual([
+            TokenKind.Ident,
+            TokenKind.OptionalChain,
+            TokenKind.LParen,
+            TokenKind.RParen,
+            TokenKind.EOF,
+        ]);
+    });
+
+    test(`(K4-optional-chain) carve-out — '0?.5' is NumberLit Question NumberLit (NOT OptionalChain)`, () => {
+        // ECMA-262 / brief: `?.` does NOT munch when followed by a digit —
+        // `0?.5` parses as the ternary head `0 ? .5 : ...`.
+        const n = tokenizeWithNative("0?.5");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        expect(kinds).toEqual([
+            TokenKind.NumberLit,
+            TokenKind.Question,
+            TokenKind.NumberLit,
+            TokenKind.EOF,
+        ]);
+        const oc = n.tokens.find(t => t.kind === TokenKind.OptionalChain);
+        expect(oc).toBeUndefined();
+    });
+
+    test(`(K4-optional-chain) adjacency policy — 'a ? .b' is Question + BareVariant (NOT OptionalChain)`, () => {
+        // Whitespace between `?` and `.` defeats the maximal-munch.
+        const n = tokenizeWithNative("a ? .b : .c");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        const oc = n.tokens.find(t => t.kind === TokenKind.OptionalChain);
+        expect(oc).toBeUndefined();
+        const q = n.tokens.find(t => t.kind === TokenKind.Question);
+        expect(q).toBeDefined();
+        const bv = n.tokens.find(t => t.kind === TokenKind.BareVariant);
+        expect(bv).toBeDefined();
+    });
+
+    // -------------------------------------------------------------------
+    // S114 K5a — `#` Hash token. The lexer emits `#` as a single token;
+    // parse-expr's isInputStateRefAhead checks the `<` Hash Ident `>`
+    // adjacency before consuming the four tokens as one InputStateRef
+    // atom. (A bare `#` outside the `<#id>` shape is a syntax error caught
+    // at the parse layer — scrml has no JS private-class-field syntax per
+    // SPEC §48/§54.)
+    // -------------------------------------------------------------------
+
+    test(`(K5a-hash) '<#id>' lexes as LessThan Hash Ident GreaterThan`, () => {
+        const n = tokenizeWithNative("<#price>");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        expect(kinds).toEqual([
+            TokenKind.LessThan,
+            TokenKind.Hash,
+            TokenKind.Ident,
+            TokenKind.GreaterThan,
+            TokenKind.EOF,
+        ]);
+    });
+
+    test(`(K5a-hash) Hash token is source-adjacent to LessThan in '<#id>'`, () => {
+        // The four tokens must be SOURCE-ADJACENT (no gap) for
+        // isInputStateRefAhead to confirm — the lexer's job is to emit them
+        // with correct spans; this test verifies the contract.
+        const raw = scrmlNativeLex("<#price>");
+        const lt = raw.find(t => t.kind === TokenKind.LessThan);
+        const hash = raw.find(t => t.kind === TokenKind.Hash);
+        const id = raw.find(t => t.kind === TokenKind.Ident);
+        const gt = raw.find(t => t.kind === TokenKind.GreaterThan);
+        expect(hash.span.start).toBe(lt.span.end);
+        expect(id.span.start).toBe(hash.span.end);
+        expect(gt.span.start).toBe(id.span.end);
+    });
+
+    // -------------------------------------------------------------------
+    // S114 K5c — `::` DoubleColon maximal-munch (§14.4 member-access alias).
+    // -------------------------------------------------------------------
+
+    test(`(K5c-double-colon) 'Type::Variant' lexes as Ident DoubleColon Ident`, () => {
+        const n = tokenizeWithNative("Type::Variant");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        expect(kinds).toEqual([
+            TokenKind.Ident,
+            TokenKind.DoubleColon,
+            TokenKind.Ident,
+            TokenKind.EOF,
+        ]);
+    });
+
+    test(`(K5c-double-colon) leading '::Variant' lexes as DoubleColon Ident`, () => {
+        const n = tokenizeWithNative("::Variant");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        expect(kinds).toEqual([
+            TokenKind.DoubleColon,
+            TokenKind.Ident,
+            TokenKind.EOF,
+        ]);
+    });
+
+    test(`(K5c-double-colon) adjacency policy — ': :' is Colon + Colon (NOT DoubleColon)`, () => {
+        // Whitespace between the two `:` defeats the maximal-munch. (Note:
+        // `: :` is not a syntactically valid expression — this test asserts
+        // the LEXER's behavior, not the parser's.)
+        const n = tokenizeWithNative("a : : b");
+        expect(n.ok).toBe(true);
+        const dc = n.tokens.find(t => t.kind === TokenKind.DoubleColon);
+        expect(dc).toBeUndefined();
+        const colons = n.tokens.filter(t => t.kind === TokenKind.Colon);
+        expect(colons.length).toBe(2);
     });
 });

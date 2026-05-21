@@ -13,7 +13,9 @@
 //   "MIXED answers default to CALCULATION").
 //
 //   The MULTI-CHARACTER OPERATOR DISAMBIGUATION (e.g., `==` vs `=`,
-//   `===` vs `==`, `*=` vs `*`, `**` vs `*`, `=>` vs `=`) is CALCULATION
+//   `===` vs `==`, `*=` vs `*`, `**` vs `*`, `=>` vs `=`, AND the S114
+//   K3/K4/K5 maximal-munch additions — `%=` `**=` `<<=` `>>=` `>>>=`
+//   `&=` `|=` `^=` `&&=` `||=` `??=` `?.` `::` `#`) is CALCULATION
 //   per DD §D1 (bounded peek + emit; "the operator IS the operator
 //   regardless of where it appears" — pure fn of input bytes).
 //
@@ -24,24 +26,44 @@
 //   The IDENTIFIER/KEYWORD DISCRIMINATION is CALCULATION (lookup in
 //   token.scrml's JS_KEYWORDS table; pure fn of input bytes).
 //
-// Status (M1.4): SUBSTANTIVE. Emits all InCode-state tokens for the
-// bench-corpus files (whitespace, identifiers, keywords, numeric
-// literals, punctuation, multi-char operators, string/comment/regex
-// transition triggers). String bodies activated in M1.2; comment
-// bodies activated in M1.3; regex body activated in M1.4 (this
-// dispatch now delegates `//` and `/*` to dispatchInLineComment /
-// dispatchInBlockComment, and a regex-permissive `/` to
-// dispatchInRegexBody). The DD §D4 P3 regex-vs-division
-// disambiguation remains in this file (regexAllowedAfter(lastKind)
-// + the `/` branch above) — only the regex body scan moved out to
-// the M1.4 dispatcher. The M1 lexer ladder is COMPLETE: no LexMode
-// state-children have bare bodies.
+// Status (M1.4 + S114 K3+K4+K5): SUBSTANTIVE. Emits all InCode-state
+// tokens for the bench-corpus files (whitespace, identifiers, keywords,
+// numeric literals, punctuation, multi-char operators, string/comment/
+// regex transition triggers). String bodies activated in M1.2; comment
+// bodies activated in M1.3; regex body activated in M1.4. The M1 lexer
+// ladder is COMPLETE: no LexMode state-children have bare bodies.
+//
+// S114 K3+K4+K5 closure — maximal-munch additions:
+//   - K3: 11 compound-assigns now emit as single tokens
+//         (`%= **= <<= >>= >>>= &= |= ^= &&= ||= ??=`). The parse-layer
+//         TWO_TOKEN_ASSIGN_OPS re-composition in parse-expr.scrml is
+//         RETIRED.
+//   - K4: `?.` emits as a single OptionalChain token (was Question +
+//         adjacent Dot / BareVariant). The parse-layer
+//         isOptionalChainAhead re-composition is RETIRED. Carve-out:
+//         `?.<digit>` is NOT munched — `0?.5` lexes as
+//         `NumberLit Question NumberLit("..5")` so the conditional-then-
+//         decimal form parses correctly.
+//   - K5a: `#` emits as a single Hash token (was silently skipped, leaving
+//         `<#id>` with a 1-char span gap). The SPEC does NOT include JS
+//         private-class-field syntax (no `#x` in §48/§54); a bare `#`
+//         outside the `<#id>` shape is a syntax error caught at the
+//         parse layer.
+//   - K5b: VERIFIED. The standalone `~` accumulator (§32) is correctly
+//         emitted as a single `BitNot` token; parse-expr disambiguates
+//         against the bitwise-NOT prefix via source-adjacency in
+//         `tildeIsStandalone`. No new TokenKind is needed — `~` is a
+//         single character, so no maximal-munch is in play.
+//   - K5c: `::` emits as a single DoubleColon token (was two adjacent
+//         `Colon` tokens). The parse-layer isDoubleColonAhead /
+//         isQualifiedVariantColonAhead re-compositions are RETIRED.
 //
 // scrml-extensions emitted in M1.1: at-prefix idents -> ScrmlAt token;
-// dot-prefix variants -> BareVariant token; tilde -> Tilde token;
-// question-mark + open-brace -> SqlBlock opener (naive); dollar + open-brace
-// -> LogicEscape opener (naive paired-brace scan). These match the DD §D5
-// MUST ADD list (token surface only; AST surface is M2+).
+// dot-prefix variants -> BareVariant token; tilde -> BitNot token (see
+// K5b above); question-mark + open-brace -> SqlBlock opener (naive);
+// dollar + open-brace -> LogicEscape opener (naive paired-brace scan).
+// These match the DD §D5 MUST ADD list (token surface only; AST surface
+// is M2+).
 
 ${
     import { makeCursor, peekChar, peekCharCode, peekStr, advance, isEof, snapshot, restore } from "./cursor.scrml"
@@ -508,11 +530,14 @@ ${
             return true
         }
 
-        // -------- scrml-extension: ~ -> Tilde --------
-        // Distinguish from bitwise-NOT (BitNot) by next-char heuristic:
-        // BitNot context expects an operand (number/ident/paren); the Tilde
-        // accumulator (§32) appears as a standalone primary expression.
-        // M1.1 emits BitNot universally for `~` (Tilde recognition is M2+).
+        // -------- scrml-extension: ~ -> BitNot --------
+        // Distinguish from the §32 accumulator atom (`Tilde`-class semantic)
+        // at the PARSE layer (parse-expr's tildeIsStandalone): the lexer
+        // ALWAYS emits BitNot for `~` (K5b VERIFIED — `~` is a single
+        // character, no maximal-munch is in play; the parse layer reuses
+        // BitNot's source-adjacency check to disambiguate). The canonical
+        // form is BitNot at the token layer + tildeIsStandalone at the
+        // parse layer; no new `Tilde` TokenKind is added at S114.
         if (c0 == "~") {
             advance(cursor, 1)
             const span = makeSpan(startPos, cursor.pos, startLine, startCol)
@@ -523,6 +548,7 @@ ${
         // -------- scrml-extension: ?{ -> SqlBlock opener --------
         // Per §8 ?{ ... } is a bracket-matched SQL embedding. M1.1 emits a
         // naive paired-brace scan as a single SqlBlock token; M2+ refines.
+        // MUST come before the `?` operator branch below.
         if (c0 == "?" && peekChar(cursor, 1) == "{") {
             const sqlStart = cursor.pos
             const sqlLine = cursor.line
@@ -609,7 +635,9 @@ ${
         }
 
         // -------- Punctuation + operators (multi-char-aware) --------
-        // Order matters: longest match first (=== before == before =).
+        // Order matters: longest match first (=== before == before =,
+        // etc.). S114 K3+K4+K5 maximal-munch: each multi-char operator
+        // emits as a SINGLE TokenKind (11 compound-assigns + `?.` + `::`).
         if (c0 == "=") {
             if (peekStr(cursor, 3) == "===") {
                 advance(cursor, 3)
@@ -646,6 +674,12 @@ ${
             return true
         }
         if (c0 == "<") {
+            // K3 — `<<=` is the longest match; emit before `<<` / `<=`.
+            if (peekStr(cursor, 3) == "<<=") {
+                advance(cursor, 3)
+                ctx.tokens.push(makeToken(TokenKind.BitShiftLeftAssign, "<<=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
             if (peekStr(cursor, 2) == "<=") {
                 advance(cursor, 2)
                 ctx.tokens.push(makeToken(TokenKind.LessEqual, "<=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
@@ -661,9 +695,22 @@ ${
             return true
         }
         if (c0 == ">") {
+            // K3 — `>>>=` (4 chars) is the longest match; emit before
+            // `>>>` / `>>=` / `>>` / `>=`.
+            if (peekStr(cursor, 4) == ">>>=") {
+                advance(cursor, 4)
+                ctx.tokens.push(makeToken(TokenKind.BitShiftRightUnsignedAssign, ">>>=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
             if (peekStr(cursor, 3) == ">>>") {
                 advance(cursor, 3)
                 ctx.tokens.push(makeToken(TokenKind.BitShiftRightUnsigned, ">>>", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            // K3 — `>>=`.
+            if (peekStr(cursor, 3) == ">>=") {
+                advance(cursor, 3)
+                ctx.tokens.push(makeToken(TokenKind.BitShiftRightAssign, ">>=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
                 return true
             }
             if (peekStr(cursor, 2) == ">=") {
@@ -711,6 +758,13 @@ ${
             return true
         }
         if (c0 == "*") {
+            // K3 — `**=` (3 chars) is the longest match; emit before
+            // `**` / `*=`.
+            if (peekStr(cursor, 3) == "**=") {
+                advance(cursor, 3)
+                ctx.tokens.push(makeToken(TokenKind.StarStarAssign, "**=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
             if (peekStr(cursor, 2) == "**") {
                 advance(cursor, 2)
                 ctx.tokens.push(makeToken(TokenKind.StarStar, "**", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
@@ -737,14 +791,33 @@ ${
             return true
         }
         if (c0 == "%") {
+            // K3 — `%=` maximal-munch.
+            if (peekStr(cursor, 2) == "%=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.PercentAssign, "%=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
             advance(cursor, 1)
             ctx.tokens.push(makeToken(TokenKind.Percent, "%", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
             return true
         }
         if (c0 == "&") {
+            // K3 — `&&=` (3 chars) is the longest match; emit before
+            // `&&` / `&=`.
+            if (peekStr(cursor, 3) == "&&=") {
+                advance(cursor, 3)
+                ctx.tokens.push(makeToken(TokenKind.LogicalAndAssign, "&&=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
             if (peekStr(cursor, 2) == "&&") {
                 advance(cursor, 2)
                 ctx.tokens.push(makeToken(TokenKind.LogicalAnd, "&&", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            // K3 — `&=`.
+            if (peekStr(cursor, 2) == "&=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.BitAndAssign, "&=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
                 return true
             }
             advance(cursor, 1)
@@ -752,9 +825,22 @@ ${
             return true
         }
         if (c0 == "|") {
+            // K3 — `||=` (3 chars) is the longest match; emit before
+            // `||` / `|=`.
+            if (peekStr(cursor, 3) == "||=") {
+                advance(cursor, 3)
+                ctx.tokens.push(makeToken(TokenKind.LogicalOrAssign, "||=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
             if (peekStr(cursor, 2) == "||") {
                 advance(cursor, 2)
                 ctx.tokens.push(makeToken(TokenKind.LogicalOr, "||", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            // K3 — `|=`.
+            if (peekStr(cursor, 2) == "|=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.BitOrAssign, "|=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
                 return true
             }
             advance(cursor, 1)
@@ -762,14 +848,36 @@ ${
             return true
         }
         if (c0 == "^") {
+            // K3 — `^=`.
+            if (peekStr(cursor, 2) == "^=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.BitXorAssign, "^=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
             advance(cursor, 1)
             ctx.tokens.push(makeToken(TokenKind.BitXor, "^", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
             return true
         }
         if (c0 == "?") {
+            // K3 — `??=` (3 chars) is the longest match; emit before `??`.
+            if (peekStr(cursor, 3) == "??=") {
+                advance(cursor, 3)
+                ctx.tokens.push(makeToken(TokenKind.NullishCoalesceAssign, "??=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
             if (peekStr(cursor, 2) == "??") {
                 advance(cursor, 2)
                 ctx.tokens.push(makeToken(TokenKind.NullishCoalesce, "??", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            // K4 — `?.` optional-chain maximal-munch. Carve-out per brief
+            // + ECMA-262: NOT when the `.` is followed by a digit — `0?.5`
+            // is the conditional-then-decimal case (`0 ? .5 : ...`) and
+            // `.5` is the numeric literal. The carve-out exists precisely
+            // so this grammar wedge is unambiguous.
+            if (peekStr(cursor, 2) == "?." && !isDigit(peekCharCode(cursor, 2))) {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.OptionalChain, "?.", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
                 return true
             }
             advance(cursor, 1)
@@ -807,6 +915,20 @@ ${
             }
             advance(cursor, 1)
             ctx.tokens.push(makeToken(TokenKind.Dot, ".", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+
+        // -------- K5a — `#` Hash token (§36 `<#id>` only) --------
+        // scrml uses `#` only as part of the `<#id>` input-state reference
+        // (§36); the SPEC does NOT include JS private-class-field syntax
+        // (no `#x` in §48/§54), so a bare `#` outside the `<#id>` shape is
+        // a syntax error caught at the parse layer. The lexer emits the
+        // token unconditionally; isInputStateRefAhead in parse-expr checks
+        // the surrounding `<` Hash Ident `>` adjacency before consuming the
+        // four tokens as one InputStateRef atom.
+        if (c0 == "#") {
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Hash, "#", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
             return true
         }
 
@@ -858,6 +980,12 @@ ${
             return true
         }
         if (c0 == ":") {
+            // K5c — `::` DoubleColon maximal-munch (§14.4 member-access alias).
+            if (peekStr(cursor, 2) == "::") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.DoubleColon, "::", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
             advance(cursor, 1)
             ctx.tokens.push(makeToken(TokenKind.Colon, ":", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
             return true

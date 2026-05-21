@@ -14,6 +14,28 @@
 // Status (M1.1): COMPILABLE skeleton. JS-escape carries the live tag-style
 // surface today. The `type TokenKind:enum = { ... }` declaration is preserved
 // in commented canonical form for M4+ swap-in to scrml-native tagged variants.
+//
+// S114 K3+K4+K5 update — maximal-munch closure. M1 now emits as a SINGLE
+// TokenKind every multi-char operator that JS recognizes as one operator:
+//   - 11 compound-assigns (K3): %= **= <<= >>= >>>= &= |= ^= &&= ||= ??=
+//     (previously emitted as two adjacent tokens; M2.2 re-composed them at
+//     the parse layer. The canonical fix is here.)
+//   - `?.` optional chain (K4): a single OptionalChain token.
+//     (Previously a `Question` + adjacent `BareVariant` or `Dot`.)
+//   - `#` (K5a): a single Hash token. Surfaces in `<#id>` per §36 only —
+//     scrml has no JS private-class-field syntax (no `#x` in SPEC §48/§54).
+//     A bare `#` outside the `<#id>` shape is a syntax error caught at the
+//     parse layer.
+//   - `::` (K5c): a single DoubleColon token (was two adjacent `Colon`).
+// Each addition retires a corresponding parse-layer re-composition in
+// parse-expr.scrml/.js (IMPLEMENTATION-ROADMAP §4.4 K3/K4/K5).
+//
+// K5b is verified — the standalone `~` accumulator (§32) is correctly
+// emitted as a single `BitNot` token; parse-expr disambiguates against the
+// bitwise-NOT prefix via source-adjacency in `tildeIsStandalone`. No new
+// `Tilde` token kind is needed (the K-ledger entry's literal `Tilde` lemma
+// is for the M4+ self-host swap-in; the LIVE surface canonicalizes on
+// `BitNot` because `~` is a single character — no maximal-munch is in play).
 
 ${
     // CANONICAL scrml-source shape (PILLAR 5b reference) — nested-by-category
@@ -26,10 +48,14 @@ ${
     //       // --- Punctuation ---
     //       LParen, RParen, LBrace, RBrace, LBracket, RBracket,
     //       Semicolon, Comma, Dot, Ellipsis, Arrow, Colon, Question,
+    //       Hash, DoubleColon, OptionalChain,
     //
-    //       // --- Operators (M1.1 covers what InCode dispatch emits;
-    //       // operator family fills as later dispatches add more JS surface) ---
+    //       // --- Operators (M1 emits the full JS surface as single tokens) ---
     //       Assign, PlusAssign, MinusAssign, StarAssign, SlashAssign,
+    //       PercentAssign, StarStarAssign,
+    //       BitShiftLeftAssign, BitShiftRightAssign, BitShiftRightUnsignedAssign,
+    //       BitAndAssign, BitOrAssign, BitXorAssign,
+    //       LogicalAndAssign, LogicalOrAssign, NullishCoalesceAssign,
     //       Plus, Minus, Star, Slash, Percent, StarStar,
     //       Equal, NotEqual, StrictEqual, StrictNotEqual,
     //       LessThan, LessEqual, GreaterThan, GreaterEqual,
@@ -105,6 +131,11 @@ ${
         Arrow:       "Arrow",
         Colon:       "Colon",
         Question:    "Question",
+        // K5a/K5c maximal-munch additions:
+        Hash:        "Hash",                // `#` — surfaces in `<#id>` per §36 (S114 K5a)
+        DoubleColon: "DoubleColon",         // `::` member-access alias per §14.4 (S114 K5c)
+        // K4 maximal-munch addition:
+        OptionalChain: "OptionalChain",     // `?.` optional-chain operator (S114 K4)
 
         // Operators (M1.1 set — extend in subsequent dispatches)
         Assign:                 "Assign",
@@ -112,6 +143,21 @@ ${
         MinusAssign:            "MinusAssign",
         StarAssign:             "StarAssign",
         SlashAssign:            "SlashAssign",
+        // K3 maximal-munch additions — 11 compound-assigns previously
+        // emitted as two adjacent tokens (re-composed at the parse layer in
+        // M2.2's TWO_TOKEN_ASSIGN_OPS table). The lexer now emits each as
+        // a single token; the parse layer's re-composition is RETIRED.
+        PercentAssign:                "PercentAssign",                  // %=
+        StarStarAssign:               "StarStarAssign",                 // **=
+        BitShiftLeftAssign:           "BitShiftLeftAssign",             // <<=
+        BitShiftRightAssign:          "BitShiftRightAssign",            // >>=
+        BitShiftRightUnsignedAssign:  "BitShiftRightUnsignedAssign",    // >>>=
+        BitAndAssign:                 "BitAndAssign",                   // &=
+        BitOrAssign:                  "BitOrAssign",                    // |=
+        BitXorAssign:                 "BitXorAssign",                   // ^=
+        LogicalAndAssign:             "LogicalAndAssign",               // &&=
+        LogicalOrAssign:              "LogicalOrAssign",                // ||=
+        NullishCoalesceAssign:        "NullishCoalesceAssign",          // ??=
         Plus:                   "Plus",
         Minus:                  "Minus",
         Star:                   "Star",

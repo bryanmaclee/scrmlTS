@@ -357,14 +357,18 @@ export function dispatchInCode(cursor, ctx) {
         return true;
     }
 
-    // ~ -> BitNot (Tilde recognition is M2+)
+    // ~ -> BitNot (Tilde recognition is M2+; see SPEC §32 and the
+    // tildeIsStandalone disambiguation in parse-expr.{scrml,js}. K5b verified:
+    // the single-char `~` is the canonical form — no maximal-munch is in play.)
     if (c0 === "~") {
         advance(cursor, 1);
         ctx.tokens.push(makeToken(TokenKind.BitNot, "~", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
         return true;
     }
 
-    // ?{ -> SqlBlock opener (naive paired-brace scan)
+    // ?{ -> SqlBlock opener (naive paired-brace scan).
+    // MUST come before the `?` operator branch below; `?{` is NOT a `?` then
+    // `{` — the `?{...}` is a single SQL embedding per §8.
     if (c0 === "?" && peekChar(cursor, 1) === "{") {
         const sqlStart = cursor.pos;
         const sqlLine = cursor.line;
@@ -459,6 +463,11 @@ export function dispatchInCode(cursor, ctx) {
     }
 
     // Punctuation + operators
+    // S114 K3+K4+K5 maximal-munch: each multi-char operator emits as a
+    // SINGLE TokenKind. Longest-match-first ordering within each operator
+    // branch; the eleven compound-assigns from K3 are interspersed with the
+    // existing operator tests (the JS-host shadow mirrors token.js's
+    // single-kind catalog).
     if (c0 === "=") {
         if (peekStr(cursor, 3) === "===") {
             advance(cursor, 3);
@@ -495,6 +504,12 @@ export function dispatchInCode(cursor, ctx) {
         return true;
     }
     if (c0 === "<") {
+        // K3 — `<<=` is the longest match; emit before `<<` / `<=`.
+        if (peekStr(cursor, 3) === "<<=") {
+            advance(cursor, 3);
+            ctx.tokens.push(makeToken(TokenKind.BitShiftLeftAssign, "<<=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
         if (peekStr(cursor, 2) === "<=") {
             advance(cursor, 2);
             ctx.tokens.push(makeToken(TokenKind.LessEqual, "<=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
@@ -510,9 +525,21 @@ export function dispatchInCode(cursor, ctx) {
         return true;
     }
     if (c0 === ">") {
+        // K3 — `>>>=` (4 chars) is the longest match; emit before `>>>` / `>>=` / `>>` / `>=`.
+        if (peekStr(cursor, 4) === ">>>=") {
+            advance(cursor, 4);
+            ctx.tokens.push(makeToken(TokenKind.BitShiftRightUnsignedAssign, ">>>=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
         if (peekStr(cursor, 3) === ">>>") {
             advance(cursor, 3);
             ctx.tokens.push(makeToken(TokenKind.BitShiftRightUnsigned, ">>>", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
+        // K3 — `>>=` (3 chars) before `>>` / `>=`.
+        if (peekStr(cursor, 3) === ">>=") {
+            advance(cursor, 3);
+            ctx.tokens.push(makeToken(TokenKind.BitShiftRightAssign, ">>=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
             return true;
         }
         if (peekStr(cursor, 2) === ">=") {
@@ -560,6 +587,12 @@ export function dispatchInCode(cursor, ctx) {
         return true;
     }
     if (c0 === "*") {
+        // K3 — `**=` (3 chars) is the longest match; emit before `**` / `*=`.
+        if (peekStr(cursor, 3) === "**=") {
+            advance(cursor, 3);
+            ctx.tokens.push(makeToken(TokenKind.StarStarAssign, "**=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
         if (peekStr(cursor, 2) === "**") {
             advance(cursor, 2);
             ctx.tokens.push(makeToken(TokenKind.StarStar, "**", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
@@ -585,14 +618,32 @@ export function dispatchInCode(cursor, ctx) {
         return true;
     }
     if (c0 === "%") {
+        // K3 — `%=` maximal-munch.
+        if (peekStr(cursor, 2) === "%=") {
+            advance(cursor, 2);
+            ctx.tokens.push(makeToken(TokenKind.PercentAssign, "%=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
         advance(cursor, 1);
         ctx.tokens.push(makeToken(TokenKind.Percent, "%", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
         return true;
     }
     if (c0 === "&") {
+        // K3 — `&&=` (3 chars) is the longest match; emit before `&&` / `&=`.
+        if (peekStr(cursor, 3) === "&&=") {
+            advance(cursor, 3);
+            ctx.tokens.push(makeToken(TokenKind.LogicalAndAssign, "&&=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
         if (peekStr(cursor, 2) === "&&") {
             advance(cursor, 2);
             ctx.tokens.push(makeToken(TokenKind.LogicalAnd, "&&", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
+        // K3 — `&=`.
+        if (peekStr(cursor, 2) === "&=") {
+            advance(cursor, 2);
+            ctx.tokens.push(makeToken(TokenKind.BitAndAssign, "&=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
             return true;
         }
         advance(cursor, 1);
@@ -600,9 +651,21 @@ export function dispatchInCode(cursor, ctx) {
         return true;
     }
     if (c0 === "|") {
+        // K3 — `||=` (3 chars) is the longest match; emit before `||` / `|=`.
+        if (peekStr(cursor, 3) === "||=") {
+            advance(cursor, 3);
+            ctx.tokens.push(makeToken(TokenKind.LogicalOrAssign, "||=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
         if (peekStr(cursor, 2) === "||") {
             advance(cursor, 2);
             ctx.tokens.push(makeToken(TokenKind.LogicalOr, "||", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
+        // K3 — `|=`.
+        if (peekStr(cursor, 2) === "|=") {
+            advance(cursor, 2);
+            ctx.tokens.push(makeToken(TokenKind.BitOrAssign, "|=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
             return true;
         }
         advance(cursor, 1);
@@ -610,14 +673,37 @@ export function dispatchInCode(cursor, ctx) {
         return true;
     }
     if (c0 === "^") {
+        // K3 — `^=`.
+        if (peekStr(cursor, 2) === "^=") {
+            advance(cursor, 2);
+            ctx.tokens.push(makeToken(TokenKind.BitXorAssign, "^=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
         advance(cursor, 1);
         ctx.tokens.push(makeToken(TokenKind.BitXor, "^", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
         return true;
     }
     if (c0 === "?") {
+        // K3 — `??=` (3 chars) is the longest match; emit before `??`.
+        if (peekStr(cursor, 3) === "??=") {
+            advance(cursor, 3);
+            ctx.tokens.push(makeToken(TokenKind.NullishCoalesceAssign, "??=", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
         if (peekStr(cursor, 2) === "??") {
             advance(cursor, 2);
             ctx.tokens.push(makeToken(TokenKind.NullishCoalesce, "??", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
+        // K4 — `?.` optional-chain maximal-munch. The brief carve-out: NOT
+        // when the `.` is followed by a digit — `0?.5` is the conditional-
+        // then-decimal case (`0 ? .5 : ...`), where `.5` is a numeric
+        // literal. Per ECMA-262 the optional-chain operator is forbidden
+        // when the post-`.` char is a decimal digit precisely so this
+        // grammar wedge is unambiguous; we match that carve-out here.
+        if (peekStr(cursor, 2) === "?." && !isDigit(peekCharCode(cursor, 2))) {
+            advance(cursor, 2);
+            ctx.tokens.push(makeToken(TokenKind.OptionalChain, "?.", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
             return true;
         }
         advance(cursor, 1);
@@ -648,6 +734,19 @@ export function dispatchInCode(cursor, ctx) {
         }
         advance(cursor, 1);
         ctx.tokens.push(makeToken(TokenKind.Dot, ".", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+        return true;
+    }
+
+    // K5a — `#` Hash token. scrml uses `#` only as part of the `<#id>` input-
+    // state reference (§36); the SPEC does NOT include JS private-class-field
+    // syntax (no `#x` in §48/§54), so a bare `#` outside the `<#id>` shape is
+    // a syntax error caught at the parse layer. The lexer emits the token
+    // unconditionally; isInputStateRefAhead in parse-expr checks the surrounding
+    // `<` Hash Ident `>` adjacency before consuming the four tokens as one
+    // InputStateRef atom.
+    if (c0 === "#") {
+        advance(cursor, 1);
+        ctx.tokens.push(makeToken(TokenKind.Hash, "#", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
         return true;
     }
 
@@ -699,6 +798,12 @@ export function dispatchInCode(cursor, ctx) {
         return true;
     }
     if (c0 === ":") {
+        // K5c — `::` DoubleColon maximal-munch (§14.4 member-access alias).
+        if (peekStr(cursor, 2) === "::") {
+            advance(cursor, 2);
+            ctx.tokens.push(makeToken(TokenKind.DoubleColon, "::", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
+            return true;
+        }
         advance(cursor, 1);
         ctx.tokens.push(makeToken(TokenKind.Colon, ":", makeSpan(startPos, cursor.pos, startLine, startCol), {}));
         return true;

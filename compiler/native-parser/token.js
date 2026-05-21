@@ -1,6 +1,11 @@
 // token.js — JS-host shadow of token.scrml.
 // See span.js header for the .scrml<->.js duplication rationale.
 // PILLAR 5b classification mirrors token.scrml's header — see that file.
+//
+// S114 K3+K4+K5 update — maximal-munch closure. M1 now emits as a SINGLE
+// TokenKind every multi-char operator that JS recognizes as one operator:
+// 11 compound-assigns (K3), `?.` optional chain (K4), `#` (K5a `<#id>`-only),
+// `::` (K5c). See token.scrml header.
 
 export const TokenKind = Object.freeze({
     LParen:      "LParen",
@@ -16,12 +21,32 @@ export const TokenKind = Object.freeze({
     Arrow:       "Arrow",
     Colon:       "Colon",
     Question:    "Question",
+    // K5a/K5c maximal-munch additions:
+    Hash:        "Hash",                // `#` — surfaces in `<#id>` per §36 (S114 K5a)
+    DoubleColon: "DoubleColon",         // `::` member-access alias per §14.4 (S114 K5c)
+    // K4 maximal-munch addition:
+    OptionalChain: "OptionalChain",     // `?.` optional-chain operator (S114 K4)
 
     Assign:                 "Assign",
     PlusAssign:             "PlusAssign",
     MinusAssign:            "MinusAssign",
     StarAssign:             "StarAssign",
     SlashAssign:            "SlashAssign",
+    // K3 maximal-munch additions — 11 compound-assigns previously emitted
+    // as two adjacent tokens (re-composed at the parse layer in M2.2's
+    // TWO_TOKEN_ASSIGN_OPS table). The lexer now emits each as a single
+    // token; the parse layer's re-composition is RETIRED.
+    PercentAssign:                "PercentAssign",                  // %=
+    StarStarAssign:               "StarStarAssign",                 // **=
+    BitShiftLeftAssign:           "BitShiftLeftAssign",             // <<=
+    BitShiftRightAssign:          "BitShiftRightAssign",            // >>=
+    BitShiftRightUnsignedAssign:  "BitShiftRightUnsignedAssign",    // >>>=
+    BitAndAssign:                 "BitAndAssign",                   // &=
+    BitOrAssign:                  "BitOrAssign",                    // |=
+    BitXorAssign:                 "BitXorAssign",                   // ^=
+    LogicalAndAssign:             "LogicalAndAssign",               // &&=
+    LogicalOrAssign:              "LogicalOrAssign",                // ||=
+    NullishCoalesceAssign:        "NullishCoalesceAssign",          // ??=
     Plus:                   "Plus",
     Minus:                  "Minus",
     Star:                   "Star",
