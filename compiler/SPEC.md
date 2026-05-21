@@ -12769,6 +12769,58 @@ ${ import { helper } from './helper.js' }
 - Import order within a file does not affect compilation. The compiler resolves all
   imports before running any per-file passes.
 
+### 21.3.1 `import:host` — Self-Host Bootstrap Bridge
+
+**Added 2026-05-21 (S114).** Ratified via the ^{} expressiveness DD (Approach C) + the import:host grammar-shape sub-DD (Approach α). Cross-refs: `scrml-support/docs/deep-dives/meta-block-runtime-semantics-expressiveness-2026-05-21.md`, `scrml-support/docs/deep-dives/import-host-grammar-shape-2026-05-21.md`.
+
+The `import:host` declaration form is a bounded carve-out that permits a scrml file to import bindings from a host-language module (TypeScript or JavaScript) at compile time. This form is strictly limited to the self-host stdlib by the project manifest (see §22.13).
+
+**Why this form exists.** Approach C of the ^{} expressiveness DD closes the general-developer `^{}` body to scrml-native only. The self-host bootstrap (`scrml/stdlib/compiler/**` and similar bootstrap-stdlib paths) needs a bounded named declaration form for bridging into the host TypeScript implementation during the v0.x bootstrap phase. `import:host` is that named declaration — a 1-keyword extension of `import`, manifest-gated, NOT an embedded JS-expression parser. M6 retires the JS-parser-in-`^{}`-body path entirely; the only host-language surface that remains is this declaration form.
+
+**Syntax:**
+
+```
+host-import-decl ::= 'import:' host-tag import-clause 'from' string-literal
+host-tag         ::= identifier
+import-clause    ::= '{' named-binding (',' named-binding)* '}'
+named-binding    ::= identifier ('as' identifier)?
+```
+
+The `host-tag` SHALL be `host` for v1. Future host-tag values (`wasm`, `wat`, `c`, etc.) are reserved for future SPEC extensions and SHALL be a compile error (E-IMPORT-008) under v1.
+
+**Worked example — valid (in `scrml/stdlib/compiler/cg.scrml`):**
+
+```scrml
+import:host { runCG as _runCG, CGError as _CGError } from "../../compiler/src/codegen/index.ts"
+
+export const runCG = _runCG
+export const CGError = _CGError
+```
+
+The bindings `_runCG` and `_CGError` are resolved at compile time from the named exports of the TypeScript module at the specified path. The `as` rename is OPTIONAL — use when the imported name needs to be re-exported under a different scrml-side identifier.
+
+**Normative statements:**
+
+- `import:host` SHALL appear only at file top level, OUTSIDE any `${}` logic context. An `import:host` declaration inside a `${}` block or any nested scope SHALL be a compile error (`E-IMPORT-003` — same as plain `import`).
+- The file containing an `import:host` declaration MUST match a path pattern listed in the project manifest's `[capabilities] host-import` allow-list (default in the user project manifest: `disabled`; the bootstrap stdlib's own manifest sets `self-host-only` which permits `scrml/stdlib/compiler/**`). A file outside the allow-list using `import:host` SHALL be a compile error (`E-IMPORT-008`).
+- The `host-tag` SHALL be `host` in v1. Any other host-tag value SHALL be a compile error (`E-IMPORT-009` — unknown host-tag; only `host` is recognized in v1).
+- Named bindings imported via `import:host` SHALL be available in the file's logic scope as if they were imported via plain `import { ... } from "..."`. They MAY be re-exported via `export const name = _binding`. A direct `export:host` re-export form is NOT defined in v1; defer until adopter friction surfaces a use case.
+- The compiler SHALL NOT inline or evaluate the host-language module's body during scrml parse. The host module is loaded and named exports are extracted at compile time only.
+- Cyclic `import:host` (host module imports a scrml file that uses `import:host` back into the same host module) SHALL be a compile error (`E-IMPORT-002` — same code as plain import cycles). The cycle detector operates on the scrml file graph plus the host-side named-export records; it does NOT traverse into TS/JS module internals.
+- `as` rename is OPTIONAL. If a stdlib file imports for internal use only (no re-export), the rename may be omitted. If re-exporting under a different identifier, the `as` rename is the canonical mechanism.
+
+**Pluggability (future SPEC extensions, NOT v1):**
+
+The `host-tag` namespace is designed to extend to additional host languages without grammar change: `import:wasm { fn } from "./mod.wasm"`, `import:wat { fn } from "./mod.wat"`, `import:c { fn } from "./mod.h"`, etc. Each future host-tag SHALL be ratified by SPEC amendment in a future minor release; v1 strictly limits to `host`.
+
+**Interaction with §22 (`^{}` meta blocks):**
+
+Files that use `import:host` MAY also use `^{}` blocks. `import:host` replaces the `^{ await import(...) }` self-host bridge pattern catalogued in the S114 ^{} expressiveness DD (Approach C). Under Approach C, the `^{}` body MUST NOT contain dynamic `await import(...)` calls — that path is closed by M6 (the joint retirement of BS + Acorn + BPP + the JS-parser-in-`^{}`-body path).
+
+**Interaction with §29 (vanilla-interop) / §23 (`use foreign:`):**
+
+`import:host` is distinct from `use foreign:` (§23 — runtime-evaluated foreign-code block) and from §29 vanilla-interop (currently in spec-vs-impl divergence — disposition pending per S110 carry). `import:host` is compile-time named-bindings; `use foreign:` is runtime opaque-block. The three mechanisms compose without overlap.
+
 ### 21.4 Re-export
 
 A file MAY re-export bindings from another file:
@@ -12841,6 +12893,8 @@ without `export`).
 | E-IMPORT-005 | Bare npm-style import specifier (must be `./`, `scrml:`, or `vendor:`) | Error |
 | E-IMPORT-006 | Import target file does not exist on disk | Error |
 | E-IMPORT-007 | Auto-gather closure exceeded sane-limit (5000 files) — W2 §21.7 | Error |
+| E-IMPORT-008 | (S114 — §21.3.1.) `import:host` used in a file outside the manifest's `[capabilities] host-import` allow-list. Default for adopter projects is `"disabled"`; the bootstrap stdlib sets `"self-host-only"` permitting `scrml/stdlib/compiler/**`. | Error |
+| E-IMPORT-009 | (S114 — §21.3.1.) `import:host` uses a host-tag other than `host`. v1 recognizes only `host`; future-reserved tags (`wasm` / `wat` / `c` / `zig` / etc.) require SPEC amendment. | Error |
 | E-EXPORT-002 | Form 1 (§21.2) component body is empty, contains only text, or has more than one top-level markup root — body MUST be single-rooted markup | Error |
 | E-EXPORT-003 | Form 1 (§21.2) outer attribute name collides with the body-root's attribute name (other than `class`, which merges per §15.5) | Error |
 
@@ -13331,6 +13385,10 @@ The `meta` object SHALL expose the following properties and methods:
 | `meta.scopeId` | `string` | The stable scope identifier for this meta block. |
 | `meta.bindings` | `Readonly<object>` | Frozen object containing all captured lexical bindings (see §22.5.2). |
 | `meta.types` | `object` | Runtime type registry accessor (see §22.5.4). |
+| `meta.interval(ms, callback)` | `(number, fn) => intervalId` | (S114 — Approach C ratification.) Register a repeating timer. Returns an opaque `intervalId` for use with `meta.clearInterval`. The interval is auto-cleared on scope destroy (no manual cleanup required UNLESS the block needs early termination). Replaces direct use of `setInterval` inside `^{}` runtime bodies. |
+| `meta.timeout(ms, callback)` | `(number, fn) => timeoutId` | (S114 — Approach C ratification.) Register a one-shot timer. Returns an opaque `timeoutId` for use with `meta.clearTimeout`. Auto-cleared on scope destroy. Replaces direct use of `setTimeout` inside `^{}` runtime bodies. |
+| `meta.clearInterval(intervalId)` | `(intervalId) => void` | (S114.) Cancel a previously-registered `meta.interval`. Safe to call on already-cleared ids (no-op). |
+| `meta.clearTimeout(timeoutId)` | `(timeoutId) => void` | (S114.) Cancel a previously-registered `meta.timeout`. Safe to call on already-fired or already-cleared ids (no-op). |
 
 **Normative statements:**
 
@@ -13346,6 +13404,9 @@ The `meta` object SHALL expose the following properties and methods:
   runtime MAY omit `meta.bindings` or expose an empty frozen object.
 - `meta.types` SHALL be present when `typeRegistry` was passed; if not passed, the runtime
   MAY omit `meta.types` or expose an object where `meta.types.reflect()` always returns `not`.
+- **Timer primitives lifetime (S114 — Approach C ratification).** `meta.interval` / `meta.timeout` SHALL be tied to the meta block's scope lifetime. On scope destroy (the same trigger that fires registered `meta.cleanup` callbacks), the runtime SHALL clear every still-active interval and timeout registered through `meta.interval` / `meta.timeout` for that scope, in LIFO registration order, BEFORE running the scope's registered `meta.cleanup` callbacks. A `meta.cleanup` callback observes a state where the timers are already cleared; explicit `meta.clearInterval` / `meta.clearTimeout` calls inside cleanup are redundant but safe (no-op when the id is already cleared). The runtime SHALL ALSO clear all still-active timers before each re-run of the effect body (mirrors the existing pre-rerun `meta.cleanup` LIFO discharge). Replay of the effect re-registers fresh timer ids.
+- The timer primitives (`meta.interval` / `meta.timeout` / `meta.clearInterval` / `meta.clearTimeout`) are runtime-only. The compile-time meta surface (`reflect` / `emit` / `emit.raw`) SHALL NOT consume the timer API. The compile-time classifier (§22.4) treats their presence as a runtime-meta signal.
+- The timer primitives REPLACE direct use of JS-host `setInterval` / `clearInterval` / `setTimeout` / `clearTimeout` inside `^{}` bodies. Under the S114 Approach C ratification, the JS-host ambient timer globals are NOT in the META_BUILTINS set for `^{}` bodies. Using `setInterval` / `setTimeout` directly inside a `^{}` body SHALL emit `E-META-001` (the existing capability boundary code). Migration: replace with `meta.interval` / `meta.timeout`.
 
 #### 22.5.2 Captured Bindings
 
@@ -13654,6 +13715,48 @@ Where:
 | E-META-008 | `reflect()` called outside any `^{}` meta block | Error |
 | E-META-009 | Nested `^{}` inside a compile-time `^{}` block (not supported in this revision) | Error |
 | E-META-010 | Reference to the reserved `compiler.*` namespace inside a `^{}` block (§22.4) | Error |
+
+### 22.12 Approach C — what scrml-native fully describes
+
+**Added 2026-05-21 (S114 ratification — full ratify per user-voice S114).** The S114 `^{}` runtime-semantics expressiveness deep-dive (`scrml-support/docs/deep-dives/meta-block-runtime-semantics-expressiveness-2026-05-21.md`) answered the load-bearing question: **scrml-native fully describes runtime semantics** via the §22.5.1 `meta` API (8 original members + 4 timer primitives added S114 = 12 closed primitives). Compile-time meta is closed via `emit` / `emit.raw` / `reflect` (3 primitives, already specced). The general-developer `^{}` body parser SHALL accept only scrml-native + this enumerated primitive set; JS-host ambient globals (`bun`, `process`, `setInterval`, `fetch`, etc.) are NOT in the META_BUILTINS set and trigger `E-META-001`.
+
+**The single named carve-out for self-host bootstrap** is the `import:host` file-top declaration form (§21.3.1). It is NOT an `^{}` body extension; it is a separate declaration form, manifest-gated by §22.13. The native parser does NOT carry an embedded JS-expression parser for `^{}` bodies under Approach C — `^{}` parses as scrml-native, full stop.
+
+**M6 retirement scope (charter B):** under Approach C, M6 retires:
+- The block-splitter (`compiler/src/block-splitter.js`).
+- The Acorn JS parser dependency.
+- The body-pre-parser (`compiler/src/body-pre-parser.ts`).
+- The embedded-JS-parser path inside `^{}` bodies.
+
+Retirement is **total**. The native parser at the M4 corpus-gated bound is sufficient as the v1.0 language surface.
+
+**Prior art alignment:** every language allowing permanent host-language compile-time escape (Rust `build.rs`, Cargo proc-macros, npm postinstall) has been exploited at supply-chain scale (xz-utils CVE-2024-3094). Every language without (Zig `comptime` + `@cImport`, Jai `#run`, D CTFE, Nim macros, Lisp `defmacro`, OCaml ppx, Haskell Template Haskell with IO-gated FFI) is viable. Approach C aligns scrml with the second cohort.
+
+**Trigger for revisiting Approach C:** if a future general-developer sample surfaces a `^{}` body that genuinely needs JS-host expression evaluation AND no compiler-managed surface (formFor / schemaFor / tableFor-class extension; L22 family) closes it, revisit. As of S114 close, no such sample exists.
+
+### 22.13 Manifest entry — `[capabilities] host-import`
+
+**Added 2026-05-21 (S114).** Composes 1:1 with the 2026-05-17 SPEC-capability-boundary draft (`scrml-support/docs/deep-dives/meta-system-capability-boundary-SPEC-draft-2026-05-17.md`) — Approach C operationalizes the constraint at the grammar layer; the capability-boundary draft does it at the runtime-sandbox layer. Both layers compose.
+
+**Project manifest (`scrml.toml`) entry:**
+
+```toml
+[capabilities]
+host-import = "disabled"          # default for user project manifests
+# host-import = "self-host-only"  # the bootstrap stdlib's own manifest sets this
+```
+
+**Permitted values:**
+
+- `"disabled"` (default for adopter projects) — `import:host` declarations SHALL fire `E-IMPORT-007` in every file of the project.
+- `"self-host-only"` — `import:host` declarations are permitted ONLY in files matching the project's bootstrap stdlib path pattern (canonical: `scrml/stdlib/compiler/**`; project-specific overrides via additional capability subkeys reserved for future SPEC extension).
+
+**Normative statements:**
+
+- The manifest entry is read at compile-time before any parse begins. The block-splitter / native parser SHALL consult the entry before accepting `import:host` declarations.
+- If the manifest is absent, the entry defaults to `"disabled"`. An adopter who needs `import:host` (e.g. for a private host-language bridge) SHALL explicitly opt in via manifest entry.
+- The `"self-host-only"` value is the canonical bootstrap setting. Future SPEC extensions may add `"trusted-allowlist"` or per-package permissions; v1 ratifies only `"disabled"` and `"self-host-only"`.
+- Any other manifest value SHALL be a compile error (`E-MANIFEST-001` — invalid `host-import` value; only `"disabled"` and `"self-host-only"` are recognized in v1). Note: `E-MANIFEST-001` is the manifest-validation code; not registered here — manifest validation is owned by the project-config subsystem and surfaces its own error catalog.
 
 ---
 
@@ -15278,6 +15381,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-IMPORT-005 | §21.3 | `import` specifier uses an unrecognized protocol prefix or a bare npm-style specifier. Specifiers must begin with `scrml:`, `vendor:`, `./`, or `../` — scrml has no npm integration. (Catalog addition S78 audit; emitted at `compiler/src/module-resolver.js:120`.) | Error |
 | E-IMPORT-006 | §21.3 | `scrml:` (or relative) `import` specifier does not resolve to any module on disk. (Catalog addition S78 audit; emitted at `compiler/src/module-resolver.js:146`.) | Error |
 | E-IMPORT-007 | §21.7 | Auto-gather closure exceeded the sane-limit (5000 files). The `import` resolution traversal touched too many files — likely an accidental project-root inclusion or a cycle in directory traversal. (Catalog addition S78 audit; emitted at `compiler/src/api.js:506`.) | Error |
+| E-IMPORT-008 | §21.3.1 | `import:host` used in a file outside the project manifest's `[capabilities] host-import` allow-list. The default value is `"disabled"` in adopter project manifests; the bootstrap stdlib's own manifest sets `"self-host-only"` permitting only files under `scrml/stdlib/compiler/**`. Resolution: either remove the `import:host` declaration (the canonical path — adopter code uses `import` from scrml-source modules, not host-language modules); or, if a host-language bridge is genuinely required, opt into the manifest entry explicitly. (Catalog addition S114 — Approach C ratification.) | Error |
+| E-IMPORT-009 | §21.3.1 | `import:host` uses a host-tag other than `host`. v1 recognizes only the `host` tag (TypeScript / JavaScript named-export bridge). Future-reserved tags (`wasm` / `wat` / `c` / `zig` / etc.) require SPEC amendment + per-tag implementation. Resolution: use `import:host` for the v1 TS/JS bridge; defer other host languages until SPEC amendment. (Catalog addition S114 — Approach C ratification.) | Error |
 | E-META-002 | §22.4 | Invalid token inside a `^{}` meta block (existing). The meta block body is not valid scrml/JS at parse time. (Catalog addition S78 audit; emitted at `compiler/src/ast-builder.js:5074, 7741`.) | Error |
 | E-META-003 | §22.4 | `reflect()` called on an unknown type identifier inside a compile-time `^{}` meta block. Resolution: ensure the type is declared and in scope at the meta-block's lexical position. (Catalog addition S78 audit; emitted at `compiler/src/meta-checker.ts:1533`.) | Error |
 | E-META-005 | §22.6 | A `^{}` meta block mixes compile-time API patterns (`reflect()`, etc.) with runtime-only values. A meta block must be entirely compile-time or entirely runtime; the modes don't compose. (Catalog addition S78 audit; emitted at `compiler/src/meta-checker.ts:1612`.) | Error |
