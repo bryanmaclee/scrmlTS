@@ -120,6 +120,12 @@ import {
     firstChildElementClass,
     classifyTagFrame,
     tagFrameBalancedAt,
+    // F1 (v0.6) — the native attribute tokenizer.
+    tokenizeAttributeRegion,
+    isEventHandlerAttrName,
+    collectRefs,
+    splitCallArgs,
+    attrBareExprContinuation,
 } from "../native-parser/tag-frame.js";
 // MK2.2 — the M1 ErrorRecovery engine (the mismatch dispatch re-syncs it).
 import { ErrorRecovery } from "../native-parser/error-recovery.js";
@@ -178,6 +184,11 @@ import { topDelegationFrame } from "../native-parser/delegation-frame.js";
 // Q4.A MK1 gating / roadmap §4.2). block-splitter.js is READ-ONLY here —
 // it is the oracle, never modified by this dispatch.
 import { splitBlocks } from "../src/block-splitter.js";
+
+// F1 (v0.6) — the live attribute tokenizer, imported as the PARITY oracle:
+// the native `tokenizeAttributeRegion` token stream must match the live
+// `tokenizeAttributes` ATTR_* tokens 1:1 for the same opener source.
+import { tokenizeAttributes as liveTokenizeAttributes } from "../src/tokenizer.ts";
 
 // peakDelegationDepth — drive the trampoline dispatch by dispatch (the
 // dispatch fns are exported) and record the HIGH-WATER delegationStack
@@ -4578,5 +4589,319 @@ describe("MK4 §66 — peak delegation depth at the deep-stack worst case", () =
         expect(wrapper.children.length).toBeGreaterThan(0);
         const inner = wrapper.children.find(c => c.kind === "Markup" && c.name === "inner");
         expect(inner).toBeDefined();
+    });
+});
+
+// #############################################################################
+// F1 (v0.6) — THE NATIVE ATTRIBUTE TOKENIZER.
+//
+// `tokenizeAttributeRegion` (tag-frame.js) walks the attribute region of a
+// tag opener and produces BOTH the raw ATTR_* token stream (`tokens`) and
+// the AttrNode[] AST (`attrs` — the live FileAST 6-variant `AttrValue`
+// union). `tokenizeOpener` attaches both as `.attrs` / `.tokenizedAttrs`;
+// `emitMarkupElement` stamps them on the Markup block.
+//
+// The parity contract: the native `tokens` MUST match the live
+// `tokenizer.ts:tokenizeAttributes` ATTR_* tokens 1:1, and `attrs` MUST
+// match the live `ast-builder.js:parseAttributes` output 1:1, for the same
+// opener source.
+// #############################################################################
+
+// openerAttrs — drive tokenizeOpener the way the trampoline does and
+// return its descriptor. Mirrors tokenizeOpenerFromLt above.
+function openerAttrs(source) {
+    const cursor = makeCursor(source);
+    const ltAnchor = { start: cursor.pos, line: cursor.line, col: cursor.col };
+    advance(cursor, 1); // consume the `<`
+    return tokenizeOpener(cursor, ltAnchor);
+}
+
+// liveAttrTokens — the live ATTR_* token stream for an opener source (the
+// parity oracle), stripped of the structural TAG_* tokens the native
+// opener descriptor carries directly.
+function liveAttrTokens(source, blockType) {
+    return liveTokenizeAttributes(source, 0, 1, 1, blockType ?? "markup")
+        .filter(t => typeof t.kind === "string" && t.kind.startsWith("ATTR_"));
+}
+
+describe("F1 tokenizeAttributeRegion — the 6-variant AttrValue union", () => {
+    test("a quoted string attribute is string-literal", () => {
+        const o = openerAttrs(`<div class="hero">`);
+        expect(o.attrs).toHaveLength(1);
+        expect(o.attrs[0].name).toBe("class");
+        expect(o.attrs[0].value.kind).toBe("string-literal");
+        expect(o.attrs[0].value.value).toBe("hero");
+    });
+
+    test("an unquoted identifier attribute is variable-ref", () => {
+        const o = openerAttrs(`<input value=name>`);
+        expect(o.attrs[0].value.kind).toBe("variable-ref");
+        expect(o.attrs[0].value.name).toBe("name");
+    });
+
+    test("a `@`-prefixed identifier attribute is variable-ref", () => {
+        const o = openerAttrs(`<input bind:value=@country>`);
+        expect(o.attrs[0].name).toBe("bind:value");
+        expect(o.attrs[0].value.kind).toBe("variable-ref");
+        expect(o.attrs[0].value.name).toBe("@country");
+    });
+
+    test("a call-form unquoted attribute is call-ref with split args", () => {
+        const o = openerAttrs(`<button onclick=save(@a, @b)>`);
+        expect(o.attrs[0].value.kind).toBe("call-ref");
+        expect(o.attrs[0].value.name).toBe("save");
+        expect(o.attrs[0].value.args).toEqual(["@a", "@b"]);
+    });
+
+    test("a zero-arg call attribute is call-ref with an empty arg list", () => {
+        const o = openerAttrs(`<button onclick=reset()>`);
+        expect(o.attrs[0].value.kind).toBe("call-ref");
+        expect(o.attrs[0].value.name).toBe("reset");
+        expect(o.attrs[0].value.args).toEqual([]);
+    });
+
+    test("a `${...}` inline-expression attribute is expr with refs", () => {
+        const o = openerAttrs("<button onclick=${() => save(@x)}>");
+        expect(o.attrs[0].value.kind).toBe("expr");
+        expect(o.attrs[0].value.raw).toBe("() => save(@x)");
+        expect(o.attrs[0].value.refs).toEqual(["x"]);
+    });
+
+    test("a parenthesized boolean expression attribute is expr", () => {
+        const o = openerAttrs(`<section if=(@count > 0)>`);
+        expect(o.attrs[0].value.kind).toBe("expr");
+        expect(o.attrs[0].value.raw).toBe("(@count > 0)");
+        expect(o.attrs[0].value.refs).toEqual(["count"]);
+    });
+
+    test("a quoted if= value is expr (not string-literal)", () => {
+        const o = openerAttrs(`<section if="@a && @b">`);
+        expect(o.attrs[0].value.kind).toBe("expr");
+        expect(o.attrs[0].value.refs).toEqual(["a", "b"]);
+    });
+
+    test("a `!`-negation unquoted attribute is expr", () => {
+        const o = openerAttrs(`<div if=!@hidden>`);
+        expect(o.attrs[0].value.kind).toBe("expr");
+        expect(o.attrs[0].value.raw).toBe("!@hidden");
+        expect(o.attrs[0].value.refs).toEqual(["hidden"]);
+    });
+
+    test("an array-literal attribute is expr", () => {
+        const o = openerAttrs(`<formFor pick=["name", "email"]>`);
+        expect(o.attrs[0].value.kind).toBe("expr");
+        expect(o.attrs[0].value.raw).toBe('["name", "email"]');
+    });
+
+    test("a `props={...}` attribute is props-block", () => {
+        const o = openerAttrs(`<Card props={title: string, count: number}>`);
+        expect(o.attrs[0].value.kind).toBe("props-block");
+        expect(o.attrs[0].value.propsDecl).toBe("title: string, count: number");
+    });
+
+    test("a non-props brace-block attribute is expr", () => {
+        const o = openerAttrs(`<div handler={fire(@e)}>`);
+        expect(o.attrs[0].value.kind).toBe("expr");
+        expect(o.attrs[0].value.raw).toBe("fire(@e)");
+        expect(o.attrs[0].value.refs).toEqual(["e"]);
+    });
+
+    test("a valueless attribute is a boolean attribute — absent", () => {
+        const o = openerAttrs(`<input disabled>`);
+        expect(o.attrs[0].name).toBe("disabled");
+        expect(o.attrs[0].value.kind).toBe("absent");
+    });
+
+    test("multiple attributes of mixed variants on one opener", () => {
+        const o = openerAttrs(`<input type="text" value=name required>`);
+        expect(o.attrs).toHaveLength(3);
+        expect(o.attrs[0].value.kind).toBe("string-literal");
+        expect(o.attrs[1].value.kind).toBe("variable-ref");
+        expect(o.attrs[2].value.kind).toBe("absent");
+    });
+
+    test("a self-closing opener — the trailing `/` is not an attribute", () => {
+        const o = openerAttrs(`<img src="a.png" alt="x"/>`);
+        expect(o.selfClosing).toBe(true);
+        expect(o.attrs).toHaveLength(2);
+        expect(o.attrs.map(a => a.name)).toEqual(["src", "alt"]);
+    });
+
+    test("an opener with no attributes yields an empty attrs array", () => {
+        const o = openerAttrs(`<section>`);
+        expect(o.attrs).toEqual([]);
+        expect(o.tokenizedAttrs).toEqual([]);
+    });
+});
+
+describe("F1 bare-form event handlers — SPEC §5.2.3", () => {
+    test("a postfix-update bare handler is expr", () => {
+        const o = openerAttrs(`<button onclick=@count++>`);
+        expect(o.attrs[0].value.kind).toBe("expr");
+        expect(o.attrs[0].value.raw).toBe("@count++");
+    });
+
+    test("a bare-assignment handler reads the RHS to the boundary", () => {
+        const o = openerAttrs(`<button onclick=@phase = .Loading>`);
+        expect(o.attrs[0].value.kind).toBe("expr");
+        expect(o.attrs[0].value.raw).toBe("@phase = .Loading");
+    });
+
+    test("two bare-assignment handlers on one opener do not collide", () => {
+        const o = openerAttrs(`<button onclick=@a = 1 onmouseenter=@b = 2>`);
+        expect(o.attrs).toHaveLength(2);
+        expect(o.attrs[0].value.raw).toBe("@a = 1");
+        expect(o.attrs[1].value.raw).toBe("@b = 2");
+    });
+
+    test("attrBareExprContinuation recognizes assignment / update operators", () => {
+        expect(attrBareExprContinuation("=x", 0, 2)).toBe(true);
+        expect(attrBareExprContinuation("++", 0, 2)).toBe(true);
+        expect(attrBareExprContinuation("--", 0, 2)).toBe(true);
+        expect(attrBareExprContinuation("+= 1", 0, 4)).toBe(true);
+        expect(attrBareExprContinuation("??= y", 0, 5)).toBe(true);
+        // Rejects comparison `==` and arrow `=>`.
+        expect(attrBareExprContinuation("== y", 0, 4)).toBe(false);
+        expect(attrBareExprContinuation("=> y", 0, 4)).toBe(false);
+    });
+
+    test("isEventHandlerAttrName recognizes the event-handler name shapes", () => {
+        expect(isEventHandlerAttrName("onclick")).toBe(true);
+        expect(isEventHandlerAttrName("oninput")).toBe(true);
+        expect(isEventHandlerAttrName("on:custom")).toBe(true);
+        expect(isEventHandlerAttrName("onserver:save")).toBe(true);
+        expect(isEventHandlerAttrName("onclient:tick")).toBe(true);
+        expect(isEventHandlerAttrName("class")).toBe(false);
+        expect(isEventHandlerAttrName("on")).toBe(false);
+        expect(isEventHandlerAttrName("")).toBe(false);
+    });
+});
+
+describe("F1 state-opener typed-attribute declarations — SPEC §35.2", () => {
+    test("a `name(type)` decl in a state opener is an ATTR_TYPED_DECL token", () => {
+        // `< Counter ...>` — the space after `<` is the §4.3 state-opener
+        // signal that admits `name(type)` typed-attr decls.
+        const o = openerAttrs(`< card name(string) count(number)>`);
+        const decls = o.tokenizedAttrs.filter(t => t.kind === "ATTR_TYPED_DECL");
+        expect(decls).toHaveLength(2);
+        expect(JSON.parse(decls[0].text)).toEqual({ name: "name", typeExpr: "string" });
+        expect(JSON.parse(decls[1].text)).toEqual({ name: "count", typeExpr: "number" });
+    });
+
+    test("a markup opener does NOT treat `name(...)` as a typed decl", () => {
+        // No space after `<` — a markup tag; `onclick=fn()` is a call,
+        // and a bare `name(...)` is not admitted as a typed decl.
+        const o = openerAttrs(`<div onclick=fn()>`);
+        expect(o.tokenizedAttrs.some(t => t.kind === "ATTR_TYPED_DECL")).toBe(false);
+    });
+});
+
+describe("F1 helper calculations", () => {
+    test("collectRefs extracts distinct @-refs in first-seen order", () => {
+        expect(collectRefs("@a + @b - @a")).toEqual(["a", "b"]);
+        expect(collectRefs("no refs here")).toEqual([]);
+        expect(collectRefs("@count")).toEqual(["count"]);
+    });
+
+    test("splitCallArgs splits on top-level commas, depth-aware", () => {
+        expect(splitCallArgs("@a, @b")).toEqual(["@a", "@b"]);
+        expect(splitCallArgs("fn(x, y), z")).toEqual(["fn(x, y)", "z"]);
+        expect(splitCallArgs("")).toEqual([]);
+        expect(splitCallArgs("   ")).toEqual([]);
+    });
+});
+
+describe("F1 token-stream parity vs the live tokenizeAttributes", () => {
+    // Each opener source — the native `tokenizeAttributeRegion` ATTR_*
+    // stream MUST equal the live `tokenizeAttributes` ATTR_* stream
+    // (kind + text), 1:1. (TAG_OPEN / TAG_CLOSE_GT / TAG_SELF_CLOSE are
+    // the native opener descriptor's own fields — excluded from both
+    // sides.)
+    const MARKUP_CASES = [
+        `<div class="hero" id=main>`,
+        `<input type="text" value=name required>`,
+        `<button onclick=save(@a, @b)>`,
+        `<button onclick=reset()>`,
+        "<button onclick=${() => save(@x)}>",
+        `<section if=(@count > 0)>`,
+        `<section if="@a && @b">`,
+        `<div if=!@hidden>`,
+        `<formFor pick=["name", "email"]>`,
+        `<Card props={title: string, count: number}>`,
+        `<div handler={fire(@e)}>`,
+        `<img src="a.png" alt="x"/>`,
+        `<a title="x>y" href="/p">`,
+        // NOTE — `<a title='x>y'>` is intentionally EXCLUDED. The native
+        // `tokenizeOpener` opaque scan treats a single-quoted run as
+        // string-opaque (MK2.1 contract — `tokenizeOpener` test
+        // "single-quoted attribute strings are recognized too"), so the
+        // opener ends after `y'`. The live `tokenizeAttributes`
+        // recognizes ONLY double-quoted string VALUES — it skips a
+        // value-position `'` char-by-char, so its opener ends at the
+        // first bare `>`. The two parsers structurally disagree on where
+        // the opener ENDS for that input; it is a pre-existing MK2.1
+        // single-quote-awareness divergence, NOT an F1 attribute-tokenizer
+        // concern. F1 parity holds for the live-supported attribute
+        // surface (double-quoted strings).
+        `<button onclick=@count++>`,
+        `<button onclick=@phase = .Loading>`,
+        `<program auth="required">`,
+        `<engine for=LexMode>`,
+        `<section>`,
+    ];
+
+    for (const src of MARKUP_CASES) {
+        test(`markup opener parity — ${JSON.stringify(src)}`, () => {
+            const o = openerAttrs(src);
+            const live = liveAttrTokens(src, "markup");
+            const native = o.tokenizedAttrs;
+            expect(native.map(t => [t.kind, t.text]))
+                .toEqual(live.map(t => [t.kind, t.text]));
+        });
+    }
+
+    const STATE_CASES = [
+        `< card name(string) count(number)>`,
+        `< user id(string) active>`,
+    ];
+
+    for (const src of STATE_CASES) {
+        test(`state opener parity — ${JSON.stringify(src)}`, () => {
+            const o = openerAttrs(src);
+            const live = liveAttrTokens(src, "state");
+            const native = o.tokenizedAttrs;
+            expect(native.map(t => [t.kind, t.text]))
+                .toEqual(live.map(t => [t.kind, t.text]));
+        });
+    }
+});
+
+describe("F1 attrs stamped on the Markup block (the M5-swap surface)", () => {
+    test("parseMarkup stamps attrs + tokenizedAttrs on a markup element", () => {
+        const blocks = parseMarkup(`<div class="card" id=main></div>`);
+        const markup = blocks.find(b => b.kind === "Markup" && b.name === "div");
+        expect(markup).toBeDefined();
+        expect(Array.isArray(markup.attrs)).toBe(true);
+        expect(markup.attrs).toHaveLength(2);
+        expect(markup.attrs[0].name).toBe("class");
+        expect(markup.attrs[0].value.kind).toBe("string-literal");
+        expect(markup.attrs[1].name).toBe("id");
+        expect(markup.attrs[1].value.kind).toBe("variable-ref");
+        expect(Array.isArray(markup.tokenizedAttrs)).toBe(true);
+    });
+
+    test("a self-closing element carries its attrs on the Markup block", () => {
+        const blocks = parseMarkup(`<img src="a.png" alt="hero"/>`);
+        const markup = blocks.find(b => b.kind === "Markup" && b.name === "img");
+        expect(markup).toBeDefined();
+        expect(markup.attrs.map(a => a.name)).toEqual(["src", "alt"]);
+    });
+
+    test("an attribute-free element carries an empty attrs array", () => {
+        const blocks = parseMarkup(`<section></section>`);
+        const markup = blocks.find(b => b.kind === "Markup" && b.name === "section");
+        expect(markup).toBeDefined();
+        expect(markup.attrs).toEqual([]);
+        expect(markup.tokenizedAttrs).toEqual([]);
     });
 });

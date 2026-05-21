@@ -945,6 +945,15 @@ export function emitMarkupElement(ctx, tagFrame, startPos, endPos, children) {
     // EOF-/context-recovered paths all route through here), so a parent's
     // classification reads this child's payload.
     block.tagClass = classifyTagFrame(tagFrame, children);
+    // F1 (v0.6) — the attribute payload. `tokenizeOpener` produced the
+    // AttrNode[] AST + the raw ATTR_* token stream over the opener's
+    // attribute region; carry both onto the Markup block so the M5 swap
+    // exposes the live FileAST's `MarkupNode.attrs` shape directly (no
+    // native↔live attribute translation layer). A malformed opener with
+    // no descriptor yields empty arrays — the recovered Markup block is
+    // still attribute-shaped.
+    block.attrs = tagFrame.opener?.attrs ?? [];
+    block.tokenizedAttrs = tagFrame.opener?.tokenizedAttrs ?? [];
     appendBlock(ctx, block);
 }
 

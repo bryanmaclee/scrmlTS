@@ -329,22 +329,48 @@ export function tokenizeOpener(cursor, ltAnchor) {
         malformed = true;
     }
 
-    // 3 + 4. Scan the attribute region (opaque bytes, string-aware) up
-    // to the opener terminator `>`; recognize a trailing `/`.
+    // 3 + 4. Scan the attribute region (opaque bytes, string-aware AND
+    // bracket-depth-aware) up to the opener terminator `>`; recognize a
+    // trailing `/`.
+    //
+    // F1 (v0.6) — `attrRegionStart` is the byte one past the tag name
+    // (the opaque scan below finds the terminator; the structured
+    // attribute tokenizer then re-walks [attrRegionStart, terminator)
+    // ONCE — there is no double-tokenize of the whole opener: the opaque
+    // scan finds where the opener ends, the structured pass tokenizes
+    // the now-known attribute region).
+    //
+    // The scan is bracket-depth-aware because an attribute VALUE may be
+    // an expression carrying `>` / `/` at depth > 0 — `if=(@n > 0)`,
+    // `onclick=${() => fn()}`, `pick=[a/b]`. A `>` is the opener
+    // terminator ONLY at bracket-depth 0 outside a string; likewise the
+    // self-close `/` marker is only recognized at depth 0. (The live
+    // `tokenizer.ts:tokenizeAttributes` never hits this because it reads
+    // each value with its own depth tracking; the native opener's
+    // up-front opaque scan must replicate that depth-awareness.)
+    const attrRegionStart = cursor.pos;
     let selfClosing = false;
     let terminated = false;
     let p = cursor.pos;
     // inString — null when outside a string; the quote char when inside
     // an attribute-value string (so a `>` / `/` inside the string does
-    // not terminate the opener).
+    // not terminate the opener). `bracketDepth` counts open `(` / `[` /
+    // `{` minus their closers.
     let inString = null;
+    let bracketDepth = 0;
     while (p < len) {
         const ch = source.charAt(p);
         if (inString === null) {
             if (ch === "\"" || ch === "'") {
                 inString = ch;
                 p = p + 1;
-            } else if (ch === closeAngle()) {
+            } else if (ch === "(" || ch === "[" || ch === "{") {
+                bracketDepth = bracketDepth + 1;
+                p = p + 1;
+            } else if (ch === ")" || ch === "]" || ch === "}") {
+                if (bracketDepth > 0) bracketDepth = bracketDepth - 1;
+                p = p + 1;
+            } else if (ch === closeAngle() && bracketDepth === 0) {
                 // The opener terminator. A `/` immediately before it
                 // marks the opener self-closing.
                 terminated = true;
@@ -383,6 +409,29 @@ export function tokenizeOpener(cursor, ltAnchor) {
     // The opener span — anchored at the `<` (ltAnchor), ending one past
     // the opener terminator. File-absolute; no offset arithmetic.
     const span = makeSpan(ltAnchor.start, p, ltAnchor.line, ltAnchor.col);
+
+    // F1 (v0.6) — the structured attribute pass. The attribute region is
+    // [attrRegionStart, attrRegionEnd): from one past the tag name up to
+    // (but not including) the terminator. For a self-closing `<x .../>`
+    // the trailing `/` at p-2 is the self-close marker, NOT an
+    // attribute — the region ends before it. For a terminated opener
+    // the `>` is at p-1; for an unterminated opener the region runs to
+    // EOF (`len`).
+    let attrRegionEnd = len;
+    if (terminated) {
+        attrRegionEnd = selfClosing ? (p - 2) : (p - 1);
+    }
+    if (attrRegionEnd < attrRegionStart) {
+        attrRegionEnd = attrRegionStart;
+    }
+    // `hadSpaceAfterLt` is the §4.3 advisory state-opener signal — a
+    // state block (`< Counter ...>`) admits `name(type)` typed-attribute
+    // declarations (SPEC §35.2); a markup tag does not.
+    const attrPass = tokenizeAttributeRegion(
+        source, attrRegionStart, attrRegionEnd,
+        ltAnchor.line, ltAnchor.col, hadSpaceAfterLt,
+    );
+
     return {
         ok: !malformed,
         name,
@@ -390,7 +439,693 @@ export function tokenizeOpener(cursor, ltAnchor) {
         selfClosing,
         span,
         malformed,
+        // F1 — the attribute payload. `attrs` is the AttrNode[] AST (the
+        // live FileAST's `MarkupNode.attrs` shape); `tokenizedAttrs` is
+        // the raw ATTR_* token stream (parity with the live
+        // `tokenizeAttributes` output, minus the TAG_OPEN / TAG_CLOSE_GT
+        // / TAG_SELF_CLOSE structural tokens — those are the opener's
+        // own descriptor fields here).
+        attrs: attrPass.attrs,
+        tokenizedAttrs: attrPass.tokens,
     };
+}
+
+// ===========================================================================
+// F1 (v0.6) — THE NATIVE ATTRIBUTE TOKENIZER (DD #27 / Cluster A).
+//
+// `tokenizeAttributeRegion` walks the attribute region of a tag opener —
+// the bytes between the tag name and the terminating `>` / `/>` — and
+// produces BOTH:
+//
+//   1. `tokens`  — the raw ATTR_* token stream (ATTR_NAME, ATTR_EQ,
+//                  ATTR_STRING, ATTR_IDENT, ATTR_CALL, ATTR_BLOCK,
+//                  ATTR_EXPR, ATTR_TYPED_DECL). This is the parity datum:
+//                  it mirrors the live `tokenizer.ts:tokenizeAttributes`
+//                  output 1:1 (minus the structural TAG_* tokens, which
+//                  the native opener descriptor carries directly).
+//   2. `attrs`   — the AttrNode[] AST: `{ name, value, span }` records
+//                  where `value` is the live 6-variant `AttrValue` union
+//                  (string-literal / variable-ref / call-ref / expr /
+//                  props-block / absent — `compiler/src/types/ast.ts`).
+//
+// This is the DD #27 compression: the live pipeline runs `tokenizeAttributes`
+// THEN `parseAttributes` (two passes — tokenizer.ts + ast-builder.js). The
+// native parser folds both into ONE region walk — token emit + AttrNode
+// build happen together. No native↔live translation layer; the produced
+// `attrs[]` IS the language's shape.
+//
+// Span discipline — every token / value span is FILE-ABSOLUTE (the region
+// is a slice of the one source buffer; positions are buffer offsets, not
+// region-relative). `line` / `col` are coarse-grained at the opener
+// granularity: the live tokenizer threads exact line/col per token; the
+// native attribute tokenizer carries the opener's `line`/`col` on every
+// token (an attribute region is overwhelmingly single-line, and the
+// downstream consumers key on `start`/`end` offsets). A precise per-token
+// line/col walk is a later refinement if a consumer needs it.
+//
+// PARAMETERS:
+//   source        — the full source buffer.
+//   start / end   — [start, end) the attribute region (file-absolute).
+//   line / col    — the opener's line/col (carried onto every token).
+//   isStateOpener — true for a `< Ident ...>` state opener (§4.3
+//                   advisory) — admits `name(type)` typed-attr decls.
+//
+// Returns { tokens, attrs }.
+// ===========================================================================
+
+// isAttrWhitespace — calculation (predicate). Inter-attribute whitespace.
+function isAttrWhitespace(ch) {
+    return ch === " " || ch === "\t" || ch === "\r" || ch === "\n"
+        || ch === "\f";
+}
+
+// isAttrUnquotedValueStart — calculation (predicate). A char that may
+// begin an unquoted attribute VALUE — ASCII letter, ASCII digit, `_`, or
+// `@`. Mirrors the live `tokenizer.ts` unquoted-value gate
+// (`/[A-Za-z0-9_@]/`). NOTE — `.` and `-` are value CONTINUATION chars
+// only (not value starts), and a single-quote is NOT recognized at all
+// (live admits only double-quoted string values).
+function isAttrUnquotedValueStart(ch) {
+    if (ch === "_" || ch === "@") return true;
+    if (ch === "") return false;
+    const c = ch.charCodeAt(0);
+    if (c >= 48 && c <= 57) return true;
+    return isAsciiLetter(ch);
+}
+
+// isAttrNameStart — calculation (predicate). A char that may begin an
+// attribute name: ASCII letter, `_`, or `@` (a reactive-ref attribute
+// name shape — mirrors the live `[A-Za-z_@]` name-start test).
+function isAttrNameStart(ch) {
+    if (ch === "_" || ch === "@") return true;
+    return isAsciiLetter(ch);
+}
+
+// isAttrNameChar — calculation (predicate). A char that may continue an
+// attribute name — mirrors the live `[A-Za-z0-9_\-:@]` run.
+function isAttrNameChar(ch) {
+    if (ch === "") return false;
+    if (ch === "_" || ch === "-" || ch === ":" || ch === "@") return true;
+    const c = ch.charCodeAt(0);
+    if (c >= 48 && c <= 57) return true;
+    return isAsciiLetter(ch);
+}
+
+// isEventHandlerAttrName — calculation (predicate). Mirrors the live
+// `tokenizer.ts:isEventHandlerAttrName` — recognizes the event-handler
+// attribute-name shapes (SPEC §5.2.x / §38.6.1): `on<word>`, `on:<word>`,
+// `onserver:<word>`, `onclient:<word>`.
+export function isEventHandlerAttrName(name) {
+    if (typeof name !== "string" || name.length === 0) return false;
+    const lower = name.toLowerCase();
+    if (lower.startsWith("onserver:")) return true;
+    if (lower.startsWith("onclient:")) return true;
+    if (lower.startsWith("on:")) return true;
+    // `on<word>` — `on` followed by one or more ASCII letters, nothing else.
+    if (lower.length > 2 && lower.charAt(0) === "o"
+        && lower.charAt(1) === "n") {
+        let i = 2;
+        while (i < lower.length) {
+            const c = lower.charCodeAt(i);
+            if (c < 97 || c > 122) return false;
+            i = i + 1;
+        }
+        return true;
+    }
+    return false;
+}
+
+// makeAttrToken — calculation (pure data builder). The ATTR_* token shape
+// matches the live `tokenizer.ts:makeToken` output: `{ kind, text, span }`
+// where `span` is `{ start, end, line, col }`.
+function makeAttrToken(kind, text, start, end, line, col) {
+    return { kind, text, span: makeSpan(start, end, line, col) };
+}
+
+// collectRefs — calculation. Extracts the distinct `@ident` reactive
+// references from an expression's raw text, in first-seen order. Mirrors
+// the live `parseAttributes` ATTR_EXPR / ATTR_BLOCK ref-extraction loop
+// (`/@([A-Za-z_$][A-Za-z0-9_$]*)/g`).
+export function collectRefs(raw) {
+    const refs = [];
+    let i = 0;
+    const len = raw.length;
+    while (i < len) {
+        if (raw.charAt(i) === "@") {
+            const c = i + 1 < len ? raw.charAt(i + 1) : "";
+            const isStart = c === "_" || c === "$" || isAsciiLetter(c);
+            if (isStart) {
+                let j = i + 1;
+                while (j < len) {
+                    const cc = raw.charAt(j);
+                    const code = cc.charCodeAt(0);
+                    const isPart = cc === "_" || cc === "$"
+                        || isAsciiLetter(cc) || (code >= 48 && code <= 57);
+                    if (!isPart) break;
+                    j = j + 1;
+                }
+                const name = raw.substring(i + 1, j);
+                let seen = false;
+                let k = 0;
+                while (k < refs.length) {
+                    if (refs[k] === name) { seen = true; break; }
+                    k = k + 1;
+                }
+                if (!seen) refs.push(name);
+                i = j;
+                continue;
+            }
+        }
+        i = i + 1;
+    }
+    return refs;
+}
+
+// splitCallArgs — calculation. Split a call-argument string on top-level
+// commas, depth-aware over `()` / `[]` / `{}`. Mirrors the live
+// `ast-builder.js:splitArgs`. Each part is trimmed; an all-whitespace
+// arg-string yields the empty list.
+export function splitCallArgs(raw) {
+    const parts = [];
+    let depth = 0;
+    let cur = "";
+    let i = 0;
+    while (i < raw.length) {
+        const ch = raw.charAt(i);
+        if (ch === "(" || ch === "[" || ch === "{") {
+            depth = depth + 1;
+            cur = cur + ch;
+        } else if (ch === ")" || ch === "]" || ch === "}") {
+            depth = depth - 1;
+            cur = cur + ch;
+        } else if (ch === "," && depth === 0) {
+            parts.push(cur.trim());
+            cur = "";
+        } else {
+            cur = cur + ch;
+        }
+        i = i + 1;
+    }
+    if (cur.trim().length > 0) parts.push(cur.trim());
+    return parts;
+}
+
+// tokenizeAttributeRegion — the F1 attribute tokenizer. See the section
+// header above for the full contract. The walk is a single forward pass
+// over [start, end); it mirrors the live `tokenizeAttributes` value-form
+// recognition order (quoted string / brace-block / `!`-negation / `(`-
+// paren / `[`-array / `${...}`-inline / unquoted ident-or-call / bare
+// event-handler expression-continuation), so the `tokens` output is
+// 1:1 with the live token stream and `attrs` is 1:1 with `parseAttributes`.
+export function tokenizeAttributeRegion(source, start, end, line, col, isStateOpener) {
+    const tokens = [];
+    const attrs = [];
+    let p = start;
+
+    // skipWs — advance `p` past inter-attribute whitespace.
+    function skipWs() {
+        while (p < end && isAttrWhitespace(source.charAt(p))) {
+            p = p + 1;
+        }
+    }
+
+    while (p < end) {
+        skipWs();
+        if (p >= end) break;
+
+        const c = source.charAt(p);
+
+        // An attribute name (or a state-block `name(type)` typed decl).
+        if (isAttrNameStart(c)) {
+            const nameStart = p;
+            while (p < end && isAttrNameChar(source.charAt(p))) {
+                p = p + 1;
+            }
+            const name = source.substring(nameStart, p);
+
+            // §35.2 — in a state opener, `name(type)` (no `=`) is a typed
+            // attribute declaration, not a call. Detect before emitting
+            // ATTR_NAME.
+            if (isStateOpener && p < end && source.charAt(p) === "(") {
+                p = p + 1; // consume `(`
+                let typeExpr = "";
+                let depth = 1;
+                while (p < end && depth > 0) {
+                    const tc = source.charAt(p);
+                    if (tc === "(") {
+                        depth = depth + 1;
+                    } else if (tc === ")") {
+                        depth = depth - 1;
+                        if (depth === 0) { p = p + 1; break; }
+                    }
+                    typeExpr = typeExpr + tc;
+                    p = p + 1;
+                }
+                tokens.push(makeAttrToken(
+                    "ATTR_TYPED_DECL",
+                    JSON.stringify({ name, typeExpr }),
+                    nameStart, p, line, col,
+                ));
+                continue;
+            }
+
+            const nameEnd = p;
+            tokens.push(makeAttrToken("ATTR_NAME", name,
+                nameStart, nameEnd, line, col));
+            skipWs();
+
+            // No `=` — a boolean attribute (value `absent`).
+            if (p >= end || source.charAt(p) !== "=") {
+                attrs.push({
+                    name,
+                    value: { kind: "absent" },
+                    span: makeSpan(nameStart, nameEnd, line, col),
+                });
+                continue;
+            }
+
+            // The `=` assignment.
+            const eqStart = p;
+            p = p + 1;
+            tokens.push(makeAttrToken("ATTR_EQ", "=",
+                eqStart, p, line, col));
+            skipWs();
+
+            if (p >= end) {
+                // `name=` with nothing after — an `absent` value.
+                attrs.push({
+                    name,
+                    value: { kind: "absent" },
+                    span: makeSpan(nameStart, p, line, col),
+                });
+                continue;
+            }
+
+            const vc = source.charAt(p);
+            const valStart = p;
+            let valTok = null;
+            let value = null;
+
+            if (vc === "\"") {
+                // Quoted string value. For `if=` the quoted text is a
+                // boolean expression (live parity — ATTR_EXPR), otherwise
+                // a plain string literal (ATTR_STRING).
+                p = p + 1; // opening `"`
+                let str = "";
+                while (p < end && source.charAt(p) !== "\"") {
+                    if (source.charAt(p) === "\\" && p + 1 < end) {
+                        str = str + source.charAt(p) + source.charAt(p + 1);
+                        p = p + 2;
+                    } else {
+                        str = str + source.charAt(p);
+                        p = p + 1;
+                    }
+                }
+                if (p < end && source.charAt(p) === "\"") p = p + 1;
+                if (name === "if") {
+                    valTok = makeAttrToken("ATTR_EXPR", str,
+                        valStart, p, line, col);
+                    value = {
+                        kind: "expr", raw: str, refs: collectRefs(str),
+                        span: makeSpan(valStart, p, line, col),
+                    };
+                } else {
+                    valTok = makeAttrToken("ATTR_STRING", str,
+                        valStart, p, line, col);
+                    value = {
+                        kind: "string-literal", value: str,
+                        span: makeSpan(valStart, p, line, col),
+                    };
+                }
+            } else if (vc === "{") {
+                // Brace-block value: `props={...}` is a typed props
+                // declaration (§15.10 — props-block); any other name's
+                // `{...}` is an expression (§14.9 — expr).
+                p = p + 1; // opening `{`
+                let block = "";
+                let depth = 1;
+                while (p < end && depth > 0) {
+                    const bc = source.charAt(p);
+                    if (bc === "{") {
+                        depth = depth + 1;
+                    } else if (bc === "}") {
+                        depth = depth - 1;
+                        if (depth === 0) { p = p + 1; break; }
+                    }
+                    block = block + bc;
+                    p = p + 1;
+                }
+                valTok = makeAttrToken("ATTR_BLOCK", block,
+                    valStart, p, line, col);
+                if (name === "props") {
+                    value = {
+                        kind: "props-block", propsDecl: block,
+                        span: makeSpan(valStart, p, line, col),
+                    };
+                } else {
+                    value = {
+                        kind: "expr", raw: block, refs: collectRefs(block),
+                        span: makeSpan(valStart, p, line, col),
+                    };
+                }
+            } else if (vc === "!") {
+                // Unquoted negation expression: `!@var`, `!!@var`,
+                // `!obj.prop`. Read to whitespace / tag-close boundary.
+                let expr = "";
+                while (p < end) {
+                    const ec = source.charAt(p);
+                    if (isAttrWhitespace(ec) || ec === ">" || ec === "/") {
+                        break;
+                    }
+                    expr = expr + ec;
+                    p = p + 1;
+                }
+                valTok = makeAttrToken("ATTR_EXPR", expr,
+                    valStart, p, line, col);
+                value = {
+                    kind: "expr", raw: expr, refs: collectRefs(expr),
+                    span: makeSpan(valStart, p, line, col),
+                };
+            } else if (vc === "(") {
+                // Parenthesized expression: `if=(@a && @b)`. Read the
+                // matched outer parens, preserving them.
+                let expr = "(";
+                p = p + 1;
+                let depth = 1;
+                while (p < end && depth > 0) {
+                    const ec = source.charAt(p);
+                    if (ec === "(") {
+                        depth = depth + 1;
+                    } else if (ec === ")") {
+                        depth = depth - 1;
+                        if (depth === 0) {
+                            expr = expr + ec;
+                            p = p + 1;
+                            break;
+                        }
+                    }
+                    expr = expr + ec;
+                    p = p + 1;
+                }
+                valTok = makeAttrToken("ATTR_EXPR", expr,
+                    valStart, p, line, col);
+                value = {
+                    kind: "expr", raw: expr, refs: collectRefs(expr),
+                    span: makeSpan(valStart, p, line, col),
+                };
+            } else if (vc === "[") {
+                // §41.14 — array-literal value: `pick=["a","b"]`. Read the
+                // matched outer brackets, string-aware.
+                let expr = "[";
+                p = p + 1;
+                let depth = 1;
+                let inSQ = false;
+                let inDQ = false;
+                while (p < end && depth > 0) {
+                    const ec = source.charAt(p);
+                    if (inSQ) {
+                        if (ec === "'" && source.charAt(p - 1) !== "\\") {
+                            inSQ = false;
+                        }
+                    } else if (inDQ) {
+                        if (ec === "\"" && source.charAt(p - 1) !== "\\") {
+                            inDQ = false;
+                        }
+                    } else if (ec === "'") {
+                        inSQ = true;
+                    } else if (ec === "\"") {
+                        inDQ = true;
+                    } else if (ec === "[") {
+                        depth = depth + 1;
+                    } else if (ec === "]") {
+                        depth = depth - 1;
+                        if (depth === 0) {
+                            expr = expr + ec;
+                            p = p + 1;
+                            break;
+                        }
+                    }
+                    expr = expr + ec;
+                    p = p + 1;
+                }
+                valTok = makeAttrToken("ATTR_EXPR", expr,
+                    valStart, p, line, col);
+                value = {
+                    kind: "expr", raw: expr, refs: collectRefs(expr),
+                    span: makeSpan(valStart, p, line, col),
+                };
+            } else if (vc === "$" && p + 1 < end
+                       && source.charAt(p + 1) === "{") {
+                // Inline expression: `${() => fn()}`, `${a ? b : c}`.
+                p = p + 2; // consume `${`
+                let expr = "";
+                let depth = 1;
+                while (p < end && depth > 0) {
+                    const ec = source.charAt(p);
+                    if (ec === "{") {
+                        depth = depth + 1;
+                    } else if (ec === "}") {
+                        depth = depth - 1;
+                        if (depth === 0) { p = p + 1; break; }
+                    }
+                    expr = expr + ec;
+                    p = p + 1;
+                }
+                valTok = makeAttrToken("ATTR_EXPR", expr,
+                    valStart, p, line, col);
+                value = {
+                    kind: "expr", raw: expr, refs: collectRefs(expr),
+                    span: makeSpan(valStart, p, line, col),
+                };
+            } else if (isAttrUnquotedValueStart(vc)) {
+                // Unquoted ident-or-call. The ident run excludes `-` for
+                // event-handler attributes (so postfix `--` terminates the
+                // ident — live parity); otherwise `-` is admitted (e.g.
+                // `class=foo-bar`).
+                const evHandler = isEventHandlerAttrName(name);
+                let ident = "";
+                while (p < end) {
+                    const ec = source.charAt(p);
+                    const code = ec.charCodeAt(0);
+                    const digit = code >= 48 && code <= 57;
+                    const word = ec === "_" || ec === "." || ec === "@"
+                        || isAsciiLetter(ec) || digit;
+                    const hyphen = ec === "-";
+                    const ok = evHandler ? word : (word || hyphen);
+                    if (!ok) break;
+                    ident = ident + ec;
+                    p = p + 1;
+                }
+
+                if (p < end && source.charAt(p) === "(") {
+                    // Call form: collect to the matching `)`.
+                    p = p + 1;
+                    let args = "";
+                    let depth = 1;
+                    while (p < end && depth > 0) {
+                        const ec = source.charAt(p);
+                        if (ec === "(") {
+                            depth = depth + 1;
+                        } else if (ec === ")") {
+                            depth = depth - 1;
+                            if (depth === 0) { p = p + 1; break; }
+                        }
+                        args = args + ec;
+                        p = p + 1;
+                    }
+                    valTok = makeAttrToken("ATTR_CALL",
+                        JSON.stringify({ name: ident, args }),
+                        valStart, p, line, col);
+                    const argList = splitCallArgs(args);
+                    value = {
+                        kind: "call-ref", name: ident, args: argList,
+                        span: makeSpan(valStart, p, line, col),
+                    };
+                } else if (evHandler
+                           && attrBareExprContinuation(source, p, end)) {
+                    // SPEC §5.2.3 bare-form event handler — `onclick=@x = .A`
+                    // / `onclick=@count++`. Continue reading in
+                    // expression mode to the next attribute / tag-close
+                    // boundary. Live parity: tokenizer.ts ATTR_EXPR.
+                    let expr = ident;
+                    while (p < end && (source.charAt(p) === " "
+                           || source.charAt(p) === "\t")) {
+                        expr = expr + source.charAt(p);
+                        p = p + 1;
+                    }
+                    const opC = p < end ? source.charAt(p) : "";
+                    const opN = p + 1 < end ? source.charAt(p + 1) : "";
+                    if ((opC === "+" || opC === "-") && opN === opC) {
+                        // Postfix update — two chars, done.
+                        expr = expr + opC + opN;
+                        p = p + 2;
+                    } else {
+                        // Assignment / compound assignment — read the RHS
+                        // to the attribute / tag-close boundary, depth +
+                        // string aware.
+                        let parenD = 0;
+                        let braceD = 0;
+                        let bracketD = 0;
+                        let strCh = "";
+                        let consumedEq = false;
+                        let consumedRhs = false;
+                        while (p < end) {
+                            const ec = source.charAt(p);
+                            if (strCh !== "") {
+                                if (ec === "\\" && p + 1 < end) {
+                                    expr = expr + ec + source.charAt(p + 1);
+                                    p = p + 2;
+                                    continue;
+                                }
+                                if (ec === strCh) strCh = "";
+                                expr = expr + ec;
+                                p = p + 1;
+                                continue;
+                            }
+                            const atZero = parenD === 0 && braceD === 0
+                                && bracketD === 0;
+                            if (atZero) {
+                                if (ec === ">" || ec === "/") break;
+                                if (consumedEq && consumedRhs
+                                    && isAttrWhitespace(ec)) {
+                                    break;
+                                }
+                            }
+                            if (ec === "\"" || ec === "'" || ec === "`") {
+                                strCh = ec;
+                                expr = expr + ec;
+                                p = p + 1;
+                                continue;
+                            }
+                            if (ec === "(") { parenD = parenD + 1; }
+                            else if (ec === ")") { parenD = parenD - 1; }
+                            else if (ec === "[") { bracketD = bracketD + 1; }
+                            else if (ec === "]") { bracketD = bracketD - 1; }
+                            else if (ec === "{") { braceD = braceD + 1; }
+                            else if (ec === "}") { braceD = braceD - 1; }
+                            if (atZero) {
+                                if (!consumedEq && ec === "=") {
+                                    consumedEq = true;
+                                    expr = expr + ec;
+                                    p = p + 1;
+                                    continue;
+                                }
+                                if (consumedEq && !isAttrWhitespace(ec)) {
+                                    consumedRhs = true;
+                                }
+                            }
+                            expr = expr + ec;
+                            p = p + 1;
+                        }
+                    }
+                    const trimmed = expr.replace(/\s+$/, "");
+                    valTok = makeAttrToken("ATTR_EXPR", trimmed,
+                        valStart, p, line, col);
+                    value = {
+                        kind: "expr", raw: trimmed, refs: collectRefs(trimmed),
+                        span: makeSpan(valStart, p, line, col),
+                    };
+                } else {
+                    // A bare identifier value — a variable reference.
+                    valTok = makeAttrToken("ATTR_IDENT", ident,
+                        valStart, p, line, col);
+                    value = {
+                        kind: "variable-ref", name: ident,
+                        span: makeSpan(valStart, p, line, col),
+                    };
+                }
+            } else {
+                // An unrecognized value-start char (e.g. a single-quote —
+                // the live `tokenizeAttributes` recognizes ONLY
+                // double-quoted string values). Live parity: emit NO
+                // value token and do NOT advance `p` — the `=` was
+                // consumed, the attribute's value is `absent`, and the
+                // outer loop's unexpected-char skip handles the stray
+                // char. The `value === null` fallback below stamps the
+                // `absent` value.
+                valTok = null;
+            }
+
+            if (valTok !== null) tokens.push(valTok);
+            if (value === null) {
+                value = { kind: "absent" };
+            }
+            attrs.push({
+                name,
+                value,
+                span: makeSpan(nameStart, p, line, col),
+            });
+            continue;
+        }
+
+        // A sigil-prefixed standalone brace block — `${...}`, `^{...}`,
+        // `?{...}`, `#{...}`, `!{...}`, `~{...}` — in attribute position.
+        // Consumed as an opaque unit (live parity: tokenizer.ts skips it,
+        // emitting no ATTR_* token — it leaks no server-context code).
+        if ((c === "$" || c === "^" || c === "?" || c === "#"
+             || c === "!" || c === "~")
+            && p + 1 < end && source.charAt(p + 1) === "{") {
+            p = p + 2;
+            let depth = 1;
+            while (p < end && depth > 0) {
+                const bc = source.charAt(p);
+                if (bc === "{") {
+                    depth = depth + 1;
+                } else if (bc === "}") {
+                    depth = depth - 1;
+                    if (depth === 0) { p = p + 1; break; }
+                }
+                p = p + 1;
+            }
+            continue;
+        }
+
+        // An unexpected char — skip it (live parity: the tokenizer
+        // advances past it without emitting a token).
+        p = p + 1;
+    }
+
+    return { tokens, attrs };
+}
+
+// attrBareExprContinuation — calculation (predicate). Mirrors the live
+// `tokenizer.ts:isBareExprContinuation` — detects whether the chars at
+// `p` (within [.., end)) look like a bare-form event-handler
+// expression-continuation: assignment (`=`, not `==` / `=>`), compound
+// assignment (`+=` / `??=` / `>>>=` / ...), or postfix update (`++` /
+// `--`). Skips leading inline whitespace (` ` / `\t`).
+export function attrBareExprContinuation(source, p, end) {
+    let i = p;
+    while (i < end && (source.charAt(i) === " "
+           || source.charAt(i) === "\t")) {
+        i = i + 1;
+    }
+    if (i >= end) return false;
+    const c = source.charAt(i);
+    const n = i + 1 < end ? source.charAt(i + 1) : "";
+
+    // `=` assignment — reject `==` (comparison) and `=>` (arrow).
+    if (c === "=" && n !== "=" && n !== ">") return true;
+    // `++` / `--` postfix update.
+    if ((c === "+" || c === "-") && n === c) return true;
+    // Compound assignment `op=` — scan up to 4 chars for the longest match.
+    let len = 2;
+    while (len <= 4 && i + len <= end) {
+        const slice = source.substring(i, i + len);
+        const after = i + len < end ? source.charAt(i + len) : "";
+        const endsEq = slice.charAt(slice.length - 1) === "=";
+        if (endsEq && after !== "=" && after !== ">") {
+            const op = slice.substring(0, slice.length - 1);
+            if (op === "+" || op === "-" || op === "*" || op === "/"
+                || op === "%" || op === "&" || op === "|" || op === "^"
+                || op === "**" || op === "<<" || op === ">>" || op === ">>>"
+                || op === "&&" || op === "||" || op === "??") {
+                return true;
+            }
+        }
+        len = len + 1;
+    }
+    return false;
 }
 
 // ===========================================================================
