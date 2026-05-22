@@ -186,11 +186,17 @@ function mapOneBlock(block, idGen, source, errors) {
     const kind = block.kind;
 
     if (kind === "Markup" && isStateBlock(block)) {
-        // A `< Ident ...>` state opener (TagKind.StateOpener — §4.3
-        // space-after-`<`). The markup layer's `shapeStateBlock` already
-        // stamped the live state payload (`stateNodeKind` / `stateType` /
-        // `typedAttrs`) onto the block at parse time; route it to the live
-        // `state` / `state-constructor-def` ASTNode rather than `markup`.
+        // A state block — either a `< Ident ...>` state opener
+        // (TagKind.StateOpener — §4.3 space-after-`<`) OR a no-space
+        // `<db>` / `<schema>` lifecycle-keyword element (the live
+        // `_STATE_FORM_LIFECYCLE` name-set). The markup layer's
+        // `shapeStateBlock` already stamped the live state payload
+        // (`stateNodeKind` / `stateType` / `typedAttrs`) onto the block at
+        // parse time — `emitMarkupElement` runs it for either recognition
+        // path — so route the block to the live `state` /
+        // `state-constructor-def` ASTNode rather than `markup`. This is
+        // depth-agnostic: a `<db>` nested inside a `<program>` body
+        // synthesizes a `state` node identically to a top-level one.
         return synthStateNode(block, idGen, source, errors);
     }
     if (kind === "Markup" && isEngineBlock(block)) {

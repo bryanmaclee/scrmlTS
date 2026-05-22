@@ -217,7 +217,10 @@ ${
     // StateOpener Markup block; shapeSqlBlock / shapeCssBlock derive the
     // live SQLNode / CSSInlineNode payloads from a Sql / Css block's
     // captured body text.
-    import { shapeStateBlock } from "./parse-state-body.scrml"
+    // `isStateBlock` is the recognition predicate — it ALSO matches the
+    // no-space `<db>` / `<schema>` lifecycle-keyword form, so the shaping
+    // runs for both opener forms at any nesting depth.
+    import { shapeStateBlock, isStateBlock } from "./parse-state-body.scrml"
     import { shapeSqlBlock } from "./parse-sql-body.scrml"
     import { shapeCssBlock } from "./parse-css-body.scrml"
     // F8 (v0.6) — the error-effect arm shaper. shapeErrorEffectBlock parses
@@ -1186,10 +1189,14 @@ ${
         // swap reads this to route a StateOpener block to the live
         // `state` / `state-constructor-def` node shape.
         block.tagKind = tagFrame.tagKind ?? not
-        // F7.a — when the opener is a state opener, stamp the state
+        // F7.a — when the block is a state block, stamp the state
         // payload (stateNodeKind / stateType / typedAttrs — the live
-        // StateNode / StateConstructorDefNode shape).
-        if (block.tagKind == "StateOpener") {
+        // StateNode / StateConstructorDefNode shape). `isStateBlock`
+        // matches BOTH the §4.3 space-after-`<` opener AND the no-space
+        // `<db>` / `<schema>` lifecycle-keyword form — so the shaping
+        // runs for a nested `<db>` inside a `<program>` body identically
+        // to a top-level `< state ...>`.
+        if (isStateBlock(block)) {
             shapeStateBlock(block)
         }
         appendBlock(ctx, block)

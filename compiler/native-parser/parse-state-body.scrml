@@ -76,16 +76,37 @@ ${
     }
 
     // -----------------------------------------------------------------
+    // STATE_FORM_KEYWORDS — the built-in scrml lifecycle keywords whose
+    // `<name>` element the live builder routes to a `state` ASTNode
+    // REGARDLESS of the space-after-`<` opener form. The native analogue
+    // of the live builder's `_STATE_FORM_LIFECYCLE` name-set
+    // (ast-builder.js ~L10478): `buildBlock` rewrites a `markup`-classified
+    // block named one of these to `type: "state"`. The live set is
+    // `{db, schema, engine, machine}` — `engine`/`machine` are EXCLUDED
+    // here because the native parser routes them to `engine-decl` via
+    // `isEngineBlock`; only `db` / `schema` synthesize a `state` node.
+    // -----------------------------------------------------------------
+    export const STATE_FORM_KEYWORDS = ["db", "schema"]
+
+    // -----------------------------------------------------------------
     // isStateBlock — CALCULATION (pure predicate). True iff `block` is a
-    // Markup block the markup layer classified as a state opener (the
-    // §4.3 `< Ident ...>` space-after-`<` signal — TagKind.StateOpener).
+    // Markup block that synthesizes a live `state` / `state-constructor-def`
+    // ASTNode. Two recognition paths, both depth-agnostic:
+    //   1. TagKind.StateOpener — the §4.3 `< Ident ...>` space-after-`<`
+    //      signal stamped by the markup layer.
+    //   2. A built-in state-form lifecycle keyword (`db` / `schema`) — the
+    //      no-space `<db ...>` form. Mirrors the live builder's
+    //      `_STATE_FORM_LIFECYCLE` name-set normalization, which catches a
+    //      `<db>` regardless of opener form (so a nested `<db>` inside a
+    //      `<program>` body becomes a `state` node, not `markup`).
     // The read-side discriminator the M5 swap keys state-vs-markup
     // routing off.
     // -----------------------------------------------------------------
     export fn isStateBlock(block) {
         if (block is not) return false
         if (block.kind != "Markup") return false
-        return block.tagKind == "StateOpener"
+        if (block.tagKind == "StateOpener") return true
+        return STATE_FORM_KEYWORDS.includes(block.name)
     }
 
     // -----------------------------------------------------------------

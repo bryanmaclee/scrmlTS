@@ -114,7 +114,10 @@ import {
 // is a Markup block whose opener carries TagKind.StateOpener; shapeStateBlock
 // derives the live `StateNode` / `StateConstructorDefNode` payload
 // (stateNodeKind / stateType / typedAttrs) from its tokenizedAttrs.
-import { shapeStateBlock } from "./parse-state-body.js";
+// `isStateBlock` is the recognition predicate — it ALSO matches the no-space
+// `<db>` / `<schema>` lifecycle-keyword form (the live `_STATE_FORM_LIFECYCLE`
+// name-set), so the shaping runs for both opener forms at any nesting depth.
+import { shapeStateBlock, isStateBlock } from "./parse-state-body.js";
 // F7.b (v0.6) — the SQL chained-call shaper. After a `?{...}` Sql block
 // closes, a `.method(args)` chain may trail it; shapeSqlBlock parses the
 // query body + consumes the trailing chain into the live `SQLNode` payload.
@@ -1151,10 +1154,14 @@ export function emitMarkupElement(ctx, tagFrame, startPos, endPos, children) {
     // route a StateOpener block to the live `state` / `state-constructor-def`
     // node shape rather than `markup`.
     block.tagKind = tagFrame.tagKind ?? null;
-    // F7.a — when the opener is a state opener, stamp the state payload
+    // F7.a — when the block is a state block, stamp the state payload
     // (stateNodeKind / stateType / typedAttrs — the live StateNode /
-    // StateConstructorDefNode shape). A non-state Markup block is untouched.
-    if (block.tagKind === "StateOpener") {
+    // StateConstructorDefNode shape). `isStateBlock` matches BOTH the §4.3
+    // space-after-`<` opener (`TagKind.StateOpener`) AND the no-space
+    // `<db>` / `<schema>` lifecycle-keyword form — so the shaping runs for
+    // a nested `<db>` inside a `<program>` body identically to a top-level
+    // `< state ...>`. A non-state Markup block is untouched.
+    if (isStateBlock(block)) {
         shapeStateBlock(block);
     }
     appendBlock(ctx, block);

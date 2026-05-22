@@ -474,3 +474,112 @@ describe("C1 §8 — `<state>` node synthesis", () => {
     }
   });
 });
+
+// =============================================================================
+// C1 §8b — `<db>` / `<schema>` lifecycle-keyword state synthesis.
+//
+// M5 gap-ledger DIFF-deep-seq nested-`<state>` close-out. The §4.3
+// `TagKind.StateOpener` signal fires only on the space-after-`<` opener
+// (`< db ...>`). The corpus overwhelmingly writes the NO-SPACE form
+// (`<db ...>` / `<schema>`), which `tagKindFor` classifies `Html`. The live
+// builder normalizes BOTH forms to a `state` node via its
+// `_STATE_FORM_LIFECYCLE` name-set (ast-builder.js `buildBlock`); the native
+// `isStateBlock` mirrors that via `STATE_FORM_KEYWORDS = ["db","schema"]`.
+//
+// The divergence this closes: a `<db>` nested inside a top-level `<program>`
+// markup body. The native parser produced a `markup` ASTNode for the nested
+// `<db>` while the live pipeline produced `state`. The fix is the markup-layer
+// recognition (`isStateBlock` + `emitMarkupElement` shaping) — depth-agnostic,
+// so a `<db>` nested at any depth flips to `state`.
+//
+// SCOPE — shallow synth (the deep transition-decl/substate fidelity is a
+// tracked follow-up). `engine` / `machine` are NOT state-form keywords here —
+// they route to `engine-decl` via `isEngineBlock`.
+// =============================================================================
+describe("C1 §8b — `<db>` / `<schema>` lifecycle-keyword state synthesis", () => {
+  test("a no-space `<db src=...>` maps to a `state` node, not `markup`", () => {
+    const r = nativeParseFile("app.scrml", '<db src="contacts.db" tables="contacts">\nx\n</db>');
+    const state = r.ast.nodes.find(n => n.kind === "state");
+    expect(state).toBeDefined();
+    expect(state.stateType).toBe("db");
+    expect(r.ast.nodes.find(n => n.kind === "markup")).toBeUndefined();
+  });
+
+  test("a no-space `<schema>` maps to a `state` node", () => {
+    const r = nativeParseFile("app.scrml", "<schema>\n  cols\n</schema>");
+    const state = r.ast.nodes.find(n => n.kind === "state");
+    expect(state).toBeDefined();
+    expect(state.stateType).toBe("schema");
+  });
+
+  test("a no-space `<db>` carries its non-typed attrs and openerHadSpaceAfterLt false", () => {
+    const r = nativeParseFile("app.scrml", '<db src="x.db" tables="t">y</db>');
+    const state = r.ast.nodes.find(n => n.kind === "state");
+    expect(Array.isArray(state.attrs)).toBe(true);
+    expect(state.attrs.map(a => a.name).sort()).toEqual(["src", "tables"]);
+    // No space after `<` — the live builder stamps openerHadSpaceAfterLt
+    // false for the no-space form; the native synth must agree.
+    expect(state.openerHadSpaceAfterLt).toBe(false);
+    // A plain `state` node (no typed decls) has no `typedAttrs` field.
+    expect("typedAttrs" in state).toBe(false);
+  });
+
+  test("a `<db>` nested inside a top-level `<program>` synthesizes a `state` child", () => {
+    const src = "<program>\n<db src=\"x.db\">\n  ${ <count> = 0 }\n</db>\n</program>\n";
+    const r = nativeParseFile("app.scrml", src);
+    const program = r.ast.nodes.find(n => n.kind === "markup");
+    expect(program).toBeDefined();
+    const state = program.children.find(c => c.kind === "state");
+    expect(state).toBeDefined();
+    expect(state.stateType).toBe("db");
+    // The nested `<db>` must NOT be misrouted to `markup`.
+    expect(program.children.filter(c => c.kind === "markup").length).toBe(0);
+  });
+
+  test("the constructor-def form nested inside `<program>` synthesizes state-constructor-def", () => {
+    const src = "<program>\n< Counter count(Int)>\n</Counter>\n</program>\n";
+    const r = nativeParseFile("app.scrml", src);
+    const program = r.ast.nodes.find(n => n.kind === "markup");
+    const def = program.children.find(c => c.kind === "state-constructor-def");
+    expect(def).toBeDefined();
+    expect(def.stateType).toBe("Counter");
+    expect(def.typedAttrs.length).toBe(1);
+    expect(def.typedAttrs[0].name).toBe("count");
+  });
+
+  test("deeper nesting — `<db>` inside `<schema>` inside `<program>` both synthesize state", () => {
+    const src = "<program>\n<schema>\n<db src=\"y.db\">\n</db>\n</schema>\n</program>\n";
+    const r = nativeParseFile("app.scrml", src);
+    const program = r.ast.nodes.find(n => n.kind === "markup");
+    const schema = program.children.find(c => c.kind === "state");
+    expect(schema).toBeDefined();
+    expect(schema.stateType).toBe("schema");
+    const db = schema.children.find(c => c.kind === "state");
+    expect(db).toBeDefined();
+    expect(db.stateType).toBe("db");
+  });
+
+  test("DISCRIMINATION negative — a plain markup child of `<program>` stays `markup`", () => {
+    // The fix is state-keyword-specific. A plain `<div>` nested inside a
+    // top-level `<program>` must still synthesize a `markup` node — the
+    // `STATE_FORM_KEYWORDS` name-set gates it out.
+    const src = "<program>\n<div class=\"x\">hi</div>\n</program>\n";
+    const r = nativeParseFile("app.scrml", src);
+    const program = r.ast.nodes.find(n => n.kind === "markup");
+    const div = program.children.find(c => c.kind === "markup");
+    expect(div).toBeDefined();
+    expect(div.tag).toBe("div");
+    // No `<div>` should ever be promoted to a `state` node.
+    expect(program.children.find(c => c.kind === "state")).toBeUndefined();
+    expect(program.children.find(c => c.kind === "state-constructor-def")).toBeUndefined();
+  });
+
+  test("DISCRIMINATION negative — a no-space `<engine>` is NOT a state node", () => {
+    // `engine` / `machine` are in the live `_STATE_FORM_LIFECYCLE` set but
+    // route to `engine-decl` (via `isEngineBlock`), NOT `state`.
+    // `STATE_FORM_KEYWORDS` deliberately excludes them.
+    const r = nativeParseFile("app.scrml", "<engine for=Cart>\n  rule\n</>");
+    expect(r.ast.nodes.find(n => n.kind === "state")).toBeUndefined();
+    expect(r.ast.nodes.find(n => n.kind === "engine-decl")).toBeDefined();
+  });
+});

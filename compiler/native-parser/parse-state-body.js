@@ -77,16 +77,47 @@ export function shapeStateBlock(block) {
 }
 
 // =============================================================================
+// STATE_FORM_KEYWORDS — the built-in scrml lifecycle keywords whose `<name>`
+// element the live builder routes to a `state` ASTNode REGARDLESS of the
+// space-after-`<` opener form. This is the native analogue of the live
+// builder's `_STATE_FORM_LIFECYCLE` name-set (ast-builder.js ~L10478):
+// `buildBlock` rewrites a `markup`-classified block named one of these to
+// `type: "state"` (uniform-opener normalization). The live set is
+// `{db, schema, engine, machine}` — `engine`/`machine` are EXCLUDED here
+// because the native parser routes them to `engine-decl` via `isEngineBlock`
+// (collect-hoisted.js); only `db` / `schema` synthesize a `state` node.
+//
+// WHY THIS EXISTS: the §4.3 `TagKind.StateOpener` signal fires only on the
+// space-after-`<` form (`< db ...>`). The corpus overwhelmingly writes the
+// no-space form (`<db ...>`) — which `tagKindFor` classifies `Html`. The
+// live builder's name-set normalization catches BOTH forms; the native
+// recognition must too, or a `<db>` nested inside a `<program>` body stays
+// a `markup` node while the live pipeline produces `state` (the M5
+// `DIFF-deep-seq` nested-`<state>` divergence class).
+// =============================================================================
+export const STATE_FORM_KEYWORDS = Object.freeze(["db", "schema"]);
+
+// =============================================================================
 // isStateBlock — calculation (pure predicate). True iff `block` is a Markup
-// block the markup layer classified as a state opener (the `< Ident ...>`
-// §4.3 space-after-`<` signal — TagKind.StateOpener). The markup layer
-// stamps `block.tagKind` from the opener's TagKind; this is the read-side
-// discriminator the M5 swap keys the state-vs-markup routing off.
+// block that synthesizes a live `state` / `state-constructor-def` ASTNode.
+// Two recognition paths, both depth-agnostic (a nested `<db>` inside a
+// `<program>` body is recognized identically to a top-level one):
+//   1. TagKind.StateOpener — the §4.3 `< Ident ...>` space-after-`<` signal.
+//      The markup layer stamps `block.tagKind` from the opener's TagKind.
+//   2. A built-in state-form lifecycle keyword (`db` / `schema`) — the
+//      no-space `<db ...>` form. The live builder's `_STATE_FORM_LIFECYCLE`
+//      name-set normalization (ast-builder.js `buildBlock`) routes these to
+//      a `state` node regardless of opener form; `STATE_FORM_KEYWORDS`
+//      mirrors that. (`engine` / `machine` are NOT here — they route to
+//      `engine-decl` via `isEngineBlock`.)
+// This is the read-side discriminator the M5 swap keys state-vs-markup
+// routing off.
 // =============================================================================
 export function isStateBlock(block) {
     if (block === undefined || block === null) return false;
     if (block.kind !== "Markup") return false;
-    return block.tagKind === "StateOpener";
+    if (block.tagKind === "StateOpener") return true;
+    return STATE_FORM_KEYWORDS.includes(block.name);
 }
 
 // =============================================================================

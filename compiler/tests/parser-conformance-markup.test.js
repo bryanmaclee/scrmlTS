@@ -5241,6 +5241,74 @@ describe("F7.a — state block bodies (shapeStateBlock — SPEC §35.2)", () => 
     }
 });
 
+// =============================================================================
+// F7.a — `<db>` / `<schema>` lifecycle-keyword state recognition.
+//
+// M5 gap-ledger DIFF-deep-seq nested-`<state>` close-out. `isStateBlock`
+// recognizes a Markup block as a state block via TWO paths: the §4.3
+// `TagKind.StateOpener` space-after-`<` signal AND the no-space lifecycle
+// keyword (`STATE_FORM_KEYWORDS = ["db","schema"]` — the native analogue of
+// the live builder's `_STATE_FORM_LIFECYCLE` name-set). The no-space form
+// (`<db ...>`) is what the corpus overwhelmingly writes; `tagKindFor`
+// classifies it `Html`, so the name-set path is the recognition that closes
+// the nested-`<db>`-inside-`<program>` divergence.
+// =============================================================================
+describe("F7.a — `<db>` / `<schema>` lifecycle-keyword state recognition", () => {
+    test("a no-space `<db>` (tagKind Html) is recognized by isStateBlock", () => {
+        const blocks = parseMarkup(`<db src="x.db"></db>`);
+        const db = blocks.find(b => b.kind === "Markup" && b.name === "db");
+        expect(db).toBeDefined();
+        // No space after `<` — tagKindFor classifies it `Html`, NOT StateOpener.
+        expect(db.tagKind).toBe("Html");
+        // ...but the name-set path recognizes it as a state block.
+        expect(isStateBlock(db)).toBe(true);
+    });
+
+    test("a no-space `<db>` is shaped — stateNodeKind 'state', stateType 'db'", () => {
+        const blocks = parseMarkup(`<db src="x.db" tables="t"></db>`);
+        const db = blocks.find(b => b.kind === "Markup" && b.name === "db");
+        expect(db.stateNodeKind).toBe("state");
+        expect(db.stateType).toBe("db");
+        expect(db.typedAttrs).toEqual([]);
+    });
+
+    test("a no-space `<schema>` is recognized + shaped", () => {
+        const blocks = parseMarkup(`<schema></schema>`);
+        const schema = blocks.find(b => b.kind === "Markup" && b.name === "schema");
+        expect(isStateBlock(schema)).toBe(true);
+        expect(schema.stateNodeKind).toBe("state");
+        expect(schema.stateType).toBe("schema");
+    });
+
+    test("a `<db>` nested inside a `<program>` body is recognized + shaped", () => {
+        const blocks = parseMarkup(`<program>\n<db src="x.db"></db>\n</program>`);
+        const program = blocks.find(b => b.kind === "Markup" && b.name === "program");
+        expect(program).toBeDefined();
+        const db = (program.children || []).find(c => c.kind === "Markup" && c.name === "db");
+        expect(db).toBeDefined();
+        expect(isStateBlock(db)).toBe(true);
+        expect(db.stateNodeKind).toBe("state");
+        expect(db.stateType).toBe("db");
+    });
+
+    test("DISCRIMINATION — a no-space `<engine>` is NOT a state block (routes to engine-decl)", () => {
+        // `engine`/`machine` are in the live `_STATE_FORM_LIFECYCLE` set but
+        // are excluded from `STATE_FORM_KEYWORDS` — they route to `engine-decl`.
+        const blocks = parseMarkup(`<engine for=Cart></engine>`);
+        const engine = blocks.find(b => b.kind === "Markup" && b.name === "engine");
+        expect(engine).toBeDefined();
+        expect(isStateBlock(engine)).toBe(false);
+        expect(engine.stateNodeKind).toBeUndefined();
+    });
+
+    test("DISCRIMINATION — a plain `<div>` is NOT a state block", () => {
+        const blocks = parseMarkup(`<div class="x"></div>`);
+        const div = blocks.find(b => b.kind === "Markup" && b.name === "div");
+        expect(isStateBlock(div)).toBe(false);
+        expect(div.stateNodeKind).toBeUndefined();
+    });
+});
+
 describe("F7.b — SQL chained-call grammar (shapeSqlBlock — §8.9)", () => {
     test("a `?{...}` block gets query + an empty chain when no chain trails", () => {
         const blocks = parseMarkup("?{ `SELECT 1` }");
