@@ -1,39 +1,44 @@
 # non-compliance.report.md
 # project: scrmlts
-# generated: 2026-05-21T21:30:00Z
-# scan mode: INCREMENTAL_UPDATE (re-scan keyed on 67a17dc5..26e82466)
+# generated: 2026-05-22T00:00:00Z
+# scan mode: INCREMENTAL_UPDATE (re-scan keyed on 26e82466..5d2003dd)
 
 ## Summary
 
-Total docs scanned: ~98 `.md` files (excluding node_modules, .git, .jj, .claude,
+Total docs scanned: ~99 `.md` files (excluding node_modules, .git, .jj, .claude,
   archive, handOffs, dist/build/target). docs/changes/ counted in aggregate.
 Compliant (mapped or out-of-scope reference): ~14
 Non-compliant: 5 categories (1 large aggregate + 4 named)
 Uncertain: 3
 
-SPEC.md modification watermark: 2026-05-21 20:16 (current). Docs older than this
-that describe non-trivial aspirational state are flagged below. The 67a17dc5→
-26e82466 range added only per-dispatch progress files under docs/changes/ and
-session bookkeeping (changelog.md, master-list.md, PA-SCRML-PRIMER.md) — no NEW
-non-compliance category. The categories below are unchanged from the prior scan;
-counts refreshed.
+SPEC.md modification watermark: 2026-05-22 (current — §34.1 touched this range).
+The 26e82466→5d2003dd range added exactly ONE new `.md`:
+`docs/changes/m5-c2-gap-ledger/investigation-2026-05-22.md` — a read-only C2
+gap-ledger diagnostic. It is a per-dispatch investigation artifact, current-dated,
+correctly located under `docs/changes/` — it falls into the existing
+`docs/changes/**` aggregate category below, NOT a new non-compliance class. No NEW
+non-compliance category surfaced. The categories below are unchanged from the prior
+scan; counts refreshed.
 
 ## Non-compliant docs
 
-### docs/changes/** (178 files across ~80+ directories)
+### docs/changes/** (179 files across ~80+ directories)
 **Reason:** location + name-heuristic (combo)
 **Detail:** Every directory under `docs/changes/` is a per-dispatch artifact set
 — `BRIEF.md`, `SCOPE.md`, `progress.md` for completed or in-flight work. The
-S118 M5-swap range added 13 progress/brief files to
-`docs/changes/m5-v0.5-compressed-ladder/` (progress-A2/B1-B2-B3-B7/B4-B5-B6/R1/
-R4, BRIEF-R1/R2/R4, etc.) — historical dispatch records, not current reference
-docs. The repo already acknowledges this:
+26e82466→5d2003dd range added `docs/changes/m5-c2-gap-ledger/
+investigation-2026-05-22.md` — the C2 dual-pipeline-canary divergence sizing
+(261/1000 corpus files diverge). It is a current, accurate, read-only diagnostic
+tied to the IN-FLIGHT M5-swap C2/gap-ledger arc — a dispatch artifact, not a
+standing reference doc. The repo already acknowledges this whole class:
 `docs/curation/2026-05-05-changes-dir-disposition.md` is a standing curation
 matrix dispositioning these dirs to `scrml-support/archive/dispatches/`.
 **Suggested disposition:** deref completed-arc dirs to scrml-support/archive/dispatches/;
 keep only actively-in-flight dirs (per the curation matrix). The
-`m5-v0.5-compressed-ladder/` dir is the IN-FLIGHT M5-swap arc (C1 dispatch pending)
-and should STAY until M6 closes.
+`m5-c2-gap-ledger/` dir is the LIVE C2 gap-ledger arc — its Phase 4 fix dispatches
+are pending (they touch the native parser + collect-hoisted.js hoist-fold path) —
+and should STAY until those land. Likewise the broader M5-swap dispatch dirs stay
+until M6 closes.
 
 ### docs/website/roadmap-from-v0.3-2026-05-14.md
 **Reason:** content-heuristic + name-heuristic
@@ -66,7 +71,7 @@ scope-c-findings-tracker.md may still be live — see Uncertain below.
 ### docs/curation/2026-05-05-changes-dir-disposition.md
 **Reason:** location + currency
 **Detail:** A curation matrix (S61) for the docs/changes/ deref. Its own snapshot
-("103 dirs total") is stale — docs/changes/ now has 178 tracked files. It is a
+("103 dirs total") is stale — docs/changes/ now has 179 tracked files. It is a
 process artifact, not a reference doc.
 **Suggested disposition:** deref to scrml-support/docs/ once the docs/changes/
 deref above is executed; or update the count and keep as the standing checklist.
@@ -99,14 +104,15 @@ reference pending a quick grep confirmation.
 
 ## Notes on compliant / in-scope docs (NOT flagged)
 - compiler/SPEC.md, SPEC-INDEX.md, PIPELINE.md — authoritative spec; mapped.
-  §58 Build Story is spec-ahead but explicitly self-labels as a "Nominal section"
-  with a §58.12 gap enumeration — that is honest spec-ahead, NOT non-compliant.
+  §34.1 grew to 81 codes this range (C2 +2 info codes); §58 Build Story is
+  spec-ahead but explicitly self-labels as a "Nominal section" with a §58.12 gap
+  enumeration — honest spec-ahead, NOT non-compliant.
 - README.md, DESIGN.md, docs/tutorial.md, docs/changelog.md, scrmlFormula.md,
   docs/PA-SCRML-PRIMER.md — current reference; in-scope.
 - compiler/native-parser/README.md, M5-ast-bridge-scoping.md,
   M5-divergence-ledger.md, M5-SWAP-residual-decomposition.md — current
-  native-parser reference; LOAD-BEARING for the C1 dispatch; in-scope (they
-  describe current state + scoped future work honestly).
+  native-parser reference; LOAD-BEARING for the M5-swap gap-ledger work; in-scope
+  (they describe current state + scoped future work honestly).
 - compiler/src/codegen/README.md, compiler/tests/.../REGISTRY.md — current
   module-local reference; in-scope.
 

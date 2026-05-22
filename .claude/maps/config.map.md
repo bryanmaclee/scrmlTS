@@ -1,6 +1,6 @@
 # config.map.md
 # project: scrmlts
-# updated: 2026-05-21T15:00:00Z  commit: 67a17dc5
+# updated: 2026-05-22T00:00:00Z  commit: 5d2003dd
 
 ## Environment Variables
 No `.env.example` / `.env.template` in the repo. Env vars referenced in source:
@@ -12,7 +12,9 @@ No secrets, API keys, or credential keys are configured anywhere in source.
 
 ## Feature Flags (compiler options, not env)
 Passed to `compileScrml(options)` in compiler/src/api.js — recognized keys:
-parser              — "scrml-native" emits I-PARSER-NATIVE-SHADOW; any other value is a no-op
+parser              — "scrml-native" ROUTES the per-file TAB stage through the native
+                      parser's `nativeParseFile` (C2, S119) + emits I-PARSER-NATIVE-SHADOW;
+                      any other value (incl. null default) uses the live BS+TAB path
 emitPerRoute        — default false — per-route artifact splitter (SPEC §40.9.7)
 testMode            — default false — emit `<base>.test.js` from `~{}` blocks (SPEC §19.12.7)
 emitMachineTests    — default false — emit `.machine.test.js` (SPEC §51.13)

@@ -1,6 +1,6 @@
 # build.map.md
 # project: scrmlts
-# updated: 2026-05-21T15:00:00Z  commit: 67a17dc5
+# updated: 2026-05-22T00:00:00Z  commit: 5d2003dd
 
 ## Development Commands (root package.json scripts)
 compile        — `bun run compiler/src/cli.js compile` — compile scrml source
@@ -25,7 +25,9 @@ scrml migrate <file|dir> [options]   — source migration tooling
 scrml promote --match|--engine <…>   — if-chain → match / fn → engine promotion
 scrml generate / init / serve        — scaffolding + static serving
 Flags of note: --no-gather, --test, --emit-per-route, --chunk-size-budget=<bytes>,
---debug-perf, --timing, --parser=scrml-native (observability-only at HEAD).
+--debug-perf, --timing, --parser=scrml-native (C2 — ROUTES the per-file TAB stage
+through the native parser's `nativeParseFile`; emits I-PARSER-NATIVE-SHADOW; strictly
+opt-in, default off).
 
 ## Build & Release
 No bundler step — scrml is run directly under Bun. Generated dist artifacts:

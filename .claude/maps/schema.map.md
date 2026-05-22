@@ -1,11 +1,12 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-05-21T21:30:00Z  commit: 26e82466
+# updated: 2026-05-22T00:00:00Z  commit: 5d2003dd
 
 Authoritative AST type catalog: `compiler/src/types/ast.ts`. This is the contract
 the M5 native-parser swap must satisfy — native-parser output must be coercible to
-`FileAST` / `TABOutput` for the api.js BS+TAB seam. The native→live bridge layer
-(translate-stmt/translate-expr/collect-hoisted) implements that coercion.
+`FileAST` / `TABOutput` for the api.js TAB seam. As of C1/C2 (S119), `nativeParseFile`
+(compiler/native-parser/parse-file.js) IS that coercion — it assembles the live
+`FileAST` directly and is routed at the TAB seam behind `--parser=scrml-native`.
 
 ## Pipeline I/O Types
 
@@ -124,11 +125,34 @@ Yield, MarkupValue. Sub-enums: ArrayElementKind, ObjectPropertyKind, IsCheckOp,
 MatchArmPatternKind. ~60 make* node factories.
 
 ### Block catalog  [parse-markup.js] — `Block[]` from parseMarkup(source)
-Each Block is `{ kind, span, commentForm, ...payload }`. Kinds include Markup (name,
-children, attrs, tagClass, tagKind, closerForm), LogicEscape (bodyText, body:Stmt[]),
-Meta (bodyText, body:Stmt[]), Text, Sql, Css.
+Each Block is `{ kind, span, ...payload }`. BlockKinds: Markup (name, children, attrs,
+closerForm, tagClass, tagKind), Text, Comment, Sql (query, chainedCalls), Css (rules),
+Meta (body:Stmt[], parentContext), ErrorEffect (arms), LogicEscape (body:Stmt[]),
+DisplayTextLiteral (literal — §4.18.4 segments/exprs carrier), Test (`_{}`),
+ForeignCode (`^^{}`). `parseMarkupTrace(source)` returns the full run record
+`{ ctx, contextTrace }`; `ctx.nodes` is the Block[], `ctx.diagnostics` the parse-error
+stream (lazily-created — `undefined` on a clean parse).
 
-## Native→live FileAST bridge (S118/S119 — landed)
+## Native→live FileAST assembler (C1/C2 — landed and routed, S119)
+parse-file.js `nativeParseFile(filePath, source)` → `{ filePath, ast: FileAST, errors }` —
+the drop-in analogue of `buildAST`. Pipeline:
+  1. PARSE — `parseMarkupTrace(source)` → Block[] + ctx.diagnostics (folded into errors).
+  2. MAP — each Block → live ASTNode via `mapOneBlock` / 11 synth* builders. The
+     BlockKind→ASTNode map: Markup→markup, Text→text, Comment→comment, Sql→sql,
+     Css→css-inline, Meta→meta, ErrorEffect→error-effect, LogicEscape→logic.
+     A Markup block recognized as a STATE block (`isStateBlock`) → `state` /
+     `state-constructor-def`; recognized as an ENGINE block (`isEngineBlock`) →
+     `engine-decl` (DIFF-engine-in-nodes parity — also appears in machineDecls).
+     `DisplayTextLiteral` → `text` (D1 deferral — §4.18.6 escape pass deferred).
+     `Test` / `ForeignCode` → DROPPED with `I-NATIVE-BLOCK-DROPPED` info diag (D2).
+     An unrecognized kind → DROPPED with `I-NATIVE-BLOCK-UNMAPPED`.
+  3. ASSEMBLE — `collectHoisted` folds the Block[] into the 7 hoisted file-level outputs.
+  4. PRODUCE — the live `buildAST` literal; `authConfig`/`middlewareConfig` set to
+     `null` (PRECG Stage 3.004 derives them downstream).
+ONE shared `idGen` `{ next }` counter is threaded through every synthesizer +
+`collectHoisted` + every `translateStmtList` call → globally-unique ids in the file.
+
+### Bridge layer (S118 — landed)
 translate-stmt.js  `translateStmtList(nativeBody, idGen)` — native Stmt[] →
   live LogicStatement[] (PascalCase ESTree → lowercase scrml kinds; N×M structural).
   `Throw`/`Try` are forbidden-vocabulary kinds it rejects.
@@ -136,22 +160,24 @@ translate-expr.js  `translateExpr(nativeExpr)` / `translateExprList(nativeExprs)
   native Expr (40 ExprKinds) → live ExprNode (20 kinds); kind-rename + fan-out/fan-in.
 collect-hoisted.js `collectHoisted(blocks, idGen, source)` → { imports, exports,
   typeDecls, components, machineDecls, channelDecls, hasProgramRoot }. SYNTHESIZES
-  the live FileAST declaration node shapes from native shapes:
-    - machineDecls — a Markup block named "engine"/"machine" → a 14-field EngineDeclNode
-      (nested engines discovered by recursing `children`).
-    - components — a `const Upper = <markup>` VarDecl → a ComponentDefNode.
-    - typeDecls — a native TypeDecl Stmt → a TypeDeclNode; `export type` pushes BOTH
-      a typeDecl (`fromExport:true`) AND an export-decl, mirroring ast-builder.js:7297.
-  `hasProgramRoot(blocks)` — exported standalone; true iff a top-level Markup block is
-  named "program". Synthesized nodes extend live BaseNode (`id`+`span`); `id` is
-  allocated from a threaded-in `idGen` `{ next }` counter so the whole native→live
-  FileAST shares one id space. `source` (optional) lets engine `rulesRaw` be sliced;
-  omitted → `rulesRaw` "" (documented partial — the C1 `nativeParseFile` caller threads
-  source through).
+  live FileAST declaration node shapes; exports `isEngineBlock` + `synthEngineDecl`
+  (a Markup block named "engine"/"machine" → a 14-field EngineDeclNode).
 
-The C1 dispatch composes these three into a `nativeParseFile` FileAST assembler. It
-still needs: a top-level ASTNode[] assembler (Markup/Logic/State/Sql/Css block →
-ASTNode), spans table population, and the api.js BS+TAB seam wiring.
+### State-block shaping  [parse-state-body.js — S119]
+`shapeStateBlock(block)` — stamps `stateNodeKind`/`stateType`/`typedAttrs` onto a
+  Markup block whose opener TagKind is StateOpener (§4.3 space-after-`<`).
+`STATE_FORM_KEYWORDS` — frozen `["db","schema"]` — the no-space `<db>`/`<schema>`
+  lifecycle-keyword set; the native analogue of the live builder's
+  `_STATE_FORM_LIFECYCLE` name-set (engine/machine EXCLUDED — routed to engine-decl).
+`isStateBlock(block)` — true iff Markup block with `tagKind==="StateOpener"` OR
+  `name ∈ STATE_FORM_KEYWORDS`. Depth-agnostic.
+TypedAttrDecl: `{ name, typeExpr, optional, defaultValue, span }` — `splitTypedAttr`
+  peels `= default` + trailing `?`, mirroring live `parseTypedAttributes`.
+
+### HTML void elements  [tag-frame.js — S119]
+`VOID_ELEMENTS` — frozen set (area, base, br, col, embed, hr, img, input, link, meta,
+  source, track, wbr); copied 1:1 from block-splitter.js L72.
+`isVoidElementName(name)` — case-insensitive void-element predicate.
 
 ## Database Models
 No application DB schema — scrml is a compiler. SQLite *.db files at repo root and

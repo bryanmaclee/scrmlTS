@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-05-21T21:30:00Z  commit: 26e82466
+# updated: 2026-05-22T00:00:00Z  commit: 5d2003dd
 
 scrml's own language error model is values-not-exceptions (SPEC §19.1 — no
 try/catch, no exceptions in scrml SOURCE). The entries below are the COMPILER's
@@ -26,9 +26,9 @@ CGError       — compiler/src/codegen/errors.ts:11 — Stage 8 (Code Generator)
 SPEC §34.1 catalogs the diagnostics emitted by the native parser
 (compiler/native-parser/) — the recursive-descent front-end that replaces the
 legacy block-splitter + Acorn pipeline at the M5 swap. As of HEAD this catalog
-holds 79 codes (S117 R4 seeded 66; S118 M5-swap Waves 1+2 appended 13). All are
-hard `E-` errors. They become adopter-visible only at the R5/C2 pipeline swap.
-New B-wave codes (S118):
+holds 81 codes: 79 hard `E-` errors + 2 info-level `I-NATIVE-BLOCK-*` codes
+(S117 R4 seeded 66; S118 B-waves appended 13; S119 C2 appended 2 info codes).
+B-wave error codes (S118):
   E-STMT-LIN-NAME / E-STMT-LIN-INIT          — B4, `lin` declaration grammar
   E-STMT-TYPE-NAME / E-STMT-TYPE-KIND / E-STMT-TYPE-UNCLOSED — B5, `type` declaration
   E-STMT-FN-KEYWORD / E-STMT-FN-NAME / E-STMT-FN-ERROR       — B6, `fn`/`server`/`pure`
@@ -36,8 +36,16 @@ New B-wave codes (S118):
   E-EXPR-GUARDED-UNCLOSED                    — B2, `!{}` guarded-expression
   E-THROW-NOT-IN-SCRML / E-TRY-NOT-IN-SCRML  — B7, forbidden-vocabulary rejection
 B1 (`?` propagate) added a production but no new code — a malformed ternary still
-surfaces E-EXPR-TERNARY-COLON. §34.1 is the surviving home of the parse-diagnostic
-family once M6 deletes the legacy pipeline.
+surfaces E-EXPR-TERNARY-COLON.
+FileAST-assembler info codes (S119 C2 — emitted by `nativeParseFile`,
+compiler/native-parser/parse-file.js):
+  I-NATIVE-BLOCK-DROPPED   — a native BlockKind with no live ASTNode (`Test` /
+                             `ForeignCode`) was dropped from `FileAST.nodes`.
+  I-NATIVE-BLOCK-UNMAPPED  — a BlockKind not in the BlockKind→ASTNode map was
+                             encountered and dropped (forward-compat guard).
+Both are info-level (`severity:"info"`) — non-fatal, partition into `result.warnings`.
+§34.1 is the surviving home of the parse-diagnostic family once M6 deletes the
+legacy pipeline.
 
 ## Runtime Error Classes (emitted INTO user output)
 compiler/src/runtime-template.js — scrml runtime error hierarchy embedded in
@@ -56,6 +64,8 @@ TimeoutError [2060] | ParseError [2068] | NotFoundError [2076] | ConflictError [
   (2 catch sites); pipeline stages otherwise return diagnostics as values.
 - Native-parser modules record errors as VALUES — `recordError(ctx, code, message,
   span)` in parse-stmt.js / parse-expr.js appends to a context error array; no throws.
+  `nativeParseFile` folds `ctx.diagnostics` (the markup-run parse-error stream) plus
+  any synthesis-side `I-NATIVE-BLOCK-*` info diagnostics into its result `errors` array.
 
 ## Error Code Families (host-side, count of code-prefix references in compiler/src)
 Spec-catalogued codes (SPEC §34 is normative). Highest-volume families:
@@ -64,8 +74,8 @@ E-COMPONENT (71) | E-IMPORT (68) | E-META (64) | E-SCOPE (54) | E-CG (54) |
 E-TABLEFOR (53) | E-STATE (51) | E-SYNTAX (50) | E-CHANNEL (50) | E-AUTH (47) |
 E-CLOSURE (46) | E-PA (45) | E-MATCH (44) | E-CPS (40) | E-ATTR (40) | …
 Warnings: W-CG | W-LINT | W-AUTH | W-STORY (§58 — W-STORY-ON-TOP-LEVEL).
-Info: I-PARSER-NATIVE-SHADOW, I-MATCH-PROMOTABLE, I-ASYNC-USER-SOURCE,
-I-AUTH-REDIRECT-UNRESOLVED.
+Info: I-PARSER-NATIVE-SHADOW, I-NATIVE-BLOCK-DROPPED, I-NATIVE-BLOCK-UNMAPPED,
+I-MATCH-PROMOTABLE, I-ASYNC-USER-SOURCE, I-AUTH-REDIRECT-UNRESOLVED.
 
 ## Global Error Boundaries
 No host-side global error boundary — the compiler is a batch process; fatal
@@ -74,8 +84,9 @@ embed `_ScrmlError`-based runtime handling per SPEC §19.
 
 ## Unhandled Error Risks
 - api.js BS-stage catch (api.js:697) swallows non-BSError throws into a generic
-  E-BS-000 with no span — a native-parser crash under M5/C1 routing would land
-  here without source attribution unless the swap brief adds a typed catch.
+  E-BS-000 with no span. The C2 native path runs `nativeParseFile` at the TAB
+  stage (api.js:744, inside `stage("TAB", ...)`) — a native-parser crash under
+  `--parser=scrml-native` lands in the TAB stage wrapper, not the BS catch.
 - Lint pre-passes silently swallow unreadable-file errors (api.js:674) — by
   design; BS reports the real read error.
 

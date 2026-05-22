@@ -1,6 +1,6 @@
 # dependencies.map.md
 # project: scrmlts
-# updated: 2026-05-21T21:30:00Z  commit: 26e82466
+# updated: 2026-05-22T00:00:00Z  commit: 5d2003dd
 
 ## Runtime Dependencies (root package.json)
 vscode-languageserver@^9.0.1 — LSP server framework for lsp/server.js
@@ -27,6 +27,8 @@ api.js → block-splitter.js, ast-builder.js, compute-pgo-flags.ts, compute-prog
          idempotency-store-resolver.ts, type-system.ts, meta-checker.ts, meta-eval.ts,
          dependency-graph.ts, batch-planner.ts, reachability-solver.ts, auth-graph.ts,
          code-generator.js, module-resolver.js, name-resolver.ts, symbol-table.ts
+api.js → native-parser/parse-file.js (`nativeParseFile`) — C2 routing; consumed only when
+         `--parser=scrml-native` is set (the TAB-stage `_buildAST` override, api.js:730).
 api.js → validators/{post-ce-invariant, attribute-interpolation, attribute-allowlist, lint-try-catch, lint-async-user-source}.ts
 api.js → lint-ghost-patterns.js, lint-i-match-promotable.js, tailwind-classes.js,
          gauntlet-phase1-checks.js, gauntlet-phase3-eq-checks.js
@@ -43,25 +45,30 @@ parse-expr.js → ast-expr.js, token.js, token-cursor.js, parse-ctx.js, parse-mo
 parse-stmt.js → ast-stmt.js, ast-expr.js, parse-expr.js, token.js, parse-ctx.js, block-context.js, body-mode.js
 parse-markup.js → tag-frame.js, body-mode.js, display-text-literal.js, parse-seam.js,
          parse-css-body.js, parse-sql-body.js, parse-state-body.js, parse-error-body.js, delegation-frame.js
+parse-file.js → parse-markup.js (`parseMarkupTrace`), collect-hoisted.js (`collectHoisted`,
+         `isEngineBlock`, `synthEngineDecl`), translate-stmt.js (`translateStmtList`),
+         parse-state-body.js (`isStateBlock`)
 translate-stmt.js → ast-stmt.js, translate-expr.js (rides expression children through the expr bridge)
 translate-expr.js → ast-expr.js
 collect-hoisted.js → ast-stmt.js (reads StmtKind to classify Block-stream Stmt nodes)
+tag-frame.js → (exports VOID_ELEMENTS / isVoidElementName — consumed by parse-markup self-close logic)
+parse-state-body.js → (exports STATE_FORM_KEYWORDS / isStateBlock / shapeStateBlock)
 
-## Native-parser → live-pipeline bridge (C1 dispatch seam)
-The native parser produces SEPARATE catalogs (Token[], Stmt[], Expr, Block[]) that do
-NOT form a `FileAST`. The S118/S119 bridge layer is now landed:
+## Native-parser → live-pipeline bridge + assembler (C1/C2 — landed and routed)
+The native parser produces SEPARATE catalogs (Token[], Stmt[], Expr, Block[]). The
+bridge layer + assembler now compose them into a `FileAST` and the pipeline routes it:
   - translate-stmt.js  `translateStmtList(nativeBody, idGen)` — R1; native Stmt[] →
     live LogicStatement[] (PascalCase ESTree-shape → lowercase scrml kinds; N×M structural).
   - translate-expr.js  `translateExpr(nativeExpr)` / `translateExprList(...)` — A2;
     native Expr (40 ExprKinds) → live ExprNode (20 lowercase kinds).
-  - collect-hoisted.js `collectHoisted(blocks, idGen, source)` / `hasProgramRoot(blocks)` —
-    A3; native Block[] → { imports, exports, typeDecls, components, machineDecls,
-    channelDecls, hasProgramRoot }. Synthesizes EngineDeclNode/ComponentDefNode/
-    TypeDeclNode from native Markup/VarDecl/TypeDecl shapes.
-These three are OPTIONAL exit-shapers — `parseProgram`/`parseExpression`/`parseMarkup`
-stay pure. The C1 dispatch composes them into `nativeParseFile` and wires it into
-api.js's BS+TAB seam. At HEAD `--parser=scrml-native` is still observability-only
-(api.js:1835, I-PARSER-NATIVE-SHADOW) — the bridge exists but is NOT yet routed.
+  - collect-hoisted.js `collectHoisted(blocks, idGen, source)` / `hasProgramRoot(blocks)` /
+    `isEngineBlock(block)` / `synthEngineDecl(block, stamp, source)` — A3; native Block[]
+    → { imports, exports, typeDecls, components, machineDecls, channelDecls, hasProgramRoot }.
+  - parse-file.js `nativeParseFile(filePath, source)` — C1; composes `parseMarkupTrace` +
+    the three bridges into the full live `FileAST` shape. Drop-in analogue of `buildAST`.
+The C1 assembler is wired into api.js's TAB seam (C2): `--parser=scrml-native` swaps
+`_buildAST` to `nativeParseFile` (api.js:729-736). Strictly opt-in — `parser` defaults
+to `null`; every other caller uses the untouched live BS+TAB path.
 
 ## Tags
 #scrmlts #map #dependencies #bun #acorn #native-parser #m5-swap #bridge
