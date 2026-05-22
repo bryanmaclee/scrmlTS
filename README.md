@@ -2,22 +2,16 @@
 
 */ˈskrɪmɛl/*
 
-**An app should be an exhaustive state machine.**
-
-scrml is a compiled language built around one organizing principle: the structural
-shape of a shipped UI is the structural shape of its state. Every reachable state
-has UI. Every transition is intentional. Every effect runs at the right moment.
-**Provability falls out of the language's natural shape — not from separate proof
-ceremony.**
-
-The compiler does the wiring: server/client splitting, reactivity, routing,
-async scheduling, SQL batching, channel sync, validity-surface synthesis. You
-declare the shape; the compiler emits plain HTML, CSS, and JavaScript. No virtual
-DOM, no JSX, no `node_modules`.
+Write a whole app in **one `.scrml` file**. The
+compiler reads it and does the wiring. No virtual DOM, no JSX, no `node_modules`, no
+API layer to drift out of sync.
 
 ```bash
-scrml compile hello.scrml -o dist/
+scrml compile app.scrml -o dist/
 ```
+
+You declare the shape of the app; the compiler builds the machine. The example
+further down is a real, running app — but first
 
 ## A note from the developer
 
@@ -37,12 +31,108 @@ AI code is still what it is. 100% mid. But its still all human mid that it is re
 
 are the ideas any good?
 
-## The Tier 0 / 1 / 2 ladder
+## A Full App in One File
 
-Apps don't start at the north star; they evolve toward it. The Tier ladder lets
-you start as a prototype and add structure as the design hardens — without
-rewriting the markup tree. State-children carry forward verbatim between tiers;
-the wrapper swap is the commitment moment.
+A contact book that persists to a SQLite database **and** syncs live across
+every open browser tab — no API layer, no ORM, no WebSocket code, no separate
+validation schema:
+
+```scrml
+<program db="contacts.db">
+
+<schema>
+    contacts {
+        name:  text req length(>=2)
+        email: text req email
+    }
+</>
+
+// A <channel> is a WebSocket endpoint. State declared inside it
+// auto-syncs to every connected client — open this app in two tabs.
+<channel name="contacts" topic="all">
+    ${
+        <entries> = ?{select name, email from contacts order by id}.all()
+
+        server function publish(name, email) {
+            @entries = [...@entries, { name, email }]
+        }
+    }
+</>
+
+<entry>
+    <name  req length(>=2)> = <input placeholder="Name"/>
+    <email req email>       = <input type="email" placeholder="Email"/>
+</>
+
+<form onsubmit=submit()>
+    <entry><name/></>
+    <entry><email/></>
+    <errors of=@entry/>
+    <button type="submit" disabled=${not @entry.isValid}>Add Contact</>
+</form>
+
+<ul>
+    ${
+        for (let c of @entries) {
+            lift <li>${c.name} — ${c.email}</>
+        }
+    }
+</ul>
+
+function persist(name, email) {
+    ?{insert into contacts (name, email) values (${name}, ${email})}.run()
+}
+
+function submit() {
+    persist(@entry.name, @entry.email)   // runs server-side — it touches SQL
+    publish(@entry.name, @entry.email)   // broadcasts to every open tab
+    reset(@entry)
+}
+
+</>
+```
+
+Open it in two tabs and add a contact in one — it shows up in the other
+instantly. Here is everything the compiler did that you did *not* write:
+
+- **`<schema>` is the database.** The `contacts` block is the migration *and*
+  the source-level shared vocabulary. `req length(>=2)` lowers to `NOT NULL` +
+  `CHECK (length(name) >= 2)` at the DB layer — and the *same* `req
+  length(>=2)` on the `<name>` field below validates the form. One word, two
+  enforcement loci, guaranteed not to drift.
+- **`<channel>` is realtime, as a language primitive.** Declaring it emits a
+  WebSocket endpoint, a reconnecting client-side connection manager, and
+  pub/sub topic routing. State declared inside the channel body (`<entries>`)
+  auto-syncs to every connected client — `publish()` writes the cell, every tab
+  sees it. There is no `new WebSocket()` anywhere in your source.
+- **`<entry>` is a form that validates itself.** Each field declares a reactive
+  cell *together with* its input element. `@entry.isValid`, `@entry.errors`,
+  and the per-field `@entry.name.isValid` are auto-synthesized — reactive,
+  read-only. `<errors of=@entry/>` renders the active errors at the right
+  moment (the touched + submitted lifecycle is handled for you).
+- **The server boundary is inferred.** `persist()` touches SQL, so the compiler
+  runs it server-side — and generates the route, the `fetch` call, CSRF
+  tokens, parameterized queries, and serialization. You call it like a local
+  function, because in your source it *is* one.
+- **`reset(@entry)`** returns every field of the compound cell to its declared
+  initial value — one keyword, no per-field bookkeeping.
+
+That is the whole language in miniature: declare the shape, the compiler wires
+the rest. The sections below go deeper — starting with the one idea the entire
+language is built on.
+
+## Built around state machines
+
+Here is that idea: **an app should be an exhaustive state machine.** The
+structural shape of a shipped UI is the structural shape of its state — every
+reachable state has UI, every transition is intentional, every effect fires at
+the right moment. Provability falls out of the language's natural shape, not
+from a separate proof ceremony — and you should barely notice it happening.
+
+Apps don't start at that north star; they evolve toward it. The **Tier ladder**
+lets you start as a rough prototype and add structure as the design hardens —
+without rewriting the markup tree. State-children carry forward verbatim
+between tiers; the wrapper swap is the commitment moment.
 
 | Tier  | Form                                       | What you get                                                           |
 |-------|--------------------------------------------|------------------------------------------------------------------------|
@@ -53,54 +143,6 @@ the wrapper swap is the commitment moment.
 Adding a new variant to the discriminating type later forces the compiler to
 remind you where every transition into it should fire from. The state machine
 evolves; the compiler enforces.
-
-## Why scrml
-
-**State is the declaration primitive.** `<count> = 0` declares a reactive cell;
-`@count` reads or writes it. Compound, derived (`const <total> = expr`),
-server-pinned (`<users server>`), linear, refinement-typed cells are all the
-same primitive with different attributes. The compiler tracks the dependency
-graph and re-renders on change.
-
-**Engines are the centerpiece.** When state goes from "a few booleans" to "this
-app has phases," you promote up the Tier ladder (above) without rewriting the
-markup tree — `if=` chains, then `<match for=Type>`, then `<engine for=Type>`.
-The engine declares legal transitions, runs cross-state effects, and enforces
-that every variant has a UI block. The Engine Example below is the full shape.
-
-**Full-stack in one file.** Markup, logic, styles, SQL, server functions, error
-handling, realtime channels, inline tests — all in `.scrml`. The compiler
-analyzes the code and splits server from client automatically. No API layer, no
-route files, no API/UI drift.
-
-**Errors are states, not booleans.** `try`/`catch` is not in scrml's vocabulary.
-Failable functions surface errors as enum variants (`fn fetchItems()! ->
-LoadError`); the `!{}` handler routes each variant into the right state. A
-missing handler arm is a compile-time error — the failure modes live in the
-type, not in `<isError>` boolean rubble.
-
-**Validators auto-synthesize a validity surface.** Compound state with `req` /
-`length` / other predicates produces reactive read-only `@form.isValid` /
-`.errors` / `.touched` rollups plus per-field cells; `<errors of=@form/>`
-renders them at the right time. The same predicate fires three places — state
-validator, refinement type, schema column. No bilingual schema, no Zod.
-
-**Automatic N+1 elimination.** A `for` loop whose body does `?{...where id =
-${x.id}}.get()` is rewritten to one `WHERE id IN (...)` fetch plus a keyed
-lookup — no DataLoader, no manual batching. Independent reads in a `!` handler
-share one transaction envelope. (Opt-out, diagnostics, and measured wins:
-Features → Server/Client and the benchmarks.)
-
-**Realtime and workers as language primitives.** A `<channel>` block declares a
-WebSocket endpoint — the compiler emits the upgrade route, reconnect, and
-pub/sub routing; state declared inside auto-syncs across every connected client.
-A nested `<program>` is a Web Worker (or WASM module, or sidecar) with typed RPC
-and supervised restarts. No `new WebSocket()`, no `postMessage` plumbing.
-
-**No npm.** scrml ships its own stdlib — sixteen modules (`auth`, `crypto`,
-`data`, `http`, `router`, `store`, `time`, and more) covering the surface a
-typical app reaches for. No package manager, no dependency trees, no
-`node_modules`.
 
 ## Quick Example — a Counter (Tier 0)
 
@@ -250,71 +292,53 @@ event-timeout watchdogs, `internal:rule=` for transitions that don't exit /
 re-enter the composite — see SPEC.md §51 and example
 [`examples/14-mario-state-machine.scrml`](examples/14-mario-state-machine.scrml).
 
-## Full-Stack in One File
+## Why scrml
 
-A contact book with a database, server functions, and an auto-validated reactive
-form — no API layer, no ORM, no route files, no separate validation schema:
+**State is the declaration primitive.** `<count> = 0` declares a reactive cell;
+`@count` reads or writes it. Compound, derived (`const <total> = expr`),
+server-pinned (`<users server>`), linear, refinement-typed cells are all the
+same primitive with different attributes. The compiler tracks the dependency
+graph and re-renders on change.
 
-```scrml
-<program db="contacts.db">
+**Engines are the centerpiece.** When state goes from "a few booleans" to "this
+app has phases," you promote up the Tier ladder (above) without rewriting the
+markup tree — `if=` chains, then `<match for=Type>`, then `<engine for=Type>`.
+The engine declares legal transitions, runs cross-state effects, and enforces
+that every variant has a UI block. The Engine Example above is the full shape.
 
-<schema>
-    contacts {
-        name:  text req length(>=2)
-        email: text req email
-    }
-</>
+**Full-stack in one file.** Markup, logic, styles, SQL, server functions, error
+handling, realtime channels, inline tests — all in `.scrml`. The compiler
+analyzes the code and splits server from client automatically. No API layer, no
+route files, no API/UI drift.
 
-<entry>
-    <name  req length(>=2)> = <input placeholder="Name"/>
-    <email req email>       = <input type="email" placeholder="Email"/>
-</>
+**Errors are states, not booleans.** `try`/`catch` is not in scrml's vocabulary.
+Failable functions surface errors as enum variants (`fn fetchItems()! ->
+LoadError`); the `!{}` handler routes each variant into the right state. A
+missing handler arm is a compile-time error — the failure modes live in the
+type, not in `<isError>` boolean rubble.
 
-<form onsubmit=addContact()>
-    <entry><name/></>
-    <entry><email/></>
-    <errors of=@entry/>
-    <button type="submit" disabled=${not @entry.isValid}>Add Contact</>
-</form>
+**Validators auto-synthesize a validity surface.** Compound state with `req` /
+`length` / other predicates produces reactive read-only `@form.isValid` /
+`.errors` / `.touched` rollups plus per-field cells; `<errors of=@form/>`
+renders them at the right time. The same predicate fires three places — state
+validator, refinement type, schema column. No bilingual schema, no Zod.
 
-<ul>
-    ${
-        for (let c of ?{select name, email from contacts}.all()) {
-            lift <li>${c.name} — ${c.email}</>
-        }
-    }
-</ul>
+**Automatic N+1 elimination.** A `for` loop whose body does `?{...where id =
+${x.id}}.get()` is rewritten to one `WHERE id IN (...)` fetch plus a keyed
+lookup — no DataLoader, no manual batching. Independent reads in a `!` handler
+share one transaction envelope. (Opt-out, diagnostics, and measured wins:
+Features → Server/Client and the benchmarks.)
 
-function addContact() {
-    ?{insert into contacts (name, email) values (${@entry.name}, ${@entry.email})}.run()
-    reset(@entry)
-}
+**Realtime and workers as language primitives.** A `<channel>` block declares a
+WebSocket endpoint — the compiler emits the upgrade route, reconnect, and
+pub/sub routing; state declared inside auto-syncs across every connected client.
+A nested `<program>` is a Web Worker (or WASM module, or sidecar) with typed RPC
+and supervised restarts. No `new WebSocket()`, no `postMessage` plumbing.
 
-</>
-```
-
-Five things the compiler does that you don't write:
-
-- **`<schema>` is the source of truth for the data shape.** The `contacts` block
-  doubles as the database migration AND the source-level shared vocabulary.
-  `req length(>=2)` lowers to `NOT NULL` + `CHECK (length(name) >= 2)` at the
-  DB layer. The same `req length(>=2)` on the `<name>` cell above fires at the
-  state-validator layer. Same word, same semantics, two enforcement loci. Add
-  a third (refinement type on the function parameter) and it composes.
-- **`<entry>` is compound state with bindable markup (Shape 2).** Each field
-  declares a reactive cell *with* its render-spec. `<entry.name/>` in markup
-  expands to the bound input element with `bind:value` wired automatically.
-  Validators (`req`, `length(>=2)`, `email`) fire on input.
-- **`@entry.isValid`** is auto-synthesized — a compound rollup over every
-  field's validity. **`@entry.name.isValid`** is per-field. **`@entry.errors`**
-  is a list of enum-tagged errors (`.Required`, `.LengthFailed(predicate)`),
-  not strings — consumers pattern-match on the tag.
-- **`<errors of=@entry/>`** renders the active errors at the right time
-  (touched + submitted lifecycle managed automatically).
-- **`addContact()` runs server-side** because it does SQL. The compiler infers
-  the boundary, generates the route, the fetch call, CSRF tokens, parameterized
-  queries, and serialization. `reset(@entry)` returns every field to its
-  declared initial value. You never write any of this.
+**No npm.** scrml ships its own stdlib — sixteen modules (`auth`, `crypto`,
+`data`, `http`, `router`, `store`, `time`, and more) covering the surface a
+typical app reaches for. No package manager, no dependency trees, no
+`node_modules`.
 
 ## Benchmarks
 
@@ -385,6 +409,7 @@ scrml is ~10-14x faster to build than Vite at v0.3.0 (was 8-12x at v0.2.x).
 ### Linear Types
 
 - **Exact-once consumption (`lin`)** — values that must be used exactly once, with restricted intermediate visibility between declaration and consumption. The compiler verifies this statically across branches, loops, closures, and cross-`${}` blocks. See [SPEC §35](compiler/SPEC.md) for the normative surface.
+- **The `~` pipeline accumulator** — an unbound expression statement drops its result into `~`; the next statement consumes it. `step1(x)` then `return step2(~)` — no name on a value used exactly once, the same cleanliness as a ternary, for pipelines. `~` is itself a built-in `lin` variable: exactly-once consumption, compiler-checked, scope-local to each `${}` body and function body. Misuse (`~` read twice, read uninitialized, reinitialized before consumption) is a compile error — `E-TILDE-001` / `E-TILDE-002`. See [SPEC §32](compiler/SPEC.md) and [`examples/24-tilde-pipeline.scrml`](examples/24-tilde-pipeline.scrml).
 
 ### Type Safety
 
@@ -553,12 +578,17 @@ The [`examples/`](examples/) directory contains curated examples that show what 
 | [20-middleware](examples/20-middleware.scrml) | `<program>` attrs + `handle()` HTTP middleware |
 | [21-navigation](examples/21-navigation.scrml) | `navigate()` + `route` history-aware routing |
 | [22-multifile](examples/22-multifile/) | Cross-file `import`/`export`, pure-type files, component canonical-key |
+| [23-trucking-dispatch](examples/23-trucking-dispatch/) | Multi-page auth-bearing app — real `/login`, role gates, per-route chunks |
+| [24-tilde-pipeline](examples/24-tilde-pipeline.scrml) | `~` pipeline accumulator — last-unbound-expression carry-forward |
+| [25-triage-board](examples/25-triage-board.scrml) | Drag-and-drop between columns, struct + enum state |
+| [26-type-derived-schema](examples/26-type-derived-schema.scrml) | `schemaFor(Type)` — SQL DDL generated from a struct |
+| [27-type-derived-table](examples/27-type-derived-table.scrml) | `tableFor(Type, rows)` — a `<table>` generated from a struct |
 
 ## Documentation
 
 - [Tutorial](docs/tutorial.md) — step-by-step introduction, zero to full-stack
 - [Design Notes](DESIGN.md) — rationale and philosophy — why scrml is what it is
-- [Language Specification](compiler/SPEC.md) — full formal spec (~27,000 lines)
+- [Language Specification](compiler/SPEC.md) — full formal spec (~29,000 lines)
 - [Spec Quick-Lookup](compiler/SPEC-INDEX.md) — find any section fast
 - [Pipeline Contracts](compiler/PIPELINE.md) — stage-by-stage compiler pipeline
 
@@ -582,12 +612,12 @@ scrml lets you write a complete app in one file: markup, reactive state, scoped 
 SQL, server functions, and inline tests — no build config, no separate server file,
 no state management library.
 
-**Current state — v0.4.** Live phase status: [`master-list.md` §0](./master-list.md) · recent landings: [`docs/changelog.md`](./docs/changelog.md) · known spec-vs-impl gaps + per-gap workarounds: [`docs/known-gaps.md`](./docs/known-gaps.md).
+**Current state — v0.7 in flight.** Live phase status: [`master-list.md` §0](./master-list.md) · recent landings: [`docs/changelog.md`](./docs/changelog.md) · known spec-vs-impl gaps + per-gap workarounds: [`docs/known-gaps.md`](./docs/known-gaps.md).
 
 ### What's in here
 
-- `compiler/` — compiler source, the authoritative `SPEC.md` (~27,144 lines / §57 + appendices) / `SPEC-INDEX.md` / `PIPELINE.md`, **12,300+ tests**, and reference self-host modules
-- `examples/` — **23 runnable single-file scrml apps + the trucking-dispatch multi-page app**
+- `compiler/` — compiler source, the authoritative `SPEC.md` (~29,000 lines / §58 + appendices) / `SPEC-INDEX.md` / `PIPELINE.md`, **19,000+ tests**, and reference self-host modules
+- `examples/` — **27 runnable single-file scrml apps + the trucking-dispatch multi-page app**
 - `samples/compilation-tests/` — **289 compilation tests** covering every accepted construct
 - `stdlib/` — **16 user-facing stdlib modules** (`auth`, `crypto`, `data`, `format`, `fs`, `http`, `path`, `process`, `router`, `store`, `test`, `time`, `redis`, `cron`, `regex`, `oauth`)
 - `benchmarks/` — runtime, build, and full-stack benchmarks vs React / Svelte / Vue
