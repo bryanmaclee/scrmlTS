@@ -2,7 +2,17 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-21 **S118**). Full `bun test` **18,278 pass / 169 skip / 1 todo / 0 fail**. **v0.5.0 + v0.6.0 cut (S118)** — the M5 native-parser retire/bridge work, released. The M5 *pipeline swap* itself — Tier B (native-parser feature completion: `?`/`!{}`/`~`-decl/`lin`/`fn`/`type`) + the `--parser=scrml-native` routing change — is **v0.7**.
+Current baseline (2026-05-21 **S118 CLOSE**). Full `bun test` **18,358 pass / 169 skip / 1 todo / 0 fail / 742 files / 56,231 expect**. **v0.5.0 + v0.6.0 cut (S118).** **v0.7 Tier B complete** — the native parser now parses every core-scrml declaration form (`?`/`!{}`/`~`-decl/`lin`/`type`/`fn`/`server`/`pure`). The M5 *pipeline swap* itself — A3 hoist synthesis → C1 FileAST assembler → C2 the `--parser=scrml-native` routing change — remains v0.7's remaining work.
+
+### 2026-05-21 (S118 — Build Story §58, v0.5.0 + v0.6.0 cut, v0.7 Tier B complete)
+
+S118 authored the Build Story SPEC end to end, cut the v0.5.0 + v0.6.0 releases (the M5 native-parser retire/bridge work — landed S115-S118, finally tagged), de-duplicated the README, and landed all of v0.7 Tier B — the native parser now parses every core-scrml declaration form. 11 commits on scrmlTS + 1 on scrml-support; tests 18,173 → 18,358 (+185), zero regressions.
+
+- **SPEC §58 Build Story** — NEW normative section + §58.5.1-4 (the closure encoding + `build-story.lock` format). See the v0.6.0 release block below for the surface; Nominal — spec-ahead-of-implementation.
+- **v0.5.0 + v0.6.0 cut + tagged + pushed** — see the `## v0.5.0` / `## v0.6.0` release blocks below. `package.json` 0.4.0 → 0.6.0.
+- **README — `story=` + redundancy trim.** Build-story section: the per-`<program>` attribute is `story=` (ratified S118), and the stale "not yet specified" framing corrected to "specified in §58." The "Why scrml" section trimmed ~67 → ~38 lines — it had become a second manual (every pitch beat re-explained in Features + the 3 examples; engines were covered four times). No feature content removed.
+- **v0.7 Tier B — COMPLETE (B1-B7).** The native parser now parses `?` propagate-expr, `!{}` guarded-expr, `~` tilde-decl, `lin`, `type` (struct/enum/alias + the `export type` drop fixed), and `fn`/`server`/`pure`/`!` function modifiers, and rejects `throw`/`try` (`E-THROW-NOT-IN-SCRML` / `E-TRY-NOT-IN-SCRML`). Two combined dispatches — Wave 1 (B4/B5/B6 keyword units), Wave 2 (B1/B2/B3/B7 expression+statement productions). §34.1 +13 native-parser codes (catalog 66 → 79); +80 tests. Remaining v0.7: A3 (engine/component hoist synthesis) → C1 (FileAST assembler) → C2 (the pipeline swap).
+- **M5 A2 + F4.** A2 — expression-catalog bridge (`translate-expr.{js,scrml}`: native PascalCase `ExprKind` → live lowercase `ExprNode`; +109 tests). F4 — `SpanTable` retired (zero-consumer dead structure; every node already carries its span inline). Together these closed the v0.6 M5 non-routing units.
 
 ### 2026-05-21 (S117 — build-story ratified, M5-swap re-decomposed, README live)
 
