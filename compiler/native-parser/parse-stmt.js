@@ -473,6 +473,17 @@ export function parseStatement(ctx) {
         return parseEmptyStatement(ctx);
     }
 
+    // P5-3 — a `^{ ... }` meta block at statement position. A `^{}` meta
+    // block (SPEC §40) can open the body of a `${...}` logic escape — the
+    // self-host files do exactly this. The `^` lexes as `BitXor`; without
+    // this branch a `^` at statement head routes to parseExprStatement and
+    // stalls (no left operand), bailing the whole statement loop. Checked
+    // BEFORE the bare `LBrace` block branch — the `^` must be consumed so
+    // the `{ ... }` body parses as the meta block's body, not a stray block.
+    if (kind === TokenKind.BitXor && metaBlockLeadFollows(cursor)) {
+        return parseMetaBlock(ctx);
+    }
+
     // A block statement — `{`. At STATEMENT position a `{` always opens a
     // block (an object literal is an expression-position `{` — the ParseMode
     // engine carries this distinction). No expression statement may begin
@@ -2545,14 +2556,36 @@ function typeAliasText(ctx) {
 //   type-declaration ::= 'type' identifier (':' kind)? '=' '{' body '}'
 //                      | 'type' identifier (':' kind)? '=' alias-expr
 //                      | 'type' identifier ':' kind
+//                      | 'type' ':' kind identifier '{' body '}'    (§14.3.1)
 // SPEC §14. Two source forms ride one TypeDecl node: the `: kind = {...}`
-// struct / enum body form, and the `: kind` / `= expr` alias form. The
-// `export type ...` interaction is handled by parseExportedDeclaration
-// (parseExport routes a `type` lead here). A missing type name records a
-// diagnostic and recovery proceeds.
+// struct / enum body form, and the `: kind` / `= expr` alias form. SPEC §14.3.1
+// also specifies the kind-FIRST ordering — `type:struct Token { ... }` /
+// `type:enum TokenKind { ... }` — where the `:kind` discriminator precedes the
+// name. The self-host files use this form. The `export type ...` interaction
+// is handled by parseExportedDeclaration (parseExport routes a `type` lead
+// here). A missing type name records a diagnostic and recovery proceeds.
 export function parseTypeDecl(ctx) {
     const cursor = ctx.cursor;
     const kw = advance(cursor);   // consume `type`
+
+    // SPEC §14.3.1 — the kind-FIRST ordering `type :kind Name { ... }`. A
+    // `:` IMMEDIATELY after `type` (before any name) is the discriminator;
+    // the name follows it. Parsed here so the post-name body / alias logic
+    // below is shared by both orderings. `typeKind` stays "" for the
+    // name-first form (`type Name :kind`), filled by the branch below it.
+    let typeKind = "";
+    let kindParsedFirst = false;
+    if (currentKind(cursor) === TokenKind.Colon) {
+        advance(cursor);   // consume `:`
+        kindParsedFirst = true;
+        if (currentKind(cursor) === TokenKind.Ident) {
+            typeKind = advance(cursor).name;
+        } else {
+            recordError(ctx, "E-STMT-TYPE-KIND",
+                "expected a type kind ('enum' / 'struct' / ...) after ':'",
+                spanHere(ctx));
+        }
+    }
 
     // The type name.
     let name = "";
@@ -2563,10 +2596,10 @@ export function parseTypeDecl(ctx) {
             "expected a name after 'type'", spanHere(ctx));
     }
 
-    // The optional `: kind` discriminator (`enum` / `struct` / `tuple` / ...).
+    // The name-FIRST `: kind` discriminator (`type Name : kind ...`). Skipped
+    // when the kind was already parsed in the §14.3.1 kind-first branch above.
     // `kind` is a bare identifier — `parseMemberProperty`-style: any Ident.
-    let typeKind = "";
-    if (currentKind(cursor) === TokenKind.Colon) {
+    if (kindParsedFirst === false && currentKind(cursor) === TokenKind.Colon) {
         advance(cursor);   // consume `:`
         if (currentKind(cursor) === TokenKind.Ident) {
             typeKind = advance(cursor).name;
@@ -2695,6 +2728,87 @@ export function parseTildeDecl(ctx) {
     const endE = (init === undefined || init === null) ? kw.span.end : nodeEnd(init);
     const span = makeSpan(kw.span.start, endE, kw.span.line, kw.span.col);
     return makeTildeDecl(name, init, span);
+}
+
+// =============================================================================
+// `^{ ... }` meta-block at statement position — P5-3.
+//
+// A `^{}` meta block (SPEC §40 — file-/body-top dynamic-import + metadata
+// escape) can open the body of a `${...}` logic escape. The self-host files
+// (`compiler/self-host/{bpp,bs,tab}.scrml`) all do exactly this: the `${...}`
+// body opens with a `^{ const {...} = await import(...) }` meta block, then a
+// run of `export function` declarations follows.
+//
+// The native lexer has NO dedicated `^{` sigil token — a `^` lexes as the
+// `BitXor` operator. Without statement-position recognition the `${...}` body
+// statement loop (parseStatementList -> parseStatement) reaches `^` at
+// statement head, routes it to parseExprStatement, and the expression grammar
+// stalls on a `^` with no left operand. The forward-progress guard then bails
+// the WHOLE statement loop — every sibling `export function` after the meta
+// block is silently dropped (`bpp.scrml`: live exports 4 / native 0;
+// `tab.scrml`: 105 live nodes vs 53 native — half the body lost).
+//
+// The fix: recognize a source-adjacent `^{` at statement position and consume
+// the brace-delimited body as ONE statement so the loop continues to the
+// sibling declarations. The body is a run of scrml-native statements — the
+// same catalog any block body carries — so it is parsed by the existing
+// parseStatementList machinery (parseBlock).
+//
+// PARTIAL-FIX NOTE (deferred follow-on): the live pipeline wraps the meta
+// block's body in a dedicated `meta` ASTNode (a `logic > meta > const-decl,
+// import-decl, ...` shape). This native fix recovers the body content + every
+// sibling declaration, but emits the meta body as a `Block` statement, which
+// the A1 bridge (translate-stmt.js) FLATTENS into the surrounding logic-body
+// stream — so the `meta` wrapper node is absent. Restoring the `meta` wrapper
+// needs a dedicated `StmtKind.Meta` (ast-stmt.js) + an A1-bridge arm
+// (translate-stmt.js) — both OUT of this unit's `parse-stmt.js`-only scope.
+// The catastrophic statement-loop truncation is closed here; the residual
+// `meta`-wrapper fidelity is a clean follow-on.
+
+// metaBlockLeadFollows — predicate. The cursor is at statement head; does a
+// `^{` meta-block opener begin here? A `^` (`BitXor` token) must be IMMEDIATELY
+// followed — source-adjacent — by a `{` (`LBrace`). A `^` used as a bitwise-XOR
+// operator (`a ^ b`) never reaches statement head with a `{` abutting it; the
+// adjacency test keeps a stray `^ {` (a XOR against an object literal — itself
+// a non-scrml shape) out of this branch.
+export function metaBlockLeadFollows(cursor) {
+    if (currentKind(cursor) !== TokenKind.BitXor) {
+        return false;
+    }
+    const caret = current(cursor);
+    const brace = peek(cursor, 1);
+    if (caret === undefined || caret === null || brace === undefined || brace === null) {
+        return false;
+    }
+    if (brace.kind !== TokenKind.LBrace) {
+        return false;
+    }
+    // Source-adjacency — the `{` must abut the `^` (`^{`). A gap (`^ {`) is a
+    // XOR operator against a `{`-led operand, NOT a meta-block opener.
+    if (caret.span === undefined || caret.span === null
+        || brace.span === undefined || brace.span === null
+        || brace.span.start !== caret.span.end) {
+        return false;
+    }
+    return true;
+}
+
+// parseMetaBlock — parse a `^{ ... }` meta block at statement position. The
+// `^` is consumed, then the brace-delimited body is parsed by parseBlock — the
+// body is a run of scrml-native statements. The returned node is the `Block`
+// parseBlock produces, span-extended to include the leading `^` so downstream
+// span consumers see the whole `^{...}` extent. (A dedicated `StmtKind.Meta`
+// would carry the `meta` wrapper through the A1 bridge — deferred; see the
+// PARTIAL-FIX NOTE above.)
+export function parseMetaBlock(ctx) {
+    const cursor = ctx.cursor;
+    const caret = advance(cursor);   // consume `^`
+    const block = parseBlock(ctx);   // parse the `{ ... }` body
+    if (block !== null && block !== undefined && block.span !== undefined && block.span !== null) {
+        block.span = makeSpan(
+            caret.span.start, block.span.end, caret.span.line, caret.span.col);
+    }
+    return block;
 }
 
 // =============================================================================

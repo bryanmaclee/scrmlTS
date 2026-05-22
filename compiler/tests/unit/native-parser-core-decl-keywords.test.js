@@ -373,3 +373,107 @@ describe("§6 — corpus shapes — no leaked native kinds", () => {
         ]);
     });
 });
+
+// =============================================================================
+// §7 — P5-3: `type:kind Name { ... }` kind-FIRST ordering (SPEC §14.3.1).
+//
+// SPEC §14 specifies both `type Name :kind = {...}` (name-first) and the
+// §14.3.1 `type:struct Token { ... }` / `type:enum K { ... }` kind-first
+// ordering. The native `parseTypeDecl` previously only handled the name-first
+// form — a kind-first `type:enum K { ... }` mis-parsed: the `:` was consumed
+// as the name-first discriminator with NO name, the body was never consumed,
+// and the enum members leaked as sibling `bare-expr` statements. P5-3 adds the
+// kind-first branch (the self-host `tokenizer.scrml` (`tab`) uses this form).
+// =============================================================================
+describe("§7 — P5-3: `type:kind Name { ... }` kind-first ordering", () => {
+    test("`type:enum K { A; B; C }` parses to ONE TypeDecl", () => {
+        const prog = parse("type:enum TokenKind { EOF; IDENT; NUMBER }");
+        expect(prog.body.length).toBe(1);
+        expect(prog.body[0].kind).toBe(StmtKind.TypeDecl);
+        expect(prog.body[0].name).toBe("TokenKind");
+        expect(prog.body[0].typeKind).toBe("enum");
+    });
+
+    test("`type:struct Token { ... }` kind-first struct body form", () => {
+        const out = translate("type:struct Token { kind : string ; text : string }");
+        expect(out.length).toBe(1);
+        expect(out[0].kind).toBe("type-decl");
+        expect(out[0].name).toBe("Token");
+        expect(out[0].typeKind).toBe("struct");
+    });
+
+    test("kind-first body is CONSUMED — members do not leak as bare-expr siblings", () => {
+        // The defect signature: the enum body leaking as sibling statements.
+        const prog = parse("type:enum K { A; B }\nconst after = 1");
+        expect(prog.body.map((s) => s.kind)).toEqual([
+            StmtKind.TypeDecl, StmtKind.VarDecl,
+        ]);
+    });
+
+    test("the name-first `type Name :kind` form still parses unchanged", () => {
+        const prog = parse("type DutyStatus : enum = { OnDuty, OffDuty }");
+        expect(prog.body.length).toBe(1);
+        expect(prog.body[0].kind).toBe(StmtKind.TypeDecl);
+        expect(prog.body[0].name).toBe("DutyStatus");
+        expect(prog.body[0].typeKind).toBe("enum");
+    });
+
+    test("an exported kind-first `export type:enum K { ... }` routes the decl", () => {
+        const prog = parse("export type:enum Status { Active; Closed }");
+        expect(prog.body.length).toBe(1);
+        expect(prog.body[0].kind).toBe(StmtKind.Export);
+        expect(prog.body[0].declaration).not.toBeNull();
+        expect(prog.body[0].declaration.kind).toBe(StmtKind.TypeDecl);
+        expect(prog.body[0].declaration.name).toBe("Status");
+        expect(prog.body[0].declaration.typeKind).toBe("enum");
+    });
+});
+
+// =============================================================================
+// §8 — P5-3: `^{ ... }` meta-block statement-loop recovery.
+//
+// A `^{}` meta block (SPEC §40) can open a `${...}` logic-escape body. The
+// native lexer has no `^{` sigil token — `^` lexes as `BitXor`. Without
+// statement-position recognition a `^` at statement head routes to the
+// expression grammar, stalls (no left operand), and the forward-progress
+// guard bails the WHOLE statement loop — every sibling declaration after the
+// meta block is dropped. P5-3 recognizes a source-adjacent `^{` and consumes
+// the brace body as ONE statement so the loop continues.
+// =============================================================================
+describe("§8 — P5-3: `^{ ... }` meta-block statement-loop recovery", () => {
+    test("a leading `^{}` meta block does not truncate the statement loop", () => {
+        const prog = parse(
+            "^{ const x = 1 }\nexport function foo() { return 1 }\nconst after = 2");
+        // Pre-fix: the `^` stalled the loop — `foo` + `after` were dropped.
+        // Post-fix: the `^{}` is consumed as one statement; the siblings parse.
+        const kinds = prog.body.map((s) => s.kind);
+        expect(kinds).toContain(StmtKind.Export);
+        expect(kinds).toContain(StmtKind.VarDecl);
+    });
+
+    test("a leading `^{}` is consumed as a single Block statement", () => {
+        // The self-host shape: a `^{}` opening a `${}` body. The `^{}` is
+        // recognized at statement head and parsed as one statement; the
+        // sibling declaration after it parses cleanly.
+        const prog = parse("^{ const m = 2 }\nconst b = 3");
+        expect(prog.body.map((s) => s.kind)).toEqual([
+            StmtKind.Block, StmtKind.VarDecl,
+        ]);
+    });
+
+    test("an `^{}` after an explicitly-terminated statement parses both", () => {
+        const prog = parse("const a = 1;\n^{ const m = 2 }\nconst b = 3");
+        expect(prog.body.map((s) => s.kind)).toEqual([
+            StmtKind.VarDecl, StmtKind.Block, StmtKind.VarDecl,
+        ]);
+    });
+
+    test("a stray `^` binary operator is NOT mis-parsed as a meta block", () => {
+        // `metaBlockLeadFollows` only fires for a `^{` at statement head — a
+        // `^` used as a bitwise-XOR operator inside an expression is left to
+        // the expression grammar.
+        const prog = parse("const b = a ^ 2");
+        expect(prog.body.length).toBe(1);
+        expect(prog.body[0].kind).toBe(StmtKind.VarDecl);
+    });
+});
