@@ -123,6 +123,17 @@ export const TokenKind = Object.freeze({
     KwRender:     "KwRender",
     KwGiven:      "KwGiven",
     KwSome:       "KwSome",
+    // M5-swap Wave 1 — core scrml declaration / function keywords.
+    // B4: `lin` linear-binding declaration (SPEC §35.2).
+    // B5: `type` declaration — struct / enum / alias (SPEC §14).
+    // B6: `fn` shorthand-function + `server` / `pure` function modifiers
+    //     (SPEC §48 / §48.6.4). The native parser was a JS subset (M1-M4)
+    //     and knew only `function`; these are the scrml-extension keywords.
+    KwLin:        "KwLin",
+    KwType:       "KwType",
+    KwFn:         "KwFn",
+    KwServer:     "KwServer",
+    KwPure:       "KwPure",
 
     NumberLit:    "NumberLit",
     StringLit:    "StringLit",
@@ -201,6 +212,16 @@ export const JS_KEYWORDS = Object.freeze({
     "render":     TokenKind.KwRender,
     "given":      TokenKind.KwGiven,
     "some":       TokenKind.KwSome,
+    // M5-swap Wave 1 — core scrml declaration / function keywords (B4/B5/B6).
+    // A keyword here lexes the bareword to its `Kw*` TokenKind; the statement
+    // grammar (parse-stmt.js) dispatches the matching declaration production.
+    // A keyword used as a member-property name (`obj.type`, `?.fn`) is still
+    // accepted — `parseMemberProperty` admits any keyword as a property name.
+    "lin":        TokenKind.KwLin,
+    "type":       TokenKind.KwType,
+    "fn":         TokenKind.KwFn,
+    "server":     TokenKind.KwServer,
+    "pure":       TokenKind.KwPure,
 });
 
 export function makeToken(kind, text, span, payload) {

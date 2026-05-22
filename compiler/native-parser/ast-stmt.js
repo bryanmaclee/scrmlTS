@@ -40,6 +40,14 @@ export const StmtKind = Object.freeze({
     Export:       "Export",        // `export ...`
     Try:          "Try",           // `try { } catch { } finally { }`
     Throw:        "Throw",         // `throw arg`
+
+    // --- M5-swap Wave 1 — core scrml declaration kinds ---
+    // B4: `lin name = expr` linear (single-consumption) binding (SPEC §35.2).
+    // B5: `type Name : kind = {...}` / `type Name : kind` declaration
+    //     — struct / enum / alias (SPEC §14). Both the `: kind = {...}` body
+    //     form and the `: kind` alias form ride this one kind.
+    LinDecl:      "LinDecl",       // `lin name = expr`
+    TypeDecl:     "TypeDecl",      // `type Name : kind = { ... }`
 });
 
 // VarDeclKind — the `let` / `const` / `var` declaration keyword (M3.1).
@@ -247,14 +255,36 @@ export function makeLabeled(label, body, span) {
 // scrml source per primer §6 — scrml uses `fail`/`!{}` per SPEC §19.
 // =============================================================================
 
-// makeFunctionDecl — a `function name(params) { body }` declaration. `name`
-// is the function name (a declaration is always named). `params` is the
-// parameter array (the M2.3 param shapes — Ident / RestElement /
-// AssignmentPattern / destructuring stand-in). `body` is the function body's
-// Stmt array — parsed in-line (the BPP subsumption). `isAsync` is true for
-// `async function`; `isGenerator` is true for `function*`.
-export function makeFunctionDecl(name, params, body, isAsync, isGenerator, span) {
-    return { kind: StmtKind.FunctionDecl, name, params, body, isAsync, isGenerator, span };
+// makeFunctionDecl — a `[server|pure] function|fn name(params) [!] { body }`
+// declaration. `name` is the function name (a declaration is always named).
+// `params` is the parameter array (the M2.3 param shapes — Ident /
+// RestElement / AssignmentPattern / destructuring stand-in). `body` is the
+// function body's Stmt array — parsed in-line (the BPP subsumption).
+// `isAsync` is true for `async function`; `isGenerator` is true for
+// `function*`.
+//
+// M5-swap Wave 1 (B6) — `modifiers` is an OPTIONAL trailing object carrying
+// the scrml function-declaration modifiers the native JS-subset parser did
+// not previously recognize:
+//   { fnKind, isServer, isPure, isPinned, canFail, errorType }
+// `fnKind` is "function" (the `function` keyword) or "fn" (the scrml
+// shorthand). `isServer` / `isPure` / `isPinned` are the prefix-modifier
+// flags. `canFail` is true for the trailing `!` failable marker; `errorType`
+// is the named error type from a `! -> ErrorType` clause. When `modifiers`
+// is omitted the node defaults to a plain `function` (the legacy 6-arg call
+// shape — every pre-B6 call site stays valid).
+export function makeFunctionDecl(name, params, body, isAsync, isGenerator, span, modifiers) {
+    const m = modifiers ?? {};
+    return {
+        kind: StmtKind.FunctionDecl,
+        name, params, body, isAsync, isGenerator, span,
+        fnKind:    m.fnKind ?? "function",
+        isServer:  m.isServer === true,
+        isPure:    m.isPure === true,
+        isPinned:  m.isPinned === true,
+        canFail:   m.canFail === true,
+        errorType: m.errorType ?? null,
+    };
 }
 
 // makeClassDecl — a `class Name extends Base { ... }` declaration. `name` is
@@ -299,6 +329,36 @@ export function makeTry(block, handler, finalizer, span) {
 // followed on the SAME source line by its argument.
 export function makeThrow(argument, span) {
     return { kind: StmtKind.Throw, argument, span };
+}
+
+// =============================================================================
+// Core scrml declaration node constructors — M5-swap Wave 1 (B4 / B5).
+// =============================================================================
+
+// makeLinDecl — a `lin name = expr` linear-binding declaration (SPEC §35.2).
+// `lin` takes the same syntactic position as `let` / `const`. A `lin` binding
+// is immutable + single-consumption; the linearity guarantee is enforced by a
+// later static-analysis stage, not the parser. `name` is the bound identifier
+// text; `init` is the initializer Expr (a `lin` declaration always has an
+// initializer — `lin x` with no `= expr` is a malformed shape the production
+// records a diagnostic for, then carries `init` as `null`).
+export function makeLinDecl(name, init, span) {
+    return { kind: StmtKind.LinDecl, name, init, span };
+}
+
+// makeTypeDecl — a `type` declaration (SPEC §14). Two source forms ride one
+// node:
+//   - body form  `type Name : kind = { ... }`  — `typeKind` is the struct /
+//     enum / tuple discriminator; `raw` is the brace-delimited body text
+//     `"{ ... }"`.
+//   - alias form `type Name : kind` / `type Name = expr` — `raw` is the
+//     inline type expression (a union / a primitive name), `typeKind` is the
+//     `: kind` discriminator when present, else "".
+// `name` is the declared type name. `typeKind` is the `: kind` modifier text
+// or "". `raw` is the type body / alias expression text or "". This mirrors
+// the live `TypeDeclNode` shape (ast.ts:1235 — `{name, typeKind, raw}`).
+export function makeTypeDecl(name, typeKind, raw, span) {
+    return { kind: StmtKind.TypeDecl, name, typeKind, raw, span };
 }
 
 // =============================================================================

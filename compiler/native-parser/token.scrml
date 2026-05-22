@@ -236,6 +236,15 @@ ${
         KwRender:     "KwRender",
         KwGiven:      "KwGiven",
         KwSome:       "KwSome",
+        // M5-swap Wave 1 — core scrml declaration / function keywords.
+        // B4 `lin` (SPEC §35.2), B5 `type` (SPEC §14), B6 `fn` / `server` /
+        // `pure` (SPEC §48 / §48.6.4) — the scrml-extension keywords the
+        // JS-subset M1-M4 parser did not have.
+        KwLin:        "KwLin",
+        KwType:       "KwType",
+        KwFn:         "KwFn",
+        KwServer:     "KwServer",
+        KwPure:       "KwPure",
 
         // Literals (payload-bearing)
         NumberLit:    "NumberLit",
@@ -324,6 +333,12 @@ ${
         "render":     TokenKind.KwRender,
         "given":      TokenKind.KwGiven,
         "some":       TokenKind.KwSome,
+        // M5-swap Wave 1 — core scrml declaration / function keywords (B4/B5/B6).
+        "lin":        TokenKind.KwLin,
+        "type":       TokenKind.KwType,
+        "fn":         TokenKind.KwFn,
+        "server":     TokenKind.KwServer,
+        "pure":       TokenKind.KwPure,
     })
 
     // ---------------------------------------------------------------------

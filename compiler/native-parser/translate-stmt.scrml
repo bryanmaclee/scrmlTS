@@ -43,15 +43,25 @@
 //     handler) are SCRML-ONLY `LogicStatement` kinds with NO native production
 //     — a native-parser FEATURE gap, a separate unit per the R1 brief's
 //     soft-escalation clause.
-//   - `tilde-decl` + `lin-decl` promotion needs a native `~` / `lin`
-//     declaration-kind signal the JS-subset native parser does not emit — a
-//     parser-feature gap, a separate unit.
+//   - `tilde-decl` promotion needs a native `~`-declaration signal the
+//     JS-subset native parser does not emit — a parser-feature gap (Unit B3).
 //   - `Throw` / `Try` translate faithfully (`throw-stmt` / `try-stmt` — the
 //     live pipeline produces those AST kinds for diagnostic recovery). The
 //     native parser's MISSING forbidden-vocabulary diagnostic (no E-ERROR-006
 //     / E-ERROR-007 counterpart) is a native-parser gap — Unit R4's scope.
-//   - `type-decl` / `component-def` / `engine-decl` / `state-decl` production
-//     + hoisting is Unit R2's scope.
+//   - `component-def` / `engine-decl` / `state-decl` production + hoisting is
+//     Tier A's scope (A3).
+//
+// M5-SWAP WAVE 1 (B4 / B5 / B6) closed three native-parser feature gaps:
+//   - `lin-decl` — B4 added a `lin` keyword + a `LinDecl` Stmt kind; the
+//     `LinDecl` arm maps native `LinDecl` -> live `lin-decl`.
+//   - `type-decl` — B5 added a `type` keyword + a `TypeDecl` Stmt kind; the
+//     `TypeDecl` arm maps native `TypeDecl` -> live `type-decl`. (Hoisting
+//     `type-decl` into `FileAST.typeDecls` is still A3's scope.)
+//   - `fn` / `server` / `pure` / `!` modifiers — B6 carries `fnKind` /
+//     `isServer` / `isPure` / `canFail` / `errorType` on the native
+//     `FunctionDecl`; the `FunctionDecl` arm now READS those fields (R1
+//     defaulted them — a silent semantic flattening B6 closes).
 //
 // THE NATIVE -> LIVE STATEMENT-KIND MAP (the 20-kind native catalog):
 //   native Empty        -> (dropped — no live empty-statement kind)
@@ -75,6 +85,8 @@
 //   native Export       -> live export-decl
 //   native Throw        -> live throw-stmt   (diagnostic-recovery kind)
 //   native Try          -> live try-stmt     (diagnostic-recovery kind)
+//   native LinDecl      -> live lin-decl     (M5-swap Wave 1 — B4)
+//   native TypeDecl     -> live type-decl    (M5-swap Wave 1 — B5)
 //
 // Status (R1 / v0.5): COMPILABLE skeleton. The `${...}` JS-escape block
 // carries the live surface; the .js shadow (translate-stmt.js) runs (README

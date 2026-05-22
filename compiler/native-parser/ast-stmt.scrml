@@ -161,6 +161,12 @@ ${
         Export:       "Export",
         Try:          "Try",
         Throw:        "Throw",
+
+        // --- M5-swap Wave 1 — core scrml declaration kinds ---
+        // B4 `lin name = expr` (SPEC §35.2); B5 `type Name : kind = {...}`
+        // / `type Name : kind` (SPEC §14).
+        LinDecl:      "LinDecl",
+        TypeDecl:     "TypeDecl",
     })
 
     // VarDeclKind — the `let` / `const` / `var` declaration keyword (M3.1).
@@ -317,11 +323,26 @@ ${
     // parsed for legacy + JS-import inputs; a later stage (the typer) rejects
     // them in scrml source (scrml uses `fail`/`!{}` per SPEC §19).
 
-    // makeFunctionDecl — a `function name(params) { body }` declaration.
-    // `body` is the function body's Stmt array (parsed in-line). `isAsync` is
-    // true for `async function`; `isGenerator` is true for `function*`.
-    export fn makeFunctionDecl(name, params, body, isAsync, isGenerator, span) {
-        return { kind: StmtKind.FunctionDecl, name, params, body, isAsync, isGenerator, span }
+    // makeFunctionDecl — a `[server|pure] function|fn name(params) [!] { body }`
+    // declaration. `body` is the function body's Stmt array (parsed in-line).
+    // `isAsync` is true for `async function`; `isGenerator` for `function*`.
+    //
+    // M5-swap Wave 1 (B6) — `modifiers` is an OPTIONAL trailing object:
+    //   { fnKind, isServer, isPure, isPinned, canFail, errorType }
+    // carrying the scrml function-declaration modifiers. When omitted the
+    // node defaults to a plain `function` (the legacy 6-arg call shape).
+    export fn makeFunctionDecl(name, params, body, isAsync, isGenerator, span, modifiers) {
+        const m = modifiers ?? {}
+        return {
+            kind: StmtKind.FunctionDecl,
+            name, params, body, isAsync, isGenerator, span,
+            fnKind:    m.fnKind ?? "function",
+            isServer:  m.isServer is true,
+            isPure:    m.isPure is true,
+            isPinned:  m.isPinned is true,
+            canFail:   m.canFail is true,
+            errorType: m.errorType ?? not,
+        }
     }
 
     // makeClassDecl — a `class Name extends Base { ... }` declaration.
@@ -357,6 +378,21 @@ ${
     // Expr (the no-LineTerminator restricted production gates it).
     export fn makeThrow(argument, span) {
         return { kind: StmtKind.Throw, argument, span }
+    }
+
+    // -- Core scrml declaration node constructors — M5-swap Wave 1 (B4 / B5) --
+
+    // makeLinDecl — a `lin name = expr` linear-binding declaration (§35.2).
+    // `name` is the bound identifier; `init` is the initializer Expr.
+    export fn makeLinDecl(name, init, span) {
+        return { kind: StmtKind.LinDecl, name, init, span }
+    }
+
+    // makeTypeDecl — a `type` declaration (§14). `name` is the type name;
+    // `typeKind` is the `: kind` discriminator text or ""; `raw` is the body
+    // / alias-expression text or "". Mirrors the live TypeDeclNode shape.
+    export fn makeTypeDecl(name, typeKind, raw, span) {
+        return { kind: StmtKind.TypeDecl, name, typeKind, raw, span }
     }
 
     // -- Class-member node constructors (M3.3) --

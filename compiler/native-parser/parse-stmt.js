@@ -125,6 +125,8 @@ import {
     makeMethodDef, makePropertyDef,
     makeImportNamed, makeImportDefault, makeImportNamespace,
     makeExportSpecifier, makeCatchClause,
+    // M5-swap Wave 1 — core scrml declaration node constructors (B4 / B5).
+    makeLinDecl, makeTypeDecl,
 } from "./ast-stmt.js";
 import {
     SyncToken,
@@ -339,6 +341,12 @@ const STATEMENT_START_KINDS = Object.freeze({
     [TokenKind.KwExport]:  true,
     [TokenKind.KwTry]:     true,
     [TokenKind.KwThrow]:   true,
+    // M5-swap Wave 1 — core scrml declaration statement leads (B4 / B5 / B6).
+    [TokenKind.KwLin]:     true,
+    [TokenKind.KwType]:    true,
+    [TokenKind.KwFn]:      true,
+    [TokenKind.KwServer]:  true,
+    [TokenKind.KwPure]:    true,
 });
 
 // isStatementStartKind — calculation (predicate): does `kind` begin a fresh
@@ -477,6 +485,17 @@ export function parseStatement(ctx) {
         return parseVarDecl(ctx);
     }
 
+    // M5-swap Wave 1 — a `lin` linear-binding declaration (B4, SPEC §35.2).
+    // `lin` takes the same statement position as `let` / `const`.
+    if (kind === TokenKind.KwLin) {
+        return parseLinDecl(ctx);
+    }
+
+    // M5-swap Wave 1 — a `type` declaration (B5, SPEC §14).
+    if (kind === TokenKind.KwType) {
+        return parseTypeDecl(ctx);
+    }
+
     // --- M3.2 control-flow keyword leads ---
     if (kind === TokenKind.KwIf) {
         return parseIf(ctx);
@@ -529,6 +548,16 @@ export function parseStatement(ctx) {
     // lookahead restriction). `function*` is a generator declaration.
     if (kind === TokenKind.KwFunction) {
         return parseFunctionDecl(ctx, false);
+    }
+
+    // M5-swap Wave 1 — a scrml `fn` declaration with optional `server` /
+    // `pure` modifiers (B6, SPEC §48 / §48.6.4). `fnDeclLeadFollows` confirms
+    // the `fn` / `server fn` / `pure fn` / `pure server fn` lead before
+    // committing — a bare `server` / `pure` not leading to `fn` falls through
+    // to the expression-statement arm (a rare bare identifier use).
+    if ((kind === TokenKind.KwFn || kind === TokenKind.KwServer || kind === TokenKind.KwPure)
+        && fnDeclLeadFollows(cursor)) {
+        return parseScrmlFunctionDecl(ctx, false);
     }
 
     // M4.3 — RETRACTED. An `async function` declaration is no longer valid in
@@ -1407,6 +1436,191 @@ export function parseFunctionDecl(ctx, isAsync, allowAnonymous) {
 }
 
 // =============================================================================
+// Scrml function-declaration modifiers — M5-swap Wave 1 (B6).
+//
+// The native parser (M1-M4) knew only the JS `function` keyword. scrml's
+// canonical function form is `fn` — with optional `server` / `pure` prefix
+// modifiers and an optional trailing `!` failable marker. These carry
+// load-bearing semantics: `isServer` drives the codegen server/client split;
+// `canFail` (`!`) drives error-effect wiring; `fnKind` / `isPure` drive the
+// calculation classification (SPEC §48 / §48.6.4 / Pillar 5b).
+//
+// Grammar (the modifier prefix is recognized by `fnDeclLeadFollows`):
+//   scrml-fn-decl ::= ('pure')? ('server')? 'fn' name (params)? failable?
+//                     returnAnnotation? '{' body '}'
+//   failable      ::= '!' ('->' errorTypeName)?
+//
+// THE SHARED `!` SIGIL (DD OQ3). The trailing `!` here is a SIGNATURE-position
+// marker — it appears AFTER the parameter list and BEFORE the body `{` (or
+// before a `-> ErrorType` clause). It is consumed as a single `Bang` token
+// and does NOT consume any following `{` — the `{` stays available as the
+// function body opener. A future B2 `!{}` statement-level guarded-expr
+// production operates in EXPRESSION position (a `!` immediately after an
+// expression, followed by a `{` arm-list); that is a distinct grammar
+// position from this signature-position `!`. The two do not collide:
+// `parseScrmlFunctionDecl`'s `!`-consumption is gated on being inside a
+// function-declaration head, never in expression position. B2 remains free
+// to add its own expression-position `!{}` production.
+// =============================================================================
+
+// fnDeclLeadFollows — does a scrml `fn`-declaration lead begin at the cursor?
+// True for a `fn` keyword, or a `server` / `pure` modifier keyword that leads
+// (directly or via the other modifier) to a `fn` keyword. The valid prefix
+// orders mirror the live ast-builder (ast-builder.js:5648-5666): `fn`,
+// `server fn`, `pure fn`, `pure server fn`.
+function fnDeclLeadFollows(cursor) {
+    const k0 = currentKind(cursor);
+    if (k0 === TokenKind.KwFn) {
+        return true;
+    }
+    if (k0 === TokenKind.KwServer) {
+        // `server fn`
+        return peekKind(cursor, 1) === TokenKind.KwFn;
+    }
+    if (k0 === TokenKind.KwPure) {
+        // `pure fn` or `pure server fn`
+        const k1 = peekKind(cursor, 1);
+        if (k1 === TokenKind.KwFn) {
+            return true;
+        }
+        return k1 === TokenKind.KwServer && peekKind(cursor, 2) === TokenKind.KwFn;
+    }
+    return false;
+}
+
+// arrowFollows — does a `->` arrow begin at the cursor? The native lexer
+// lexes `->` as two adjacent tokens (`Minus` then `GreaterThan`) — it reserves
+// the single `Arrow` token for the fat arrow `=>`. Used by the `! -> ErrorType`
+// clause and the `fn () -> TypeName {` return-type annotation.
+function arrowFollows(cursor) {
+    return currentKind(cursor) === TokenKind.Minus
+        && peekKind(cursor, 1) === TokenKind.GreaterThan;
+}
+
+// skipReturnTypeAnnotation — consume a `fn` return-type annotation between the
+// parameter list `)` and the body `{`. scrml allows `fn name() : TypeName {`
+// and `fn name() -> TypeName {`. The native parser does not retain the type
+// (the live `function-decl` `returnTypeAnnotation` is a downstream-typer
+// concern); this skips the annotation tokens up to the body `{`, tracking
+// paren/angle nesting so a `>` inside a refinement predicate (`number(>0)`)
+// does not end the scan early.
+function skipReturnTypeAnnotation(ctx) {
+    const cursor = ctx.cursor;
+    let angleDepth = 0;
+    let parenDepth = 0;
+    while (atEnd(cursor) === false) {
+        const k = currentKind(cursor);
+        if (k === TokenKind.LParen) {
+            parenDepth = parenDepth + 1;
+        } else if (k === TokenKind.RParen) {
+            parenDepth = parenDepth - 1;
+        } else if (k === TokenKind.LessThan && parenDepth === 0) {
+            angleDepth = angleDepth + 1;
+        } else if (k === TokenKind.GreaterThan && parenDepth === 0) {
+            angleDepth = angleDepth - 1;
+        } else if (k === TokenKind.LBrace && angleDepth === 0 && parenDepth === 0) {
+            return;   // the body `{` — stop before it
+        }
+        advance(cursor);
+    }
+}
+
+// --- parseScrmlFunctionDecl — a `[pure] [server] fn name(...) [!] { body }` ---
+// The B6 production. `allowAnonymous` mirrors `parseFunctionDecl` (true only
+// for `export default fn`). Consumes the modifier prefix, the `fn` keyword,
+// the name, the optional param list, the trailing `!` failable marker (+
+// optional `-> ErrorType`), an optional return-type annotation, and the
+// in-line body. Carries `fnKind:"fn"` + the modifier flags on the node.
+export function parseScrmlFunctionDecl(ctx, allowAnonymous) {
+    const cursor = ctx.cursor;
+
+    // --- modifier prefix --- (orders: fn / server fn / pure fn / pure server fn)
+    let isPure = false;
+    let isServer = false;
+    let leadTok = current(cursor);
+    if (currentKind(cursor) === TokenKind.KwPure) {
+        isPure = true;
+        advance(cursor);   // consume `pure`
+    }
+    if (currentKind(cursor) === TokenKind.KwServer) {
+        isServer = true;
+        advance(cursor);   // consume `server`
+    }
+
+    // --- the `fn` keyword ---
+    let fnTok = leadTok;
+    if (currentKind(cursor) === TokenKind.KwFn) {
+        fnTok = advance(cursor);   // consume `fn`
+    } else {
+        recordError(ctx, "E-STMT-FN-KEYWORD",
+            "expected 'fn' after a function modifier", spanHere(ctx));
+    }
+
+    // --- the name --- (a `fn` declaration always names; `export default fn`
+    // may be anonymous).
+    let name = "";
+    if (currentKind(cursor) === TokenKind.Ident) {
+        name = advance(cursor).name;
+    } else if (allowAnonymous !== true) {
+        recordError(ctx, "E-STMT-FN-NAME",
+            "expected a name after 'fn'", spanHere(ctx));
+    }
+
+    // --- the optional parameter list --- (a `fn` may declare no params; the
+    // param list is present only when a `(` follows the name).
+    let params = [];
+    if (currentKind(cursor) === TokenKind.LParen) {
+        params = parseParamList(ctx);
+    }
+
+    // --- the trailing `!` failable marker + optional `-> ErrorType` ---
+    let canFail = false;
+    let errorType = null;
+    if (currentKind(cursor) === TokenKind.Bang) {
+        advance(cursor);   // consume `!`
+        canFail = true;
+        // `! -> ErrorType` — a named error type. `->` lexes as two tokens
+        // (`Minus` then `GreaterThan`) — the native lexer reserves the
+        // `Arrow` token for `=>`.
+        if (arrowFollows(cursor)) {
+            advance(cursor);   // consume `-`
+            advance(cursor);   // consume `>`
+            if (currentKind(cursor) === TokenKind.Ident) {
+                errorType = advance(cursor).name;
+            } else {
+                recordError(ctx, "E-STMT-FN-ERROR-TYPE",
+                    "expected an error type name after '! ->'", spanHere(ctx));
+            }
+        }
+    }
+
+    // --- an optional return-type annotation between `)` and `{` ---
+    // `fn name() : TypeName {` or `fn name() -> TypeName {`. The `->` arrow
+    // is two tokens (`Minus` + `GreaterThan`).
+    if (currentKind(cursor) === TokenKind.Colon) {
+        advance(cursor);   // consume `:`
+        skipReturnTypeAnnotation(ctx);
+    } else if (arrowFollows(cursor)) {
+        advance(cursor);   // consume `-`
+        advance(cursor);   // consume `>`
+        skipReturnTypeAnnotation(ctx);
+    }
+
+    // --- the in-line body ---
+    const inline = parseFunctionBodyInline(ctx, false, false);
+
+    const span = makeSpan(fnTok.span.start, inline.endPos, fnTok.span.line, fnTok.span.col);
+    return makeFunctionDecl(name, params, inline.body, false, false, span, {
+        fnKind:   "fn",
+        isServer,
+        isPure,
+        isPinned:  false,
+        canFail,
+        errorType,
+    });
+}
+
+// =============================================================================
 // Class declarations — `class Name extends Base { members }`.
 //
 // A class body is a brace-delimited member list. Each member is a method
@@ -1944,6 +2158,11 @@ function parseExportDefault(ctx, kw) {
     let declaration = null;
     if (k === TokenKind.KwFunction) {
         declaration = parseFunctionDecl(ctx, false, true);
+    } else if ((k === TokenKind.KwFn || k === TokenKind.KwServer || k === TokenKind.KwPure)
+        && fnDeclLeadFollows(cursor)) {
+        // M5-swap Wave 1 — `export default fn` / `... server fn` / `... pure
+        // fn` (B6). A default-exported `fn` may be anonymous.
+        declaration = parseScrmlFunctionDecl(ctx, true);
     } else if (k === TokenKind.KwAsync && peekKind(cursor, 1) === TokenKind.KwFunction) {
         // M4.3 — `export default async function` is RETRACTED. Fire
         // E-ASYNC-NOT-IN-SCRML at the `async` keyword and recover as a
@@ -1977,8 +2196,13 @@ function parseExportDefault(ctx, kw) {
 }
 
 // parseExportedDeclaration — the declaration after `export` (not `default`).
-// One of: a let/const/var declaration, a function / async function /
-// function* declaration, a class declaration.
+// One of: a let/const/var declaration, a `lin` / `type` declaration, a
+// function / `fn` / `server fn` / `pure fn` declaration, a class declaration.
+//
+// M5-swap Wave 1 fix (B5): `export type ...` previously fell through to the
+// E-STMT-EXPORT-DECL error arm — `type` lexed as an `Ident` and the type was
+// DROPPED entirely (`Export{declaration:null}`). With `type` now a keyword
+// the `export type` interaction routes the declaration correctly.
 function parseExportedDeclaration(ctx) {
     const cursor = ctx.cursor;
     const k = currentKind(cursor);
@@ -1986,8 +2210,20 @@ function parseExportedDeclaration(ctx) {
     if (k === TokenKind.KwLet || k === TokenKind.KwConst || k === TokenKind.KwVar) {
         return parseVarDecl(ctx);
     }
+    // M5-swap Wave 1 — `export lin` / `export type` (B4 / B5).
+    if (k === TokenKind.KwLin) {
+        return parseLinDecl(ctx);
+    }
+    if (k === TokenKind.KwType) {
+        return parseTypeDecl(ctx);
+    }
     if (k === TokenKind.KwFunction) {
         return parseFunctionDecl(ctx, false);
+    }
+    // M5-swap Wave 1 — `export fn` / `export server fn` / `export pure fn` (B6).
+    if ((k === TokenKind.KwFn || k === TokenKind.KwServer || k === TokenKind.KwPure)
+        && fnDeclLeadFollows(cursor)) {
+        return parseScrmlFunctionDecl(ctx, false);
     }
     if (k === TokenKind.KwAsync && peekKind(cursor, 1) === TokenKind.KwFunction) {
         // M4.3 — `export async function` is RETRACTED. Fire
@@ -2156,6 +2392,176 @@ export function parseThrow(ctx) {
 
     const span = makeSpan(kw.span.start, nodeEnd(argument), kw.span.line, kw.span.col);
     return makeThrow(argument, span);
+}
+
+// =============================================================================
+// Core scrml declaration productions — M5-swap Wave 1 (B4 / B5).
+//
+// The native parser was a JS-subset parser (M1-M4) plus the M2.4 scrml
+// EXPRESSION extensions; it had no production for these scrml DECLARATION
+// constructs. `lin` / `type` lexed as bare `Ident`s and mis-parsed (a `lin`
+// lead → two adjacent statements / a `Labeled`; a `type X : enum = {...}`
+// lead → `ExprStmt{Ident:"type"}` + `Labeled` garbage). B4 / B5 close that.
+// =============================================================================
+
+// --- parseLinDecl — a `lin name = expr` linear-binding declaration (B4) ---
+//   lin-declaration ::= 'lin' identifier '=' expression
+// SPEC §35.2: `lin` takes the same syntactic position as `let` / `const`. A
+// `lin` declaration always has an initializer; a missing name or a missing
+// `= expr` records a diagnostic and the parser recovers (the node is still
+// emitted so downstream error recovery surfaces useful diagnostics).
+export function parseLinDecl(ctx) {
+    const cursor = ctx.cursor;
+    const kw = advance(cursor);   // consume `lin`
+
+    // The bound name. A `lin` declaration always names a single identifier
+    // (SPEC §35.2 — no destructuring `lin` binding).
+    let name = "";
+    if (currentKind(cursor) === TokenKind.Ident) {
+        name = advance(cursor).name;
+    } else {
+        recordError(ctx, "E-STMT-LIN-NAME",
+            "expected a name after 'lin'", spanHere(ctx));
+    }
+
+    // The initializer. `lin` is single-consumption — it must bind a value.
+    let init = null;
+    if (currentKind(cursor) === TokenKind.Assign) {
+        advance(cursor);   // consume `=`
+        const prior = enterMode(ctx, ParseMode.InExpression);
+        init = parseAssignmentLevelExpr(ctx);
+        exitMode(ctx, prior);
+        reenterBlockStubs(init);
+    } else {
+        recordError(ctx, "E-STMT-LIN-INIT",
+            "a 'lin' declaration must have an initializer ('lin name = expr')",
+            spanHere(ctx));
+    }
+
+    const prevTok = lastTokenBefore(ctx);
+    consumeSemicolon(ctx, prevTok);
+
+    const endE = (init === undefined || init === null) ? kw.span.end : nodeEnd(init);
+    const span = makeSpan(kw.span.start, endE, kw.span.line, kw.span.col);
+    return makeLinDecl(name, init, span);
+}
+
+// --- typeBodyText — reconstruct the brace-delimited `type` body raw text ---
+// The native lexer retains no raw source slice — every token carries `.text`.
+// The live ast-builder's `type-decl` path produces `raw` as `"{ " + body
+// + " }"` (a space-joined token stream). typeBodyText mirrors that: it
+// consumes the balanced `{ ... }` at the cursor and joins the inner tokens'
+// `.text` with single spaces. `raw` is "{ ... }" for the body form. A missing
+// closing `}` records a diagnostic and the partial body is still returned.
+function typeBodyText(ctx) {
+    const cursor = ctx.cursor;
+    const open = advance(cursor);   // consume `{`
+    const parts = [];
+    let depth = 1;
+    while (atEnd(cursor) === false && depth > 0) {
+        const k = currentKind(cursor);
+        if (k === TokenKind.LBrace) {
+            depth = depth + 1;
+        } else if (k === TokenKind.RBrace) {
+            depth = depth - 1;
+            if (depth === 0) {
+                advance(cursor);   // consume the matching `}`
+                break;
+            }
+        }
+        parts.push(advance(cursor).text);
+    }
+    if (depth > 0) {
+        recordError(ctx, "E-STMT-TYPE-UNCLOSED-BODY",
+            "expected '}' to close a type-declaration body", open.span);
+    }
+    const inner = parts.join(" ").trim();
+    return "{ " + inner + " }";
+}
+
+// --- typeAliasText — reconstruct an inline `type` alias-expression raw text ---
+// The alias form `type Name : kind` / `type Name = expr` carries an inline
+// type expression (a primitive name, a union `number | string`). typeAliasText
+// joins the alias tokens' `.text` up to the statement boundary. Stops at a
+// `;`, at a `}` (an enclosing block close), or at a later-line token (ASI).
+function typeAliasText(ctx) {
+    const cursor = ctx.cursor;
+    const parts = [];
+    const startLine = lineOfToken(current(cursor));
+    while (atEnd(cursor) === false) {
+        const tok = current(cursor);
+        const k = currentKind(cursor);
+        if (k === TokenKind.Semicolon || k === TokenKind.RBrace) {
+            break;
+        }
+        if (parts.length > 0 && lineOfToken(tok) > startLine) {
+            break;   // ASI — the alias expression ended at the line boundary
+        }
+        parts.push(advance(cursor).text);
+    }
+    return parts.join(" ").trim();
+}
+
+// --- parseTypeDecl — a `type` declaration (B5) ---
+//   type-declaration ::= 'type' identifier (':' kind)? '=' '{' body '}'
+//                      | 'type' identifier (':' kind)? '=' alias-expr
+//                      | 'type' identifier ':' kind
+// SPEC §14. Two source forms ride one TypeDecl node: the `: kind = {...}`
+// struct / enum body form, and the `: kind` / `= expr` alias form. The
+// `export type ...` interaction is handled by parseExportedDeclaration
+// (parseExport routes a `type` lead here). A missing type name records a
+// diagnostic and recovery proceeds.
+export function parseTypeDecl(ctx) {
+    const cursor = ctx.cursor;
+    const kw = advance(cursor);   // consume `type`
+
+    // The type name.
+    let name = "";
+    if (currentKind(cursor) === TokenKind.Ident) {
+        name = advance(cursor).name;
+    } else {
+        recordError(ctx, "E-STMT-TYPE-NAME",
+            "expected a name after 'type'", spanHere(ctx));
+    }
+
+    // The optional `: kind` discriminator (`enum` / `struct` / `tuple` / ...).
+    // `kind` is a bare identifier — `parseMemberProperty`-style: any Ident.
+    let typeKind = "";
+    if (currentKind(cursor) === TokenKind.Colon) {
+        advance(cursor);   // consume `:`
+        if (currentKind(cursor) === TokenKind.Ident) {
+            typeKind = advance(cursor).name;
+        } else {
+            recordError(ctx, "E-STMT-TYPE-KIND",
+                "expected a type kind ('enum' / 'struct' / ...) after ':'",
+                spanHere(ctx));
+        }
+    }
+
+    // The body. `= { ... }` is the struct / enum body form; `= expr` (or a
+    // bare `: kind` alias with no body) is the alias form.
+    let raw = "";
+    if (currentKind(cursor) === TokenKind.Assign) {
+        advance(cursor);   // consume `=`
+        if (currentKind(cursor) === TokenKind.LBrace) {
+            raw = typeBodyText(ctx);
+        } else {
+            raw = typeAliasText(ctx);
+        }
+    } else if (currentKind(cursor) === TokenKind.LBrace) {
+        // Body form with no `=` (the self-host alternate `type Name : kind
+        // { ... }` shape — the live ast-builder accepts the `=`-free form).
+        raw = typeBodyText(ctx);
+    }
+    // A bare `type Name : kind` with no `= ...` and no `{ ... }` is the
+    // forward-declared alias form — `raw` stays "".
+
+    const prevTok = lastTokenBefore(ctx);
+    consumeSemicolon(ctx, prevTok);
+
+    const endE = (prevTok === undefined || prevTok === null) ? kw.span.end : prevTok.span.end;
+    const span = makeSpan(kw.span.start, endE, kw.span.line, kw.span.col);
+    return makeTypeDecl(name, typeKind, raw, span);
 }
 
 // =============================================================================

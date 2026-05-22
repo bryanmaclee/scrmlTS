@@ -64,20 +64,26 @@
 //     parser has no `~` declaration-kind signal — the live ast-builder
 //     promotes via a tokenizer/keyword path the native parser does not
 //     replicate). Bare assignments translate to `bare-expr`. Promotion is a
-//     parser-feature gap, surfaced — NOT R1's translation scope.
+//     parser-feature gap (Unit B3) — NOT R1's translation scope.
 //   - `propagate-expr` (`?` propagation operator) and `guarded-expr` (`!{}`
 //     statement-level error handler) — the native parser has NO production
 //     for either at statement level (`?` is ternary-only; `!{}` is a
 //     block-stream `ErrorEffect` BlockKind, not a statement postfix). These
-//     are SCRML-ONLY LogicStatement kinds with NO native production — a
-//     native-parser FEATURE gap. Per the R1 brief's soft-escalation clause
-//     that gap is a SEPARATE unit; R1 does not absorb it. Surfaced to PA.
-//   - `lin-decl` — `lin name = expr` (SPEC §35.2). The native parser has no
-//     `lin` keyword; a `lin` lead lexes as an Ident -> ExprStmt. Same
-//     parser-feature-gap class as `tilde-decl`. Surfaced — not R1 scope.
+//     are SCRML-ONLY LogicStatement kinds — native-parser FEATURE gaps
+//     (Units B1 / B2).
 //   - `state-decl` (reactive `<name>` / `@name`), `component-def`,
-//     `engine-decl`, `type-decl` — these are markup / state-shape / hoist
-//     constructs; their production + hoisting is Unit R2's scope, not R1's.
+//     `engine-decl` — these are markup / state-shape / hoist constructs;
+//     their production + hoisting is Tier A's scope (A3), not R1's.
+//
+// M5-SWAP WAVE 1 (B4 / B5) CLOSED two of the gaps the R1 header flagged:
+//   - `lin-decl` — `lin name = expr` (SPEC §35.2). B4 added a `lin` keyword
+//     + a `KwLin` TokenKind + a `parseLinDecl` production + a `LinDecl` Stmt
+//     kind. `appendTranslatedStmt`'s `LinDecl` arm maps it to `lin-decl`.
+//   - `type-decl` — `type Name : kind = {...}` / `: kind` alias (SPEC §14).
+//     B5 added a `type` keyword + `KwType` + `parseTypeDecl` + a `TypeDecl`
+//     Stmt kind. The `TypeDecl` arm maps it to `type-decl`. (The hoisting of
+//     `type-decl` into `FileAST.typeDecls` is still A3's scope; B5 makes the
+//     native `type` decl translatable so A3 has a node to hoist.)
 //
 // =============================================================================
 
@@ -273,6 +279,24 @@ function appendTranslatedStmt(out, stmt, counter) {
             out.push(makeTryStmt(stmt, counter));
             return;
 
+        // --- M5-swap Wave 1 — core scrml declarations (B4 / B5) ------------
+        case StmtKind.LinDecl:
+            // `lin name = expr` -> live `lin-decl` (SPEC §35.2). The native
+            // parser DOES recognize `lin` as of B4 — translation is faithful,
+            // not the bare-expr fallback the R1 header documented.
+            out.push(makeLinDeclNode(stmt, counter));
+            return;
+
+        case StmtKind.TypeDecl:
+            // `type Name : kind = {...}` / `: kind` alias -> live `type-decl`
+            // (SPEC §14). The native parser DOES recognize `type` as of B5.
+            // The live `type-decl` is a HOISTED collection member
+            // (`FileAST.typeDecls`); A3's hoist slice consumes it. When a
+            // `type` decl appears inside a logic body it also flows here as a
+            // `LogicStatement` — the live union carries `type-decl`.
+            out.push(makeTypeDeclNode(stmt, counter));
+            return;
+
         default:
             // An unrecognized native StmtKind. The native catalog is closed at
             // 20 kinds (ast-stmt.js StmtKind) — this arm should be
@@ -393,6 +417,46 @@ function makeVarDeclNode(declKind, declarator, counter) {
         node.initExpr = init;
     }
     return node;
+}
+
+// --- LinDecl / TypeDecl translation — M5-swap Wave 1 (B4 / B5) ---------------
+
+// makeLinDeclNode — native `LinDecl{name,init}` -> live `lin-decl`
+// (LinDeclNode, ast.ts:492 — `{kind:"lin-decl", name, initExpr?}`). The live
+// ast-builder also stamps a legacy raw `init` string (ast-builder.js:5792);
+// the native parser retains no raw text, so `init` is left empty and codegen
+// reads `initExpr`. `initExpr` is present only when the declaration has an
+// initializer (a `lin` declaration always should — a missing one is a
+// parse-diagnostic the production already recorded).
+function makeLinDeclNode(stmt, counter) {
+    const node = {
+        id: stampId(counter),
+        kind: "lin-decl",
+        name: stmt.name === undefined ? "" : stmt.name,
+        init: "",
+        span: spanOrZero(stmt.span),
+    };
+    if (stmt.init !== undefined && stmt.init !== null) {
+        node.initExpr = stmt.init;
+    }
+    return node;
+}
+
+// makeTypeDeclNode — native `TypeDecl{name,typeKind,raw}` -> live `type-decl`
+// (TypeDeclNode, ast.ts:1235 — `{kind:"type-decl", name, typeKind, raw}`). A
+// flat 1:1 field copy — the native production already shapes `typeKind` /
+// `raw` to the live contract (the `typeBodyText` helper produces the same
+// `"{ ... }"` space-joined raw form the live ast-builder's type-decl path
+// produces).
+function makeTypeDeclNode(stmt, counter) {
+    return {
+        id: stampId(counter),
+        kind: "type-decl",
+        name: stmt.name === undefined ? "" : stmt.name,
+        typeKind: stmt.typeKind === undefined ? "" : stmt.typeKind,
+        raw: stmt.raw === undefined ? "" : stmt.raw,
+        span: spanOrZero(stmt.span),
+    };
 }
 
 // translateBindingTarget — a native binding node -> the live `name` field.
@@ -795,32 +859,49 @@ function appendLabeledStmt(out, stmt, counter) {
 // --- declaration translations ------------------------------------------------
 
 // makeFunctionDecl — native `FunctionDecl{name,params,body,isAsync,
-// isGenerator}` -> live `function-decl`. The native parser is the JS subset —
-// it does NOT recognize the scrml `fn` / `server` / `pure` modifiers or the
-// `!` failable suffix (the native parser has no `KwFn` / `KwServer` token).
-// So the scrml-only `function-decl` fields take their non-scrml defaults:
-//   fnKind   "function"  (native parses only the `function` keyword)
-//   isServer false
-//   canFail  false
-// NOTE surfaced to PA: the `fn` / `server` / `!` recognition gap is a
-// native-parser FEATURE gap (the native parser is a JS subset; the scrml
-// function-declaration extensions are not yet parsed). That gap is NOT R1's
-// translation scope — R1 faithfully translates what the native parser
-// produces.
+// isGenerator, fnKind,isServer,isPure,isPinned,canFail,errorType}` -> live
+// `function-decl` (FunctionDeclNode, ast.ts:791).
+//
+// M5-swap Wave 1 (B6) — the native parser now RECOGNIZES the scrml `fn` /
+// `server` / `pure` modifiers + the trailing `!` failable marker. The native
+// `FunctionDecl` node carries `fnKind` / `isServer` / `isPure` / `isPinned`
+// / `canFail` / `errorType` (ast-stmt.js makeFunctionDecl). This arm READS
+// those fields instead of defaulting them — closing the silent semantic
+// flattening R1 documented (R1 defaulted every function to
+// `fnKind:"function"`, `isServer:false`, `canFail:false`).
+//
+// `makeFunctionDecl` defaults the modifier fields when its optional
+// `modifiers` arg is omitted, so a plain JS `function` (the 6-arg legacy
+// call shape) still arrives here with `fnKind:"function"`, `isServer:false`,
+// `canFail:false` — the same values R1 produced. The `isPure` / `isPinned`
+// / `errorType` fields are emitted only when set (the live ast-builder omits
+// the falsy/empty forms — `...(isPure ? {isPure:true} : {})`).
 function makeFunctionDecl(stmt, counter) {
-    return {
+    const node = {
         id: stampId(counter),
         kind: "function-decl",
         name: stmt.name === undefined ? "" : stmt.name,
         params: translateParams(stmt.params),
         body: translateStmtList(stmt.body, counter),
-        fnKind: "function",
-        isServer: false,
+        fnKind: stmt.fnKind === "fn" ? "fn" : "function",
+        isServer: stmt.isServer === true,
         isGenerator: stmt.isGenerator === true,
         isAsync: stmt.isAsync === true,
-        canFail: false,
+        canFail: stmt.canFail === true,
         span: spanOrZero(stmt.span),
     };
+    // `isPure` / `isPinned` / `errorType` ride the node only when set —
+    // mirroring the live ast-builder's conditional-spread emission.
+    if (stmt.isPure === true) {
+        node.isPure = true;
+    }
+    if (stmt.isPinned === true) {
+        node.isPinned = true;
+    }
+    if (stmt.errorType !== undefined && stmt.errorType !== null && stmt.errorType !== "") {
+        node.errorType = stmt.errorType;
+    }
+    return node;
 }
 
 // translateParams — native param-node array -> live `params: string[]`. The
@@ -940,7 +1021,10 @@ function makeExportDecl(stmt, counter) {
     if (stmt.declaration !== undefined && stmt.declaration !== null) {
         const d = stmt.declaration;
         if (d.kind === StmtKind.FunctionDecl) {
-            exportKind = "function";
+            // M5-swap Wave 1 (B6) — an exported `fn` carries `exportKind:"fn"`;
+            // a `function` carries `exportKind:"function"`. The live
+            // exported-decl regex distinguishes the two (ast-builder.js:7282).
+            exportKind = (d.fnKind === "fn") ? "fn" : "function";
             exportedName = d.name === undefined ? null : d.name;
         } else if (d.kind === StmtKind.ClassDecl) {
             exportKind = "const";
@@ -951,6 +1035,19 @@ function makeExportDecl(stmt, counter) {
             if (decls.length > 0) {
                 exportedName = translateBindingTarget(decls[0].target);
             }
+        } else if (d.kind === StmtKind.TypeDecl) {
+            // M5-swap Wave 1 (B5) — `export type Name : kind = {...}`. The
+            // live `exportKind` for an exported type is "type" (the live
+            // ast-builder's exported-decl regex — ast-builder.js:7282).
+            exportKind = "type";
+            exportedName = d.name === undefined ? null : d.name;
+        } else if (d.kind === StmtKind.LinDecl) {
+            // M5-swap Wave 1 (B4) — `export lin name = expr`. `lin` is a
+            // binding; the live exported-decl surface has no dedicated `lin`
+            // kind (the live regex covers type/function/fn/const/let) — the
+            // closest live kind for an exported linear binding is "let".
+            exportKind = "let";
+            exportedName = d.name === undefined ? null : d.name;
         }
     } else if (reExportSource !== null) {
         exportKind = "re-export";
