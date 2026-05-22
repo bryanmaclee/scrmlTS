@@ -399,6 +399,20 @@ export function tokenizeOpener(cursor, ltAnchor) {
     const attrRegionStart = cursor.pos;
     let selfClosing = false;
     let terminated = false;
+    // P5-12 — `aborted` is set when the opaque scan hits a character that
+    // PROVES the `<` is not a tag opener — an UNBALANCED closer (`)` / `]`
+    // / `}`) at bracket-depth 0 outside a string. A well-formed opener's
+    // attribute region never carries a depth-0 closer: a closer at depth 0
+    // can only come from a `<` that is actually a less-than OPERATOR in
+    // code (`@products.filter(p => p.stock_qty < p.low_stock_threshold)`
+    // — the `< p.low...)` substring). Without this guard the scan runs
+    // FORWARD to the next depth-0 `>` — tens of thousands of chars away —
+    // swallowing a whole `${...}` body as the phantom opener's attribute
+    // region (the M5 C2 gap-ledger P5-12 over-scan). On abort the scan
+    // STOPS at the offending char (no advance over it); the opener is
+    // `malformed` + not `terminated`, and the markup trampoline resumes at
+    // the abort point so the code that follows re-lexes correctly.
+    let aborted = false;
     let p = cursor.pos;
     // inString — null when outside a string; the quote char when inside
     // an attribute-value string (so a `>` / `/` inside the string does
@@ -416,8 +430,17 @@ export function tokenizeOpener(cursor, ltAnchor) {
                 bracketDepth = bracketDepth + 1;
                 p = p + 1;
             } else if (ch === ")" || ch === "]" || ch === "}") {
-                if (bracketDepth > 0) bracketDepth = bracketDepth - 1;
-                p = p + 1;
+                if (bracketDepth > 0) {
+                    bracketDepth = bracketDepth - 1;
+                    p = p + 1;
+                } else {
+                    // P5-12 — an unbalanced closer at depth 0: this `<` is
+                    // a less-than operator, not a tag opener. Abort the
+                    // scan AT this char (do not consume it) so the bytes
+                    // are re-lexed by the resuming context.
+                    aborted = true;
+                    break;
+                }
             } else if (ch === closeAngle() && bracketDepth === 0) {
                 // The opener terminator. A `/` immediately before it
                 // marks the opener self-closing.
@@ -448,9 +471,14 @@ export function tokenizeOpener(cursor, ltAnchor) {
 
     // Advance the cursor past the opener terminator. If the opener was
     // never terminated (EOF before `>`) the cursor advances to EOF and
-    // `malformed` is set — MK2.2 owns the recovery.
+    // `malformed` is set — MK2.2 owns the recovery. P5-12 — when the scan
+    // ABORTED on a depth-0 closer, `p` sits AT the offending char (it was
+    // not consumed); the cursor advances only to there so the resuming
+    // context re-lexes from that char — no 30k-char over-scan.
     advance(cursor, p - cursor.pos);
     if (!terminated) {
+        // Not terminated — either EOF before `>` or a P5-12 abort. Both
+        // are malformed openers; MK2.2 / ErrorRecovery owns the recovery.
         malformed = true;
     }
 
@@ -497,6 +525,13 @@ export function tokenizeOpener(cursor, ltAnchor) {
         voidElement,
         span,
         malformed,
+        // P5-12 — `aborted` is true when the opaque scan stopped on a
+        // depth-0 closer that PROVES the `<` is a less-than operator, not
+        // a tag opener. recognizeOpener treats an aborted opener as a LEAF
+        // frame: it opens NO body and expects NO closer (a phantom opener
+        // must never push an OpenExpectingChildren frame that swallows the
+        // rest of the file as its children — the M5 C2 P5-12 over-scan).
+        aborted,
         // F1 — the attribute payload. `attrs` is the AttrNode[] AST (the
         // live FileAST's `MarkupNode.attrs` shape); `tokenizedAttrs` is
         // the raw ATTR_* token stream (parity with the live
@@ -1391,7 +1426,17 @@ export function recognizeOpener(ctx, cursor, ltAnchor) {
     // NO body and expect NO closer; both push an .OpenSelfClosed (leaf)
     // frame. Mirrors block-splitter.js L1747's
     // `selfClosing || VOID_ELEMENTS.has(lowerTagName)`.
-    const leafFrame = opener.selfClosing || opener.voidElement;
+    //
+    // P5-12 — an ABORTED opener is ALSO a leaf. tokenizeOpener aborts when
+    // the opaque scan hits a depth-0 closer that proves the `<` is a
+    // less-than operator (`p.stock_qty < p.low_stock_threshold)` — the
+    // `< p.low...)` substring). Such a phantom opener has no body and no
+    // closer; pushing an OpenExpectingChildren frame would make it consume
+    // every following block — up to the next stray closer ~28k chars away
+    // — as its children. Routing it through the leaf path emits a single
+    // bounded (malformed) Markup block and lets the trampoline resume.
+    const leafFrame = opener.selfClosing || opener.voidElement
+        || opener.aborted;
     let frame = null;
     if (leafFrame) {
         // A self-closing `<ident ... />` — or an HTML void element —
