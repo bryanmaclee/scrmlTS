@@ -130,7 +130,14 @@ export function nativeParseFile(filePath, source) {
     //    live ASTNode. A `LogicEscape` / `Meta` block's native `Stmt[]` body
     //    runs through the A1 bridge; a non-mappable BlockKind is dropped with
     //    an info diagnostic.
-    const nodes = mapBlocksToNodes(blocks, idGen, safeSource, errors);
+    const mapped = mapBlocksToNodes(blocks, idGen, safeSource, errors);
+
+    // 2a. §17.1.1 — COLLAPSE if=/else-if=/else sibling chains into `if-chain`
+    //     ASTNodes. The live pipeline runs `collapseIfChains` as a post-pass
+    //     over the assembled `nodes` (ast-builder.js L12005); the native
+    //     assembler mirrors it here. Purely additive — a node-array that
+    //     carries no if-chains passes through unchanged.
+    const nodes = collapseIfChainNodes(mapped, errors);
 
     // 3. ASSEMBLE the hoisted collections — the A3 bridge. `collectHoisted`
     //    folds the native block-stream into the seven file-level outputs,
@@ -499,6 +506,277 @@ function synthLogicNode(block, idGen) {
         components: [],
         span: block.span !== undefined ? block.span : null,
     };
+}
+
+// =============================================================================
+// §17.1.1 — if=/else-if=/else chain collapse.
+//
+// The C1-assembler counterpart of the live `collapseIfChains`
+// (ast-builder.js L11673). The live pipeline runs this as a post-pass over
+// the assembled `nodes`: it scans each sibling array for the maximal
+// contiguous run of `if=` / `else-if=` / `else` conditional-attributed
+// `markup` siblings (intervening whitespace-only `text` nodes do NOT break
+// the chain — SPEC §17.1.1) and folds the run into ONE `if-chain` ASTNode.
+//
+// THE ORACLE — ast-builder.js `collapseIfChains`. This mirror reproduces it
+// arm-for-arm:
+//   - recurse FIRST into every node's `children` / `body` array (an
+//     if-chain can be nested inside markup or a logic block);
+//   - E-CTRL-005 — `else` / `else-if=` on the SAME element as `if=`;
+//   - E-CTRL-001 — orphan `else` (no preceding `if=` at the same level);
+//   - E-CTRL-002 — orphan `else-if=`;
+//   - E-CTRL-004 — `else` / `else-if=` on a state opener;
+//   - E-CTRL-003 — an element extending a chain that already ended `else`;
+//   - a lone `if=` with no `else-if=` / `else` continuation is NOT
+//     collapsed — it passes through as the raw `markup` node (live L11801).
+//
+// THE `if-chain` NODE SHAPE — the live `IfChainExpr` literal
+// (ast-builder.js L11808): `{ id, kind: "if-chain", branches, elseBranch,
+// span }`. `id` / `span` are REUSED from the chain-opening `if=` node (no
+// fresh `stampId` — the live builder reuses `node.id` / `node.span`).
+// `branches` is `{ condition, element }[]` — `condition` is the attr value
+// object (`if=` / `else-if=`), `element` is the member `markup` node.
+// `elseBranch` is the terminal `else` markup node or `null`.
+//
+// ERROR SHAPE — the live builder pushes `TABError`s; the native assembler's
+// diagnostic stream is the plain `{ code, message, span }` shape
+// (`makeDiagnostic`, tag-frame.js L1848). These E-CTRL diagnostics are hard
+// parse errors per SPEC §34.1 — no `severity` field, so they partition into
+// `result.errors` exactly like every other native parse diagnostic.
+// =============================================================================
+
+// collapseIfChainNodes — calculation (appends E-CTRL diagnostics to the
+// shared `errors`). Scan a sibling `ASTNode[]` for if-chains, recurse into
+// children/body, and return the rewritten array.
+function collapseIfChainNodes(nodes, errors) {
+    if (Array.isArray(nodes) === false) return nodes;
+
+    // Recurse FIRST into every node's child containers — an if-chain may be
+    // nested inside a markup element's `children` or a logic block's `body`.
+    for (const node of nodes) {
+        if (node === undefined || node === null) continue;
+        if (Array.isArray(node.children)) {
+            node.children = collapseIfChainNodes(node.children, errors);
+        }
+        if (Array.isArray(node.body)) {
+            node.body = collapseIfChainNodes(node.body, errors);
+        }
+    }
+
+    // Scan THIS level for chains.
+    const result = [];
+    let i = 0;
+
+    while (i < nodes.length) {
+        const node = nodes[i];
+
+        // E-CTRL-005 — `else` / `else-if=` on the same element as `if=`.
+        if (isMarkupNode(node) && hasNodeAttr(node, "if")
+            && (hasNodeAttr(node, "else") || hasNodeAttr(node, "else-if"))) {
+            errors.push({
+                code: "E-CTRL-005",
+                message: "E-CTRL-005: `else` or `else-if=` and `if=` cannot "
+                    + "appear on the same element.",
+                span: nodeSpan(node),
+            });
+            result.push(node);
+            i = i + 1;
+            continue;
+        }
+
+        // E-CTRL-001 / E-CTRL-002 — orphan `else` / `else-if=` (no `if=`).
+        if (isMarkupNode(node) && hasNodeAttr(node, "if") === false) {
+            if (hasNodeAttr(node, "else")) {
+                const span = nodeSpan(node);
+                errors.push({
+                    code: "E-CTRL-001",
+                    message: "E-CTRL-001: `else` on line " + spanLine(span)
+                        + " has no preceding `if=` element at the same level.",
+                    span,
+                });
+                result.push(node);
+                i = i + 1;
+                continue;
+            }
+            if (hasNodeAttr(node, "else-if")) {
+                const span = nodeSpan(node);
+                errors.push({
+                    code: "E-CTRL-002",
+                    message: "E-CTRL-002: `else-if=` on line " + spanLine(span)
+                        + " has no preceding `if=` element at the same level.",
+                    span,
+                });
+                result.push(node);
+                i = i + 1;
+                continue;
+            }
+        }
+
+        // Not an `if=` element — pass through.
+        if (isMarkupNode(node) === false || hasNodeAttr(node, "if") === false) {
+            result.push(node);
+            i = i + 1;
+            continue;
+        }
+
+        // Found `if=` — start building a chain.
+        const ifAttr = getNodeAttr(node, "if");
+        const branches = [{ condition: ifAttr.value, element: node }];
+        let elseBranch = null;
+        let j = i + 1;
+
+        while (j < nodes.length) {
+            // Whitespace-only `text` siblings do not break a chain (§17.1.1).
+            if (isWhitespaceTextNode(nodes[j])) {
+                j = j + 1;
+                continue;
+            }
+
+            const sibling = nodes[j];
+
+            // E-CTRL-004 — `else` / `else-if=` on a state opener. A state
+            // node carries `else` / `else-if=` in its `attrs` exactly as a
+            // markup node would; check before the markup-kind gate below.
+            if ((sibling.kind === "state"
+                    || sibling.kind === "state-constructor-def")
+                && (hasNodeAttr(sibling, "else")
+                    || hasNodeAttr(sibling, "else-if"))) {
+                errors.push({
+                    code: "E-CTRL-004",
+                    message: "E-CTRL-004: `else` or `else-if=` cannot appear "
+                        + "on a state object opener.",
+                    span: nodeSpan(sibling),
+                });
+                break;
+            }
+
+            if (isMarkupNode(sibling) === false) break;
+
+            if (hasNodeAttr(sibling, "else-if")) {
+                if (elseBranch !== null) {
+                    // E-CTRL-003 — extending a chain past a terminal `else`.
+                    const span = nodeSpan(sibling);
+                    errors.push({
+                        code: "E-CTRL-003",
+                        message: "E-CTRL-003: The element on line "
+                            + spanLine(span) + " tries to extend a chain "
+                            + "that already ended with `else`.",
+                        span,
+                    });
+                    break;
+                }
+                const elseIfAttr = getNodeAttr(sibling, "else-if");
+                branches.push({ condition: elseIfAttr.value, element: sibling });
+                j = j + 1;
+                continue;
+            }
+
+            if (hasNodeAttr(sibling, "else")) {
+                if (elseBranch !== null) {
+                    // E-CTRL-003 — a second `else` extends past the terminal.
+                    const span = nodeSpan(sibling);
+                    errors.push({
+                        code: "E-CTRL-003",
+                        message: "E-CTRL-003: The element on line "
+                            + spanLine(span) + " tries to extend a chain "
+                            + "that already ended with `else`.",
+                        span,
+                    });
+                    break;
+                }
+                elseBranch = sibling;
+                j = j + 1;
+                continue;
+            }
+
+            // A markup sibling carrying none of if=/else-if=/else — the
+            // chain ends here.
+            break;
+        }
+
+        // A lone `if=` with no continuation is NOT a chain — the live
+        // builder passes the raw `markup` node through (L11801).
+        if (branches.length === 1 && elseBranch === null) {
+            result.push(node);
+            i = i + 1;
+            continue;
+        }
+
+        // Fold the run into one `if-chain` ASTNode. `id` / `span` are
+        // REUSED from the chain-opening `if=` node — the live builder does
+        // not draw a fresh id (ast-builder.js L11808-L11814).
+        result.push({
+            id: node.id,
+            kind: "if-chain",
+            branches,
+            elseBranch,
+            span: node.span !== undefined ? node.span : null,
+        });
+
+        // The chain consumed every node up to `j` — including the
+        // whitespace `text` siblings skipped between members.
+        i = j;
+    }
+
+    return result;
+}
+
+// isMarkupNode — predicate. True iff the node is a `markup` ASTNode (the
+// only kind that can open or continue an if-chain — a state opener is
+// handled separately for E-CTRL-004).
+function isMarkupNode(node) {
+    return node !== undefined && node !== null && node.kind === "markup";
+}
+
+// isWhitespaceTextNode — predicate. True iff the node is a `text` ASTNode
+// whose value is empty or whitespace-only. Mirrors the live
+// `isWhitespaceText` (ast-builder.js L11653) — such nodes do NOT break an
+// if-chain.
+function isWhitespaceTextNode(node) {
+    if (node === undefined || node === null) return false;
+    if (node.kind !== "text") return false;
+    const value = node.value;
+    if (typeof value !== "string" || value.length === 0) return true;
+    return value.trim().length === 0;
+}
+
+// getNodeAttr — calculation. Return the named attribute record
+// (`{ name, value, span }`) from a markup-or-state node's `attrs` array, or
+// `null` when absent. Mirrors the live `getAttr` (ast-builder.js L11658).
+function getNodeAttr(node, name) {
+    if (node === undefined || node === null) return null;
+    const attrs = Array.isArray(node.attrs) ? node.attrs : [];
+    for (const attr of attrs) {
+        if (attr !== undefined && attr !== null && attr.name === name) {
+            return attr;
+        }
+    }
+    return null;
+}
+
+// hasNodeAttr — predicate. True iff the node carries the named attribute.
+// Mirrors the live `hasAttr` (ast-builder.js L11665).
+function hasNodeAttr(node, name) {
+    return getNodeAttr(node, name) !== null;
+}
+
+// nodeSpan — calculation. The node's `span`, or a `{ line: 0, col: 0 }`
+// fallback (the live builder's `node.span ?? { line: 0, col: 0 }` shape).
+function nodeSpan(node) {
+    if (node !== undefined && node !== null
+        && node.span !== undefined && node.span !== null) {
+        return node.span;
+    }
+    return { line: 0, col: 0 };
+}
+
+// spanLine — calculation. The 1-based source line of a span, or 0 when the
+// span carries no line (the live error messages interpolate `span.line`).
+function spanLine(span) {
+    if (span !== undefined && span !== null && typeof span.line === "number") {
+        return span.line;
+    }
+    return 0;
 }
 
 // =============================================================================

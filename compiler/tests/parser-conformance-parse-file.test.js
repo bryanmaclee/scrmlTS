@@ -583,3 +583,160 @@ describe("C1 §8b — `<db>` / `<schema>` lifecycle-keyword state synthesis", ()
     expect(r.ast.nodes.find(n => n.kind === "engine-decl")).toBeDefined();
   });
 });
+
+// =============================================================================
+// C1 §8 — §17.1.1 if-chain collapse (Unit P4-4).
+//
+// `if=` / `else-if=` / `else` attribute-conditional `markup` siblings are
+// folded into ONE `if-chain` ASTNode by the assembler's `collapseIfChainNodes`
+// post-pass — the C1 mirror of the live `collapseIfChains` (ast-builder.js
+// L11673). The canonical scrml conditional-attribute form is `else-if=`
+// (hyphenated — SPEC §17.1.1); the corpus also carries a `else if=` space
+// form, but the hyphenated form is canon and is what these exemplars use.
+// =============================================================================
+
+// firstIfChain — locate the first `if-chain` ASTNode in a FileAST (recursing
+// into markup `children` + logic/meta `body`), or `null` when there is none.
+function firstIfChain(ast) {
+  let found = null;
+  function walk(nodes) {
+    for (const n of nodes || []) {
+      if (found !== null) return;
+      if (n.kind === "if-chain") { found = n; return; }
+      if (Array.isArray(n.children)) walk(n.children);
+      if (Array.isArray(n.body)) walk(n.body);
+    }
+  }
+  walk(ast.nodes);
+  return found;
+}
+
+// eCtrlCodes — every E-CTRL-* code on a result's `errors` stream.
+function eCtrlCodes(result) {
+  return result.errors
+    .filter(e => e !== null && typeof e.code === "string" && e.code.startsWith("E-CTRL"))
+    .map(e => e.code);
+}
+
+describe("C1 §8 — §17.1.1 if-chain collapse", () => {
+  test("an if / else-if / else sibling run collapses to ONE `if-chain` node", () => {
+    // Three conditional-attributed `<div>` siblings — the maximal chain.
+    const src = [
+      "<div if=@a>A</div>",
+      "<div else-if=@b>B</div>",
+      "<div else>C</div>",
+    ].join("\n");
+    const r = nativeParseFile("app.scrml", src);
+    const chain = firstIfChain(r.ast);
+    expect(chain).not.toBe(null);
+    expect(chain.kind).toBe("if-chain");
+    // `if=` + one `else-if=` -> two branches; the `else` is the elseBranch.
+    expect(chain.branches.length).toBe(2);
+    expect(chain.elseBranch).not.toBe(null);
+    expect(chain.elseBranch.kind).toBe("markup");
+    // The three raw `markup` siblings collapsed — only the one `if-chain`
+    // node survives at the top level.
+    expect(r.ast.nodes.filter(n => n.kind === "if-chain").length).toBe(1);
+    expect(r.ast.nodes.filter(n => n.kind === "markup").length).toBe(0);
+    // Each branch carries the conditional-attribute value + the member node.
+    expect(chain.branches[0].element.kind).toBe("markup");
+    expect(chain.branches[0].condition).toBeDefined();
+    expect(eCtrlCodes(r)).toEqual([]);
+  });
+
+  test("a two-arm if / else run collapses (one branch + an elseBranch)", () => {
+    const src = "<div if=@a>A</div>\n<div else>B</div>";
+    const r = nativeParseFile("app.scrml", src);
+    const chain = firstIfChain(r.ast);
+    expect(chain).not.toBe(null);
+    expect(chain.branches.length).toBe(1);
+    expect(chain.elseBranch).not.toBe(null);
+    expect(eCtrlCodes(r)).toEqual([]);
+  });
+
+  test("a lone `if=` with no continuation stays a raw `markup` node", () => {
+    // Live parity (ast-builder.js L11801): a one-arm chain is NOT collapsed.
+    const r = nativeParseFile("app.scrml", "<div if=@a>A</div>");
+    expect(firstIfChain(r.ast)).toBe(null);
+    const div = r.ast.nodes.find(n => n.kind === "markup");
+    expect(div).toBeDefined();
+    expect(div.tag).toBe("div");
+    expect(eCtrlCodes(r)).toEqual([]);
+  });
+
+  test("a NESTED if-chain (inside a markup parent) collapses", () => {
+    // The collapse pass recurses into every node's `children` array — an
+    // if-chain nested inside a `<section>` is folded the same way.
+    const src = [
+      "<section>",
+      "<div if=@a>A</div>",
+      "<div else>B</div>",
+      "</section>",
+    ].join("\n");
+    const r = nativeParseFile("app.scrml", src);
+    const section = r.ast.nodes.find(n => n.kind === "markup");
+    expect(section).toBeDefined();
+    const nestedChain = section.children.find(c => c.kind === "if-chain");
+    expect(nestedChain).toBeDefined();
+    expect(nestedChain.branches.length).toBe(1);
+    expect(nestedChain.elseBranch).not.toBe(null);
+    // No top-level if-chain — the chain is purely nested.
+    expect(r.ast.nodes.filter(n => n.kind === "if-chain").length).toBe(0);
+    expect(eCtrlCodes(r)).toEqual([]);
+  });
+
+  test("an orphan `else` (no preceding `if=`) fires E-CTRL-001", () => {
+    const src = "<div>plain</div>\n<div else>orphan</div>";
+    const r = nativeParseFile("app.scrml", src);
+    expect(eCtrlCodes(r)).toContain("E-CTRL-001");
+    // The orphan `else` element is NOT collapsed — it passes through.
+    expect(firstIfChain(r.ast)).toBe(null);
+  });
+
+  test("an orphan `else-if=` (no preceding `if=`) fires E-CTRL-002", () => {
+    const src = "<div>plain</div>\n<div else-if=@b>orphan</div>";
+    const r = nativeParseFile("app.scrml", src);
+    expect(eCtrlCodes(r)).toContain("E-CTRL-002");
+    expect(firstIfChain(r.ast)).toBe(null);
+  });
+
+  test("`else` + `if=` on the same element fires E-CTRL-005", () => {
+    const r = nativeParseFile("app.scrml", "<div if=@a else>X</div>");
+    expect(eCtrlCodes(r)).toContain("E-CTRL-005");
+  });
+
+  test("extending a chain past a terminal `else` fires E-CTRL-003", () => {
+    const src = [
+      "<div if=@a>A</div>",
+      "<div else>B</div>",
+      "<div else-if=@c>C</div>",
+    ].join("\n");
+    const r = nativeParseFile("app.scrml", src);
+    expect(eCtrlCodes(r)).toContain("E-CTRL-003");
+  });
+
+  test("whitespace-only text between members does not break a chain", () => {
+    // §17.1.1 — intervening whitespace-only `text` nodes are not considered
+    // to break a chain. The blank lines below produce whitespace `text`
+    // siblings that the collapse pass skips.
+    const src = "<div if=@a>A</div>\n\n<div else>B</div>\n";
+    const r = nativeParseFile("app.scrml", src);
+    const chain = firstIfChain(r.ast);
+    expect(chain).not.toBe(null);
+    expect(chain.branches.length).toBe(1);
+    expect(chain.elseBranch).not.toBe(null);
+  });
+
+  test("the `if-chain` node REUSES the chain-opening node's id", () => {
+    // Live parity (ast-builder.js L11808): the `if-chain` literal sets
+    // `id: node.id` — no fresh allocation. The opening `if=` node's id is
+    // carried onto the chain node.
+    const src = "<div if=@a>A</div>\n<div else>B</div>";
+    const r = nativeParseFile("app.scrml", src);
+    const chain = firstIfChain(r.ast);
+    expect(chain).not.toBe(null);
+    expect(typeof chain.id).toBe("number");
+    // The opening `if=` element retains its own id; the chain reuses it.
+    expect(chain.id).toBe(chain.branches[0].element.id);
+  });
+});

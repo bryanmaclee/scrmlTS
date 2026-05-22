@@ -74,6 +74,26 @@
 //   independently folds the same engine into `machineDecls` — both pipelines
 //   carry the engine in `machineDecls` exactly once, so no double-count.
 //
+// THE IF-CHAIN COLLAPSE (§17.1.1 — M5 gap-ledger Phase 4, Unit P4-4):
+//   `if=` / `else-if=` / `else` attribute-conditional `markup` siblings are
+//   NOT independent ASTNodes. The LIVE pipeline runs `collapseIfChains`
+//   (ast-builder.js L11673) as a post-pass over the assembled `nodes`: it
+//   scans each sibling array for the maximal contiguous run starting with an
+//   `if=`-bearing element and continuing through zero-or-more `else-if=`
+//   siblings plus an optional terminal `else`, and folds the run into ONE
+//   `if-chain` ASTNode `{ id, kind: "if-chain", branches, elseBranch, span }`.
+//   `id` / `span` are reused from the chain-opening `if=` node. Intervening
+//   whitespace-only `text` siblings do not break a chain. The native
+//   assembler mirrors this with `collapseIfChainNodes` — run on `mapped`
+//   right after `mapBlocksToNodes`, recursing into every node's `children` /
+//   `body` array (an if-chain can be nested). The pass also fires the five
+//   §34.1 control-flow diagnostics — E-CTRL-001 (orphan `else`), E-CTRL-002
+//   (orphan `else-if=`), E-CTRL-003 (a chain extended past a terminal
+//   `else`), E-CTRL-004 (`else` / `else-if=` on a state opener), E-CTRL-005
+//   (`else` + `if=` on the same element) — matching the live error behavior
+//   exactly. A lone `if=` with no continuation is NOT collapsed; it stays a
+//   raw `markup` node (live parity).
+//
 // THE BRIDGE SEAM:
 //   - A1 `translateStmtList` (translate-stmt.scrml) — a LogicEscape / Meta
 //     block's native `Stmt[]` body -> the live `LogicStatement[]`. A1 calls the
