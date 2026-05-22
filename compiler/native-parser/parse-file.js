@@ -75,6 +75,7 @@
 import { parseMarkupTrace } from "./parse-markup.js";
 import { collectHoisted } from "./collect-hoisted.js";
 import { translateStmtList } from "./translate-stmt.js";
+import { isStateBlock } from "./parse-state-body.js";
 
 // =============================================================================
 // nativeParseFile — the C1 entry point. Parse `source` with the native parser,
@@ -184,6 +185,14 @@ function mapBlocksToNodes(blocks, idGen, source, errors) {
 function mapOneBlock(block, idGen, source, errors) {
     const kind = block.kind;
 
+    if (kind === "Markup" && isStateBlock(block)) {
+        // A `< Ident ...>` state opener (TagKind.StateOpener — §4.3
+        // space-after-`<`). The markup layer's `shapeStateBlock` already
+        // stamped the live state payload (`stateNodeKind` / `stateType` /
+        // `typedAttrs`) onto the block at parse time; route it to the live
+        // `state` / `state-constructor-def` ASTNode rather than `markup`.
+        return synthStateNode(block, idGen, source, errors);
+    }
     if (kind === "Markup") {
         return synthMarkupNode(block, idGen, source, errors);
     }
@@ -273,6 +282,65 @@ function synthMarkupNode(block, idGen, source, errors) {
         isComponent: isUpperInitial(tag),
         span: block.span !== undefined ? block.span : null,
     };
+}
+
+// synthStateNode — SYNTHESIZE a live `StateNode` (ast.ts:265) or
+// `StateConstructorDefNode` (ast.ts:279) from a native `Markup` block the
+// markup layer classified as a state opener (TagKind.StateOpener — §4.3).
+// The shaping already ran: parse-markup.js's `shapeStateBlock` stamped
+// `block.stateNodeKind` ("state" | "state-constructor-def"),
+// `block.stateType` (the opener name), and `block.typedAttrs`
+// (TypedAttrDecl[] — non-empty only for a `state-constructor-def`, §35.2).
+// This synthesizer is the C1-assembler counterpart of the live builder's
+// `case "state"` arm (ast-builder.js L11302 / L11317).
+//   - `kind`        — `block.stateNodeKind`; `state` for a state
+//                     INSTANTIATION, `state-constructor-def` for a state
+//                     TYPE declaration carrying `name(type)` typed decls.
+//   - `stateType`   — `block.stateType` (the opener name).
+//   - `attrs`       — the native AttrNode[] (`block.attrs` — the F1 layer
+//                     already excludes the typed decls; the live `state`
+//                     node's `attrs` is exactly the non-typed attrs).
+//   - `typedAttrs`  — emitted ONLY for `state-constructor-def` (the live
+//                     `StateConstructorDefNode` field; `StateNode` has no
+//                     `typedAttrs`).
+//   - `children`    — recurse `mapBlocksToNodes` over `block.children`
+//                     (verbatim — the same recursion `synthMarkupNode`
+//                     uses; a nested `<state>` child re-synthesizes here).
+//   - `openerHadSpaceAfterLt` — the live builder stamps this on both state
+//                     literals. A state opener is BY DEFINITION the
+//                     space-after-`<` form, so it is always true; derived
+//                     `block.tagKind === "StateOpener"` (the collect-hoisted
+//                     `synthEngineDecl` precedent — collect-hoisted.js L356).
+//
+// SCOPE — this is the SHALLOW synth (the M5 gap-ledger flip). The live
+// builder ALSO runs `collapseTransitionDecls` (§54.3 — folds `text + logic`
+// child pairs into `transition-decl` nodes) and stamps substate metadata
+// (`isSubstate` / `parentState`, §54.2). Neither is done here: the corpus
+// canary diffs only the top-level node-kind sequence + hoist counts +
+// `hasProgramRoot`, and `state` / `state-constructor-def` is the top kind
+// regardless of child shaping. Deep fidelity is a tracked follow-up needed
+// before `--parser=scrml-native` drives codegen.
+function synthStateNode(block, idGen, source, errors) {
+    const stateNodeKind = block.stateNodeKind === "state-constructor-def"
+        ? "state-constructor-def"
+        : "state";
+    const children = mapBlocksToNodes(block.children, idGen, source, errors);
+    const node = {
+        id: stampId(idGen),
+        kind: stateNodeKind,
+        stateType: typeof block.stateType === "string" ? block.stateType : "",
+        attrs: Array.isArray(block.attrs) ? block.attrs : [],
+        children,
+        openerHadSpaceAfterLt: block.tagKind === "StateOpener",
+        span: block.span !== undefined ? block.span : null,
+    };
+    // §35.2 — `typedAttrs` is a `state-constructor-def`-only field. The live
+    // `StateNode` interface (ast.ts:265) has no `typedAttrs`; only the
+    // `StateConstructorDefNode` literal (ast-builder.js L11308) carries it.
+    if (stateNodeKind === "state-constructor-def") {
+        node.typedAttrs = Array.isArray(block.typedAttrs) ? block.typedAttrs : [];
+    }
+    return node;
 }
 
 // synthTextNode — SYNTHESIZE a live `TextNode` (ast.ts:249) from a native

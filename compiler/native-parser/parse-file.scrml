@@ -51,6 +51,18 @@
 //   A dropped kind is logged onto the result `errors` as an `I-`-prefixed info
 //   diagnostic — the disposition is observable, never silent.
 //
+// THE STATE DISCRIMINATION (M5 gap-ledger Phase 1):
+//   A `Markup` block is NOT always a `markup` ASTNode. A `< Ident ...>` state
+//   opener (TagKind.StateOpener — §4.3 space-after-`<`) is a `state` / `state-
+//   constructor-def` declaration. `isStateBlock` (parse-state-body) is the
+//   read-side discriminator: a `Markup` block whose `tagKind` is StateOpener
+//   routes to `synthStateNode`, not `synthMarkupNode`. `shapeStateBlock` (run
+//   at parse time) already stamped the live state payload — `stateNodeKind`
+//   ("state" | "state-constructor-def", §35.2), `stateType`, `typedAttrs` — so
+//   `synthStateNode` only assembles the node literal + recurses children.
+//   SHALLOW synth: transition-decl collapse (§54.3) + substate metadata
+//   (§54.2) are a tracked deep-fidelity follow-up, not done here.
+//
 // THE BRIDGE SEAM:
 //   - A1 `translateStmtList` (translate-stmt.scrml) — a LogicEscape / Meta
 //     block's native `Stmt[]` body -> the live `LogicStatement[]`. A1 calls the

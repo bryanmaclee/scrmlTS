@@ -372,3 +372,105 @@ describe("C1 §7 — full small-file assembly", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+// =============================================================================
+// C1 §8 — `<state>` node synthesis (M5 gap-ledger Phase 1).
+//
+// A `< Ident ...>` state opener (TagKind.StateOpener — §4.3 space-after-`<`)
+// is a `state` / `state-constructor-def` declaration, NOT a `markup` node.
+// `nativeParseFile`'s `mapOneBlock` discriminates via `isStateBlock` and
+// routes to `synthStateNode`. `shapeStateBlock` (run at parse time) already
+// stamped `stateNodeKind` / `stateType` / `typedAttrs` onto the block.
+//
+// SCOPE — shallow synth: transition-decl collapse (§54.3) + substate metadata
+// (§54.2) are a tracked deep-fidelity follow-up and are NOT asserted here.
+// =============================================================================
+describe("C1 §8 — `<state>` node synthesis", () => {
+  test("a `< card>` state opener maps to a `state` node, not `markup`", () => {
+    const r = nativeParseFile("app.scrml", '< card title="hi">\n  hello\n</card>');
+    const state = r.ast.nodes.find(n => n.kind === "state");
+    expect(state).toBeDefined();
+    expect(state.stateType).toBe("card");
+    expect(r.ast.nodes.find(n => n.kind === "markup")).toBeUndefined();
+  });
+
+  test("a `state` node carries non-typed attrs and has no `typedAttrs` field", () => {
+    const r = nativeParseFile("app.scrml", '< card title="hi">x</card>');
+    const state = r.ast.nodes.find(n => n.kind === "state");
+    expect(Array.isArray(state.attrs)).toBe(true);
+    expect(state.attrs.length).toBe(1);
+    expect(state.attrs[0].name).toBe("title");
+    // `typedAttrs` is a state-constructor-def-only field — a plain `state`
+    // node (ast.ts:265 StateNode) must not carry it.
+    expect("typedAttrs" in state).toBe(false);
+  });
+
+  test("a `state` node stamps openerHadSpaceAfterLt true and a span", () => {
+    const r = nativeParseFile("app.scrml", "< card>x</card>");
+    const state = r.ast.nodes.find(n => n.kind === "state");
+    expect(state.openerHadSpaceAfterLt).toBe(true);
+    expect(state.span).toBeDefined();
+    expect(typeof state.span.start).toBe("number");
+  });
+
+  test("a `< Card name(string)>` typed-decl maps to a `state-constructor-def`", () => {
+    const r = nativeParseFile("app.scrml", "< Card name(string) age(number?)>\n</Card>");
+    const def = r.ast.nodes.find(n => n.kind === "state-constructor-def");
+    expect(def).toBeDefined();
+    expect(def.stateType).toBe("Card");
+    expect(r.ast.nodes.find(n => n.kind === "state")).toBeUndefined();
+  });
+
+  test("a `state-constructor-def` carries the TypedAttrDecl[] payload", () => {
+    const r = nativeParseFile("app.scrml", "< Card name(string) age(number?)>\n</Card>");
+    const def = r.ast.nodes.find(n => n.kind === "state-constructor-def");
+    expect(Array.isArray(def.typedAttrs)).toBe(true);
+    expect(def.typedAttrs.length).toBe(2);
+    expect(def.typedAttrs[0].name).toBe("name");
+    expect(def.typedAttrs[0].typeExpr).toBe("string");
+    expect(def.typedAttrs[0].optional).toBe(false);
+    expect(def.typedAttrs[1].name).toBe("age");
+    expect(def.typedAttrs[1].optional).toBe(true);
+  });
+
+  test("a state's children recurse — a child `text` node is synthesized", () => {
+    const r = nativeParseFile("app.scrml", "< card>\n  body text\n</card>");
+    const state = r.ast.nodes.find(n => n.kind === "state");
+    const text = state.children.find(c => c.kind === "text");
+    expect(text).toBeDefined();
+    expect(text.value).toContain("body text");
+  });
+
+  test("a nested `<state>` inside a `<state>` is itself synthesized as `state`", () => {
+    const r = nativeParseFile("app.scrml", "< outer>\n  < inner>\n  </inner>\n</outer>");
+    const outer = r.ast.nodes.find(n => n.kind === "state");
+    expect(outer.stateType).toBe("outer");
+    const inner = outer.children.find(c => c.kind === "state");
+    expect(inner).toBeDefined();
+    expect(inner.stateType).toBe("inner");
+    // The nested state must NOT be misrouted to `markup`.
+    expect(outer.children.find(c => c.kind === "markup")).toBeUndefined();
+  });
+
+  test("DISCRIMINATION negative — a plain `<div>` is NOT synthesized as state", () => {
+    // `<div>` (no space after `<`) is TagKind-not-StateOpener; `isStateBlock`
+    // gates it out and it stays a `markup` node.
+    const r = nativeParseFile("app.scrml", "<div>plain</div>");
+    const div = r.ast.nodes.find(n => n.kind === "markup");
+    expect(div).toBeDefined();
+    expect(div.tag).toBe("div");
+    expect(r.ast.nodes.find(n => n.kind === "state")).toBeUndefined();
+    expect(r.ast.nodes.find(n => n.kind === "state-constructor-def")).toBeUndefined();
+  });
+
+  test("a `<state>` node participates in the single shared id space", () => {
+    const r = nativeParseFile("app.scrml", "< outer>\n  < inner>txt</inner>\n</outer>");
+    const ids = allIds(r.ast);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ids) {
+      expect(Number.isInteger(id)).toBe(true);
+      expect(id).toBeGreaterThan(0);
+    }
+  });
+});
