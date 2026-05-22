@@ -217,11 +217,30 @@ export const JS_KEYWORDS = Object.freeze({
     // grammar (parse-stmt.js) dispatches the matching declaration production.
     // A keyword used as a member-property name (`obj.type`, `?.fn`) is still
     // accepted — `parseMemberProperty` admits any keyword as a property name.
+    //
+    // P5-9 — `type` is NOT in this table. `type` is a CONTEXTUAL keyword: a
+    // type-declaration lead ONLY at statement position (SPEC §14). Everywhere
+    // else (`const type = …` binding name, a `fn g(type)` parameter name, an
+    // object-literal key) it is an ordinary identifier — the live Acorn-based
+    // front end treats it so. Lexing `type` as a hard `KwType` corrupted ANY
+    // file using `type` as a name. It is lexed as an `Ident` carrying a
+    // `ctxKw: "type"` marker (CONTEXTUAL_KEYWORDS below); parse-stmt.js's
+    // statement dispatch recognises a statement-position `type` decl lead on
+    // that marker. `typeof` (KwTypeof) is a genuine HARD keyword — unaffected.
     "lin":        TokenKind.KwLin,
-    "type":       TokenKind.KwType,
     "fn":         TokenKind.KwFn,
     "server":     TokenKind.KwServer,
     "pure":       TokenKind.KwPure,
+});
+
+// CONTEXTUAL_KEYWORDS — barewords that are a keyword ONLY in a specific
+// grammatical position and a plain identifier everywhere else. Each lexes as
+// a `TokenKind.Ident` carrying a `ctxKw` payload field naming the contextual
+// keyword; the parse layer decides — by position — whether the keyword
+// reading applies. `type` (SPEC §14) is the sole entry: a type-declaration
+// lead at statement position, an ordinary identifier otherwise.
+export const CONTEXTUAL_KEYWORDS = Object.freeze({
+    "type": "type",
 });
 
 export function makeToken(kind, text, span, payload) {
@@ -236,6 +255,13 @@ export function makeIdentOrKeyword(text, span) {
     // that identifier to a non-string `kind`. hasOwnProperty.call restricts
     // the lookup to the keyword table's OWN entries.
     if (Object.prototype.hasOwnProperty.call(JS_KEYWORDS, text) === false) {
+        // A contextual keyword (`type`) lexes as an `Ident` carrying a `ctxKw`
+        // payload field — the parse layer decides, by position, whether the
+        // keyword reading applies. A plain identifier carries no `ctxKw`.
+        if (Object.prototype.hasOwnProperty.call(CONTEXTUAL_KEYWORDS, text)) {
+            return makeToken(TokenKind.Ident, text, span,
+                { name: text, ctxKw: CONTEXTUAL_KEYWORDS[text] });
+        }
         return makeToken(TokenKind.Ident, text, span, { name: text });
     }
     const kw = JS_KEYWORDS[text];

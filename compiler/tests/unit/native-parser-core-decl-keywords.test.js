@@ -7,8 +7,10 @@
 //   B6 — `[pure] [server] fn ... !`   function modifiers (SPEC §48 / §48.6.4)
 //
 // Three layers under test, end to end:
-//   1. lexing       — `lin` / `type` / `fn` / `server` / `pure` lex to their
-//      `Kw*` TokenKinds (token.js JS_KEYWORDS).
+//   1. lexing       — `lin` / `fn` / `server` / `pure` lex to their `Kw*`
+//      TokenKinds (token.js JS_KEYWORDS). P5-9: `type` is a CONTEXTUAL
+//      keyword — it lexes as an `Ident` carrying a `ctxKw:"type"` marker, NOT
+//      a hard `KwType` (token.js CONTEXTUAL_KEYWORDS).
 //   2. parsing      — parseProgram dispatches the new declaration productions
 //      (parse-stmt.js parseLinDecl / parseTypeDecl / parseScrmlFunctionDecl).
 //   3. translation  — translateStmtList maps the new native Stmt kinds to the
@@ -20,7 +22,9 @@
 import { describe, test, expect } from "bun:test";
 
 import { lex } from "../../native-parser/lex.js";
-import { TokenKind, JS_KEYWORDS } from "../../native-parser/token.js";
+import {
+    TokenKind, JS_KEYWORDS, CONTEXTUAL_KEYWORDS,
+} from "../../native-parser/token.js";
 import { StmtKind } from "../../native-parser/ast-stmt.js";
 import { parseProgram } from "../../native-parser/parse-stmt.js";
 import { translateStmtList } from "../../native-parser/translate-stmt.js";
@@ -37,12 +41,18 @@ function translate(source, idGen) {
 
 // =============================================================================
 describe("§0 — lexer keyword recognition", () => {
-    test("lin / type / fn / server / pure are JS_KEYWORDS entries", () => {
+    test("lin / fn / server / pure are JS_KEYWORDS entries", () => {
         expect(JS_KEYWORDS.lin).toBe(TokenKind.KwLin);
-        expect(JS_KEYWORDS.type).toBe(TokenKind.KwType);
         expect(JS_KEYWORDS.fn).toBe(TokenKind.KwFn);
         expect(JS_KEYWORDS.server).toBe(TokenKind.KwServer);
         expect(JS_KEYWORDS.pure).toBe(TokenKind.KwPure);
+    });
+
+    test("P5-9 — `type` is NOT a hard JS_KEYWORDS entry; it is contextual", () => {
+        // `type` lexes as an `Ident`, not a hard `KwType` — a hard keyword
+        // corrupted any file using `type` as a binding / parameter name.
+        expect(JS_KEYWORDS.type).toBeUndefined();
+        expect(CONTEXTUAL_KEYWORDS.type).toBe("type");
     });
 
     test("a `lin` bareword lexes to KwLin", () => {
@@ -50,9 +60,20 @@ describe("§0 — lexer keyword recognition", () => {
         expect(toks[0].kind).toBe(TokenKind.KwLin);
     });
 
-    test("a `type` bareword lexes to KwType", () => {
+    test("P5-9 — a `type` bareword lexes to an Ident carrying ctxKw:'type'", () => {
         const toks = lex("type X : enum = {}");
-        expect(toks[0].kind).toBe(TokenKind.KwType);
+        expect(toks[0].kind).toBe(TokenKind.Ident);
+        expect(toks[0].name).toBe("type");
+        expect(toks[0].ctxKw).toBe("type");
+    });
+
+    test("P5-9 — `type` as a binding name lexes as a plain Ident", () => {
+        // `const type = …` — `type` is a binding name, an ordinary identifier.
+        // It carries the `ctxKw` marker (the lexer is position-blind) but the
+        // statement dispatch never reaches it: `const` is the statement lead.
+        const toks = lex("const type = 5");
+        const typeTok = toks.find((t) => t.name === "type");
+        expect(typeTok.kind).toBe(TokenKind.Ident);
     });
 
     test("a `fn` / `server` / `pure` bareword lexes to its Kw* kind", () => {
@@ -475,5 +496,76 @@ describe("§8 — P5-3: `^{ ... }` meta-block statement-loop recovery", () => {
         const prog = parse("const b = a ^ 2");
         expect(prog.body.length).toBe(1);
         expect(prog.body[0].kind).toBe(StmtKind.VarDecl);
+    });
+});
+
+// =============================================================================
+// §9 — P5-9: `type` is a CONTEXTUAL keyword, not a hard keyword.
+//
+// `type` lexed as a hard `KwType` corrupted ANY file using `type` as a name.
+// `parseBindingIdent` requires a `TokenKind.Ident`, so `const type = …`
+// recorded `E-STMT-BINDING-NAME`, did not consume the `type` token, and the
+// leftover `type = …` re-dispatched at statement level to `parseTypeDecl` —
+// a phantom `TypeDecl` that `collectHoisted` then hoisted. P5-9 lexes `type`
+// as an `Ident` (a contextual keyword); `parseTypeDecl` is reached ONLY at
+// statement / `export`-declaration position. 3 gap files (`meta-checker`,
+// `format/index`, `ts`) hit this — `type` as a const binding + a parameter.
+// =============================================================================
+describe("§9 — P5-9: `type` as a name (contextual-keyword fix)", () => {
+    test("`const type = …` parses as a VarDecl, not a phantom TypeDecl", () => {
+        const prog = parse("const type = registry.get(name)");
+        expect(prog.errors.length).toBe(0);
+        expect(prog.body.length).toBe(1);
+        expect(prog.body[0].kind).toBe(StmtKind.VarDecl);
+    });
+
+    test("`let type = …` parses as a VarDecl with the binding name `type`", () => {
+        const prog = parse("let type = 5");
+        expect(prog.errors.length).toBe(0);
+        expect(prog.body[0].kind).toBe(StmtKind.VarDecl);
+    });
+
+    test("a function parameter named `type` parses cleanly", () => {
+        // `fn formatList(items, type, locale)` — `type` as a parameter name.
+        const out = translate("fn formatList(items, type, locale) { return type }");
+        expect(out.length).toBe(1);
+        expect(out[0].kind).toBe("function-decl");
+        expect(out[0].params).toEqual(["items", "type", "locale"]);
+    });
+
+    test("a plain `function` parameter named `type` parses cleanly", () => {
+        const prog = parse("function f(type) { return type }");
+        expect(prog.errors.length).toBe(0);
+        expect(prog.body[0].kind).toBe(StmtKind.FunctionDecl);
+    });
+
+    test("`type` as an object-literal key is an ordinary identifier", () => {
+        const prog = parse("const o = { type: 1, name: 2 }");
+        expect(prog.errors.length).toBe(0);
+        expect(prog.body[0].kind).toBe(StmtKind.VarDecl);
+    });
+
+    test("a `const type` binding does NOT hoist a phantom TypeDecl", () => {
+        // The measurable gap signature: `typeDecls live=0 native=N`.
+        const prog = parse("const type = 5\nconst other = 6");
+        const typeDecls = prog.body.filter((s) => s.kind === StmtKind.TypeDecl);
+        expect(typeDecls.length).toBe(0);
+        expect(prog.body.map((s) => s.kind)).toEqual([
+            StmtKind.VarDecl, StmtKind.VarDecl,
+        ]);
+    });
+
+    test("a statement-position `type` declaration STILL routes to parseTypeDecl", () => {
+        // The contextual fix must not regress a real `type` declaration.
+        const prog = parse("type DutyStatus : enum = { OnDuty, OffDuty }");
+        expect(prog.body.length).toBe(1);
+        expect(prog.body[0].kind).toBe(StmtKind.TypeDecl);
+        expect(prog.body[0].name).toBe("DutyStatus");
+    });
+
+    test("`type` as a member-property name (`obj.type`) is unaffected", () => {
+        const out = translate("obj.type;");
+        expect(out.length).toBe(1);
+        expect(out[0].kind).toBe("bare-expr");
     });
 });

@@ -344,8 +344,13 @@ const STATEMENT_START_KINDS = Object.freeze({
     [TokenKind.KwTry]:     true,
     [TokenKind.KwThrow]:   true,
     // M5-swap Wave 1 — core scrml declaration statement leads (B4 / B5 / B6).
+    // P5-9 — `type` is NOT here: it lexes as an `Ident` (a contextual keyword),
+    // so a panic-mode resync that lands on a `type` decl re-syncs on the
+    // `Ident` token-kind path; `isStatementStartKind` cannot key on a `KwType`
+    // that the tokenizer no longer emits. A `type`-led declaration that begins
+    // a fresh statement is still recovered — the resync stops before it on the
+    // next `;` / `}` / hard statement-start keyword and the loop re-attempts.
     [TokenKind.KwLin]:     true,
-    [TokenKind.KwType]:    true,
     [TokenKind.KwFn]:      true,
     [TokenKind.KwServer]:  true,
     [TokenKind.KwPure]:    true,
@@ -505,7 +510,18 @@ export function parseStatement(ctx) {
     }
 
     // M5-swap Wave 1 — a `type` declaration (B5, SPEC §14).
-    if (kind === TokenKind.KwType) {
+    //
+    // P5-9 — `type` is a CONTEXTUAL keyword (token.js CONTEXTUAL_KEYWORDS): it
+    // lexes as an `Ident` carrying a `ctxKw:"type"` marker, not a hard
+    // `KwType`. It is a type-declaration lead ONLY here, at statement position
+    // — the live block-splitter's `STMT_KEYWORDS` set treats statement-lead
+    // `type` as a declaration keyword unconditionally, and the native parser
+    // mirrors that oracle. Anywhere else (a `const type =` binding name, a
+    // `fn g(type)` parameter name, an object-literal key) the same token flows
+    // as an ordinary identifier — those positions never reach this dispatch.
+    // This check sits BEFORE the labeled-statement arm so a kind-first
+    // `type:enum Name` lead is not mis-read as a `type:`-prefixed label.
+    if (isContextualTypeLead(cursor)) {
         return parseTypeDecl(ctx);
     }
 
@@ -2239,7 +2255,10 @@ function parseExportedDeclaration(ctx) {
     if (k === TokenKind.KwLin) {
         return parseLinDecl(ctx);
     }
-    if (k === TokenKind.KwType) {
+    // P5-9 — `export type ...`. `type` is the contextual-keyword `Ident`; an
+    // `export type` lead is unambiguously a type declaration (the only
+    // well-formed reading of `type` after `export`).
+    if (isContextualTypeLead(cursor)) {
         return parseTypeDecl(ctx);
     }
     if (k === TokenKind.KwFunction) {
@@ -2550,6 +2569,24 @@ function typeAliasText(ctx) {
         parts.push(advance(cursor).text);
     }
     return parts.join(" ").trim();
+}
+
+// --- isContextualTypeLead — does a `type` declaration lead begin here? ---
+//
+// P5-9 — `type` is a CONTEXTUAL keyword (token.js): it lexes as an `Ident`
+// carrying a `ctxKw:"type"` marker. This predicate is the SOLE gate that
+// decides — by position — whether that token reads as a type-declaration
+// keyword. It returns true iff the cursor sits on the contextual-`type`
+// `Ident`; the callers (`parseStatement`, `parseExportedDeclaration`) only
+// invoke it at statement / `export`-declaration position, so a `type` used as
+// a binding name / parameter name / object key — which never reaches those
+// dispatch sites — flows as an ordinary identifier. This mirrors the live
+// block-splitter, whose `STMT_KEYWORDS` set treats a statement-lead `type`
+// as a declaration keyword unconditionally.
+function isContextualTypeLead(cursor) {
+    const tok = current(cursor);
+    return tok !== undefined && tok !== null
+        && tok.kind === TokenKind.Ident && tok.ctxKw === "type";
 }
 
 // --- parseTypeDecl — a `type` declaration (B5) ---
