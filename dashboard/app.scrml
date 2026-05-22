@@ -1,0 +1,270 @@
+<program>
+
+// ---------------------------------------------------------------------
+// scrml examples — verification dashboard
+//
+// A single rolling human-test surface across every example. For each
+// example, an indicator: GREEN if the user marked it verified AT the
+// current HEAD; RED otherwise (HEAD has moved, or never verified).
+// One click marks an example verified at the current HEAD.
+//
+// Storage: a flat JSON sidecar at `examples/.verification.json`.
+// Page-refresh model — click "Refresh" to pull current state.
+//
+// Affects detection (v1, coarse): any HEAD move reds out an example
+// until re-verified. Per-example dep-closure refinement is a follow-up
+// (needs a `scrml:shell` stdlib helper for `git log` — see NOTES at
+// the bottom).
+// ---------------------------------------------------------------------
+
+import { readFileSync, writeFileSync, existsSync } from 'scrml:fs'
+
+const EXAMPLES = [
+    { name: "01-hello",                path: "examples/01-hello.scrml" },
+    { name: "02-counter",              path: "examples/02-counter.scrml" },
+    { name: "03-contact-book",         path: "examples/03-contact-book.scrml" },
+    { name: "04-live-search",          path: "examples/04-live-search.scrml" },
+    { name: "05-multi-step-form",      path: "examples/05-multi-step-form.scrml" },
+    { name: "06-kanban-board",         path: "examples/06-kanban-board.scrml" },
+    { name: "07-admin-dashboard",      path: "examples/07-admin-dashboard.scrml" },
+    { name: "08-chat",                 path: "examples/08-chat.scrml" },
+    { name: "09-error-handling",       path: "examples/09-error-handling.scrml" },
+    { name: "10-inline-tests",         path: "examples/10-inline-tests.scrml" },
+    { name: "11-meta-programming",     path: "examples/11-meta-programming.scrml" },
+    { name: "12-snippets-slots",       path: "examples/12-snippets-slots.scrml" },
+    { name: "13-worker",               path: "examples/13-worker.scrml" },
+    { name: "14-mario-state-machine",  path: "examples/14-mario-state-machine.scrml" },
+    { name: "15-channel-chat",         path: "examples/15-channel-chat.scrml" },
+    { name: "16-remote-data",          path: "examples/16-remote-data.scrml" },
+    { name: "17-schema-migrations",    path: "examples/17-schema-migrations.scrml" },
+    { name: "18-state-authority",      path: "examples/18-state-authority.scrml" },
+    { name: "19-lin-token",            path: "examples/19-lin-token.scrml" },
+    { name: "20-middleware",           path: "examples/20-middleware.scrml" },
+    { name: "21-navigation",           path: "examples/21-navigation.scrml" },
+    { name: "22-multifile",            path: "examples/22-multifile/" },
+    { name: "23-trucking-dispatch",    path: "examples/23-trucking-dispatch/" },
+    { name: "24-tilde-pipeline",       path: "examples/24-tilde-pipeline.scrml" },
+    { name: "25-triage-board",         path: "examples/25-triage-board.scrml" },
+    { name: "26-type-derived-schema",  path: "examples/26-type-derived-schema.scrml" },
+    { name: "27-type-derived-table",   path: "examples/27-type-derived-table.scrml" },
+]
+
+const STATE_PATH = "examples/.verification.json"
+
+<head>     = ""
+<statuses> = []
+<loaded>   = false
+
+// --- server-side helpers (auto-classified via scrml:fs) -------------
+
+function readState() {
+    if (existsSync(STATE_PATH)) {
+        return JSON.parse(readFileSync(STATE_PATH))
+    }
+    return {}
+}
+
+function writeState(state) {
+    writeFileSync(STATE_PATH, JSON.stringify(state, not, 2) + "\n")
+}
+
+// Read the current HEAD SHA by walking `.git/HEAD` -> ref file (or
+// `.git/packed-refs`), no `git` shell-out required. Returns "" if the
+// repo is not in a known state.
+function readCurrentHead() {
+    if (!existsSync(".git/HEAD")) return ""
+    const ref = readFileSync(".git/HEAD").trim()
+    if (!ref.startsWith("ref: ")) {
+        // Detached HEAD: the file itself is the SHA.
+        return ref
+    }
+    const target = ref.slice(5).trim()
+    const refPath = ".git/" + target
+    if (existsSync(refPath)) {
+        return readFileSync(refPath).trim()
+    }
+    // Packed-refs fallback.
+    if (existsSync(".git/packed-refs")) {
+        const packed = readFileSync(".git/packed-refs")
+        for (let line of packed.split("\n")) {
+            const t = line.trim()
+            if (t == "" || t.startsWith("#") || t.startsWith("^")) continue
+            const sp = t.indexOf(" ")
+            if (sp < 0) continue
+            const sha = t.slice(0, sp).trim()
+            const name = t.slice(sp + 1).trim()
+            if (name == target) return sha
+        }
+    }
+    return ""
+}
+
+function loadStatuses() {
+    const state = readState()
+    const currentSha = readCurrentHead()
+    const out = []
+    for (let ex of EXAMPLES) {
+        const entry = state[ex.name]
+        const hasEntry = entry is some && typeof entry.sha == "string"
+        const sha = hasEntry ? entry.sha : ""
+        const verifiedAt = hasEntry && typeof entry.verified_at == "string" ? entry.verified_at : ""
+        const neverVerified = sha == ""
+        const atHead = !neverVerified && sha == currentSha
+        out.push({
+            name: ex.name,
+            path: ex.path,
+            sha: sha,
+            shaShort: neverVerified ? "" : sha.slice(0, 8),
+            verifiedAt: verifiedAt,
+            neverVerified: neverVerified,
+            atHead: atHead,
+            isRed: neverVerified || !atHead,
+        })
+    }
+    return out
+}
+
+function markVerified(name) {
+    const state = readState()
+    const currentHead = readCurrentHead()
+    state[name] = {
+        sha: currentHead,
+        verified_at: new Date().toISOString(),
+    }
+    writeState(state)
+}
+
+// --- client-side actions --------------------------------------------
+
+function refresh() {
+    const currentSha = readCurrentHead()
+    @head = currentSha == "" ? "" : currentSha.slice(0, 8)
+    @statuses = loadStatuses()
+    @loaded = true
+}
+
+function verify(name) {
+    markVerified(name)
+    refresh()
+}
+
+#{
+    .dashboard {
+        max-width: 920px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        font-family: system-ui, -apple-system, sans-serif;
+        color: #1f2937;
+    }
+    .head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 1rem;
+    }
+    h1 { margin: 0; font-size: 1.4rem; }
+    .meta { font-family: monospace; color: #6b7280; font-size: 0.9rem; }
+    .controls { margin-bottom: 1rem; }
+    button {
+        padding: 0.4rem 0.9rem;
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.9rem;
+    }
+    button:hover { background: #1d4ed8; }
+    button.small { padding: 0.25rem 0.6rem; font-size: 0.8rem; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+        padding: 0.45rem 0.6rem;
+        text-align: left;
+        border-bottom: 1px solid #e5e7eb;
+    }
+    th {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #6b7280;
+        font-weight: 600;
+    }
+    .dot {
+        font-size: 1.4rem;
+        line-height: 1;
+        text-align: center;
+        width: 1.6rem;
+    }
+    .dot.red   { color: #dc2626; }
+    .dot.green { color: #16a34a; }
+    .mono { font-family: monospace; font-size: 0.85em; color: #4b5563; }
+    .empty {
+        margin-top: 2rem;
+        padding: 1.5rem;
+        background: #f9fafb;
+        border: 1px dashed #d1d5db;
+        border-radius: 8px;
+        color: #6b7280;
+        text-align: center;
+    }
+}
+
+<div class="dashboard">
+    <div class="head">
+        <h1>scrml examples — verification</h1>
+        <span class="meta">HEAD ${@head == "" ? "—" : @head}</span>
+    </div>
+
+    <div class="controls">
+        <button onclick=refresh()>Refresh</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th></th>
+                <th>Example</th>
+                <th>Verified at</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            ${
+                for (let s of @statuses) {
+                    lift <tr>
+                        <td class=${s.isRed ? "dot red" : "dot green"}>●</>
+                        <td>${s.name}</>
+                        <td class="mono">${s.neverVerified ? "(never verified)" : s.shaShort}</>
+                        <td><button class="small" onclick=verify(s.name)>Mark verified</></>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+
+    ${
+        if (!@loaded) {
+            lift <div class="empty">Click <strong>Refresh</strong> to load current verification state.</div>
+        }
+    }
+</div>
+
+</program>
+
+// NOTES — follow-ups
+//
+// 1. Per-example dep closure (v2). Currently any HEAD move reds out an
+//    example until re-verified. The richer signal — "this example's
+//    dependency closure changed" — needs `git log <sha>..HEAD -- <paths>`,
+//    which needs a shell-exec helper. Cleanest add: a `scrml:shell`
+//    (or `scrml:process.exec`) stdlib function — small extension, also
+//    useful for any future scrml dev tooling.
+//
+// 2. Auto-load on mount (v2). Currently the table starts empty and the
+//    user clicks Refresh. An on-mount auto-load is the right UX once
+//    the auto-load-server-fn-on-mount path is sharp-edge-free (today's
+//    full-stack runtime cluster — to be closed by the planned corpus
+//    sweep + runtime gate).
+//
+// 3. "Run it" button per row (v2). One-click `scrml dev examples/X.scrml`
+//    spawn — also blocked on the shell-exec helper above.
