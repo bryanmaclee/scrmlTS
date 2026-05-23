@@ -363,12 +363,16 @@ ${
 
     // isMarkupTagOpener — CALCULATION (predicate). Is the cursor at an
     // `<ident`-shaped markup-tag-context boundary? A `<` immediately
-    // followed by an ASCII letter opens a markup tag (the markup-tag
-    // context); a `<` followed by whitespace, `/`, or EOF does not.
-    // The deep tag-TREE recognition (opener/closer pairing, TagKind) is
-    // MK2 — this predicate only recognizes the .InMarkupTag BOUNDARY.
+    // followed by an ASCII letter OR `_` opens a markup tag (the
+    // markup-tag context); a `<` followed by whitespace, `/`, a digit,
+    // or EOF does not. SPEC §4.1 (line 307) normative: tag-name start is
+    // letter-or-underscore. The deep tag-TREE recognition (opener/closer
+    // pairing, TagKind) is MK2 — this predicate only recognizes the
+    // .InMarkupTag BOUNDARY. Wave 6 Unit A added the `_` admission so
+    // `<_>` (the match block-form wildcard arm opener) is recognized.
     export fn isMarkupTagOpener(lessThanChar, nextChar) {
         if (lessThanChar != "<") return false
+        if (nextChar == "_") return true
         return isAsciiLetter(nextChar)
     }
 

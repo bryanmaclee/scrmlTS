@@ -134,10 +134,17 @@ export function isBlockOpenerSigil(twoChar) {
 }
 
 // isMarkupTagOpener — calculation (predicate). A `<` immediately
-// followed by an ASCII letter opens a markup-tag context. The deep
-// tag-tree recognition is MK2 — this only recognizes the boundary.
+// followed by an ASCII letter OR `_` opens a markup-tag context. SPEC
+// §4.1 (line 307) normative: "any `<` immediately followed by an ASCII
+// letter or underscore (with zero intervening characters)" — the live
+// oracle `compiler/src/block-splitter.js:1617` admits `/[A-Za-z_]/` here
+// for the same reason. The deep tag-tree recognition is MK2 — this only
+// recognizes the boundary. Wave 6 Unit A added the `_` admission so
+// `<_>` (the match block-form wildcard arm opener) is recognized as the
+// start of a markup-tag context, not silently emitted as text.
 export function isMarkupTagOpener(lessThanChar, nextChar) {
     if (lessThanChar !== "<") return false;
+    if (nextChar === "_") return true;
     return isAsciiLetter(nextChar);
 }
 

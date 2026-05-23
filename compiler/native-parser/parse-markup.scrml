@@ -353,11 +353,16 @@ ${
 
     // -------------------------------------------------------------------
     // isAsciiTagNameStart — CALCULATION (predicate). The state-opener
-    // name's first char — an ASCII letter (mirrors block-context's
-    // isAsciiLetter, the same closed test isMarkupTagOpener uses).
+    // name's first char — an ASCII letter OR `_`. SPEC §4.1 (line 307)
+    // normative: tag-name start is letter-or-underscore. Wave 6 Unit A
+    // added `_` so `< _name>` composes with P5-12b's
+    // `isStateTagBoundaryAfterLt` tighten — the post-ws letter check
+    // admits `_`, the post-ident terminator check still rejects
+    // `< _.foo` (`.` after the ident proves it's an expression).
     // -------------------------------------------------------------------
     export fn isAsciiTagNameStart(ch) {
         if (ch == "" || ch is not) return false
+        if (ch == "_") return true
         const c = ch.charCodeAt(0)
         return (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
     }
@@ -1629,20 +1634,21 @@ ${
     }
 
     // isTagNameChar — CALCULATION (predicate). A character that may
-    // continue a markup-tag name run: ASCII letter, ASCII digit, or `-`.
-    // MK2.1 made tag-frame.scrml the canonical home of the tag-name
-    // grammar; the canonical body lives in tag-frame.scrml's
-    // isTagNameChar. This file re-exports the predicate so existing
-    // importers (parser-conformance-markup.test.js, MK1.2 suite) keep
-    // a single binding. K9 (S114): the previous form re-exported via an
-    // aliased import (`import { isTagNameChar as tagNameCharCanonical }`)
-    // which tripped E-SCOPE-001 — the v0.3 compiler binds unquoted-name
-    // imports literally per SPEC §21. The body is INLINED here (held
-    // 1:1 with tag-frame.scrml's predicate); if the canonical grammar
-    // ever changes, update BOTH sites.
+    // continue a markup-tag name run: ASCII letter, ASCII digit, `-`,
+    // or `_`. SPEC §4.1 (line 308) normative. MK2.1 made tag-frame.scrml
+    // the canonical home of the tag-name grammar; the canonical body
+    // lives in tag-frame.scrml's isTagNameChar. This file re-exports the
+    // predicate so existing importers (parser-conformance-markup.test.js,
+    // MK1.2 suite) keep a single binding. K9 (S114): the previous form
+    // re-exported via an aliased import
+    // (`import { isTagNameChar as tagNameCharCanonical }`) which tripped
+    // E-SCOPE-001 — the v0.3 compiler binds unquoted-name imports
+    // literally per SPEC §21. The body is INLINED here (held 1:1 with
+    // tag-frame.scrml's predicate); if the canonical grammar ever
+    // changes, update BOTH sites. Wave 6 Unit A added `_`.
     export fn isTagNameChar(ch) {
         if (ch == "") return false
-        if (ch == "-") return true
+        if (ch == "-" || ch == "_") return true
         const c = ch.charCodeAt(0)
         if (c >= 48 && c <= 57) return true
         if (c >= 65 && c <= 90) return true

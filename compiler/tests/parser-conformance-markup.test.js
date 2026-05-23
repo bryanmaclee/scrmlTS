@@ -74,6 +74,8 @@ import {
     // P5-12b — the `< Ident` state-opener boundary predicate.
     isStateTagBoundaryAfterLt,
     isTagNameContinue,
+    // Wave 6 Unit A — the parse-markup-side tag-name-start predicate.
+    isAsciiTagNameStart,
 } from "../native-parser/parse-markup.js";
 import { makeParseContext } from "../native-parser/parse-ctx.js";
 // K9 (S114) — DelegationFrame surface moved to delegation-frame.js
@@ -340,7 +342,13 @@ describe("MK1.2 markup-tag boundary — isMarkupTagOpener", () => {
         expect(isMarkupTagOpener("<", "D")).toBe(true);
     });
 
-    test("`<` + non-letter is NOT a markup-tag opener", () => {
+    test("`<` + `_` is a markup-tag opener (Wave 6 Unit A — SPEC §4.1)", () => {
+        // SPEC §4.1 line 307 — tag-name start is letter OR underscore.
+        // `<_>` is the match block-form wildcard arm opener (§18.0.1).
+        expect(isMarkupTagOpener("<", "_")).toBe(true);
+    });
+
+    test("`<` + non-letter / non-underscore is NOT a markup-tag opener", () => {
         expect(isMarkupTagOpener("<", " ")).toBe(false);  // `< ` — less-than op
         expect(isMarkupTagOpener("<", "/")).toBe(false);  // `</` — a closer
         expect(isMarkupTagOpener("<", "")).toBe(false);   // `<` at EOF
@@ -351,11 +359,14 @@ describe("MK1.2 markup-tag boundary — isMarkupTagOpener", () => {
         expect(isMarkupTagOpener("x", "d")).toBe(false);
     });
 
-    test("isTagNameChar accepts letters / digits / hyphen, rejects the rest", () => {
+    test("isTagNameChar accepts letters / digits / hyphen / underscore, rejects the rest", () => {
+        // SPEC §4.1 line 308 — tag-name continue is alphanumeric / hyphen /
+        // underscore. Wave 6 Unit A added `_`.
         expect(isTagNameChar("a")).toBe(true);
         expect(isTagNameChar("Z")).toBe(true);
         expect(isTagNameChar("7")).toBe(true);
         expect(isTagNameChar("-")).toBe(true);
+        expect(isTagNameChar("_")).toBe(true);
         expect(isTagNameChar(" ")).toBe(false);
         expect(isTagNameChar(">")).toBe(false);
         expect(isTagNameChar("")).toBe(false);
@@ -1495,25 +1506,82 @@ describe("MK2.1 tokenizeOpener — one-pass opener-body recognition", () => {
         expect(o.span.start).toBe(2);            // the `<`
         expect(o.span.end).toBe(5);              // one past the `>`
     });
+
+    // =========================================================================
+    // Wave 6 Unit A — `_` admitted as a tag-name-start character (SPEC §4.1).
+    // Closes the M5 C2 gap-ledger DIFF-top-seq member match-002: the match
+    // block-form wildcard arm opener `<_>` was previously invisible to native
+    // (the `<` was emitted as text and the trailing `</>` popped the parent
+    // `<match>` frame prematurely). The live oracle
+    // `compiler/src/block-splitter.js:1617` admits `/[A-Za-z_]/`.
+    // =========================================================================
+    test("Wave 6 Unit A — `<_>` is a valid tag opener (SPEC §4.1)", () => {
+        // SPEC §4.1 line 307 — tag-name start is letter OR underscore.
+        // `<_>` is the match block-form wildcard arm (§18.0.1).
+        const o = tokenizeOpenerFromLt("<_>");
+        expect(o.ok).toBe(true);
+        expect(o.malformed).toBe(false);
+        expect(o.name).toBe("_");
+        expect(o.span.start).toBe(0);
+        expect(o.span.end).toBe(3);
+    });
+
+    test("Wave 6 Unit A — `<_inner>` parses as a tag named `_inner`", () => {
+        // The continue grammar (SPEC §4.1 line 308) admits letters, digits,
+        // hyphens, and underscores after the start char.
+        const o = tokenizeOpenerFromLt("<_inner>");
+        expect(o.ok).toBe(true);
+        expect(o.name).toBe("_inner");
+    });
+
+    test("Wave 6 Unit A — `<_foo-bar>` admits `_`-start with `-` continuation", () => {
+        const o = tokenizeOpenerFromLt("<_foo-bar>");
+        expect(o.ok).toBe(true);
+        expect(o.name).toBe("_foo-bar");
+    });
+
+    test("Wave 6 Unit A — `<1foo>` is NOT a tag opener (regression guard)", () => {
+        // SPEC §4.1 admits only letter / underscore as the START char;
+        // digits are continue-only. tokenizeOpener records the opener as
+        // malformed (no name start after the `<`).
+        const o = tokenizeOpenerFromLt("<1foo>");
+        expect(o.malformed).toBe(true);
+        expect(o.ok).toBe(false);
+        expect(o.name).toBe("");
+    });
+
+    test("Wave 6 Unit A — `<-foo>` is NOT a tag opener (regression guard)", () => {
+        // The `-` is a tag-name CONTINUE char only — never a START.
+        const o = tokenizeOpenerFromLt("<-foo>");
+        expect(o.malformed).toBe(true);
+        expect(o.ok).toBe(false);
+    });
 });
 
 // =============================================================================
 // MK2.1 §19 — the opener-tokenizer scan helpers (pure calculations).
 // =============================================================================
 describe("MK2.1 opener-tokenizer scan helpers", () => {
-    test("isTagNameStart — an ASCII letter starts a tag name", () => {
+    test("isTagNameStart — an ASCII letter OR `_` starts a tag name", () => {
+        // SPEC §4.1 line 307: tag-name start is letter-or-underscore. Wave
+        // 6 Unit A added `_` so `<_>` (match block-form wildcard arm) is
+        // recognized as a tag opener.
         expect(isTagNameStart("d")).toBe(true);
         expect(isTagNameStart("D")).toBe(true);
+        expect(isTagNameStart("_")).toBe(true);   // Wave 6 Unit A
         expect(isTagNameStart("1")).toBe(false);  // digit cannot START
         expect(isTagNameStart("-")).toBe(false);
         expect(isTagNameStart("")).toBe(false);
     });
 
-    test("isTagNameChar (tag-frame's canonical) — letters / digits / hyphen", () => {
+    test("isTagNameChar (tag-frame's canonical) — letters / digits / hyphen / underscore", () => {
+        // SPEC §4.1 line 308: tag-name continue is alphanumeric / hyphen /
+        // underscore. Wave 6 Unit A added `_`.
         expect(tagFrameIsTagNameChar("a")).toBe(true);
         expect(tagFrameIsTagNameChar("Z")).toBe(true);
         expect(tagFrameIsTagNameChar("5")).toBe(true);
         expect(tagFrameIsTagNameChar("-")).toBe(true);
+        expect(tagFrameIsTagNameChar("_")).toBe(true);  // Wave 6 Unit A
         expect(tagFrameIsTagNameChar(" ")).toBe(false);
         expect(tagFrameIsTagNameChar("")).toBe(false);
     });
@@ -6340,5 +6408,55 @@ describe("P5-12b — isStateTagBoundaryAfterLt post-identifier terminator", () =
         expect(isTagNameContinue("")).toBe(false);
         expect(isTagNameContinue(null)).toBe(false);
         expect(isTagNameContinue(undefined)).toBe(false);
+    });
+
+    // -----------------------------------------------------------------------
+    // Wave 6 Unit A — composition of `_`-start admission with P5-12b's
+    // post-identifier terminator tighten. SPEC §4.1 (line 307) admits `_`
+    // as a tag-name start character. The post-ident terminator check still
+    // rejects `< _.foo` (`.` after the ident proves it's an expression).
+    // -----------------------------------------------------------------------
+    test("Wave 6 Unit A — `< _name>` (ws + `_` + ident + `>`) IS a state boundary", () => {
+        // Compose: `_` is now admitted as a tag-name start (SPEC §4.1);
+        // the run consumes `_name`; `>` is a tag-shape terminator. The
+        // predicate admits.
+        const cursor = makeCursor("< _name>");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(true);
+    });
+
+    test("Wave 6 Unit A — `< _>` (minimal `_`-only ident) IS a state boundary", () => {
+        // The single-char `_` identifier — admitted as both start and
+        // (empty) continue.
+        const cursor = makeCursor("< _>");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(true);
+    });
+
+    test("Wave 6 Unit A — `< _.foo` (ws + `_` + `.`) is NOT a state boundary", () => {
+        // The post-ident terminator check (P5-12b) still rejects: after
+        // consuming the maximal `_` run, the next char is `.` — proves
+        // expression, not opener. P5-12b composes with the `_` admission.
+        const cursor = makeCursor("< _.foo");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(false);
+    });
+
+    test("Wave 6 Unit A — `< _name.method()` rejected at the `.` after ident", () => {
+        // The broader composition guard — `_name` consumed by the run,
+        // `.` rejects.
+        const cursor = makeCursor("< _name.method()");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(false);
+    });
+
+    test("Wave 6 Unit A — `isAsciiTagNameStart` admits `_` (parse-markup sibling predicate)", () => {
+        // Direct probe on the parse-markup-side start predicate (mirrors
+        // tag-frame.js's `isTagNameStart` admission for SPEC §4.1
+        // compliance).
+        expect(isAsciiTagNameStart("_")).toBe(true);
+        expect(isAsciiTagNameStart("a")).toBe(true);
+        expect(isAsciiTagNameStart("A")).toBe(true);
+        expect(isAsciiTagNameStart("1")).toBe(false);
+        expect(isAsciiTagNameStart("-")).toBe(false);
+        expect(isAsciiTagNameStart(".")).toBe(false);
+        expect(isAsciiTagNameStart("")).toBe(false);
+        expect(isAsciiTagNameStart(null)).toBe(false);
     });
 });

@@ -254,22 +254,34 @@ export function tagKindFor(name, hadSpaceAfterLt) {
 // ===========================================================================
 
 // isTagNameStart — calculation (predicate). A character that may START a
-// markup-tag name: an ASCII letter. (Reuses block-context's
-// isAsciiLetter — MK1.3's isMarkupTagOpener uses the same test for the
-// `<ident` boundary; MK2 owns the deeper tag-name grammar.)
+// markup-tag name: an ASCII letter OR `_` (underscore). SPEC §4.1 (line
+// 307) is normative: "any `<` immediately followed by an ASCII letter or
+// underscore (with zero intervening characters)" is the start of an HTML
+// element. The live oracle `compiler/src/block-splitter.js:1617` admits
+// `/[A-Za-z_]/` — the canonical reference. Wave 6 Unit A (post-S121
+// P5-14 v2) added the `_` admission so the match block-form wildcard arm
+// opener `<_>` is recognized — previously `<_>` was invisible to native:
+// the `<` was emitted as text and the trailing `</>` popped the parent
+// `<match>` frame prematurely, surfacing `match-002-block-form-arm-swap`
+// at DIFF-top-seq in the M5 C2 gap ledger.
 export function isTagNameStart(ch) {
+    if (ch === "_") return true;
     return isAsciiLetter(ch);
 }
 
 // isTagNameChar — calculation (predicate). A character that may CONTINUE
-// a markup-tag name: an ASCII letter, an ASCII digit, or `-`. (MK1.3's
+// a markup-tag name: an ASCII letter, an ASCII digit, `-`, or `_`. SPEC
+// §4.1 (line 308) normative: "the maximal sequence of alphanumeric
+// characters, hyphens, and underscores following `<`". (MK1.3's
 // parse-markup.js carried a local isTagNameChar for boundary-only
 // consumption; MK2.1 is the home of the full tag-name grammar — this is
-// the canonical one. The values match 1:1 so the MK1.3 local can defer
-// to it without behavior change.)
+// the canonical one. The values match parse-markup.js's
+// `isTagNameContinue` 1:1 — see the behavioral-parity probe in
+// `parse-markup's isTagNameChar matches tag-frame's`.) Wave 6 Unit A
+// added `_` to match SPEC + the sibling `isTagNameContinue`.
 export function isTagNameChar(ch) {
     if (ch === "") return false;
-    if (ch === "-") return true;
+    if (ch === "-" || ch === "_") return true;
     const c = ch.charCodeAt(0);
     if (c >= 48 && c <= 57) return true;   // 0-9
     if (c >= 65 && c <= 90) return true;   // A-Z

@@ -276,10 +276,16 @@ export function isTagNameContinue(ch) {
 }
 
 // isAsciiTagNameStart — calculation (predicate). The state-opener name's
-// first char — an ASCII letter (mirrors block-context.js's isAsciiLetter,
-// the same closed test isMarkupTagOpener uses).
+// first char — an ASCII letter OR `_`. SPEC §4.1 (line 307) normative:
+// the tag-name start char is letter-or-underscore (live oracle
+// `compiler/src/block-splitter.js:1617`). Wave 6 Unit A added `_` so
+// `< _name>` (space + underscore + name + tag terminator) composes
+// correctly with P5-12b's `isStateTagBoundaryAfterLt` tighten — the
+// post-ws letter check now admits `_`, the post-ident terminator check
+// then rejects `< _.foo` (`.` after the ident proves it's an expression).
 export function isAsciiTagNameStart(ch) {
     if (ch === "" || ch === undefined || ch === null) return false;
+    if (ch === "_") return true;
     const c = ch.charCodeAt(0);
     return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
 }
@@ -1828,18 +1834,19 @@ export function handleCloser(run, cursor, ctx) {
 }
 
 // isTagNameChar — calculation (predicate). A character that may continue a
-// markup-tag name run: ASCII letter, ASCII digit, or `-`. MK2.1 made
-// tag-frame.js the canonical home of the tag-name grammar; this file's
-// isTagNameChar mirrors that canonical body 1:1 so existing importers
-// (parser-conformance-markup.test.js, MK1.2 suite) keep a single
-// binding. K9 (S114): the .scrml form inlines the body (the previous
-// `import { isTagNameChar as tagNameCharCanonical }` aliased import
-// tripped E-SCOPE-001 — SPEC §21); the .js shadow inlines too so the
-// pair stays 1:1. If the canonical grammar ever changes, update BOTH
-// this file and tag-frame.js (.scrml + .js).
+// markup-tag name run: ASCII letter, ASCII digit, `-`, or `_`. SPEC §4.1
+// (line 308) normative. MK2.1 made tag-frame.js the canonical home of the
+// tag-name grammar; this file's isTagNameChar mirrors that canonical body
+// 1:1 so existing importers (parser-conformance-markup.test.js, MK1.2
+// suite) keep a single binding. K9 (S114): the .scrml form inlines the
+// body (the previous `import { isTagNameChar as tagNameCharCanonical }`
+// aliased import tripped E-SCOPE-001 — SPEC §21); the .js shadow inlines
+// too so the pair stays 1:1. If the canonical grammar ever changes,
+// update BOTH this file and tag-frame.js (.scrml + .js). Wave 6 Unit A
+// added `_` to match SPEC + the sibling `isTagNameContinue`.
 export function isTagNameChar(ch) {
     if (ch === "") return false;
-    if (ch === "-") return true;
+    if (ch === "-" || ch === "_") return true;
     const c = ch.charCodeAt(0);
     if (c >= 48 && c <= 57) return true;
     if (c >= 65 && c <= 90) return true;
