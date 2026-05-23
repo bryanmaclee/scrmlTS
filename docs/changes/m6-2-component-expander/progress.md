@@ -1,5 +1,61 @@
 # Progress: m6-2-component-expander
 
+## RESOLVED — S123 R4-U6.b (2026-05-23)
+
+### TL;DR
+
+M6.2b end-to-end CLOSED. The M6.2 wip-patch (route component-expander re-parse through `nativeParseFile`) is now landed (commit `e65b2b43`) with 3 surgical adapters that close the 5 prop-sub regressions surfaced by the R4-U6 RE-STOP. The brief's diagnostic hypothesis ("walker is shape-coupled to live ExprNode; teach it native PascalCase shapes") was **wrong**: the native parser already produces lowercase live-style shapes. The actual gaps are at the synthesis layer — call-ref typed-arg synthesis, hard-keyword binding-name lex, template-literal interpolation collapse — not in `substitutePropsInExprNode` itself.
+
+### What landed
+
+Three adapters inside `reparseSynthesizedFile` (and one new heuristic):
+
+1. **`upgradeNativeCallRefArgExprNodesInFileAST`** — walks the FileAST and, for every `call-ref` AttrValue with `args: string[]` but no `argExprNodes: ExprNode[]`, synthesizes `argExprNodes` via `parseExprToNode` per arg. Best-effort: per-arg parse failure falls back to `escape-hatch`. Closes §1.1 / §1.2 / §1.3.
+2. **`sourceNeedsLiveFallback(src)`** — heuristic predicate detecting (a) `(const|let|tilde|lin)\s+(fn|lin|server|pure)\s*[:=]` hard-keyword bindings and (b) `` `[^`]*\${`` template-literal interpolations. When either matches, `reparseSynthesizedFile` falls back to legacy `splitBlocks + buildAST` verbatim for that single call. Correctness over migration progress; common case still flows through native. Closes §3 + §5.
+3. **`upgradeNativePropsDeclsInFileAST`** — unchanged from M6.2 wip-patch (raw props-block string → `PropDecl[]`).
+
+### Test deltas
+
+| Suite | Pre-patch (R4-U5) | Patch alone (broken) | R4-U6.b landed |
+| --- | --- | --- | --- |
+| `bug-5-nested-component-ce-phantom-dom.test.js` | 5/5 | 5/5 | **5/5** |
+| `f-component-004-substituteProps-logic-block.test.js` | 6/6 | 4/6 (2 fail) | **6/6** |
+| `component-prop-substitution-call-ref.test.js` | 7/7 | 4/7 (3 fail) | **7/7** |
+| Full unit+integration+conformance | 13954/14047 | 13949/14047 (5 fail) | **13966/14059** (0 fail) |
+
+The 5 prop-sub failures from the RE-STOP section below are all closed. Full pre-commit gate passes (bun test, pretest, hooks).
+
+### Root cause taxonomy (corrects RE-STOP diagnosis)
+
+The RE-STOP suggested 3 forward paths: (1) R4-U6.b walker-shape extension, (2) R4-U7 sub-tree wiring, (3) M6.2-defer. R4-U6.b landed but the work was **NOT** walker shape extension — the walker is fine. The 5 failures actually decomposed into 3 distinct native-vs-live shape gaps:
+
+1. **call-ref typed-arg synthesis gap** — `tag-frame.js parseCallArgList` emits raw `args: string[]` with no parallel `argExprNodes`. Live `ast-builder.js parseAttributeValue` emits both. `substituteProps` walks `argExprNodes` to do prop substitution; without typed nodes, the substitution path is skipped and the prop ident survives untyped into emit.
+2. **Hard-keyword binding-name lex divergence** — `fn` / `lin` / `server` / `pure` are HARD keywords in `lex-in-code.js JS_KEYWORDS`, so `const fn = ...` produces `E-STMT-BINDING-NAME` under native. Acorn (live) admits them as identifiers per ECMAScript. This is a real native-parser semantic divergence; the chosen fix is selective live-fallback for sources matching the pattern. Future native-parser work could relax these to contextual keywords (cf. `type` per P5-9 — see token.js L221-229) but that's deferred to a separate unit.
+3. **Template-literal interp source-text loss** — `translate-expr.js translateTemplateLit` (L429) DELIBERATELY collapses every `${...}` to a `${...}` placeholder in `LitExpr.raw`, per the documented "static, no live interpolation" template litType contract. CE's `rewriteTemplateInterpolations` needs the original interp text to substitute prop refs. The selective live-fallback handles this; recovery via span-slicing was attempted and abandoned (native spans on inner expressions are unreliable; see /tmp/probe_template_span.js artifact).
+
+### Architecture decision
+
+The selective live-fallback approach for #2 and #3 is intentionally conservative. The alternatives surveyed:
+
+- **Span-slice recovery** for template lits: native span offsets on inner expressions are wonky (probed: span 17..32 slice gave "nst out = `Hell" instead of the template body). Rejected.
+- **Native-side fix** for `translateTemplateLit` to emit-from-tree the inner exprs into the raw: would require importing emit-string into the native parser, breaking the bridge-only contract. Rejected (out of scope, would also widen blast radius).
+- **Hard-keyword lex relaxation** for #2: making `fn`/`lin`/`server`/`pure` contextual keywords (like `type` per P5-9) is the long-term right answer but spans many parser sites. Deferred.
+- **R4-U7 sub-tree wiring** (the other RE-STOP option): not load-bearing for any of the 5 actual failures, since the walker shapes were OK.
+
+The selective-fallback pattern can be revisited later (consolidate as a `M6-divergence-fallback.md` ledger) once more migrations encounter similar gaps. For now: M6.2b is closed, regressions are zero, native-parser usage progresses where safe.
+
+### Wip-patch obsolescence
+
+`docs/changes/m6-2-component-expander/wip-migration.patch` is now obsolete — the patch contents are landed (plus the three R4-U6.b adapters) in `compiler/src/component-expander.ts` at HEAD `e65b2b43`. Recommend deletion in a follow-up cleanup commit (intentionally NOT deleted here to preserve audit trail through close).
+
+### Cross-refs
+
+- This section supersedes "RE-STOP — S123 R4-U6 attempt" below (which is now historical).
+- R4 OUTER wrap surface is CLOSED at `2d72820d` (R4-U5). R4-U6.b closes the M6.2b surface area.
+- M6 Wave 1 remaining work: M6.6.b.2..b.6, M6.7, M6.8. M6.2b crossed off.
+
+---
+
 ## RE-STOP — S123 R4-U6 attempt (2026-05-23)
 
 ### TL;DR

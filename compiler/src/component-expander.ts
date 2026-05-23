@@ -42,6 +42,7 @@
  * Parallelism: per-file — fully parallel across Bun workers.
  */
 
+import { nativeParseFile } from "../native-parser/parse-file.js";
 import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
 import { exprNodeMatchesIdent, exprNodeContainsCall, emitStringFromTree, parseExprToNode } from "./expression-parser.ts";
@@ -556,6 +557,333 @@ function normalizeTokenizedRaw(raw: string): string {
  * Complex nested component bodies (those with markup children containing logic
  * blocks) are not supported and produce E-COMPONENT-021.
  */
+/**
+ * Split a string at TOP-LEVEL commas (commas not inside `{}`/`()`/`[]`).
+ * Mirrors `splitAtTopLevelCommas` in ast-builder.js L2147 — the parsing
+ * dependency for parsePropsBlockRaw below.
+ */
+function splitAtTopLevelCommasCE(raw: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of raw) {
+    if (ch === "{" || ch === "(" || ch === "[") { depth++; current += ch; }
+    else if (ch === "}" || ch === ")" || ch === "]") { depth--; current += ch; }
+    else if (ch === "," && depth === 0) { parts.push(current); current = ""; }
+    else { current += ch; }
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
+/**
+ * Parse a raw props-block source string into a structured PropDecl[] array.
+ *
+ * Mirrors ast-builder.js `parsePropsBlock` (L2182), but local to CE so the
+ * M6.2 native-parser re-parse path produces the same downstream shape the
+ * legacy BS+TAB re-parse path produced. The native parser's tag-frame
+ * (tag-frame.js L885-889) emits `{ kind: "props-block", propsDecl: <raw> }`
+ * carrying the raw source string; the LIVE BS+TAB path emits PropDecl[].
+ * Component-expander downstream code (L671 `for (const decl of propsDecl)`,
+ * L756, L1818) walks a PropDecl[] — so the helper below upgrades the native
+ * string shape to the live PropDecl[] shape inside `reparseSynthesizedFile`.
+ *
+ * Errors are surfaced as CE-shaped `{ code, message, span }` records and
+ * folded into the result's `errors` array, identical to the live behavior.
+ */
+function parsePropsBlockRaw(
+  raw: string,
+  span: Span
+): { props: PropDecl[]; errors: Array<{ code: string; message: string; span: Span; severity?: string }> } {
+  const props: PropDecl[] = [];
+  const errors: Array<{ code: string; message: string; span: Span; severity?: string }> = [];
+  const parts = splitAtTopLevelCommasCE(raw);
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    let bindable = false;
+    let propText = trimmed;
+    if (propText.startsWith("bind ")) {
+      bindable = true;
+      propText = propText.slice(5).trim();
+    }
+    const match = propText.match(/^([A-Za-z_][A-Za-z0-9_]*)(\?)?\s*:\s*(.+)$/);
+    if (!match) {
+      errors.push({
+        code: "E-COMPONENT-019",
+        message: `E-COMPONENT-019: Invalid prop declaration \`${trimmed}\` in props block. ` +
+          `Expected format: \`name: type\`, \`name?: type\`, \`name: type = default\`, ` +
+          `\`bind name: type\` (bindable prop), or \`name: fn-signature\` (function prop).`,
+        span,
+      });
+      continue;
+    }
+    const name = match[1];
+    const optional = match[2] === "?";
+    let typeAndDefault = match[3].trim();
+    let defaultValue: string | null = null;
+    const eqMatch = typeAndDefault.match(/^(.+?)\s*=(?!=|>)\s*(.+)$/);
+    if (eqMatch) {
+      typeAndDefault = eqMatch[1].trim();
+      defaultValue = eqMatch[2].trim();
+    }
+    const isFunctionProp = typeAndDefault.includes("=>") || typeAndDefault.trim().startsWith("(");
+    props.push({
+      name,
+      type: typeAndDefault,
+      optional: optional || defaultValue !== null,
+      default: defaultValue,
+      bindable,
+      isFunctionProp,
+      isSnippet: false,
+      snippetParamType: null,
+    } as PropDecl);
+  }
+  return { props, errors };
+}
+
+/**
+ * Walk the FileAST and upgrade any `props-block` AttrValue carrying a
+ * string `propsDecl` (native shape) into one carrying a PropDecl[] (live
+ * shape). MUTATES the AttrValue in place — the native AttrValue is freshly
+ * synthesized per parse so the mutation is local to this call's tree.
+ */
+function upgradeNativePropsDeclsInFileAST(
+  ast: FileAST,
+  errors: Array<{ code: string; message: string; span: Span; severity?: string }>
+): void {
+  function visitMarkup(node: MarkupNode): void {
+    if (Array.isArray(node.attrs)) {
+      for (const attr of node.attrs) {
+        const val = attr?.value as AttrValue | undefined;
+        if (val && (val as { kind?: string }).kind === "props-block") {
+          const propsBlock = val as { kind: "props-block"; propsDecl: unknown; span: Span };
+          if (typeof propsBlock.propsDecl === "string") {
+            const parsed = parsePropsBlockRaw(propsBlock.propsDecl, propsBlock.span);
+            propsBlock.propsDecl = parsed.props;
+            for (const e of parsed.errors) errors.push(e);
+          }
+        }
+      }
+    }
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        if (child && (child as { kind?: string }).kind === "markup") {
+          visitMarkup(child as MarkupNode);
+        }
+      }
+    }
+  }
+  for (const n of ast.nodes ?? []) {
+    if (n && (n as { kind?: string }).kind === "markup") {
+      visitMarkup(n as MarkupNode);
+    }
+  }
+}
+
+/**
+ * Walk the FileAST and, for any `call-ref` attribute value carrying `args:
+ * string[]` but lacking `argExprNodes: ExprNode[]`, synthesize the typed
+ * `argExprNodes` by parsing each `args` entry via `parseExprToNode`.
+ *
+ * Native shape (tag-frame.js parseCallArgList) emits the bare
+ * `{ kind: "call-ref", name, args: string[], span }` — no typed expression
+ * trees. Live BS+TAB (ast-builder.js parseAttributeValue) emits the same
+ * `args: string[]` plus a parallel `argExprNodes: ExprNode[]` derived from
+ * `parseExprToNode` per arg. Downstream `substituteProps` reads
+ * `argExprNodes` to substitute prop refs (call-ref §1.1/§1.2/§1.3 tests);
+ * without it the substitution path is skipped and the prop ident survives
+ * untyped into the emitted handler. This walker restores shape parity.
+ *
+ * Any per-arg parse error is silently dropped to an `escape-hatch` ExprNode
+ * (best-effort — keeps codegen alive; non-prop args are unaffected since the
+ * substitution walker only fires on IdentExpr matches).
+ */
+function upgradeNativeCallRefArgExprNodesInFileAST(
+  ast: FileAST,
+  filePath: string,
+): void {
+  function visitMarkup(node: MarkupNode): void {
+    if (Array.isArray(node.attrs)) {
+      for (const attr of node.attrs) {
+        const val = attr?.value as AttrValue | undefined;
+        if (val && (val as { kind?: string }).kind === "call-ref") {
+          const callVal = val as {
+            kind: "call-ref";
+            name: string;
+            args: string[];
+            argExprNodes?: ExprNode[];
+            span: ExprSpan;
+          };
+          if (
+            Array.isArray(callVal.args) &&
+            callVal.args.length > 0 &&
+            (!Array.isArray(callVal.argExprNodes) || callVal.argExprNodes.length === 0)
+          ) {
+            const exprSpan: ExprSpan = callVal.span ?? {
+              file: filePath,
+              start: 0,
+              end: 0,
+              line: 1,
+              col: 1,
+            };
+            const argNodes: ExprNode[] = [];
+            for (const raw of callVal.args) {
+              const trimmed = (raw ?? "").trim();
+              if (!trimmed) {
+                argNodes.push({
+                  kind: "escape-hatch",
+                  span: exprSpan,
+                  nativeKind: "EmptyArg",
+                  raw: "",
+                } satisfies EscapeHatchExpr);
+                continue;
+              }
+              try {
+                argNodes.push(parseExprToNode(trimmed, filePath, exprSpan.start));
+              } catch (_e) {
+                argNodes.push({
+                  kind: "escape-hatch",
+                  span: exprSpan,
+                  nativeKind: "CallArgParseFailure",
+                  raw: trimmed,
+                } satisfies EscapeHatchExpr);
+              }
+            }
+            callVal.argExprNodes = argNodes;
+          }
+        }
+      }
+    }
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        if (child && (child as { kind?: string }).kind === "markup") {
+          visitMarkup(child as MarkupNode);
+        }
+      }
+    }
+  }
+  for (const n of ast.nodes ?? []) {
+    if (n && (n as { kind?: string }).kind === "markup") {
+      visitMarkup(n as MarkupNode);
+    }
+  }
+}
+
+/**
+ * R4-U6.b — heuristic source-pattern predicate that signals whether the
+ * synthesized scrml source contains patterns the native parser (as of HEAD
+ * 9c06053f) handles non-equivalently to the live BS+TAB pipeline. When this
+ * fires, `reparseSynthesizedFile` falls back to the legacy `splitBlocks +
+ * buildAST` path for that single re-parse call. Doing so is correctness-
+ * preserving (the legacy path is the long-standing reference) and keeps the
+ * M6.2 native migration progressive — the common case (no detected divergent
+ * pattern) still flows through `nativeParseFile`.
+ *
+ * Documented divergences this guards against:
+ *  1. `const|let|tilde|lin <hard-kw> = ...` — hard scrml keywords (`fn`,
+ *     `lin`, `server`, `pure`) cannot lex as identifiers in a binding
+ *     position under the native parser (lex-in-code.js JS_KEYWORDS); the
+ *     live Acorn-based pipeline admits them per ECMAScript. Tested by
+ *     f-component-004 §3 (`const fn = (name) => name`).
+ *  2. Template literals with interpolations — native `translateTemplateLit`
+ *     (translate-expr.js L429) collapses `${...}` to the literal `${...}`
+ *     placeholder in the live `LitExpr.raw`, losing the interpolation source
+ *     text. Downstream `rewriteTemplateInterpolations` then cannot rewrite
+ *     prop refs inside the interp. Tested by f-component-004 §5
+ *     (`` `Hello ${name}` ``).
+ *
+ * The heuristic is conservative: false positives merely take the slower
+ * (but correct) legacy path; false negatives let the native path through
+ * where it diverges, which is exactly the failure mode this guards against.
+ */
+function sourceNeedsLiveFallback(source: string): boolean {
+  // (1) `const|let|tilde|lin <hard-keyword> =` binding
+  if (/\b(?:const|let|tilde|lin)\s+(?:fn|lin|server|pure)\s*[:=]/.test(source)) {
+    return true;
+  }
+  // (2) Template literal with interpolation: backtick followed by anything
+  // not containing a backtick, then `${`. Conservative — matches even when
+  // the interp is escaped, but escape-in-template is not a CE expansion
+  // pattern in practice.
+  if (/`[^`]*\$\{/.test(source)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * M6.2 — Re-parse a synthesized scrml source string into a `FileAST`-shaped
+ * result, replacing the legacy `splitBlocks` + `buildAST` round-trip.
+ *
+ * Background: component expansion synthesizes scrml source twice — once for
+ * component-def body re-parsing (parseComponentBody) and once for re-parsing
+ * a tokenized component reference inside a logic expression (walkLogicBody
+ * re-parse path). Both sites historically passed the synthesized source
+ * through `splitBlocks` then `buildAST`, producing a `{ filePath, ast, errors }`
+ * shape. The native parser's `nativeParseFile` is a drop-in replacement that
+ * returns the identical shape — see api.js:843-850 for the upstream TAB-stage
+ * routing precedent under `--parser=scrml-native`.
+ *
+ * Error-shape note: `buildAST` emits `TABErrorInfo` (carrying `tabSpan`);
+ * `nativeParseFile` emits diagnostics carrying `span` and optional `severity`.
+ * Callers that mapped `e.tabSpan` must now read `e.span`. Info-severity
+ * diagnostics (e.g. `I-NATIVE-BLOCK-DROPPED`) are emitted by the native
+ * assembler and should be filtered alongside warnings when checking for real
+ * parse failures.
+ *
+ * Shape adapter: the native parser emits `{ kind: "props-block",
+ * propsDecl: <raw-source-string> }` (tag-frame.js L885), whereas the live
+ * BS+TAB path emits `{ kind: "props-block", propsDecl: PropDecl[] }`.
+ * Component-expander downstream code walks PropDecl[]. The helper
+ * `upgradeNativePropsDeclsInFileAST` post-processes the native FileAST to
+ * parse any raw props-block string into PropDecl[], restoring shape parity
+ * with the legacy path. Any structural errors from prop parsing are folded
+ * into the helper's returned `errors` array.
+ *
+ * Call-ref adapter: the native parser emits `{ kind: "call-ref", args:
+ * string[] }` (no typed `argExprNodes`), whereas the live path emits both
+ * `args` and `argExprNodes`. `upgradeNativeCallRefArgExprNodesInFileAST`
+ * synthesizes `argExprNodes` from `args` via `parseExprToNode`. Without
+ * this, prop substitution into call-ref attribute values (`<li ondrop=
+ * dropOn(name)>`) is skipped and the prop ident survives into the emitted
+ * handler. Tested by component-prop-substitution-call-ref §1.x.
+ *
+ * Live-fallback gate: `sourceNeedsLiveFallback(source)` detects known
+ * patterns where the native parser diverges from live (hard-keyword
+ * bindings, template-literal interpolations). For those sources we use the
+ * legacy `splitBlocks + buildAST` path verbatim — correctness over
+ * migration progress. The common case (no divergent pattern) still flows
+ * through native.
+ */
+function reparseSynthesizedFile(
+  filePath: string,
+  source: string
+): { ast: FileAST; errors: Array<{ code: string; message: string; span: Span; severity?: string }> } {
+  if (sourceNeedsLiveFallback(source)) {
+    const bsOut = splitBlocks(filePath, source);
+    const tabOut = buildAST(bsOut) as { ast: FileAST; errors: TABErrorInfo[] };
+    return {
+      ast: tabOut.ast,
+      errors: (tabOut.errors ?? []).map((e: TABErrorInfo) => ({
+        code: e.code,
+        message: e.message,
+        span: e.tabSpan,
+        severity: e.severity,
+      })),
+    };
+  }
+  const result = nativeParseFile(filePath, source) as {
+    filePath: string;
+    ast: FileAST;
+    errors: Array<{ code: string; message: string; span: Span; severity?: string }>;
+  };
+  const errors = result.errors ?? [];
+  upgradeNativePropsDeclsInFileAST(result.ast, errors);
+  upgradeNativeCallRefArgExprNodesInFileAST(result.ast, filePath);
+  return { ast: result.ast, errors };
+}
+
 function parseComponentBody(
   raw: string,
   componentName: string,
@@ -564,23 +892,24 @@ function parseComponentBody(
   try {
     const normalized = normalizeTokenizedRaw(raw);
 
-    const bsOut = splitBlocks(filePath + "#" + componentName, normalized);
-    const tabOut = buildAST(bsOut) as { ast: FileAST; errors: TABErrorInfo[] };
+    const reparsed = reparseSynthesizedFile(filePath + "#" + componentName, normalized);
 
     // Collect ALL markup nodes from the parsed result (multi-root support)
-    const markupNodes = tabOut.ast.nodes.filter(n => n && n.kind === "markup") as MarkupNode[];
+    const markupNodes = reparsed.ast.nodes.filter(n => n && n.kind === "markup") as MarkupNode[];
 
-    // Filter out W-PROGRAM-001 and other warnings — they're expected for snippets
-    const realErrors = tabOut.errors.filter(
-      (e: TABErrorInfo) => e.severity !== "warning" && e.code !== "W-PROGRAM-001"
+    // Filter out W-PROGRAM-001, warnings, and native-parser info diagnostics
+    // — they're expected for snippets / multi-root fragments / dropped Test
+    // blocks and do not indicate parse failure.
+    const realErrors = reparsed.errors.filter(
+      (e) => e.severity !== "warning" && e.severity !== "info" && e.code !== "W-PROGRAM-001"
     );
 
     return {
       nodes: markupNodes,
-      errors: realErrors.map((e: TABErrorInfo) => ({
+      errors: realErrors.map((e) => ({
         code: e.code,
         message: e.message,
-        span: e.tabSpan,
+        span: e.span,
       })),
     };
   } catch (e) {
@@ -2604,8 +2933,7 @@ function walkLogicBody(
               .replace(/"\s*>/g, '">')
               .replace(/\s*\/\s*>/g, "/>")
               .replace(/([^"=])\s*>/g, "$1>");
-            const bsResult = splitBlocks(filePath, normalized);
-            const tabResult = buildAST(bsResult, null);
+            const tabResult = reparseSynthesizedFile(filePath, normalized);
             const reparsedNodes = tabResult?.ast?.nodes ?? [];
             // Find the first markup node that is a component reference.
             // P3-FOLLOW note: this re-parse path runs on a freshly-constructed
