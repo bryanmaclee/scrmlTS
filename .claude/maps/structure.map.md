@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-05-22T00:00:00Z  commit: 5d2003dd
+# updated: 2026-05-22T17:44:26-06:00  commit: a8904945
 
 ## Entry Points
 compiler/bin/scrml.js — CLI executable shim; re-exports src/cli.js so `bun run scrml` / `npx scrml` / direct invocation all work.
@@ -34,6 +34,7 @@ benchmarks/                    — perf + LLM-efficiency + framework-comparison 
 e2e/                           — Playwright end-to-end tests + configs.
 docs/                          — articles, audits, changes (per-dispatch BRIEF/SCOPING/progress files), website, tutorial, PA-SCRML-PRIMER, changelog.
 scripts/                       — build/maintenance scripts (compile-test-samples, regen-spec-index, rebuild-*-dist, git-hooks).
+dashboard/                     — scrml examples verification dashboard (v1, S120); dashboard/app.scrml is the single .scrml app; dashboard/dist is generated output.
 handOffs/                      — historical session hand-off docs (out of scope).
 
 ## Native-Parser Layout
@@ -41,8 +42,15 @@ Front-end flow: lex → parse-stmt/parse-expr → parse-markup → bridge layer 
 
   Lexing      — lex.js + lex-mode.js + 7 lex-in-* dispatchers (code, single/double-string,
                 template, line/block-comment, regex); token.js + token-cursor.js + cursor.js.
+                P5-9 (S120): `CONTEXTUAL_KEYWORDS` added to token.js — `type` lexes as
+                `Ident` with a `ctxKw:"type"` payload; parse-stmt.js reads that field at
+                statement position to decide whether the `type` keyword reading applies.
   Statements  — parse-stmt.js, ast-stmt.js (StmtKind: 20 variants), parse-ctx.js,
                 parse-mode.js, parse-seam.js, block-context.js, body-mode.js.
+                P5-3 (S120): `^{}` meta-block at statement position + `type:kind` decl ordering.
+                P5-9 (S120): `type` as contextual keyword — `export type ...` fixed.
+                P5-11 (S120): V5-strict structural state-decl `<NAME ...> = expr` recognition
+                inside `${}` logic-escape bodies.
   Expressions — parse-expr.js, ast-expr.js (ExprKind: 40 variants).
   Markup      — parse-markup.js, tag-frame.js (TagKind calc + VOID_ELEMENTS void-element
                 set + isVoidElementName, S119 HTML void-element support),
@@ -50,6 +58,18 @@ Front-end flow: lex → parse-stmt/parse-expr → parse-markup → bridge layer 
                 parse-state-body.js (shapeStateBlock + STATE_FORM_KEYWORDS `{db,schema}`
                 + isStateBlock — S119 no-space `<db>`/`<schema>` recognition),
                 parse-error-body.js, delegation-frame.js.
+                P5-1 (S120): state-decl openers suppressed in the markup trampoline
+                (top-level `<query debounced=300ms> = ""` no longer mis-segmented as markup).
+                P5-2 (S120): bare-markup export (`export <channel ...>`) and
+                `const Name = <markup>` pairing forms landed in parse-markup.js.
+                P5-4 (S120): `<style>` rejection as non-scrml-markup + stray anonymous-closer
+                (`</>` with no open frame) suppression.
+                P5-8 (S120): empty-paren discrimination in `parseTypedAttrTokens` —
+                a `name()` call token in a state opener is NOT a typed-attr decl.
+                P5-12 (S120): tag-frame opener-scan aborts on unbalanced closer at depth 0
+                (prevents over-scan eating the `>` of a nested `<state>`).
+                P5-13 (S120): brace-in-string skip in the `${}` body-extent scanner
+                (a `{` / `}` inside a string literal no longer shifts the brace depth).
   BRIDGE      — translate-stmt.js (R1 — native Stmt[] → live LogicStatement[]),
                 translate-expr.js (A2 — native Expr → live ExprNode),
                 collect-hoisted.js (A3 — native Block[] → imports/exports/typeDecls/
@@ -79,7 +99,7 @@ compiler/SPEC-INDEX.md   — navigation map into SPEC.md (section anchors).
 compiler/PIPELINE.md     — pipeline-stage reference.
 
 ## Ignored / Generated Paths
-node_modules, dist, compiler/dist, compiler/native-parser/dist, build, target, .git, .jj, .claude, vendor, *.db (SQLite test DBs), examples/dist, samples/dist
+node_modules, dist, compiler/dist, compiler/native-parser/dist, build, target, .git, .jj, .claude, vendor, *.db (SQLite test DBs), examples/dist, samples/dist, dashboard/dist
 
 ## Monorepo Note
 package.json declares a Bun workspace `["compiler"]`. compiler/package.json is the

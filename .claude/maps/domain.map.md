@@ -1,6 +1,6 @@
 # domain.map.md
 # project: scrmlts
-# updated: 2026-05-22T00:00:00Z  commit: 5d2003dd
+# updated: 2026-05-22T17:44:26-06:00  commit: a8904945
 
 The domain is the scrml COMPILER pipeline. scrml is a single-file, full-stack
 reactive web language; the compiler splits server from client, wires reactivity,
@@ -91,11 +91,14 @@ The full chain (api.js stage labels in brackets):
 - M5 swap scope docs: compiler/native-parser/M5-ast-bridge-scoping.md (divergence
   inventory + cost estimate), M5-divergence-ledger.md (clean-parse coverage),
   M5-SWAP-residual-decomposition.md (re-scoped residual unit decomposition).
-- C2 gap-ledger: docs/changes/m5-c2-gap-ledger/investigation-2026-05-22.md sizes the
-  two dominant native-vs-live divergence classes; Phase 4 fix dispatches target the
-  native parser + collect-hoisted.js hoist-fold path.
+- C2 gap-ledger docs:
+    docs/changes/m5-c2-gap-ledger/investigation-2026-05-22.md — dual-pipeline-canary
+      divergence sizing (261/1000 corpus files diverge; two dominant classes).
+    docs/changes/m5-c2-gap-ledger/phase4-triage-2026-05-22.md — Phase 4 triage.
+    docs/changes/m5-c2-gap-ledger/phase5-triage-2026-05-22.md — Phase 5 triage of the
+      51-gap residual post-P4; roots the 9 P5 fix units (S120); gap closed 51→15.
 
-## v0.7 M5-swap progress (S117-S119)
+## v0.7 M5-swap progress (S117-S120)
 - R1 (S117) — statement-catalog bridge landed.
 - R4 (S117) — SPEC §34.1 native-parser parse-diagnostics catalog seeded (66 codes).
 - A2 (S118) — expression-catalog bridge landed.
@@ -110,9 +113,22 @@ The full chain (api.js stage labels in brackets):
 - C2 (S119) — native-parser ROUTING swap: `--parser=scrml-native` routes the TAB
   stage through `nativeParseFile`; dual-pipeline canary landed; §34.1 +2 info codes
   (`I-NATIVE-BLOCK-DROPPED` / `I-NATIVE-BLOCK-UNMAPPED`) → 81 codes.
-- M5 gap-ledger (S119) — synthStateNode (P1), segmentation fixes + engine-in-nodes
+- M5 gap-ledger Phase 4 (S119) — synthStateNode (P1), segmentation fixes + engine-in-nodes
   (P3), HTML void-element support (tag-frame VOID_ELEMENTS), recursive-diff canary
-  axis, no-space `<db>`/`<schema>` state recognition (STATE_FORM_KEYWORDS).
+  axis, no-space `<db>`/`<schema>` state recognition (STATE_FORM_KEYWORDS). Gap: 261→51.
+- M5 gap-ledger Phase 5 (S120) — 9 fix units targeting the remaining 51-gap:
+    P5-1: state-decl opener suppression in parse-markup.js trampoline.
+    P5-2: bare-markup export / `const Name = <markup>` pairing forms in parse-markup.js.
+    P5-3: `^{}` meta-block recovery + `type:kind` decl ordering in parse-stmt.js.
+    P5-4: `<style>` rejection as non-markup + stray anonymous-closer suppression.
+    P5-8: empty-paren discrimination in `parseTypedAttrTokens` (parse-state-body.js).
+    P5-9: `type` as contextual keyword — `CONTEXTUAL_KEYWORDS` added to token.js;
+          parse-stmt.js reads `ctxKw` field to gate type-decl vs plain identifier.
+    P5-11: V5-strict structural state-decl `<NAME ...> = expr` inside `${}` bodies
+           (parse-stmt.js).
+    P5-12: tag-frame opener-scan aborts on unbalanced closer (tag-frame.js).
+    P5-13: brace-in-string skip in `${}` body-extent scanner (parse-markup.js).
+  Gap closed: 51 → 15. Residual 15 are deferred classes; M6 gate.
 
 ## Native Parser Charter (charter B, S111)
 Replaces the WHOLE front-end — block-splitter, Acorn layer, BPP, statechild

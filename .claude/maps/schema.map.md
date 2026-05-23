@@ -1,6 +1,6 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-05-22T00:00:00Z  commit: 5d2003dd
+# updated: 2026-05-22T17:44:26-06:00  commit: a8904945
 
 Authoritative AST type catalog: `compiler/src/types/ast.ts`. This is the contract
 the M5 native-parser swap must satisfy — native-parser output must be coercible to
@@ -104,6 +104,9 @@ CgOutput [223] — outputs: Map<string,CgFileOutput>, errors, runtimeJs, runtime
 
 ### Token  [token.js] — lexer output
 TokenKind — Object.freeze enum; QuoteKind; JS_KEYWORDS frozen set.
+CONTEXTUAL_KEYWORDS — Object.freeze `{ "type": "type" }` (P5-9, S120). `type` lexes
+  as `TokenKind.Ident` with a `ctxKw:"type"` payload; parse-stmt.js reads `ctxKw` by
+  position to decide whether the type-declaration reading applies vs. plain identifier.
 Factories: makeToken, makeIdentOrKeyword, makeEof.
 
 ### Stmt catalog  [ast-stmt.js] — `Stmt[]` from parseProgram(tokens,source)
@@ -163,16 +166,21 @@ collect-hoisted.js `collectHoisted(blocks, idGen, source)` → { imports, export
   live FileAST declaration node shapes; exports `isEngineBlock` + `synthEngineDecl`
   (a Markup block named "engine"/"machine" → a 14-field EngineDeclNode).
 
-### State-block shaping  [parse-state-body.js — S119]
+### State-block shaping  [parse-state-body.js — S119/S120]
 `shapeStateBlock(block)` — stamps `stateNodeKind`/`stateType`/`typedAttrs` onto a
   Markup block whose opener TagKind is StateOpener (§4.3 space-after-`<`).
 `STATE_FORM_KEYWORDS` — frozen `["db","schema"]` — the no-space `<db>`/`<schema>`
   lifecycle-keyword set; the native analogue of the live builder's
   `_STATE_FORM_LIFECYCLE` name-set (engine/machine EXCLUDED — routed to engine-decl).
+`ENGINE_FORM_KEYWORDS` — frozen `["engine","machine"]` — explicitly excluded from
+  `isStateBlock` so space-form `< engine>` openers (TagKind.StateOpener) defer to
+  the dedicated engine-decl branch in `mapOneBlock` (M5 P4-1 over-match fix).
 `isStateBlock(block)` — true iff Markup block with `tagKind==="StateOpener"` OR
   `name ∈ STATE_FORM_KEYWORDS`. Depth-agnostic.
-TypedAttrDecl: `{ name, typeExpr, optional, defaultValue, span }` — `splitTypedAttr`
-  peels `= default` + trailing `?`, mirroring live `parseTypedAttributes`.
+TypedAttrDecl: `{ name, typeExpr, optional, defaultValue, span }` — `parseTypedAttrTokens`
+  peels `= default` + trailing `?`, mirroring live `parseTypedAttributes`. P5-8 (S120):
+  empty-paren `name()` tokens produce no TypedAttrDecl — prevents phantom
+  `state-constructor-def` under attr over-scan.
 
 ### HTML void elements  [tag-frame.js — S119]
 `VOID_ELEMENTS` — frozen set (area, base, br, col, embed, hr, img, input, link, meta,

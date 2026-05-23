@@ -1,6 +1,6 @@
 # primary.map.md
 # project: scrmlts
-# updated: 2026-05-22T00:00:00Z  commit: 5d2003dd
+# updated: 2026-05-22T17:44:26-06:00  commit: a8904945
 
 ## Project Fingerprint
 Language:   JavaScript + TypeScript (mixed; .js + .ts source, no tsc build step)
@@ -8,7 +8,7 @@ Framework:  none — bespoke compiler; deps acorn + astring
 Runtime:    Bun >=1.3.13 (also the test runner, bundler, package manager)
 Type:       compiler / language toolchain (monorepo: Bun workspace `["compiler"]`)
 Size:       ~3149 git-tracked files
-Watermark:  HEAD 5d2003dd (2026-05-22) — package.json v0.6.0
+Watermark:  HEAD a8904945 (2026-05-22) — package.json v0.6.0
 
 ## Map Index
 | Map                  | Status  | Contents                                       |
@@ -54,11 +54,11 @@ diagnostic classes / error codes       → error.map.md
   (translate-stmt R1, translate-expr A2, collect-hoisted A3) into the live `FileAST`
   shape, with 11 per-BlockKind synthesizers and one shared `idGen`. `authConfig`/
   `middlewareConfig` set to `null` — PRECG (Stage 3.004) derives them downstream.
-- S119 M5 gap-ledger work hardened the native parser: synthStateNode + no-space
-  `<db>`/`<schema>` state recognition (parse-state-body.js `STATE_FORM_KEYWORDS`),
-  HTML void-element support (tag-frame.js `VOID_ELEMENTS`), engine-in-nodes parity
-  (collect-hoisted.js `isEngineBlock`), and the dual-pipeline canary's recursive
-  diff axis (compiler/tests/parser-conformance/dual-pipeline-canary.js).
+- M5 C2 gap-ledger Phase 5 (S120): 9 fix units (P5-1 through P5-13) closed the
+  51-gap residual down to 15. P5-9 introduced `CONTEXTUAL_KEYWORDS` to token.js
+  (`type` lexes as Ident with `ctxKw` payload); P5-12 hardened the tag-frame
+  opener-scan; P5-13 fixed brace-in-string skip in `${}` body-extent scanner.
+  The 15 remaining gaps are deferred classes; M6 is the next gate.
 - The central data structure is `FileAST` (compiler/src/types/ast.ts:1487). The
   native catalogs (Stmt[], Expr, Block[]) are PascalCase ESTree-shaped; the live
   FileAST uses lowercase scrml kinds — the bridge does the N×M structural translation.
@@ -66,11 +66,13 @@ diagnostic classes / error codes       → error.map.md
   COMPILER has 11 per-stage host-side diagnostic classes plus a runtime
   `_ScrmlError` hierarchy embedded into emitted apps. §34.1 catalogs 81 native-parser
   diagnostics — 79 hard `E-` parse errors + 2 info-level `I-NATIVE-BLOCK-*`
-  FileAST-assembler codes (added S119 C2; non-fatal, partition into result.warnings).
+  FileAST-assembler codes (non-fatal, partition into result.warnings).
 - No hosted CI, no Docker — quality gates are local git hooks; pre-commit runs
   unit+integration+conformance, never bypass `--no-verify` without authorization.
 - SPEC.md is normative per pa.md Rule 4 (58 sections; §34.1 is the native-parser
   diagnostic catalog; §58 is the Build Story, spec-ahead-of-implementation).
+- `dashboard/app.scrml` (S120) is the scrml examples verification dashboard — a
+  single .scrml app under `dashboard/`; unrelated to the compiler pipeline.
 
 ## Tags
 #scrmlts #map #primary #compiler #native-parser #m5-swap #pipeline
