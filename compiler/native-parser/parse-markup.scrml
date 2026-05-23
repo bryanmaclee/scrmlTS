@@ -331,7 +331,7 @@ ${
     // bare `< ` in free text) is NOT a tag boundary — it stays free-text
     // per §4.6.
     // -------------------------------------------------------------------
-    export fn isStateTagBoundaryAfterLt(cursor) {
+    export function isStateTagBoundaryAfterLt(cursor) {
         // The char after `<` must be whitespace (a `<ident` opener with
         // NO space is handled by isMarkupTagOpener — this is the space-
         // bearing §4.3 form only).
@@ -397,7 +397,7 @@ ${
     // recognition. The opener-body scan mirrors that oracle's brace /
     // paren / string balancing so an attr value containing `>` does not
     // end the scan early.
-    export fn isStateDeclOpenerAt(cursor) {
+    export function isStateDeclOpenerAt(cursor) {
         const src = cursor.source
         const len = src.length
         let p = cursor.pos + 1
@@ -508,7 +508,7 @@ ${
     // after `<`), or "" when no name char follows. Used by the `<style>`
     // recognizer in dispatchTopLevel — peeking the name without consuming
     // the opener.
-    export fn peekTagNameLower(cursor) {
+    export function peekTagNameLower(cursor) {
         const src = cursor.source
         const len = src.length
         let p = cursor.pos + 1
@@ -526,7 +526,7 @@ ${
     // materializes (an unterminated `<style>` runs to EOF — the live BS
     // does the same: block-splitter.js L1732-1738 terminates at
     // `</style>` OR `len`).
-    export fn scanPastStyleBlock(cursor) {
+    export function scanPastStyleBlock(cursor) {
         const src = cursor.source
         const len = src.length
         let p = cursor.pos
@@ -800,7 +800,7 @@ ${
     // recognition (recognizeCloserForm) is the heuristic-elimination
     // contract.
     // -------------------------------------------------------------------
-    export fn dispatchTopLevel(run, cursor, ctx) {
+    export function dispatchTopLevel(run, cursor, ctx) {
         // P4-3 — the ORPHAN-BRACE suppression. A bare `{` at markup / top
         // level (no preceding sigil) opens an orphan-brace region — the
         // body of a bare control-flow / expression construct sitting
@@ -1749,7 +1749,7 @@ ${
     // dispatch per BlockContext). Returns the typed block-stream
     // (ctx.nodes).
     // -------------------------------------------------------------------
-    export fn parseMarkup(source) {
+    export function parseMarkup(source) {
         return runMarkup(source).ctx.nodes
     }
 
@@ -1759,7 +1759,7 @@ ${
     // delegationStack / blockContextStack / nodes). The contextTrace is
     // the @blockContext value recorded at the TOP of every trampoline
     // iteration.
-    export fn parseMarkupTrace(source) {
+    export function parseMarkupTrace(source) {
         return runMarkup(source)
     }
 
@@ -1782,7 +1782,7 @@ ${
     // unterminated-context diagnostic is a later milestone; the frame
     // persistence is the MK1.2 contract this dispatch preserves.
     // -------------------------------------------------------------------
-    export fn runMarkup(source) {
+    export function runMarkup(source) {
         const cursor = makeCursor(source)
         const ctx = makeParseContext()
         const contextTrace = []
