@@ -432,6 +432,26 @@ export function tokenizeOpener(cursor, ltAnchor) {
     // `{` minus their closers.
     let inString = null;
     let bracketDepth = 0;
+    // M6.6.b.1 — `:`-SHORTHAND DISCRIMINATOR (SPEC §4.14 / §51.0.I). When
+    // a depth-0 `:` preceded by whitespace is found INSIDE the opener (per
+    // SPEC line 961 — `<Tag attrs : single-expression>` — the body lives
+    // INSIDE the opener's `>` terminator, not after it), record the `:`
+    // position. The bytes from `:`+1 up to (but not including) the
+    // opener's terminating `>` are the `:`-shorthand body — captured
+    // verbatim post-`:` for the b.2-b.4 engine state-child / `<onTransition>`
+    // consumers. SPEC line 969 forbids `<Tag:expr>` (no space) — the
+    // recognizer REQUIRES the previous char to be whitespace, which also
+    // excludes `bind:`/`class:`/`on:` attribute-namespace separators
+    // (those are inside attribute names without leading whitespace).
+    //
+    // After `colonAt >= 0` is set, the scan continues to the opener's
+    // terminating `>` but ALSO tracks `angleDepth` (SPEC §4.13) so an
+    // embedded markup body `<Loading rule="..." : <p>Loading...</>>`
+    // doesn't terminate at the `>` of `</>`. `<` increments angleDepth
+    // when followed by a tag-name-start or `/`; `>` decrements when
+    // angleDepth > 0; the opener terminator fires only at angleDepth 0.
+    let colonAt = -1;
+    let angleDepth = 0;
     while (p < len) {
         const ch = source.charAt(p);
         if (inString === null) {
@@ -453,12 +473,43 @@ export function tokenizeOpener(cursor, ltAnchor) {
                     aborted = true;
                     break;
                 }
-            } else if (ch === closeAngle() && bracketDepth === 0) {
+            } else if (ch === closeAngle() && bracketDepth === 0
+                       && angleDepth === 0) {
                 // The opener terminator. A `/` immediately before it
                 // marks the opener self-closing.
                 terminated = true;
                 p = p + 1;
                 break;
+            } else if (ch === closeAngle() && bracketDepth === 0
+                       && angleDepth > 0) {
+                // M6.6.b.1 — `>` inside a `:`-shorthand body's embedded
+                // markup. Decrement angleDepth; continue scanning for the
+                // outer opener terminator.
+                angleDepth = angleDepth - 1;
+                p = p + 1;
+            } else if (ch === ":" && bracketDepth === 0 && colonAt < 0
+                       && p > attrRegionStart
+                       && isOpenerWhitespace(source.charAt(p - 1))) {
+                // M6.6.b.1 — `:`-shorthand discriminator (SPEC §4.14 line
+                // 969 mandatory whitespace requirement). The `:` is at
+                // depth 0 outside any string, preceded by whitespace, and
+                // we haven't yet seen one in this opener. Record the
+                // position; continue scanning (the body terminates at the
+                // opener's `>`).
+                colonAt = p;
+                p = p + 1;
+            } else if (ch === "<" && colonAt >= 0 && bracketDepth === 0
+                       && p + 1 < len
+                       && (isTagNameStart(source.charAt(p + 1))
+                           || source.charAt(p + 1) === "/")) {
+                // M6.6.b.1 — embedded markup opener / closer INSIDE the
+                // `:`-shorthand body region (SPEC §4.13 angleDepth). The
+                // `<` is at depth 0 outside any string, after the `:`,
+                // and looks like a tag (next char is a tag-name-start or
+                // a `/` for a closer). Increment angleDepth so the
+                // matching `>` doesn't terminate the outer opener.
+                angleDepth = angleDepth + 1;
+                p = p + 1;
             } else {
                 p = p + 1;
             }
@@ -505,9 +556,19 @@ export function tokenizeOpener(cursor, ltAnchor) {
     // attribute — the region ends before it. For a terminated opener
     // the `>` is at p-1; for an unterminated opener the region runs to
     // EOF (`len`).
+    //
+    // M6.6.b.1 — when a `:`-shorthand body is present (colonAt >= 0), the
+    // attribute region ends at `colonAt` (the `:` is the body-introducer,
+    // not an attribute). The bytes [colonAt+1, p-1) are the verbatim
+    // `:`-shorthand body — leading whitespace stripped at capture time
+    // (matches the live `^\s*:\s*` capture at
+    // engine-statechild-parser.ts:1857).
     let attrRegionEnd = len;
     if (terminated) {
         attrRegionEnd = selfClosing ? (p - 2) : (p - 1);
+    }
+    if (colonAt >= 0 && colonAt < attrRegionEnd) {
+        attrRegionEnd = colonAt;
     }
     if (attrRegionEnd < attrRegionStart) {
         attrRegionEnd = attrRegionStart;
@@ -528,6 +589,35 @@ export function tokenizeOpener(cursor, ltAnchor) {
     // `selfClosing || voidElement` as the leaf-frame condition — mirrors
     // block-splitter.js L1747 `selfClosing || VOID_ELEMENTS.has(...)`.
     const voidElement = isVoidElementName(name);
+
+    // M6.6.b.1 — capture the `:`-shorthand body when one was recognized.
+    // The body extent is [colonAt+1, attrRegionEnd-of-the-opener-`>`):
+    //   - For a terminated `:`-shorthand opener, bytes from one past the
+    //     `:` up to (but not including) the opener's terminating `>`.
+    //   - For an unterminated opener with `colonAt >= 0` (malformed —
+    //     ran to EOF without `>`), bytes from one past the `:` to EOF.
+    // Leading whitespace is stripped (mirroring the live `\s*` capture
+    // at engine-statechild-parser.ts:1857). A trailing `/` immediately
+    // before the `>` would have set `selfClosing` AND been excluded from
+    // the `:`-body via attrRegionEnd adjustment — but SPEC §4.14 line 968
+    // forbids any closer on a `:`-shorthand body, so `<X : expr/>` is
+    // ill-formed (E-CLOSER-001 territory); we still capture the body for
+    // diagnostic purposes.
+    let colonShorthandBody = null;
+    if (colonAt >= 0) {
+        let bodyStart = colonAt + 1;
+        // Body terminator: opener `>` for terminated, EOF for
+        // unterminated. selfClosing's `/` precedes `>` so strip it.
+        let bodyEnd = terminated ? (selfClosing ? p - 2 : p - 1) : len;
+        // Strip leading whitespace per SPEC §4.14 line 969 — the body
+        // grammar starts at the first non-whitespace byte after `:`.
+        while (bodyStart < bodyEnd
+               && isOpenerWhitespace(source.charAt(bodyStart))) {
+            bodyStart = bodyStart + 1;
+        }
+        if (bodyEnd < bodyStart) bodyEnd = bodyStart;
+        colonShorthandBody = source.slice(bodyStart, bodyEnd);
+    }
 
     return {
         ok: !malformed,
@@ -552,6 +642,17 @@ export function tokenizeOpener(cursor, ltAnchor) {
         // own descriptor fields here).
         attrs: attrPass.attrs,
         tokenizedAttrs: attrPass.tokens,
+        // M6.6.b.1 — `:`-SHORTHAND BODY DISCRIMINATOR (SPEC §4.14 /
+        // §51.0.I). When the opener carries a `:`-shorthand body
+        // (`<Tag attrs : single-expression>`), this is the verbatim
+        // post-`:` body text (leading whitespace stripped per SPEC line
+        // 969). Null when the opener is bare-attribute / self-close /
+        // void (no `:`-shorthand). The b.2-b.4 engine state-child /
+        // `<onTransition>` consumers read this as the live
+        // `EngineStateChildEntry.isColonShorthand` (boolean test:
+        // `!== null`) and `.bodyRaw` (the string value) discriminators.
+        // ADDITIVE — existing consumers ignore the field.
+        colonShorthandBody,
     };
 }
 
@@ -1487,6 +1588,20 @@ export function recognizeOpener(ctx, cursor, ltAnchor) {
     // there (a decl signal `=`/`:` or a nested `<ident`). The closed-rule
     // TagClass (classifyTagFrame) consumes this at close.
     frame.afterOpener = inspectAfterOpener(cursor.source, opener.span.end);
+
+    // M6.6.b.1 — `:`-SHORTHAND BODY CARRY-OVER. The `:`-shorthand body
+    // (SPEC §4.14 / §51.0.I — `<Tag attrs : single-expression>`) lives
+    // INSIDE the opener's `>` terminator; tokenizeOpener captures it on
+    // `opener.colonShorthandBody` (verbatim post-`:` bytes, with leading
+    // whitespace stripped, or null when the opener is bare-attribute /
+    // self-close / void). Carry it onto the frame so emitMarkupElement
+    // can stamp the Markup block's `colonShorthandBody` payload — the
+    // b.2-b.4 engine state-child / `<onTransition>` consumers read it as
+    // the live `EngineStateChildEntry.isColonShorthand` discriminator
+    // (boolean test: `block.colonShorthandBody !== null`) and `.bodyRaw`
+    // source. ADDITIVE — existing consumers ignore the field; null on
+    // every bare-body / self-close / void opener.
+    frame.colonShorthandBody = opener.colonShorthandBody ?? null;
     return frame;
 }
 

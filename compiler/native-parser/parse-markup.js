@@ -1576,6 +1576,31 @@ export function dispatchInMarkupTag(run, cursor, ctx) {
         closeSelfClosedFrame(ctx);
         emitMarkupElement(ctx, tagFrame, frame.openSpan.start,
             tagFrame.opener.span.end, []);
+    } else if (tagFrame.colonShorthandBody !== undefined
+               && tagFrame.colonShorthandBody !== null) {
+        // 3a'. M6.6.b.1 — `:`-SHORTHAND BODY (SPEC §4.14 / §51.0.I —
+        //      `<Tag attrs : single-expression>`). The body lives INSIDE
+        //      the opener's `>` terminator; tokenizeOpener captured the
+        //      verbatim post-`:` text on `opener.colonShorthandBody` and
+        //      recognizeOpener carried it onto `frame.colonShorthandBody`.
+        //      The cursor is ALREADY positioned one past the opener's
+        //      `>` (tokenizeOpener advances over the whole opener span);
+        //      no further advance needed. SPEC §4.14 line 968 forbids
+        //      any closer (`</>`, `/>`) on a `:`-shorthand body — treat
+        //      the opener as a LEAF: pop the TagFrame the opener pushed
+        //      (so a later `</>` does not pair against this frame) and
+        //      emit a child-less whole-element Markup block spanning the
+        //      opener's span. The block carries `colonShorthandBody`
+        //      (stamped by emitMarkupElement from tagFrame.
+        //      colonShorthandBody) — the b.2-b.4 engine state-child /
+        //      `<onTransition>` consumers read it as the live
+        //      `EngineStateChildEntry.isColonShorthand` (boolean test:
+        //      `!== null`) and `.bodyRaw` discriminators (null =
+        //      bare-body / self-close; string = `:`-shorthand, verbatim
+        //      post-`:` bytes — leading whitespace stripped at capture).
+        popTagFrame(ctx);
+        emitMarkupElement(ctx, tagFrame, frame.openSpan.start,
+            tagFrame.opener.span.end, []);
     } else if (isRawContentElement(tagFrame.name)) {
         // 3c. P5-6 — RAW-CONTENT ELEMENT (SPEC §4.17). Inside `<pre>` /
         //     `<code>` the body is verbatim: scrml tokens (`${...}`,
@@ -1742,6 +1767,18 @@ export function emitMarkupElement(ctx, tagFrame, startPos, endPos, children) {
     // route a StateOpener block to the live `state` / `state-constructor-def`
     // node shape rather than `markup`.
     block.tagKind = tagFrame.tagKind ?? null;
+    // M6.6.b.1 — `:`-SHORTHAND BODY DISCRIMINATOR (SPEC §4.14 line 973 +
+    // §51.0.I). When the opener carries a `:`-shorthand body (e.g.
+    // `<Idle rule=.Playing : @t.now`), recognizeOpener captured the
+    // verbatim post-`:` bytes (up to newline / EOF, leading whitespace
+    // retained) onto `tagFrame.colonShorthandBody`; carry it onto the
+    // Markup block here so the b.2-b.4 engine state-child / `<onTransition>`
+    // consumers read it as the live `EngineStateChildEntry.isColonShorthand`
+    // (boolean test: `block.colonShorthandBody !== null`) and `.bodyRaw`
+    // (post-`:` text) discriminators. Null on every other Markup block
+    // (bare-body, self-close, void-element) — additive, existing consumers
+    // ignore the field.
+    block.colonShorthandBody = tagFrame.colonShorthandBody ?? null;
     // F7.a — when the block is a state block, stamp the state payload
     // (stateNodeKind / stateType / typedAttrs — the live StateNode /
     // StateConstructorDefNode shape). `isStateBlock` matches BOTH the §4.3

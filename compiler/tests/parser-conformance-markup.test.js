@@ -6460,3 +6460,203 @@ describe("P5-12b — isStateTagBoundaryAfterLt post-identifier terminator", () =
         expect(isAsciiTagNameStart(null)).toBe(false);
     });
 });
+
+// #############################################################################
+// ##                                                                         ##
+// ##   M6.6.b.1 — `:`-SHORTHAND BODY RECOGNIZER (SPEC §4.14 / §51.0.I)       ##
+// ##                                                                         ##
+// ##  Per the b.1 SURVEY (docs/changes/m66-b1-native-contract-survey/        ##
+// ##  progress.md @dfae2dab) the ONLY native-parser extension needed for     ##
+// ##  the b.2-b.4 engine state-child / `<onTransition>` consumer migration   ##
+// ##  is the `:`-shorthand body discriminator on Markup blocks. SPEC §4.14   ##
+// ##  line 961 defines the form `<Tag attrs : single-expression>` — the      ##
+// ##  body lives INSIDE the opener's `>` terminator, with mandatory          ##
+// ##  whitespace separating the last attribute (or tag name) from the `:`    ##
+// ##  (line 969; `<Tag:expr>` no-whitespace is E-PARSE-001).                 ##
+// ##                                                                         ##
+// ##  The b.2-b.4 consumers read `block.colonShorthandBody`:                 ##
+// ##    - null  => bare-body / self-close / void (existing form)             ##
+// ##    - string => verbatim post-`:` body (leading whitespace stripped)     ##
+// ##                                                                         ##
+// ##  This section adds the M6.6.b.1 unit coverage for the recognizer        ##
+// ##  surface — tokenizeOpener's `:`-shorthand capture, the block payload    ##
+// ##  stamp via emitMarkupElement, and the end-to-end sibling-swallow fix    ##
+// ##  the recognizer extension lands.                                        ##
+// ##                                                                         ##
+// #############################################################################
+
+// -----------------------------------------------------------------------------
+// M6.6.b.1 §1 — tokenizeOpener returns `colonShorthandBody` on `:`-shorthand
+// openers (the in-opener body capture). SPEC line 961 form.
+// -----------------------------------------------------------------------------
+
+describe("M6.6.b.1 tokenizeOpener — `:`-shorthand body capture (SPEC §4.14 line 961)", () => {
+    test("bare `:`-shorthand body captured verbatim (SPEC line 989 worked example)", () => {
+        // <Idle : startGame()>  — SPEC §4.14 line 989's canonical example.
+        // Expected: name=Idle, no attrs, body="startGame()", terminated.
+        const opener = tokenizeOpenerFromLt("<Idle : startGame()>");
+        expect(opener.name).toBe("Idle");
+        expect(opener.attrs).toHaveLength(0);
+        expect(opener.colonShorthandBody).toBe("startGame()");
+        expect(opener.selfClosing).toBe(false);
+        expect(opener.malformed).toBe(false);
+    });
+
+    test("`:`-shorthand body coexists with attributes (rule=.Big + : body)", () => {
+        // <Small rule=.Big : startGame()>  — typical engine state-child form.
+        // The attr region ends at the `:`, so `rule=.Big` is the only attr.
+        const opener = tokenizeOpenerFromLt("<Small rule=.Big : startGame()>");
+        expect(opener.name).toBe("Small");
+        expect(opener.attrs.length).toBeGreaterThanOrEqual(1);
+        expect(opener.colonShorthandBody).toBe("startGame()");
+    });
+
+    test("`:`-shorthand body captured AFTER quoted attribute value (SPEC line 990 form)", () => {
+        // <Loading rule="onResult.ok(n) -> Success(n)" : @x.now>
+        // SPEC §4.14 line 990's worked example — string-aware attribute scan
+        // must NOT mis-recognize a `:` inside the quoted rule value.
+        const opener = tokenizeOpenerFromLt('<Loading rule="onResult.ok(n) -> Success(n)" : @x.now>');
+        expect(opener.name).toBe("Loading");
+        expect(opener.colonShorthandBody).toBe("@x.now");
+    });
+
+    test("`:`-shorthand body with leading whitespace stripped (SPEC line 969)", () => {
+        // The capture mirrors the live `\s*:\s*` regex at engine-statechild-
+        // parser.ts:1857 — leading whitespace after `:` is stripped at
+        // capture time so consumers get a body-grammar-ready string.
+        const opener = tokenizeOpenerFromLt("<X :    spaced_body>");
+        expect(opener.colonShorthandBody).toBe("spaced_body");
+    });
+
+    test("empty `:`-shorthand body yields empty string (not null)", () => {
+        // <X : > — the `:`-discriminator fired (whitespace + `:`), body is
+        // empty. The boolean test `colonShorthandBody !== null` MUST still
+        // discriminate this as `:`-shorthand (b.2 isColonShorthand=true).
+        const opener = tokenizeOpenerFromLt("<X : >");
+        expect(opener.colonShorthandBody).toBe("");
+        expect(opener.colonShorthandBody !== null).toBe(true);
+    });
+});
+
+// -----------------------------------------------------------------------------
+// M6.6.b.1 §2 — non-`:`-shorthand openers yield colonShorthandBody=null.
+// The discriminator is null for bare-body, self-close, void, and namespace-
+// attribute forms (bind:value / class:hidden / on:click — no whitespace
+// before `:`, per SPEC line 969).
+// -----------------------------------------------------------------------------
+
+describe("M6.6.b.1 tokenizeOpener — non-`:`-shorthand openers yield null", () => {
+    test("bare-body opener: colonShorthandBody=null", () => {
+        const opener = tokenizeOpenerFromLt("<Idle>");
+        expect(opener.colonShorthandBody).toBe(null);
+    });
+
+    test("opener with attributes but no `:`-body: colonShorthandBody=null", () => {
+        const opener = tokenizeOpenerFromLt("<Small rule=.Big>");
+        expect(opener.colonShorthandBody).toBe(null);
+    });
+
+    test("self-closing opener: colonShorthandBody=null", () => {
+        const opener = tokenizeOpenerFromLt("<input/>");
+        expect(opener.colonShorthandBody).toBe(null);
+        expect(opener.selfClosing).toBe(true);
+    });
+
+    test("`bind:value` namespace attribute does NOT trigger (SPEC line 969 no-whitespace rule)", () => {
+        // <input bind:value=@v>  — the `:` in `bind:value` is preceded by
+        // `bind` (NOT whitespace), so the SPEC §4.14 line 969 mandatory-
+        // whitespace test rejects it as a `:`-shorthand discriminator. The
+        // `:` stays an attribute-name namespace separator.
+        const opener = tokenizeOpenerFromLt("<input bind:value=@v>");
+        expect(opener.colonShorthandBody).toBe(null);
+    });
+
+    test("`class:hidden` namespace attribute does NOT trigger", () => {
+        const opener = tokenizeOpenerFromLt("<div class:hidden=@cond>");
+        expect(opener.colonShorthandBody).toBe(null);
+    });
+
+    test("`<X:expr>` (no whitespace before `:`) does NOT trigger (SPEC line 969)", () => {
+        // SPEC line 969: `<Tag:expr>` (no whitespace) is E-PARSE-001 — the
+        // tokenizer treats `:` as part of an identifier or namespace
+        // separator. The recognizer correctly excludes it.
+        const opener = tokenizeOpenerFromLt("<X:expr>");
+        expect(opener.colonShorthandBody).toBe(null);
+    });
+});
+
+// -----------------------------------------------------------------------------
+// M6.6.b.1 §3 — angleDepth tracking for embedded markup in `:`-shorthand
+// bodies (SPEC §4.13 — the `:`-shorthand expression may carry markup-as-
+// value, e.g. `<Loading : <p>Loading...</></>` per SPEC line 990).
+// -----------------------------------------------------------------------------
+
+describe("M6.6.b.1 tokenizeOpener — angleDepth tracking in `:`-body (SPEC §4.13)", () => {
+    test("embedded markup-as-value body captured verbatim (SPEC line 990 form)", () => {
+        // SPEC §4.14 line 990's verbatim worked example —
+        //   `<Loading rule="..." : <p>Loading...</>>`
+        // The `<p>` opens angleDepth (1), its `>` closes (0), `</>` opens
+        // angleDepth (1) then closes (0), final outer `>` at angleDepth 0
+        // terminates the opener. Body is `<p>Loading...</>`.
+        const opener = tokenizeOpenerFromLt('<Loading rule="onResult.ok(n) -> Success(n)" : <p>Loading...</>>');
+        expect(opener.name).toBe("Loading");
+        expect(opener.colonShorthandBody).toBe("<p>Loading...</>");
+    });
+
+    test("`${...}` interpolation in `:`-body captured (bracketDepth protects)", () => {
+        // The `${a + b}` carries bracketDepth > 0 around its inner content;
+        // a `>` (or `:`) inside the `${}` braces is NOT a discriminator.
+        const opener = tokenizeOpenerFromLt("<X : ${a + b}>");
+        expect(opener.colonShorthandBody).toBe("${a + b}");
+    });
+});
+
+// -----------------------------------------------------------------------------
+// M6.6.b.1 §4 — emitMarkupElement stamps `block.colonShorthandBody` on the
+// Markup block payload (the b.2-b.4 consumer surface). The dispatcher in
+// parse-markup.js short-circuits a `:`-shorthand opener as a leaf so the
+// trampoline does not look for a closer that SPEC §4.14 line 968 forbids.
+// -----------------------------------------------------------------------------
+
+describe("M6.6.b.1 parseMarkup — `:`-shorthand block payload + sibling-swallow fix", () => {
+    test("engine body with `:`-shorthand state-children: each becomes a leaf Markup with colonShorthandBody", () => {
+        // The b.2 contract case — multiple state-children in an engine body,
+        // each in `:`-shorthand form. Pre-fix: the FIRST opener swallowed
+        // siblings + the engine closer (no `</>` after the body, the bare-
+        // body trampoline scanned forward looking for one). Post-fix: each
+        // is a leaf Markup, the engine's children list is correctly N.
+        const src = "<engine for=Phase initial=.Idle>\n"
+                  + "<Idle : startGame()>\n"
+                  + "<Playing : @t.now>\n"
+                  + "</engine>";
+        const nodes = parseMarkup(src);
+        expect(nodes).toHaveLength(1);
+        const engine = nodes[0];
+        expect(engine.name).toBe("engine");
+        // The engine's children — 2 state-children + the 3 Text whitespace
+        // runs between them (newlines). Filter to the state-children.
+        const markupKids = engine.children.filter((c) => c.kind === "Markup");
+        expect(markupKids).toHaveLength(2);
+        expect(markupKids[0].name).toBe("Idle");
+        expect(markupKids[0].colonShorthandBody).toBe("startGame()");
+        expect(markupKids[1].name).toBe("Playing");
+        expect(markupKids[1].colonShorthandBody).toBe("@t.now");
+    });
+
+    test("bare-body Markup blocks carry `colonShorthandBody: null` (the additive null)", () => {
+        // SPEC line 957 — `<Tag>...children...</>` bare-body. The block
+        // payload's `colonShorthandBody` MUST be null (NOT undefined), so
+        // consumers can use a single discriminator test `=== null` vs
+        // `=== "string"`.
+        const nodes = parseMarkup("<Tag>hi</>");
+        expect(nodes).toHaveLength(1);
+        expect(nodes[0].name).toBe("Tag");
+        expect(nodes[0].colonShorthandBody).toBe(null);
+    });
+
+    test("self-closing Markup blocks carry `colonShorthandBody: null`", () => {
+        const nodes = parseMarkup("<input/>");
+        expect(nodes).toHaveLength(1);
+        expect(nodes[0].colonShorthandBody).toBe(null);
+    });
+});
