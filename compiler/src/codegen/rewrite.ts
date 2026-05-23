@@ -575,6 +575,48 @@ export function rewritePresenceGuard(expr: string): string {
  * Also detects E-SYNTAX-010 (`null`/`undefined` in value position) and
  * E-TYPE-042 (`== not`/`!= not`) when an errors array is provided.
  */
+// GITI-017 (S124, 2026-05-23): regex-vs-division disambiguation. JS uses the
+// preceding token's shape to decide whether `/` starts a regex literal or a
+// division operator. The legacy text-pass `not`-substitution needs the same
+// signal to avoid corrupting `/not foo/i` bodies. Keywords that precede a
+// regex literal in expression position: per ECMA-262 the IdentifierName
+// follows IdentifierStart / IdentifierPart, but only a fixed set of keywords
+// can appear directly before a regex (they end an "expression-prefix"
+// context). This set is intentionally minimal — false negatives (treating a
+// regex as division) only fail to MASK and risk re-introducing the bug;
+// false positives (treating a division as regex) would mask code we should
+// rewrite. Erring on minimal preserves correctness on division-heavy code.
+const REGEX_PERMISSIVE_KEYWORDS = new Set([
+  "return", "typeof", "void", "delete", "new", "in", "of",
+  "instanceof", "throw", "yield", "await",
+]);
+
+// Returns true if a `/` appearing immediately after `codeBefore` should be
+// interpreted as the opener of a regex literal (rather than as division).
+// `codeBefore` is the slice of source-text ending just before the `/`.
+function regexAllowedAfter(codeBefore: string): boolean {
+  // Strip trailing whitespace to find the last meaningful character.
+  let i = codeBefore.length - 1;
+  while (i >= 0 && /\s/.test(codeBefore[i])) i--;
+  // No prior code → expression start → regex.
+  if (i < 0) return true;
+  const lastCh = codeBefore[i];
+  // After punctuation / operator → regex.
+  // `}` is intentionally included: in JS it ends a block-statement (regex
+  // follows) far more commonly than an object-literal in expression
+  // position (where division would follow). Errs toward masking.
+  if ("(,;:?[{=<>+-*%&|^!~}".includes(lastCh)) return true;
+  // After identifier end → check for regex-permissive keyword.
+  if (/[A-Za-z_$]/.test(lastCh)) {
+    let j = i;
+    while (j >= 0 && /[A-Za-z0-9_$]/.test(codeBefore[j])) j--;
+    const token = codeBefore.slice(j + 1, i + 1);
+    return REGEX_PERMISSIVE_KEYWORDS.has(token);
+  }
+  // After `)`, `]`, digit, `.` → division.
+  return false;
+}
+
 export function rewriteNotKeyword(expr: string, errors?: any[]): string {
   if (!expr || typeof expr !== "string") return expr;
 
@@ -585,34 +627,146 @@ export function rewriteNotKeyword(expr: string, errors?: any[]): string {
 
   if (!hasNot && !hasSome && !hasNull && !hasUndefined) return expr;
 
-  // Split on string literals to avoid rewriting inside quoted content.
+  // Split the input into code-segments + opaque non-code regions (string /
+  // regex literal / line-comment / block-comment). Only code-segments are
+  // routed through _rewriteNotSegment; non-code regions are preserved
+  // verbatim. GITI-017 (S124): regex-literal awareness added — `/not foo/i`
+  // would otherwise be corrupted to `/!foo/i` (silent-corruption class, cf.
+  // S42 bug A5). Comments are included because `/* not */` and `// not bar`
+  // would also corrupt under the prior text-only pass — harmless at runtime
+  // but cosmetically wrong in emitted output.
   const result: string[] = [];
-  let inString: string | null = null;
+  type Mode = "code" | "string" | "regex" | "line-comment" | "block-comment";
+  let mode: Mode = "code";
+  let stringDelim = "";
   let i = 0;
   let segStart = 0;
 
   while (i < expr.length) {
     const ch = expr[i];
-    if (inString === null) {
-      if (ch === '"' || ch === "'" || ch === '`') {
+
+    if (mode === "code") {
+      // Block comment opener
+      if (ch === "/" && expr[i + 1] === "*") {
         result.push(_rewriteNotSegment(expr.slice(segStart, i), errors));
-        inString = ch;
+        mode = "block-comment";
         segStart = i;
+        i += 2;
+        continue;
       }
-    } else {
-      if (ch === '\\') {
-        i++; // skip escaped character
-      } else if (ch === inString) {
-        inString = null;
+      // Line comment opener
+      if (ch === "/" && expr[i + 1] === "/") {
+        result.push(_rewriteNotSegment(expr.slice(segStart, i), errors));
+        mode = "line-comment";
+        segStart = i;
+        i += 2;
+        continue;
+      }
+      // Regex literal opener — only when the preceding token-context admits it
+      if (ch === "/" && regexAllowedAfter(expr.slice(segStart, i))) {
+        result.push(_rewriteNotSegment(expr.slice(segStart, i), errors));
+        mode = "regex";
+        segStart = i;
+        i++;
+        continue;
+      }
+      // String literal opener
+      if (ch === '"' || ch === "'" || ch === "`") {
+        result.push(_rewriteNotSegment(expr.slice(segStart, i), errors));
+        mode = "string";
+        stringDelim = ch;
+        segStart = i;
+        i++;
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === "string") {
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if (ch === stringDelim) {
         i++;
         result.push(expr.slice(segStart, i)); // preserve string literal as-is
         segStart = i;
+        mode = "code";
         continue;
       }
+      i++;
+      continue;
     }
-    i++;
+
+    if (mode === "regex") {
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if (ch === "[") {
+        // Enter char-class — consume until unescaped `]`. `/` is literal inside.
+        i++;
+        while (i < expr.length) {
+          if (expr[i] === "\\") { i += 2; continue; }
+          if (expr[i] === "]") { i++; break; }
+          i++;
+        }
+        continue;
+      }
+      if (ch === "/") {
+        // Closing slash — consume IdentifierPart-shaped flags
+        i++;
+        while (i < expr.length && /[A-Za-z0-9_$]/.test(expr[i])) i++;
+        result.push(expr.slice(segStart, i)); // preserve regex literal as-is
+        segStart = i;
+        mode = "code";
+        continue;
+      }
+      if (ch === "\n") {
+        // Unterminated regex — JS doesn't allow LF in regex bodies. Bail
+        // back to code mode; what we accumulated may not parse downstream
+        // but the masking layer doesn't try to be smarter than Acorn.
+        mode = "code";
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === "line-comment") {
+      if (ch === "\n") {
+        result.push(expr.slice(segStart, i)); // preserve comment text, newline stays in segStart slice
+        segStart = i;
+        mode = "code";
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === "block-comment") {
+      if (ch === "*" && expr[i + 1] === "/") {
+        i += 2;
+        result.push(expr.slice(segStart, i)); // preserve comment text
+        segStart = i;
+        mode = "code";
+        continue;
+      }
+      i++;
+      continue;
+    }
   }
-  result.push(_rewriteNotSegment(expr.slice(segStart), errors));
+
+  // Final segment
+  if (mode === "code") {
+    result.push(_rewriteNotSegment(expr.slice(segStart), errors));
+  } else {
+    // Unterminated string/regex/comment — preserve as-is. Downstream
+    // parsing will surface the syntax error.
+    result.push(expr.slice(segStart));
+  }
+
   return result.join("");
 }
 

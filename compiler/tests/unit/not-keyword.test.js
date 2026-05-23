@@ -773,3 +773,139 @@ describe("§42.2.4 Phase A — parenthesized compound is not / is some (DQ-12)",
     expect(result).toBe("((x) == null)");
   });
 });
+
+// ---------------------------------------------------------------------------
+// §B: GITI-017 — regex-literal + comment awareness (S124, 2026-05-23)
+//
+// Prior to S124, rewriteNotKeyword's text-substitution pass had string-literal
+// skip but no regex-literal or comment skip. Result: `/not foo/i` corrupted
+// silently to `/!foo/i` (boolean-negation lowering) and `/(not)/` to
+// `/(null)/` (absence-sentinel lowering). Silent-corruption class — emitted
+// JS parsed clean, regex was syntactically valid, runtime executed — but
+// matched a different string than the author wrote.
+//
+// Fix: regex-literal-aware state machine extending the existing string skip.
+// Regex detection uses ECMA-262-style trailing-context disambiguation
+// (regexAllowedAfter) — `/` opens a regex after operator/punctuation/
+// regex-permissive-keyword, otherwise it's division.
+// ---------------------------------------------------------------------------
+describe("§B GITI-017: regex-literal + comment awareness", () => {
+  // ---- Regex literals — the core silent-corruption class ----
+
+  test("§B1 /not foo/i preserved verbatim (the GITI-017 minimal case)", () => {
+    const result = rewriteNotKeyword("return /not a jj repo/i.test(input)");
+    expect(result).toBe("return /not a jj repo/i.test(input)");
+    expect(result).not.toContain("/!");
+  });
+
+  test("§B2 /bookmark.*not found/i preserved (not<space><ident> form)", () => {
+    const result = rewriteNotKeyword("return /bookmark.*not found/i.test(input)");
+    expect(result).toBe("return /bookmark.*not found/i.test(input)");
+  });
+
+  test("§B3 /(not)/ preserved (bare not between parens)", () => {
+    const result = rewriteNotKeyword("return /(not) a jj repo/i.test(input)");
+    expect(result).toBe("return /(not) a jj repo/i.test(input)");
+    expect(result).not.toContain("/(null)");
+  });
+
+  test("§B4 /not[ ]a/ preserved (not before char-class)", () => {
+    const result = rewriteNotKeyword("return /not[ ]a jj repo/i.test(input)");
+    expect(result).toBe("return /not[ ]a jj repo/i.test(input)");
+  });
+
+  test("§B5 /(?:not)/ preserved (not inside non-capturing group)", () => {
+    const result = rewriteNotKeyword("return /(?:not) a jj repo/i.test(input)");
+    expect(result).toBe("return /(?:not) a jj repo/i.test(input)");
+  });
+
+  test("§B6 /nothing/ preserved (no `not` token boundary)", () => {
+    const result = rewriteNotKeyword("return /nothing changed/i.test(input)");
+    expect(result).toBe("return /nothing changed/i.test(input)");
+  });
+
+  // ---- Regex-vs-division disambiguation ----
+
+  test("§B7 division a/b/c is NOT treated as regex", () => {
+    // After identifier `a`, `/` is division — `b` is identifier, not regex body.
+    // The expression has no `not`/`some`/`null`/`undefined` so the fast-path
+    // returns early; force the substitution surface by including `is not`.
+    const result = rewriteNotKeyword("let x = a/b/c; let y = z is not");
+    // Division preserved; `is not` rewritten on the second statement.
+    expect(result).toContain("a/b/c");
+    expect(result).toContain("(z === null || z === undefined)");
+  });
+
+  test("§B8 division of identifier-tail.method() does not mask following code", () => {
+    const result = rewriteNotKeyword("result = arr.length / 2; return x is not");
+    expect(result).toContain("arr.length / 2");
+    expect(result).toContain("(x === null || x === undefined)");
+  });
+
+  test("§B9 regex after `=` recognized as regex", () => {
+    const result = rewriteNotKeyword("const re = /not foo/i");
+    expect(result).toBe("const re = /not foo/i");
+  });
+
+  test("§B10 regex after `(` recognized as regex", () => {
+    const result = rewriteNotKeyword("test(/not bar/i)");
+    expect(result).toBe("test(/not bar/i)");
+  });
+
+  test("§B11 regex after `,` recognized as regex", () => {
+    const result = rewriteNotKeyword("call(arg, /not baz/i)");
+    expect(result).toBe("call(arg, /not baz/i)");
+  });
+
+  test("§B12 regex containing escaped slash /a\\/b\\/c/i correctly closed", () => {
+    const result = rewriteNotKeyword("return /a\\/not\\/b/i.test(s)");
+    expect(result).toBe("return /a\\/not\\/b/i.test(s)");
+  });
+
+  test("§B13 regex char-class containing `/` /[/not]/ correctly closed", () => {
+    const result = rewriteNotKeyword("return /[/not]/i.test(s)");
+    expect(result).toBe("return /[/not]/i.test(s)");
+  });
+
+  // ---- Comments ----
+
+  test("§B14 block comment containing `not` preserved verbatim", () => {
+    const result = rewriteNotKeyword("/* foo is not bar */ let x = 1");
+    expect(result).toBe("/* foo is not bar */ let x = 1");
+  });
+
+  test("§B15 line comment containing `not` preserved verbatim", () => {
+    const result = rewriteNotKeyword("let x = 1; // x is not zero\nlet y = 2");
+    expect(result).toBe("let x = 1; // x is not zero\nlet y = 2");
+  });
+
+  test("§B16 code AFTER a block-comment still rewrites correctly", () => {
+    const result = rewriteNotKeyword("/* not affected */ return x is not");
+    expect(result).toBe("/* not affected */ return (x === null || x === undefined)");
+  });
+
+  test("§B17 code AFTER a line-comment still rewrites correctly", () => {
+    const result = rewriteNotKeyword("// not affected\nreturn x is not");
+    expect(result).toBe("// not affected\nreturn (x === null || x === undefined)");
+  });
+
+  // ---- Round-trip regression: substitution still works in code segments ----
+
+  test("§B18 mixed: regex preserved AND surrounding `is not` rewritten", () => {
+    const result = rewriteNotKeyword(
+      "if (x is not) { return /not found/i.test(s) }"
+    );
+    expect(result).toContain("(x === null || x === undefined)");
+    expect(result).toContain("/not found/i");
+  });
+
+  test("§B19 regression: `is not` inside string still skipped (S124 didn't break this)", () => {
+    const result = rewriteNotKeyword('let s = "x is not y"');
+    expect(result).toBe('let s = "x is not y"');
+  });
+
+  test("§B20 regression: bare `not` as value still rewrites to null", () => {
+    const result = rewriteNotKeyword("let x = not");
+    expect(result).toBe("let x = null");
+  });
+});
