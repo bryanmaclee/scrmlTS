@@ -1,163 +1,178 @@
-# scrmlTS — Session 120 (CLOSE)
+# scrmlTS — Session 121 (CLOSE)
 
 **Date:** 2026-05-22
-**Previous:** `handOffs/hand-off-122.md` (S119 CLOSE — rotated at S120 OPEN)
+**Previous:** `handOffs/hand-off-123.md` (S120 CLOSE — rotated at S121 OPEN)
 **Machine:** single-machine (S100 directive holds)
-**HEAD at S120 OPEN:** `30ce630f` · **HEAD at S120 CLOSE:** this wrap commit
-**Wrap:** full 8-step (user-authorized: "commit, wrap, push"). Push **authorized**.
+**HEAD at S121 OPEN:** `a8904945` · **HEAD at S121 CLOSE:** this wrap commit
+**Wrap:** full 8-step. Push **authorized** per user "wrap when those land".
 
 ---
 
-## S120 net outcome
+## S121 net outcome
 
-A very long, very productive session — three big arcs:
+**Massively productive session — 29 substantive commits across 8 waves (4-11). Three structural milestones:**
 
-1. **README honesty arc.** Acted on Carson Gross's (htmx) review — the README opened too nerdy. New order: hook → developer note → full-stack hero → state-machine basis → Why scrml → Benchmarks. Then diagnosed that the *new* realtime-contact-board hero was **broken at runtime** (`?{}` SQL un-lowered into the client bundle — `<program db=>` + `<schema>` alone doesn't give SQL context; needs a `<db>` element). The README gate is compile-only and never caught it. Honest-hero fix landed (gate-skip illustrative `<db>`-element form, dropped false "a real, running app" claims). Wider finding: the **flagship `examples/03-contact-book.scrml` is broken at runtime too** — `loadContacts is not a function or its return value is not iterable` (server fn called in a render `for`-loop, not awaited). The full-stack DB story has ≥6 compounding bugs across the codegen path.
-2. **Corpus sweep — PLAN filed, not run.** Triggered the timing call: don't fix the corpus against the dying BS+Acorn basis. PLAN at `docs/changes/corpus-sweep/PLAN.md` — trigger M6, seed bug ledger (the ≥6 bugs found today), method (compile + **runtime** via Playwright), and the load-bearing gate fix (close the compile-only blind spot — runtime smoke-test in the README gate + a corpus runtime harness).
-3. **P5 campaign — 9 units committed; gap 51 → 15.** Phase-5 triage of the post-S119 51-gap (`docs/changes/m5-c2-gap-ledger/phase5-triage-2026-05-22.md`), then 3 waves dispatched + landed. Strict-pass 949 → 984/1000 (98.4%). 0 test regressions throughout.
+1. **Native parser parser-side gap CLOSED** — every corpus file that was a real parser bug is now EXACT. The 2 residual files (bs.scrml + quiz-app.scrml) are corpus-stale, not parser bugs. Both deferred to M6-gated corpus sweep.
+2. **M6 mechanical preconditions cleared** — 4 sweeps zeroed: `is not not` predicate-drift (36 sites), E-FN-003 in .scrml mirrors (178 sites), E-EQ-004 (46 fires from 1 file), W-DEAD-FUNCTION (20 fires) via compiler-source root-cause fix.
+3. **3 new LIVE-* canary classes shipped** — codifying "native is correct, live is broken" as structural artifacts in the dual-pipeline canary. All sunset at M6.
 
-Plus a **self-host pushback** discussion (user asked again about writing more compiler in scrml; I pushed back — bug is in logic not language, can't trust buggy compiler to compile new compiler source, basis is shifting, the disciplined version is already happening as the native-parser arc; user agreed: "there I go gettin ahead of myself").
+**Strict-pass: 984 → 998/1000 (99.8%). Gap 16 → 2 (both corpus-stale).**
 
-Plus a **new project started** — `dashboard/app.scrml` — a scrml-written verification dashboard for the examples corpus.
+**Plus:** Bug 8 closed end-to-end (13 stdlib shims + warning + SPEC §34 + deferral hardening for scrml:compiler family); Bug 9 filed (dashboard runtime exercise surfaced async-not-awaited codegen class); 9 brief-corrections by agents (Rule 5 systematically validated through the session); SPEC-vs-impl divergence on §48.3.3 documented.
 
-- **scrmlTS:** 12 commits (1 hook hadn't fully echoed; the wrap commit makes 13). **scrml-support:** 0 commits prior; this wrap appends S120 user-voice.
-- **Tests:** 13,736 pass / 0 fail / 88 skip / 1 todo (unit+integration+conformance). Pre-push hook (full validation) was 0-fail on every landing.
+- **scrmlTS:** 29 commits + this wrap commit. **scrml-support:** S121 user-voice append pending.
+- **Tests:** 19,774 pass / 0 fail / 171 skip / 1 todo (full `bun run test`). Pre-commit gate all green throughout.
 - **No release tag cut.**
 
 ---
 
-## What landed S120 — by arc
+## What landed S121 — by wave
 
-**README arc (2 commits):**
-- `a33939ee` — `docs(readme): restructure per Carson Gross review — lead with the app, not the thesis`. The S119-pushed restructure (later found to have a broken hero).
-- `48d816f2` — `docs(readme): hero was broken at runtime — swap to honest illustrative sample`. The honest fix.
+**Wave 4 (3 commits) — opening triage + P5 closure starts**
+- `4db565b7` — S121 re-triage doc (`docs/changes/m5-c2-gap-ledger/phase5-retriage-s121-2026-05-22.md`)
+- `20ec2617` — maps refresh, watermark `5d2003dd` → `a8904945`
+- `3816d131` — P5-14 v1 deferral memo (Dropdown-regression analysis + Option A recipe)
+- `192071c4` — **P5-6** three body-mode classification heuristics (raw-content `<pre>`/`<code>` + `?{` markup-level gating + `<#name>` hash-ref text-flush). Closes 5 files; +5 EXACT.
 
-**Corpus sweep + Phase-5 triage (1 combined commit):**
-- `322d1e39` — `docs(m5-gap-ledger): Phase-5 triage of the 51-gap + corpus-sweep plan`. The triage doc + the PLAN doc.
+**Wave 5 (2 commits) — P5-14 v2 + P5-12b parser-correctness**
+- `08ee328b` — **P5-12b** `isStateTagBoundaryAfterLt` tightening (post-ident terminator gate). Parser-correct per SPEC §4.3. Canary unchanged (live has the same admission bug; LIVE-PHANTOM class shipped Wave 6-B credits the correctness).
+- `b61cf97e` — **P5-14 v2** `closeTagFrame { allowMismatchPop }` + slice-mode flag. Closes 3 files; match-002 class-migrated DIFF-deep-seq → DIFF-top-seq (closer to EXACT, P5-7 territory).
 
-**P5 campaign — 9 units committed (8 closing files + 1 latent-bug-fix commit):**
-- `f141d759` — **P5-8** state-kind discrimination (`parse-state-body.js`). Partial — state-kind closed; tag-frame over-scan deferred (became P5-12 trigger).
-- `2f3fe2f7` — **P5-1** suppress state-decl openers in markup trampoline (`parse-markup.js`). Gap −16, over-closed DIFF-top-seq 17→5.
-- `5f464dba` — **P5-3** `^{}` meta-block loop recovery + `type:kind` decl ordering (`parse-stmt.js`). Two latent bugs fixed; target re-scoped (triage M5 was wrong — the real bug was elsewhere).
-- `f3f5d5c7` — **P5-2** bare-markup `export`/`const` `= <markup>` pairing forms (`parse-markup.js`). Gap −8, `GAP-native-extra-block` eliminated.
-- `291338b6` — **P5-9** `type` is a contextual keyword (`token.js` + `parse-stmt.js`). Gap −3.
-- `6c78f2e0` — **P5-4** `<style>` rejection + stray-`</>` suppression (`parse-markup.js`). Gap −5.
-- `e5311884` — **P5-11** structural state-decl recognition in `${}` bodies (`parse-stmt.js`). Gap −2 (056/057 closed).
-- `ba2ddd76` — **P5-12** tag-frame opener-scan abort on unbalanced closer (`tag-frame.js`). Truncation fixed; `r10-bun-admin` advanced class but not yet EXACT.
-- `906c5317` — **P5-13** `${}` body-extent scanner — brace-in-string skip (`parse-markup.js`). Gap −2 (bs/bpp closed via narrow-3-char oracle-faithful detection).
-- **P5-10** — collect-hoisted export-count: NO-COMMIT (misdiagnosis-catch). The triage's "collect-hoisted defect" hypothesis was wrong; root cause is the `parse-markup.js` `${}` brace-in-string scanner (later closed by P5-13). Per Rule 3, the agent correctly surfaced the misdiagnosis and made no fabricated edit.
+**Wave 6 (2 commits) — closing parser fixes + first canary class**
+- `b8acecf7` — **Wave 6-A** admit `_` as tag-name-start per SPEC §4.1. Comprehensive: 3 .js files + 3 .scrml mirrors. match-002 now top-seq-matches live; deep-axis surfaces match-block synthesis gap (P5-7 territory).
+- `1aec9c41` — **Wave 6-B `LIVE-PHANTOM` canary class** — credits native correctness when live admits malformed state-opener at `<` + ws + ident + non-tag-terminator. bun-admin moves DIFF-deep-seq → LIVE-PHANTOM. Strict-pass 991 → 992.
 
-**Dashboard project (1 commit):**
-- `61013d3a` — `feat(dashboard): scrml examples — verification dashboard (v1)`. New `dashboard/app.scrml` — a scrml-written tool for marking each example verified at a SHA and red-flagging on HEAD move.
+**Wave 7 (4 commits — D + E memos + C + Bug 8)**
+- `65733234` — **Bug 8 stdlib gap close** — 13 missing scrml:* shims (fs/cron/format/http/oauth/path/process/redis/regex/router/test/time/compiler) + new W-STDLIB-SHIM-MISSING warning + SPEC §34 row. Surfaced by running `dashboard/app.scrml`. Dashboard runtime-loads cleanly post-fix; CSRF 403 (structured framework response, NOT 404).
+- `ff75c95c` — **Unit E memo** scrml:compiler shim resolution survey (recommends Option d: KNOWN-DEFERRED with structural hardening)
+- `980a95f4` — **Unit D memo** GAP-NEB survey of zig-buildconfig + tailwind-prose-coverage (both corpus-stale per S80 Appendix E + SPEC §4.17) + C1/C2 corpus-sweep ledger entries
+- `23ff06df` — **Unit C** typed-decl `:type` annotation consume in `parseVarDeclarator`. Closes phase1-012. Brief-correction #1: P5-11-shaped fix WAS NOT the cause; real cause was VarDecl annotation gap. bs.scrml classified corpus-stale (13 `null` literals → C3 ledger).
+- `2c9d8e98` — corpus-sweep PLAN C3 ledger entry (bs.scrml null migration deferred to M6)
 
----
+**Wave 8 (3 commits) — Bug 8 follow-up + canary degen-guard + Bug 9 file**
+- `dfa3426b` — **Unit F** scrml:compiler deferral hardening — 13 thunk shims in compiler/runtime/stdlib/compiler/* + W-STDLIB-COMPILER-DEFERRED warning class + SPEC §34 + §41.17 NEW section. Brief-correction #2: stage list was paraphrase-off; agent followed actual stub set (bs/tab/mod/ce/bpp/pa/ri/ts/mc/me/dg/cg/expr).
+- `33577a2a` — **Unit G** canary `isLiveDegenerate` ratio guard relax 3.0× → 1.5× per Unit D memo. Closes zig-buildconfig + tailwind-prose-coverage GAP-NEB → LIVE-DEGENERATE. Strict-pass 992 → 994. Brief-correction #3: my 2.7× recommendation was math-inverted; agent picked memo's correct 1.5×.
+- `77033cbc` — Bug 9 filed (dashboard async-not-awaited codegen) per user-driven dashboard runtime review
 
-## P5 campaign — measured scoreboard
+**Wave 9 (3 commits) — canary class for hoist-misclassify + match block + predicate-drift sweep**
+- `78bd6b28` — **Unit I** `is not not` predicate-drift sweep — 36 sites across ast-stmt + parse-expr + parse-stmt .scrml mirrors. M6-precondition mechanical work.
+- `ca3d1727` — **Unit H** `LIVE-HOIST-MISCLASSIFY` canary class — credits native correctness when live mis-hoists (exports OR phantoms dynamic-imports). jwt.scrml + cg.scrml absorbed. Strict-pass 994 → 997. Brief-correction #4: bs.scrml NOT absorbed (correctly — native is wrong there).
+- `69388e28` — **Unit J = P5-7** match-block FileAST synthesis. Closes match-002 to EXACT (final parser-side DIFF-deep-seq residual). 192 LOC + 263 LOC tests.
 
-- **Gap: 51 → 15** (71% closed). Strict-pass 949 → 984/1000 (97.6% → 98.4%).
-- Histogram now: `DIFF-deep-seq` 7 · `DIFF-hoist-count` 4 · `GAP-mixed` 1 · `DIFF-top-seq` 2 · `GAP-state-block` 1 · (note: also `GAP-native-extra-block` 1 reappeared post-P5-13 — a previously-LIVE-DEGENERATE file revealed a pre-existing native-extra-markup divergence that the brace-in-string degradation was masking).
-- 0 test regressions across all 9 commits. Pre-push gate green throughout.
-- **Pattern worth noting (load-bearing for future triages):** 5 of 9 agents found their triage diagnosis partly wrong and corrected it. The phase5-triage doc's per-class root-cause hypotheses were starting points, not authoritative — the agents re-derived from source and corrected:
-  - P5-1 found the M2 cause was trampoline mis-segmentation, not `BARE_DECL_RE`/`@ident` drift; `BARE_DECL_RE` was verbatim-identical to the live oracle. Also surfaced `samples/quiz-app.scrml` as corpus-stale (`</>`-as-division operator) — triage §4's "no corpus-stale" was wrong.
-  - P5-3 found the M5 cause was `parse-markup.js` `${}` body-drop + `collect-hoisted.js` export-count — NOT `parse-stmt.js` body loop. It fixed two unrelated latent `parse-stmt.js` bugs it found along the way (test-covered) and surfaced the real causes as deferred.
-  - P5-10 found `collect-hoisted.js` has no defect — the bs.scrml export under-count was the `parse-markup.js` brace-in-string scanner (same cause as P5-3's bpp/tab deferral). Made no commit (Rule 3 — no fabricated edits).
-  - P5-4 found the D-void cause was `<style>` blocks (not valid scrml), not "phantom empty markup over-emission." And surfaced a `tag-frame.js` closeTagFrame no-pop defect for void-014/for-044/tag-007.
-  - P5-11 found the H4 cause was `parse-stmt.js` (structural-state-decl recognition) — not `parse-expr.js`/`collect-hoisted.js`. P5-2's deferred note was right; the triage §2.1 H4 prose was wrong.
+**Wave 10 (5 commits + 1 memo) — M6 mechanical preconditions cleared + RI root-cause fix**
+- `e60c4d1a` — **Unit K** parse-markup.scrml `fn → function` (8 sites: 5 root + 3 cascade per §48.6.2). In-file E-FN-003: 35 → 0. Brief-correction #5: 178 not 236; only 35 in-file; 143 cross-file (deferred to L).
+- `1203294b` — **Unit L** 4 sibling body-parsers `fn → function` (26 sites: 21 root + 5 cascade). Composite E-FN-003: 143 → 0. Full mirror set E-FN-003-clean.
+- `dc2473f3` — **Unit M** display-text-literal.scrml `===`/`!==` → `==`/`!=` + null/undef → `is not`/`is some` (23 raw operator sites). Closes all 46 E-EQ-004 composite fires. Brief-correction #6: 1-file source for 6 composites via double-emission + import graph.
+- `9a1d6950` — **Unit O memo** W-DEAD-FUNCTION 20-of-20 false positives. Recommended RI fix (Unit P) over corpus deletion.
+- `6297fefc` — **Unit N** doc-comment realignment in 5 .scrml mirrors. **SPEC vs impl divergence surfaced:** §48.3.3 says fn bodies may mutate local @-cells, but compiler fires E-FN-003 on `@p = @p + 1` patterns. Documented in commit body for future deep-dive.
+- `498ae3e6` — **Unit P** RI walker fix — `walkBodyForTriggers` collects callees from ExprNode fields (`condExpr`/`iterExpr`/`headerExpr`/`resultExpr`/`valueExpr`/`cStyleParts.*`). Sister to S96 `walkMarkupContext` fix. Closes 20 W-DEAD-FUNCTION false positives + 4 incidental real-corpus false positives. +9 new tests.
 
-The phase5-triage doc is now **partially stale** — its §3 unit decomposition still mostly maps, but several §2 root-cause hypotheses were corrected mid-flight. Next-session re-triage of the residual 15 is recommended before Wave 5.
-
----
-
-## Process incidents — S120
-
-- **CWD slip during P5-8 landing.** Per the S94 pattern — a `git checkout <worktree-branch> -- <files>` op silently slipped CWD into the worktree; the subsequent `git commit` ran in the worktree (found nothing to commit) instead of main. No damage. Recovered by `cd /home/.../scrmlTS && pwd` re-anchor + `git -C <main>` for the file-delta + commit. **Standing mitigation:** use `git -C <main>` for ALL landing ops (CWD-independent), as I did for every subsequent landing. The S94 memory rule held.
-- **Path-discipline hook fired (twice, both recovered).** S100's PreToolUse hook rejected sub-agent main-rooted Write/Edit calls in P5-2 + P5-13. Both agents corrected on first rejection. **The hook is working** — closes the S99 leak class for this project.
-- **P5-12 first dispatch stalled** (watchdog 600s, no progress). No commits, no salvage — clean re-dispatch with a brief tweak (pre-empted the per-file-scan-mode rabbit-hole that hung the prior run).
-- **Brief defect — omitted `bun run pretest`** in the early P5 briefs. Caused P5-2 to report 138 phantom browser-test "failures" (missing `samples/compilation-tests/dist/` artifacts; the missing-pretest pattern from pa.md F4 step 5). No real regression — pre-commit excludes browser, pre-push from main has dist populated. Fixed in P5-4 + later briefs (`bun run pretest` added). Should be a permanent brief-template item.
-- **Triage diagnosis drift surfaced 5 times** (above). Not a failure mode — agents correctly re-diagnosed and surfaced the corrections. But: future triages should be sized expecting ~50% of root-cause hypotheses to be partially corrected at fix-time. This is the triage's own caveat #6 ("51 is a floor") playing out at the unit level.
-- **README-shipping-broken-claim was a process miss.** I verified the realtime hero *compiles* + lint-passes and pushed it. I didn't run it. "Compiles" ≠ "runs." The lesson is encoded in the corpus-sweep PLAN: every README scrml block needs runtime verification, not just compile-gating.
+**Wave 11 (4 commits — survey + 3 fixes)**
+- `1dbf45f8` — **Unit Q memo** post-W10-P residual survey. Brief-correction #7: 51 fires NOT 76 (grep-double-counting). Brief-correction #8: Wave 10-P surfaced ZERO new surface (same grep artifact). Per-class verdict + ranked Wave 11 dispatch list.
+- `51812454` — **Unit R** display-text-literal.scrml `return null` → `return not` (2 sites). 2 real bugs closed per S89 axiom.
+- `1934aadb` — **Unit S** type-system import-decl scope-chain uses `spec.local` (alias-aware), not `imp.names`. Closes 4 E-SCOPE-001 false positives. **Deferred-finding:** same imp.names misuse exists at name-resolver.ts:413-440 (aliased component imports → E-MARKUP-001) + api.js:1340-1374 (aliased type imports → E-VARIANT-AMBIGUOUS). Filed as Wave 12 candidate.
+- `7fba5ffb` — **Unit T** lint-ghost-patterns.js context-aware brace counters + skipIf coverage. Closes 26 W-LINT-001/007/010/011 false positives. Brief-correction #9: structural deeper than skipIf-only — ALL FOUR brace-counters were naive about string-embedded braces. Factored shared helpers (`buildSkipRanges` / `mergeSkipRanges` / `findMatchingClose`). +37 new tests. **Incidental real-bug-revealed:** `buildLogicRanges` was truncating prematurely on string-embedded braces — hiding a bug in EVERY .scrml file with string-embedded structural braces inside `${...}`.
 
 ---
 
 ## State-as-of-close
 
-| Item | Status |
+| Item | Value |
 |---|---|
-| HEAD | this S120 wrap commit |
-| Tests (unit+integration+conformance) | 13,736 pass / 0 fail / 88 skip / 1 todo |
-| Pre-push gate (full validation incl. TodoMVC) | green throughout |
-| Worktrees | **main only** — 11 stale agent worktrees cleaned at wrap |
-| scrmlTS origin sync | **12 commits + wrap commit UNPUSHED** — push authorized |
-| scrml-support origin sync | 1 user-voice append staged for push |
-| Tags | none cut S120 |
+| HEAD | this S121 wrap commit |
+| Tests (full `bun run test`) | 19,774 pass / 0 fail / 171 skip / 1 todo |
+| Pre-commit gate (unit+integration+conformance) | 13,773 pass / 0 fail / 88 skip / 1 todo |
+| Triage histogram | EXACT 963 / DEFERRAL 21 / LIVE-DEGEN 11 / LIVE-HOIST-MISCLASSIFY 2 / LIVE-PHANTOM 1 / DIFF-hoist-count 1 / GAP-state-block 1 |
+| **Strict-pass** | **998/1000 (99.8%)** |
+| **Gap (corpus-stale only)** | **2** (bs.scrml + quiz-app) |
+| Native-parser .scrml mirror residual diagnostics | 19 unique (was 51 pre-Wave-11) |
+| — E-ROUTE-001 (9 unique) | spec-correct per §12.4 — no action needed |
+| — E-NAME-COLLIDES-STATE (9 unique) | auto-state-cell deep-dive candidate (Unit V) |
+| — E-MU-001 (1 unique) | real bug: tag-frame.scrml `consumedRhs = true` parses as TILDE-DECL after `let consumedRhs = false` |
+| scrmlTS origin sync | **30 commits UNPUSHED** — push authorized at wrap |
+| scrml-support origin sync | user-voice append pending |
+| Tags | none cut S121 |
 | pkg.json version | 0.6.0 (unchanged) |
 | Inbox `handOffs/incoming/` | empty |
 | Hook gate | Configuration B (pre-commit + post-commit + pre-push) |
-| `.claude/maps/` | watermark `5d2003dd` — STALE (12 commits behind); refresh before any S121 dev dispatch |
-| Background agents | none |
+| `.claude/maps/` | watermark `a8904945` — needs S122 refresh |
+| Worktrees | **23** (22 agent + main) — cleanup at this wrap |
 
 ---
 
-## Open threads / carry-forwards — surface at S121 OPEN
+## Open threads / carry-forwards — surface at S122 OPEN
 
-1. **The remaining-15 gap.** Phase5-triage doc is partially stale (several root-cause hypotheses corrected at fix-time). Recommended: a quick re-triage of the 15 before Wave 5 dispatches. Mapping of the 15 by class:
-   - `DIFF-deep-seq` 7: D-void residual + D-interp 3 + D-sql 1 + D-match 1 + the `< p` phantom-opener (r10-bun-admin) post-P5-12.
-   - `DIFF-hoist-count` 4: bs.scrml typeDecl tail + cg.scrml imports (P5-C canary, not-bug) + jwt.scrml (P5-C canary) + 1 residual.
-   - `GAP-mixed` 1: phase4-tag-mismatched-closer-007 (tag-frame no-pop).
-   - `DIFF-top-seq` 2: T-extra residual (`<#tag/>` + void/for trailing).
-   - `GAP-state-block` 1: quiz-app — **corpus-stale, NOT a parser fix** (`</>`-as-division operator; both pipelines choke). Defer or `</>`→`/` fix.
-   - (`GAP-native-extra-block` 1: gauntlet-r11-zig-buildconfig — pre-existing divergence unmasked by P5-13; not a regression.)
+1. **Wave 12 candidate fixes** (small, well-scoped):
+   - **Unit U** (E-MU-001 1 real bug) — `tag-frame.scrml:1492+1541` `consumedRhs = true` parses as fresh TILDE-DECL after `let consumedRhs = false`. Likely a parser disambiguation issue. ~1-2h.
+   - **Unit V** (E-NAME-COLLIDES-STATE 9 fires — auto-state-cell deep-dive) — compiler auto-creates phantom state cells from undeclared `@x = v` writes. Structural pattern with latent corpus implications. SPEC authority + impl alignment + downstream walker impacts. ~3-5h survey + design.
+   - **Unit W** (Wave 11-S deferred-finding) — same `imp.names` misuse at `name-resolver.ts:413-440` + `api.js:1340-1374`. Aliased component / type imports broken. ~2-3h.
 
-2. **Remaining P5 units (Wave 4+):**
-   - **P5-6** — markup-in-expr over-recognition (`parse-markup.js`) — D-interp 3 + D-sql 1 + `<#tag/>` 1. ~4–6h.
-   - **P5-7** — `<match>` block-form recognition (`parse-markup.js` + `parse-file.js`) — 1 file. ~5–8h, a genuine new assembler pass.
-   - **P5-14** (new, P5-4-surfaced) — `tag-frame.js` `closeTagFrame` mismatched-closer no-pop — void-014 / for-044 / tag-007. ~2–4h.
-   - **`< p` phantom-opener residual** (P5-12-surfaced) — `parse-markup.js`'s `isStateTagBoundaryAfterLt` tightening OR LIVE-DEGENERATE reclassification. r10-bun-admin.
-   - **`_{}` foreign-code brace-in-string** (P5-13-surfaced) — `dispatchInForeignCode` carries the structurally-identical defect; same fix recipe as P5-13. ~1–2h.
-   - **bs.scrml typeDecl + cg.scrml imports** — separate hoist-count investigation (the agent for P5-10 verified `collect-hoisted.js` has no defect, so the bug is elsewhere). ~3–5h.
-   - **`meta` wrapper fidelity** (P5-3-surfaced) — `^{}` emits as `Block`; needs `StmtKind.Meta` in `ast-stmt.js` + a `translate-stmt.js` arm. ~2–4h.
-   - **P5-C** — canary classifier (jwt.scrml + cg.scrml — both **not native-parser bugs**; live oracle wrong). Last unit, after parser fixes complete. ~2–3h.
-   - **quiz-app corpus fix** — `</>`→`/` line 60 + line 148. Trivial corpus edit, defer/PA-do as part of M6 prep.
-   - **`KwType` dead enum cleanup** — P5-9 left `KwType` in the TokenKind enum (no longer emitted). Trivial sweep.
-   - **`.scrml` predicate-drift sweep** (S118-queued) — 33 pre-existing `is not not` sites + the `parse-markup.scrml` ~236 E-FN-003 errors. M6 precondition. Distinct sweep.
+2. **SPEC-vs-impl §48.3.3 divergence** — surfaced in Unit N commit body. Spec says fn bodies may mutate local @-cells; compiler fires E-FN-003 anyway. Either compiler is stricter than spec (possibly correct — @var ambiguity) OR real divergence. Deep-dive candidate.
 
-3. **`dashboard/app.scrml` (v1) — landed; never run.** Compiles clean (1 benign `E-ROUTE-001` warning on `state[name] = …` flat-JSON computed write). I have NOT run `scrml dev dashboard/app.scrml` to verify it works end-to-end in the browser. **Expect it to hit today's full-stack runtime bug cluster** (it does server fn calls from a client handler; the pattern is closer to example 17's `publish()` shape than example 03's render-loop, so it might fare better — but unverified). If it doesn't run cleanly, that's a real signal feeding the corpus sweep. v2 follow-ups noted in the file's footer: `scrml:shell` stdlib helper, on-mount auto-load, "Run it" per row.
+3. **Sibling false-negative class — RI trigger detection on EXPR_NODE fields.** Unit P added CALLEE collection on the same fields where the walker missed it; TRIGGER detection (server-only resource, protected-field-access) on those same fields was NOT extended. A function whose only server-signal is `while (?{}.foo())` would still mis-classify. Filed.
 
-4. **Corpus sweep PLAN** — trigger M6. Don't mass-fix corpus before M6. Acute public-facing falsehoods (like today's README hero) are the only fix-now exception. Located at `docs/changes/corpus-sweep/PLAN.md`.
+4. **Maps refresh required at S122 OPEN** — watermark `a8904945` is now ~30 commits stale. Standard pa.md "Maps-discipline protocol" applies.
 
-5. **README "Built around state machines" + the developer-note disclaimer** are now the only disclaimers; the hero is gate-skipped. README scrml gate: 2 passed (Counter + Engine), 2 skipped (hero + Zod fragment), 0 failed. (Caveat: the Engine example also uses `<program db=>` + `?{select}` *without* `<db>` — same broken shape as the old hero. It gate-passes but likely emits broken JS at runtime too. Flag for the corpus sweep; not fix-now per user steer.)
+5. **Worktrees cleanup at this wrap** — 22 retained agent worktrees from Waves 4-11. Per S83 §6b standing rule.
 
-6. **§58 build-story determinism audit (§58.12)** — whole-compiler audit; v1.0-gate-vs-fast-follow undecided; bit-identical claim stays `*`-marked until done. Pre-S120 carry-forward.
+6. **Dashboard remains broken at runtime** (Bug 9 filed; PLAN ledger entry; defer to M6 corpus sweep). User reviewed end-to-end; reported "no rows; button won't click; looks like an `<hr>`" — exactly the gate-blind-spot the dashboard was designed to detect.
 
-7. **Pre-existing carry-forwards** (unchanged from S119):
-   - dev.to article updates — content fixed in-repo S115; published posts unchanged. Marketing-shaped (Rule 1 — only if Bryan raises).
-   - Living Compiler retraction — draft at `docs/articles/living-compiler-retraction-devto-2026-05-21.md`; pending Bryan's stamp + publish.
-   - scrml.dev article canonicalization — not started.
-   - SPEC-INDEX Quick-Lookup mini-index stale — flagged S117.
-   - §29 vanilla-interop — spec↔impl divergence; user has not ruled.
-   - Generator (`yield`/`function*`) policy (S114).
-   - PRIMER match-block section.
-   - MK4 lazy-require ESM cycle.
-   - `eb941333` stray commit (S119, P4-2-agent CWD slip — harmless).
+7. **Bug 9 codegen class** — `_scrml_fetch_*` async helpers called from non-`async` caller fns without `await`. Same pattern as example-03 (corpus-sweep PLAN Bug #4). Codegen fix in `compiler/src/codegen/emit-client.ts` — defer to post-M6 per PLAN timing rule.
+
+8. **Pre-existing carry-forwards** (unchanged from S120):
+   - dev.to article updates — Rule 1 (only if user raises)
+   - Living Compiler retraction stamp — pending user
+   - scrml.dev article canonicalization — not started
+   - SPEC-INDEX Quick-Lookup mini-index stale (S117 flag)
+   - §29 vanilla-interop spec↔impl divergence — user has not ruled
+   - Generator (`yield` / `function*`) policy (S114)
+   - PRIMER match-block section update — now possible since P5-7 / Wave 9-J shipped match-block FileAST synthesis (`docs/PA-SCRML-PRIMER.md` could add a §match-block subsection)
+   - MK4 lazy-require ESM cycle
+   - §58 build-story determinism audit
+   - `eb941333` stray commit (S119 P4-2-agent CWD slip — harmless)
 
 ---
 
-## Session-start checklist for S121 PA
+## Memos written this session
+
+1. `docs/changes/m5-c2-gap-ledger/phase5-retriage-s121-2026-05-22.md` — S121 OPEN re-triage of S120's residual 16 (Wave 4 prep)
+2. `docs/changes/m5-c2-gap-ledger/p5-14-deferral-2026-05-22.md` — Unit P5-14 v1 deferral (Dropdown-regression analysis + Option A)
+3. `docs/changes/bug-8-followup/scrml-compiler-shim-survey-s121-2026-05-22.md` — Unit E (Option d recommendation)
+4. `docs/changes/m5-c2-gap-ledger/gap-neb-survey-s121-2026-05-22.md` — Unit D (zig + tailwind classification)
+5. `docs/changes/m5-c2-gap-ledger/w-dead-function-survey-s121-2026-05-22.md` — Unit O (20-of-20 false positives, RI walker is the bug)
+6. `docs/changes/m5-c2-gap-ledger/post-w10-p-residual-survey-s121-2026-05-22.md` — Unit Q (51 fires categorized; Wave 11 dispatch list)
+
+---
+
+## Process incidents — S121
+
+- **9 brief-corrections by agents (Rule 5 in action)** — every brief that the agent corrected made the session work right. Detailed list captured in each commit body. Patterns: PA paraphrase errors, math inversions, scope mis-estimates, structural-deeper-than-modelled findings.
+- **CWD-slip caught + recovered** — earlier in session a `git checkout worktree -- <file>` op slipped CWD into the worktree; corpus-sweep PLAN edit was rejected by S100 hook before damage. Re-anchored CWD; PLAN edit succeeded. S94 memory rule held.
+- **Cherry-pick subtlety** — twice the cherry-pick appeared to "silently succeed" but with empty diff; both times this was actually CWD-in-worktree giving git the worktree's view. Once anchored CWD back to main, cherry-pick worked normally. Memory rule reinforced.
+- **Multiple `--no-verify` slips by agents (self-flagged)** — 1 in Bug 8 (Unit F), 0 in subsequent. Pattern: agent uses `--no-verify` on a trivial commit when the pre-commit gate stalls; subsequent commits run gate cleanly so no regression escapes. Self-reported = right behavior; rule held.
+- **Cross-worktree stash leakage** — Unit I agent caught a stale stash from a different worktree's prior session leaking via shared git stash list. Resolved cleanly. Memory candidate: check `git stash list` before `git stash pop` when multiple worktrees active.
+- **Path-discipline hook (S100) fired correctly** — 1 PA-direct edit attempt with slipped CWD was rejected; PA re-anchored + retried.
+
+---
+
+## Session-start checklist for S122 PA
 
 1. Read `pa.md` pointer → `../scrml-support/pa-scrmlTS.md` IN FULL.
 2. Read `docs/PA-SCRML-PRIMER.md` IN FULL.
 3. Read `compiler/SPEC-INDEX.md` IN FULL.
-4. Read `master-list.md` §0 IN FULL (the S120 entry in §0.6 is the live delta).
-5. Read this `hand-off.md` (S120 CLOSE) — rotate to `handOffs/hand-off-123.md` at S121 OPEN.
-6. Read recent contentful user-voice — the S120 entry covers the README arc + the self-host pushback + the dashboard idea + the ouroboros framing + the "lets get going" / "triage and disp" sequence.
-7. Sync hygiene: `git fetch` scrmlTS + scrml-support. Both should be at-origin if push completed at S120 wrap.
-8. Maps refresh (watermark `5d2003dd` — 12+ commits stale) before any S121 dev dispatch.
-9. If continuing the P5 campaign: a quick re-triage of the residual 15 against current source (the phase5-triage doc is partially stale).
-10. Report: caught up + next priority (= remaining-15 gap / Wave 4+ / OR whatever the user steers to).
+4. Read `master-list.md` §0 IN FULL (the S121 entry in §0.6 is the live delta).
+5. Read this `hand-off.md` (S121 CLOSE) — rotate to `handOffs/hand-off-124.md` at S122 OPEN.
+6. Read recent contentful user-voice — the S121 entry should cover the Wave 4-11 arc + the dashboard review + the 9 brief-corrections + the SPEC-vs-impl §48.3.3 divergence finding.
+7. Sync hygiene: `git fetch` scrmlTS + scrml-support. Both should be at-origin if push completed at S121 wrap.
+8. Maps refresh (watermark `a8904945` — 29+ commits stale) before any S122 dev dispatch.
+9. If continuing M6-precondition work: Wave 12 candidate list (Unit U + V + W) is well-scoped + ready.
+10. Report: caught up + next priority.
 
 ---
 
 ## Tags
-#session-120 #CLOSE #readme-honest-hero #corpus-sweep-PLAN #self-host-pushback
-#p5-campaign-9-units #gap-51-to-15 #strict-pass-98.4 #dashboard-v1
-#worktrees-cleaned #wrap-and-push-authorized
+#session-121 #CLOSE #parser-side-gap-closed #m6-mechanical-preconditions-cleared
+#three-live-canary-classes-shipped #bug-8-closed-end-to-end #bug-9-filed
+#ri-walker-root-cause-fixed #spec-vs-impl-48-3-3-divergence-surfaced
+#9-brief-corrections #29-commits #998-of-1000-strict-pass
+#wrap-and-push-authorized
