@@ -840,6 +840,29 @@ export function dispatchTopLevel(run, cursor, ctx) {
     const recognized = recognizeContextEntryAt(cursor);
 
     if (recognized.kind === "sigil") {
+        // P5-6 — `?{` IS NOT A MARKUP-LEVEL SQL OPENER. Per SPEC §3.1 + §8.1
+        // (S108 Bug 4 C-narrow), `?{` opens a SQL context ONLY inside Logic
+        // — the live block-splitter at L1446-1495 deliberately omits `?{`
+        // from its markup-loop sigil list (the companion ctx-loop branch at
+        // L1245 IS the §3.1 SQL-inside-Logic case and still recognizes it).
+        // A bare `?{...}` at markup level (a file-level child or a child of
+        // `<program>` / `<page>` / etc.) is text + an orphan-brace region —
+        // the `?` accumulates as text and the `{` increments the live BS's
+        // `orphanBraceDepth`. Native's `recognizeContextEntryAt` treats every
+        // sigil uniformly; suppress `?{` here so it falls through to text +
+        // the orphan-brace counter. A `?{...}` NESTED inside `${...}` reaches
+        // `dispatchInLogicEscape`'s sigil branch (the §3.1 path), untouched.
+        if (recognized.sigil === "?" + openBrace()) {
+            // Fall through to the text-run accumulator below — the `?` is
+            // plain text, the `{` is an orphan brace (handleOrphanBrace
+            // already ran at the top of this dispatch and would have
+            // consumed any bare `{`, but `?{` is two chars so we need to
+            // consume only the `?` here; the `{` reaches handleOrphanBrace
+            // on the next iteration).
+            beginTextRun(run, cursor);
+            advance(cursor, 1);
+            return;
+        }
         flushTextRun(run, cursor, ctx);
         const frame = enterBlockContext(ctx, cursor, recognized.enters, recognized.sigil);
         // MK2.2 — snapshot the tag-tree depth at context-open. A markup
@@ -899,6 +922,51 @@ export function dispatchTopLevel(run, cursor, ctx) {
         // dispatches .InMarkupTag (dispatchInMarkupTag) to tokenize the
         // opener body. The `<` consumption is the iteration's progress.
         enterMarkupTagContext(ctx, cursor);
+        return;
+    }
+
+    // P5-6 — `<#name>` HASH-REF BOUNDARY. SPEC §36 / §46 / §43 reserve
+    // the `<#name>` shape for worker-message refs (`<#name>.send(expr)`),
+    // when-from input-state refs (`when message from <#name>`), and
+    // standalone input-state refs (`<#name>`). The live block-splitter at
+    // L1593-1614 keeps the whole `<#name ...>` slice as TEXT — but it
+    // FLUSHES the open text run at the `<` boundary first, splitting the
+    // pre-`<#` content into its own text node, then re-opens a text run
+    // starting at the `<`. The downstream stages (rewriteWorkerRefs /
+    // preprocessWorkerAndStateRefs / rewriteInputStateRefs) read the
+    // `<#name>` substring from the resulting text node and rewrite it.
+    //
+    // The native trampoline previously did neither — `<` followed by `#`
+    // failed isMarkupTagOpener (a `#` is not an ASCII letter) and fell
+    // through to the text accumulator. The text run was NOT split; the
+    // pre-`<#` whitespace and the `<#name>` slice merged into one text
+    // node. The D-interp-markup gap (phase3-is-in-when-guard-093): the
+    // `<#tick when @s is .Active />` line is part of `<program>` body —
+    // live emits it as a SEPARATE text-after-text-break child, native
+    // emits one merged text child, deep-walk lengths diverge by one.
+    //
+    // Mirror live's flush-and-restart: at a `<#` boundary flush the
+    // open run (start..`<`), then re-open a run at the `<` and consume
+    // the `<#name...>` slice as text (scan to `>` or `\n`). The new run
+    // stays open so trailing whitespace + content fuses into it,
+    // matching live's `textStart = refStart` posture.
+    const hereChar = peekChar(cursor, 0);
+    const nextChar = peekChar(cursor, 1);
+    if (hereChar === "<" && nextChar === "#") {
+        flushTextRun(run, cursor, ctx);
+        beginTextRun(run, cursor); // start the post-`<#` run at the `<`
+        advance(cursor, 1); // consume `<`
+        advance(cursor, 1); // consume `#`
+        // Scan to `>` or `\n` — the live BS L1606-1609 reads the
+        // identifier then scans-to-`>` or `\n`. We collapse both into one
+        // bounded walk; the inter-`<#`-and-`>` content is text-of-the-
+        // hashref, the same shape live captures.
+        while (!isEof(cursor)) {
+            const ch = peekChar(cursor, 0);
+            if (ch === ">") { advance(cursor, 1); break; }
+            if (ch === "\n") break;
+            advance(cursor, 1);
+        }
         return;
     }
 
@@ -1451,6 +1519,31 @@ export function dispatchInMarkupTag(run, cursor, ctx) {
         closeSelfClosedFrame(ctx);
         emitMarkupElement(ctx, tagFrame, frame.openSpan.start,
             tagFrame.opener.span.end, []);
+    } else if (isRawContentElement(tagFrame.name)) {
+        // 3c. P5-6 — RAW-CONTENT ELEMENT (SPEC §4.17). Inside `<pre>` /
+        //     `<code>` the body is verbatim: scrml tokens (`${...}`,
+        //     `<TagName>`, `?{}`, `#{}`, `!{}`, `^{}`, `_{...}`) are NOT
+        //     recognized; the entire body is one text run terminated by
+        //     the matching `</NAME>` closer. Mirrors the live block-
+        //     splitter at L1832-1897 — `RAW_CONTENT_ELEMENTS = {pre, code}`.
+        //
+        //     The native trampoline previously parsed `<code>`'s body
+        //     character-by-character, opening `${...}` logic contexts for
+        //     interpolations and emitting `logic` blocks where the live
+        //     pipeline carries a single text child. The D-interp gap:
+        //     three trucking-dispatch files (driver/profile, driver/
+        //     messages, customer/profile) all have `<code class="…">
+        //     ${@var}</code>` substrings where the native pipeline
+        //     opened a sub-context the live oracle did not.
+        //
+        //     Recognize the opener, then SHORT-CIRCUIT the body: scan
+        //     forward for `</NAME>` (case-insensitive), emit one text
+        //     child for the body (if non-empty), advance past the closer,
+        //     and emit the whole-element Markup block via
+        //     emitMarkupElement. popTagFrame removes the frame the
+        //     opener pushed (no later closer-pairing — already paired
+        //     inline).
+        emitRawContentElement(ctx, cursor, tagFrame, frame.openSpan);
     } else {
         // 3b. A non-self-closing `<ident ...>` — the element awaits
         //     children + a matching closer. Defer the Markup block;
@@ -1461,6 +1554,88 @@ export function dispatchInMarkupTag(run, cursor, ctx) {
 
     // 4. Restore @blockContext to the prior context.
     setBlockContext(ctx, frame.priorContext);
+}
+
+// isRawContentElement — calculation (predicate). SPEC §4.17 raw-content
+// element name set — mirror of live block-splitter.js L89 `RAW_CONTENT_
+// ELEMENTS`. The live oracle's `!isComp && lowerTagName` check is
+// covered here by comparing against the lowercase literal: a PascalCase
+// component opener (`<Pre>` / `<Code>`) has `tagFrame.name === "Pre"`
+// (NOT lowercased — the native preserves case) and so does NOT match,
+// matching the live gate.
+export function isRawContentElement(tagName) {
+    return tagName === "pre" || tagName === "code";
+}
+
+// emitRawContentElement — state write. The cursor sits just past the
+// opener's `>`. Scan forward for the matching `</NAME>` closer
+// (case-insensitive — the live BS L1846-1856 needle), capture the body
+// as one Text child, advance the cursor past the closer, and emit the
+// whole-element Markup block. An unterminated raw-content element
+// (no `</NAME>` before EOF) records E-CTX-001 and is recovered as if
+// the closer materialised at EOF.
+export function emitRawContentElement(ctx, cursor, tagFrame, openSpan) {
+    const src = cursor.source;
+    const len = src.length;
+    const lowerName = tagFrame.name;
+    const closeNeedle = "</" + lowerName + ">";
+    const needleLen = closeNeedle.length;
+
+    // The body extent — [bodyStart, bodyEnd]. `bodyStart` is cursor.pos
+    // (just past `>`); `bodyEnd` is the first byte of the closer match
+    // (or EOF when no closer materialises).
+    const bodyStart = cursor.pos;
+    const bodyStartLine = cursor.line;
+    const bodyStartCol = cursor.col;
+    let p = bodyStart;
+    while (p < len) {
+        if (src.charAt(p) === "<"
+            && src.substr(p, needleLen).toLowerCase() === closeNeedle) {
+            break;
+        }
+        p = p + 1;
+    }
+    const bodyEnd = p;
+
+    // One Text child for the body (live parity — see block-splitter.js
+    // L1858-1875). A zero-length body emits no child.
+    const children = [];
+    if (bodyEnd > bodyStart) {
+        const k = blockKinds();
+        children.push(makeBlockNode(
+            k.Text,
+            makeSpan(bodyStart, bodyEnd, bodyStartLine, bodyStartCol),
+            null,
+        ));
+    }
+
+    // Advance the cursor past the closer (or to EOF when unterminated).
+    let closerForm = "explicit";
+    if (p < len) {
+        advance(cursor, (bodyEnd - bodyStart) + needleLen);
+    } else {
+        // Unterminated raw-content element — E-CTX-001 per live BS
+        // L1881-1885. Recover as if the closer materialised at EOF.
+        advance(cursor, bodyEnd - bodyStart);
+        pushDiagnostic(ctx, makeDiagnostic(
+            "E-CTX-001",
+            "Unclosed <" + tagFrame.name + "> raw-content element (expected '"
+                + closeNeedle + "'). Add the matching close tag.",
+            makeSpan(openSpan.start, cursor.pos, openSpan.line, openSpan.col),
+        ));
+        closerForm = "inferred";
+    }
+
+    // Pop the TagFrame the opener pushed — closer pairing is INLINE here,
+    // so the frame must not linger on ctx.tagFrameStack (otherwise a
+    // later `</>` could pair against it).
+    popTagFrame(ctx);
+
+    // Emit the whole-element Markup block. emitMarkupElement carries the
+    // closerForm + children + the standard payload-stamping (tagClass,
+    // attrs, tagKind, etc.).
+    tagFrame.closerForm = closerForm;
+    emitMarkupElement(ctx, tagFrame, openSpan.start, cursor.pos, children);
 }
 
 // emitMarkupElement — state write. Emit ONE Markup block for a complete

@@ -549,8 +549,16 @@ describe("MK1.2 parseMarkup trampoline — context transitions end-to-end", () =
     });
 
     test("each of the 7 sigils enters its matching context", () => {
+        // P5-6 — SPEC §3.1 + §8.1: `?{` opens a SQL context ONLY inside
+        // Logic (S108 Bug 4 C-narrow). The live block-splitter at L1446-1495
+        // deliberately omits `?{` from its markup-loop sigil list; the
+        // native parser mirrors that posture. The other six markup-level
+        // sigils ($, #, !, ^, ~, _) remain recognized at top level. The
+        // `?{ s }` arm of this test is wrapped in `${ ... }` so the
+        // SQL-inside-Logic context boundary is exercised (the dispatchIn
+        // LogicEscape sigil branch, the §3.1 path).
         const src =
-            "?" + brace + " s }" +
+            "$" + brace + " ?" + brace + " s } }" +
             " #" + brace + " c }" +
             " !" + brace + " e }" +
             " ^" + brace + " m }" +
@@ -916,9 +924,10 @@ describe("MK1.3 block-stream — typed blocks emitted by the trampoline", () => 
         expect(blockStream("$" + brace + " a }")).toEqual([
             { kind: NativeBlockKind.LogicEscape, start: 0, end: 6 },
         ]);
-        expect(blockStream("?" + brace + " a }")).toEqual([
-            { kind: NativeBlockKind.Sql, start: 0, end: 6 },
-        ]);
+        // P5-6 — `?{` is a SQL opener ONLY inside Logic (SPEC §3.1 + §8.1).
+        // A bare `?{` at markup-level is text + an orphan brace per the
+        // live BS L1446-1495 posture. The Sql-block emission case is
+        // exercised by the `${ ?{ ... } }` nested form (the §3.1 path).
         expect(blockStream("#" + brace + " a }")).toEqual([
             { kind: NativeBlockKind.Css, start: 0, end: 6 },
         ]);
@@ -983,9 +992,12 @@ describe("MK1.3 sub-context sketch dispatchers — extent + close recognition", 
     // .InMeta / .InTest) has a sketch-depth dispatcher: it recognizes the
     // context's extent (by brace depth) and its matching close, and emits
     // the context block. The DEEP per-context grammar is a later milestone.
+    //
+    // P5-6 — `?{` is GATED to Logic context per SPEC §3.1 + §8.1 (S108
+    // Bug 4 C-narrow); the sql sub-context is exercised by the §22
+    // `${ ?{ ... } }` nested case below, not as a markup-level sigil.
     const SUB_CONTEXT_ROWS = [
         ["#" + brace, NativeBlockKind.Css,         "css"],
-        ["?" + brace, NativeBlockKind.Sql,         "sql"],
         ["!" + brace, NativeBlockKind.ErrorEffect, "error-effect"],
         ["^" + brace, NativeBlockKind.Meta,        "meta"],
         ["~" + brace, NativeBlockKind.Test,        "test"],
@@ -5411,24 +5423,45 @@ describe("F7.a — M5 P4-1 engine-vs-state recognition correctness", () => {
 });
 
 describe("F7.b — SQL chained-call grammar (shapeSqlBlock — §8.9)", () => {
+    // P5-6 — `?{` is a SQL opener ONLY inside Logic (SPEC §3.1 + §8.1, S108
+    // Bug 4 C-narrow). The native parser at MK1.3+ gates `?{` at the
+    // markup-level dispatch (parse-markup.js dispatchTopLevel) — a bare
+    // `?{...}` at top-level is text + an orphan-brace region, the same
+    // shape the live BS produces. The chain-grammar implementation
+    // (shapeSqlBlock + scanChainedCalls in parse-sql-body.js) is exercised
+    // directly with a constructed `Sql` block + the source-bytes-after-`}`
+    // offset; this isolates the shaping unit from the gating decision and
+    // is the SPEC-conformant test surface (no top-level `?{` admission).
+    //
+    // shapeFromSource — build a Sql block from a `?{ <body> }<chain?>` source
+    // string by deriving `bodyText` (the substring between `?{` and `}`) and
+    // calling shapeSqlBlock with `afterBrace` (one past the `}`). Mirrors
+    // what parse-markup.js's emitContextBlock does in the .InSql branch.
+    function shapeFromSource(src) {
+        const open = "?" + "{";
+        const openAt = src.indexOf(open);
+        if (openAt !== 0) throw new Error("expected source to start with ?{");
+        const afterBrace = src.indexOf("}", openAt) + 1;
+        const bodyText = src.substring(openAt + open.length, afterBrace - 1);
+        const block = { kind: "Sql", bodyText };
+        shapeSqlBlock(block, src, afterBrace);
+        return block;
+    }
+
     test("a `?{...}` block gets query + an empty chain when no chain trails", () => {
-        const blocks = parseMarkup("?{ `SELECT 1` }");
-        const sqlBlock = blocks.find(b => b.kind === "Sql");
-        expect(sqlBlock).toBeDefined();
+        const sqlBlock = shapeFromSource("?{ `SELECT 1` }");
         expect(sqlBlock.query).toBe("SELECT 1");
         expect(sqlBlock.chainedCalls).toEqual([]);
     });
 
     test("a `.run()` chain trailing the `}` is consumed into chainedCalls", () => {
-        const blocks = parseMarkup("?{ `INSERT INTO t VALUES (1)` }.run()");
-        const sql = blocks.find(b => b.kind === "Sql");
+        const sql = shapeFromSource("?{ `INSERT INTO t VALUES (1)` }.run()");
         expect(sql.query).toBe("INSERT INTO t VALUES (1)");
         expect(sql.chainedCalls).toEqual([{ method: "run", args: "" }]);
     });
 
     test("a multi-link chain `.batch().all()` is consumed in order", () => {
-        const blocks = parseMarkup("?{ `SELECT * FROM t` }.batch().all()");
-        const sql = blocks.find(b => b.kind === "Sql");
+        const sql = shapeFromSource("?{ `SELECT * FROM t` }.batch().all()");
         expect(sql.chainedCalls).toEqual([
             { method: "batch", args: "" },
             { method: "all", args: "" },
@@ -5436,26 +5469,24 @@ describe("F7.b — SQL chained-call grammar (shapeSqlBlock — §8.9)", () => {
     });
 
     test("a chain method with args captures the verbatim inter-paren text", () => {
-        const blocks = parseMarkup("?{ `SELECT 1` }.get(@id)");
-        const sql = blocks.find(b => b.kind === "Sql");
+        const sql = shapeFromSource("?{ `SELECT 1` }.get(@id)");
         expect(sql.chainedCalls).toEqual([{ method: "get", args: "@id" }]);
     });
 
     test("`.nobatch()` is stripped from the chain and flags the node", () => {
-        const blocks = parseMarkup("?{ `SELECT 1` }.nobatch().all()");
-        const sql = blocks.find(b => b.kind === "Sql");
+        const sql = shapeFromSource("?{ `SELECT 1` }.nobatch().all()");
         expect(sql.nobatch).toBe(true);
         expect(sql.chainedCalls).toEqual([{ method: "all", args: "" }]);
     });
 
-    test("the chain bytes are consumed — no stray Text block follows the Sql block", () => {
-        const blocks = parseMarkup("?{ `SELECT 1` }.run()");
-        const sqlIdx = blocks.findIndex(b => b.kind === "Sql");
-        // After the Sql block there must be no Text block carrying `.run()`.
-        const trailing = blocks.slice(sqlIdx + 1).filter(b => b.kind === "Text");
-        for (const t of trailing) {
-            expect(t.value === undefined || t.value.includes(".run") === false).toBe(true);
-        }
+    test("the chain extent leaves no bytes uncounted (chainEnd at chain close)", () => {
+        // The trampoline's cursor-advance side-effect is driven by the
+        // chain extent. Verify the chain consumer reports the byte just
+        // past the last `)` so the markup trampoline resumes from the
+        // right place.
+        const src = "?{ `SELECT 1` }.run()";
+        const result = scanChainedCalls(src, src.indexOf("}") + 1);
+        expect(src.slice(result.end)).toBe("");
     });
 
     test("extractSqlQuery unwraps a backtick-delimited body", () => {
@@ -5484,12 +5515,21 @@ describe("F7.b — SQL chained-call grammar (shapeSqlBlock — §8.9)", () => {
     ];
     for (const src of SQL_PARITY_CASES) {
         test(`SQL payload parity vs live buildAST — ${JSON.stringify(src)}`, () => {
-            const blocks = parseMarkup(src);
-            const native = blocks.find(b => b.kind === "Sql");
-            expect(native).toBeDefined();
+            // P5-6 — `?{` opens a SQL context only inside Logic per SPEC
+            // §3.1 + §8.1. Build the native Sql block via shapeSqlBlock
+            // directly (the same shaping the markup trampoline invokes
+            // from emitContextBlock for an .InSql block nested inside
+            // `${...}`) — this isolates the payload shape from the
+            // (separate) decision of WHERE the block emits.
+            const open = "?" + "{";
+            const afterBrace = src.indexOf("}", src.indexOf(open)) + 1;
+            const bodyText = src.substring(open.length, afterBrace - 1);
+            const native = { kind: "Sql", bodyText };
+            shapeSqlBlock(native, src, afterBrace);
 
-            // The live pipeline parses a top-level `?{...}` inside a logic
-            // context; wrap the source so buildAST sees a `sql` node.
+            // The live pipeline parses a `?{...}` only inside a logic
+            // context (the §3.1 path); wrap the source so buildAST sees
+            // a nested `sql` node.
             const liveSql = liveNodesOfKind("${ " + src + " }", "sql");
             expect(liveSql.length).toBeGreaterThan(0);
             const live = liveSql[0];

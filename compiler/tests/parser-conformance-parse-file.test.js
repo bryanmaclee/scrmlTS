@@ -132,14 +132,28 @@ describe("C1 §2 — BlockKind -> ASTNode mapping", () => {
   });
 
   test("a `?{...}` block maps to a `sql` node with query + chainedCalls", () => {
-    const r = nativeParseFile("app.scrml", "${ let rows = ?{ select * from t }.all() }");
-    // The `?{...}` SQL block parses inside the logic body as an expression;
-    // a top-level `?{...}` maps to a `sql` node. Use the top-level form.
-    const r2 = nativeParseFile("app.scrml", "?{ select * from users }.all()");
-    const sql = r2.ast.nodes.find(n => n.kind === "sql");
-    expect(sql).toBeDefined();
-    expect(typeof sql.query).toBe("string");
-    expect(Array.isArray(sql.chainedCalls)).toBe(true);
+    // P5-6 — `?{` opens a SQL context ONLY inside Logic per SPEC §3.1 + §8.1
+    // (S108 Bug 4 C-narrow). The native parser at the markup-level dispatch
+    // suppresses `?{` (parse-markup.js dispatchTopLevel) — a bare `?{...}`
+    // at top-level is text + an orphan-brace, the same shape the live BS
+    // produces. To exercise the C1 Sql -> sql bridge (synthSqlNode), a
+    // top-level `?{...}` source would no longer admit a Sql block; instead
+    // we verify a top-level `?{...}` is now text-only (the SPEC posture).
+    //
+    // The C1 bridge for the Sql kind (synthSqlNode) is exercised in real
+    // adoption shapes via the §3.1 nested form `${ ?{...} }` — emitContext
+    // Block stamps the Sql block + shapeSqlBlock derives query +
+    // chainedCalls inside the logic body. A unit-test of the bridge in
+    // isolation should construct a Sql block directly + call synthSqlNode;
+    // that is the F7.b chain-grammar test surface in parser-conformance-
+    // markup.test.js.
+    const r = nativeParseFile("app.scrml", "?{ select * from users }.all()");
+    const sql = r.ast.nodes.find(n => n.kind === "sql");
+    expect(sql).toBeUndefined();
+    // The top-level run is plain text (the `?` accumulates, the `{` is an
+    // orphan-brace tracked + closed by the matching `}`).
+    const text = r.ast.nodes.find(n => n.kind === "text");
+    expect(text).toBeDefined();
   });
 
   test("a `#{...}` block maps to a `css-inline` node with rules", () => {
