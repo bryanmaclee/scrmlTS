@@ -257,3 +257,143 @@ describe("MustUseTracker: word-boundary correctness", () => {
     expect(mu).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §48.3.3 reassignment-vs-declaration discrimination (Unit U regression)
+// ---------------------------------------------------------------------------
+// `tilde-decl` is the parser kind for any bare `name = expr` statement, but
+// per §48.3.3 the SEMANTICS is reassignment when `name` is already bound
+// elsewhere (let / const / lin-decl / param). The MustUseTracker MUST NOT
+// register a fresh must-use entry for those — that's the original bug at
+// compiler/native-parser/tag-frame.scrml:1492+1541 (`let consumedRhs = false`
+// at fn scope; `consumedRhs = true` deeply nested; consumedRhs read in
+// while-stmt body BEFORE the reassignment-as-declare fired, so markUsed was
+// a no-op and E-MU-001 fired falsely at fn-scope exit).
+// ---------------------------------------------------------------------------
+
+describe("MustUseTracker: §48.3.3 — tilde-decl as reassignment to outer let → no error", () => {
+  test("outer let-decl + nested tilde-decl reassignment + no use → no E-MU-001", () => {
+    const errors = [];
+    // Mirror of `fn f() { let consumedRhs = false; if (true) { consumedRhs = true } }`.
+    // The inner `consumedRhs = true` parses to a tilde-decl; per §48.3.3 it is a
+    // reassignment to the outer let-decl, NOT a fresh must-use declaration.
+    checkLinear([
+      { kind: "let-decl", name: "consumedRhs", init: "false", span: span(0) },
+      { kind: "if-stmt", consequent: [
+        { kind: "tilde-decl", name: "consumedRhs", init: "true", span: span(20) },
+      ], span: span(10) },
+    ], errors);
+    const mu = errors.filter(e => e.code === "E-MU-001");
+    expect(mu).toHaveLength(0);
+  });
+
+  test("tag-frame.scrml shape: outer let + while-stmt read + deeply-nested reassign → no E-MU-001", () => {
+    const errors = [];
+    // Mirror of the exact tag-frame.scrml:1492+1541 shape: `let X = false` at
+    // fn scope; X read in while-stmt body; X reassigned in nested if branch.
+    checkLinear([
+      { kind: "let-decl", name: "consumedEq", init: "false", span: span(0) },
+      { kind: "let-decl", name: "consumedRhs", init: "false", span: span(10) },
+      { kind: "while-stmt", body: [
+        { kind: "if-stmt", condition: "consumedEq && consumedRhs", consequent: [
+          { kind: "bare-expr", expr: "break", span: span(30) },
+        ], span: span(25) },
+        { kind: "if-stmt", consequent: [
+          { kind: "if-stmt", consequent: [
+            { kind: "tilde-decl", name: "consumedRhs", init: "true", span: span(60) },
+          ], span: span(55) },
+        ], span: span(50) },
+      ], span: span(20) },
+    ], errors);
+    const mu = errors.filter(e => e.code === "E-MU-001");
+    expect(mu).toHaveLength(0);
+  });
+
+  test("outer const-decl + tilde-decl reassignment → no E-MU-001 (host-side mutability is type-system's job)", () => {
+    // Note: const-mutation is rejected by a separate check (E-CONST-WRITE / similar);
+    // checkLinear only owns the must-use discrimination. The reassignment must not
+    // produce a spurious E-MU-001 regardless.
+    const errors = [];
+    checkLinear([
+      { kind: "const-decl", name: "x", init: "1", span: span(0) },
+      { kind: "tilde-decl", name: "x", init: "2", span: span(10) },
+    ], errors);
+    const mu = errors.filter(e => e.code === "E-MU-001");
+    expect(mu).toHaveLength(0);
+  });
+
+  test("outer lin-decl + tilde-decl reassignment → no E-MU-001 (lin-decl is in scope)", () => {
+    const errors = [];
+    // lin-decl + tilde-decl reassignment is sketchy semantically (E-LIN-* may
+    // fire from other code) but the must-use channel itself must not fire.
+    checkLinear([
+      { kind: "lin-decl", name: "y", init: "fetchUser()", span: span(0) },
+      { kind: "tilde-decl", name: "y", init: "fetchOther()", span: span(20) },
+    ], errors);
+    const mu = errors.filter(e => e.code === "E-MU-001");
+    expect(mu).toHaveLength(0);
+  });
+
+  test("fresh tilde-decl (name NOT in any enclosing scope) still fires E-MU-001 when unused", () => {
+    // Regression-guard: the fix must NOT silence E-MU-001 for genuine
+    // unused-must-use cases. A tilde-decl whose name is not bound elsewhere
+    // remains a fresh must-use declaration.
+    const errors = [];
+    checkLinear([
+      { kind: "tilde-decl", name: "trulyFresh", init: "computeIt()", span: span(0) },
+    ], errors);
+    const mu = errors.filter(e => e.code === "E-MU-001");
+    expect(mu).toHaveLength(1);
+    expect(mu[0].message).toContain("trulyFresh");
+  });
+});
+
+describe("MustUseTracker: §48.3.3 — tilde-decl as reassignment to function param → no error", () => {
+  test("fn param reassigned via tilde-decl (no later read) → no E-MU-001", () => {
+    const errors = [];
+    // Mirror of `fn f(x) { x = 5 }` — `x = 5` parses to a tilde-decl. Per
+    // §48.3.3 it is a reassignment to the fn param, NOT a fresh must-use.
+    // The function-decl recursion threads paramNames so checkLinear's
+    // knownBindings includes `x`.
+    checkLinear([
+      { kind: "function-decl", name: "f", params: [
+        { name: "x" },
+      ], body: [
+        { kind: "tilde-decl", name: "x", init: "5", span: span(20) },
+      ], span: span(0) },
+    ], errors);
+    const mu = errors.filter(e => e.code === "E-MU-001");
+    expect(mu).toHaveLength(0);
+  });
+
+  test("fn param of nested function-decl is recognised (no leak from outer scope)", () => {
+    const errors = [];
+    // Two unrelated fns each take `x`; the inner reassignment must not be
+    // mistaken for outer-scope mutation, AND the must-use channel must not
+    // fire for either.
+    checkLinear([
+      { kind: "function-decl", name: "outer", params: [{ name: "x" }], body: [
+        { kind: "function-decl", name: "inner", params: [{ name: "x" }], body: [
+          { kind: "tilde-decl", name: "x", init: "99", span: span(40) },
+        ], span: span(20) },
+      ], span: span(0) },
+    ], errors);
+    const mu = errors.filter(e => e.code === "E-MU-001");
+    expect(mu).toHaveLength(0);
+  });
+});
+
+describe("MustUseTracker: §48.3.3 — closure captures outer scope bindings", () => {
+  test("tilde-decl inside closure body, name bound at outer fn scope → no E-MU-001", () => {
+    const errors = [];
+    // The closure body inherits the outer scope's known bindings via parentBindings.
+    checkLinear([
+      { kind: "let-decl", name: "z", init: "0", span: span(0) },
+      { kind: "closure", captures: [], body: [
+        { kind: "tilde-decl", name: "z", init: "1", span: span(20) },
+      ], span: span(10) },
+    ], errors);
+    const mu = errors.filter(e => e.code === "E-MU-001");
+    expect(mu).toHaveLength(0);
+  });
+});

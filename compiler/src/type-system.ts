@@ -8557,6 +8557,19 @@ interface CheckLinearOpts {
   file?: string;
   /** §35.2.1: Names of lin-annotated function parameters to pre-declare in this scope. */
   preDeclaredLinNames?: string[];
+  /**
+   * Names of non-lin function parameters in scope for this body. Used to suppress
+   * spurious E-MU-001 when a tilde-decl is a reassignment to a param (`fn f(x) { x = 5 }`):
+   * `tilde-decl` represents reassignment per §48.3.3, NOT a fresh must-use declaration.
+   */
+  paramNames?: string[];
+  /**
+   * Names bound in enclosing scopes (params + let/const/lin-decl from outer scopes).
+   * Used to recognise reassignment `x = expr` to an OUTER binding so the tilde-decl
+   * walker does not register a fresh must-use entry. Per §48.3.3, tilde-decl with
+   * a name already bound in any enclosing scope is a reassignment, not a declaration.
+   */
+  parentBindings?: Set<string>;
 }
 
 /**
@@ -8570,6 +8583,8 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
     inLoop = false,
     file = "/unknown",
     preDeclaredLinNames = [],
+    paramNames = [],
+    parentBindings = null,
   } = opts;
 
   const linTracker = new LinTracker();
@@ -8581,6 +8596,48 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
   }
   const tildeTracker = parentTildeTracker ?? new TildeTracker();
   const mustUseTracker = new MustUseTracker();
+
+  // §48.3.3 reassignment-vs-declaration discrimination — collect every name
+  // that is already bound by an enclosing or current-scope let / const / lin-decl
+  // (or by a function parameter). `tilde-decl` for a name in this set is a
+  // REASSIGNMENT, not a fresh `~`-typed must-use declaration; it must not register
+  // in mustUseTracker. Mirrors the `collectLocalDecls` pattern used by E-FN-003.
+  const knownBindings = new Set<string>();
+  if (parentBindings) {
+    for (const n of parentBindings) knownBindings.add(n);
+  }
+  for (const n of preDeclaredLinNames) knownBindings.add(n);
+  for (const n of paramNames) knownBindings.add(n);
+  function _collectScopeBindings(nodes: ASTNodeLike[]): void {
+    if (!Array.isArray(nodes)) return;
+    for (const stmt of nodes) {
+      if (!stmt || typeof stmt !== "object") continue;
+      // Stop at function/closure boundaries — their declarations live in their own scope.
+      if (stmt.kind === "function-decl" || stmt.kind === "closure") continue;
+      const declName = (stmt.name as string | undefined) ?? undefined;
+      if (
+        declName &&
+        (stmt.kind === "let-decl" ||
+         stmt.kind === "const-decl" ||
+         stmt.kind === "lin-decl" ||
+         stmt.kind === "variable-decl")
+      ) {
+        knownBindings.add(declName);
+      }
+      // Recurse into all child node arrays so names declared in nested blocks
+      // (if/while/match/for branches) are visible to the tilde-decl reassignment
+      // discriminator. Nested-block let-decls are visible to tilde-decls in
+      // sibling/later positions because the live scope-chain checker (E-SCOPE-001)
+      // would already have rejected truly-out-of-scope references.
+      if (Array.isArray(stmt.body)) _collectScopeBindings(stmt.body as ASTNodeLike[]);
+      if (Array.isArray(stmt.then)) _collectScopeBindings(stmt.then as ASTNodeLike[]);
+      if (Array.isArray(stmt.else)) _collectScopeBindings(stmt.else as ASTNodeLike[]);
+      if (Array.isArray(stmt.consequent)) _collectScopeBindings(stmt.consequent as ASTNodeLike[]);
+      if (Array.isArray(stmt.alternate)) _collectScopeBindings(stmt.alternate as ASTNodeLike[]);
+      if (Array.isArray(stmt.children)) _collectScopeBindings(stmt.children as ASTNodeLike[]);
+    }
+  }
+  _collectScopeBindings(body);
 
   // Lin-A3: Per-iteration loop-local lin tracker. When non-null,
   // scanNodeExprNodesForLin first tries consuming against this tracker so
@@ -8720,7 +8777,16 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
       }
 
       case "tilde-decl": {
-        mustUseTracker.declare(node.name as string, node.span as Span | undefined);
+        // §48.3.3: tilde-decl with a name ALREADY BOUND in this or an enclosing scope
+        // (let / const / lin-decl / param) is a REASSIGNMENT, not a fresh must-use
+        // declaration. Skip the mustUseTracker.declare() for those — only register
+        // genuinely-fresh tilde-decls (bare `name = expr` where `name` is not yet a
+        // local). The init-walk for must-use-ref scanning still runs unconditionally
+        // (the RHS may consume must-use names regardless of whether the LHS is fresh).
+        const tildeName = node.name as string;
+        if (!knownBindings.has(tildeName)) {
+          mustUseTracker.declare(tildeName, node.span as Span | undefined);
+        }
         // Walk initExpr (structured) if available; fall back to string scan.
         const tildeInitExpr = (node as Record<string, unknown>).initExpr as import("./types/ast.ts").ExprNode | undefined;
         if (tildeInitExpr && typeof tildeInitExpr === "object" && tildeInitExpr.kind) {
@@ -8985,14 +9051,22 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
         // as linear in the function body scope.
         const fnParams = (node.params as ASTNodeLike[] | undefined) ?? [];
         const linParamNames: string[] = [];
+        const nonLinParamNames: string[] = [];
         for (const param of fnParams) {
-          if (param && typeof param === "object" && (param as ASTNodeLike).isLin) {
+          if (param && typeof param === "object") {
             const pName = (param as ASTNodeLike).name as string | undefined;
-            if (pName) linParamNames.push(pName);
+            if (!pName) continue;
+            if ((param as ASTNodeLike).isLin) linParamNames.push(pName);
+            else nonLinParamNames.push(pName);
+          } else if (typeof param === "string") {
+            nonLinParamNames.push(param as unknown as string);
           }
         }
         // Recursively check the function body as a new scope.
         // If there are lin params, pass them as preDeclaredLinNames.
+        // Non-lin params are passed as paramNames so the §48.3.3 tilde-decl
+        // reassignment-vs-declaration discriminator can recognise `x = expr`
+        // (where `x` is a param) as a reassignment.
         // Always recurse so nested lin-decls inside the function body are checked.
         checkLinear(
           (node.body as ASTNodeLike[] | undefined) ?? [],
@@ -9000,9 +9074,12 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
           {
             file,
             preDeclaredLinNames: linParamNames,
+            paramNames: nonLinParamNames,
             // Do NOT pass parentLinTracker — function bodies are a closed lin scope.
             // Outer lin vars cannot be consumed inside a function body (they would
             // need to be passed as parameters).
+            // Do NOT pass parentBindings — function bodies are a closed scope; outer
+            // names cannot be reassigned from inside (E-FN-003 enforces that).
           },
         );
         break;
@@ -9030,8 +9107,17 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
             }
           }
         }
-        // Closure body has its own tilde scope (§31.5).
-        checkLinear((node.body as ASTNodeLike[] | undefined) ?? [], errors, { linTracker: lt, mustUseTracker, inLoop: false, file });
+        // Closure body has its own tilde scope (§31.5) but inherits enclosing
+        // scope bindings — names captured from outer scopes remain available, so
+        // a tilde-decl inside the closure for an outer name is a reassignment, not
+        // a fresh must-use declaration (§48.3.3).
+        checkLinear((node.body as ASTNodeLike[] | undefined) ?? [], errors, {
+          linTracker: lt,
+          mustUseTracker,
+          inLoop: false,
+          file,
+          parentBindings: knownBindings,
+        });
         break;
       }
 
