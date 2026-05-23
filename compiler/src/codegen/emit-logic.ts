@@ -1,7 +1,7 @@
 import { genVar } from "./var-counter.ts";
 import { paramName, paramSignature, type ParamLike } from "./utils.ts";
 import { extractSqlParams, rewriteTildeRef, buildTaggedTemplate } from "./rewrite.js";
-import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
+import { emitExpr, emitExprField, arrowBodyNeedsParens, arrowBodyStringNeedsParens, type EmitExprContext } from "./emit-expr.ts";
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
 import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, matchArmInlineToMatchArm, emitVariantBindingPrelude, hasPayloadBindingOrTaggedVariant, type MatchArm } from "./emit-control-flow.ts";
 import { isDestructurePattern, nameOrPatternText } from "./emit-destructure-pattern.ts";
@@ -557,7 +557,10 @@ function _emitDefaultSidecar(node: any, qualifiedName: string, opts: EmitLogicOp
   const ctx = opts.encodingCtx;
   const encodedName = ctx ? ctx.encode(qualifiedName) : qualifiedName;
   const defaultBody = emitExpr(defaultExpr, _makeExprCtx(opts));
-  return `_scrml_default_set(${JSON.stringify(encodedName)}, () => ${defaultBody});`;
+  // GITI-014: paren-wrap object-literal bodies — `() => {a: 1}` mis-parses
+  // as a block statement; `() => ({a: 1})` parses as the expression we want.
+  const wrappedDefault = arrowBodyNeedsParens(defaultExpr) ? `(${defaultBody})` : defaultBody;
+  return `_scrml_default_set(${JSON.stringify(encodedName)}, () => ${wrappedDefault});`;
 }
 
 /**
@@ -631,7 +634,10 @@ function _emitInitThunkSidecar(node: any, qualifiedName: string, opts: EmitLogic
   // nothing to re-evaluate.
   if (node.initExpr) {
     const initBody = emitExpr(node.initExpr, _makeExprCtx(opts));
-    return `_scrml_init_set(${JSON.stringify(encodedName)}, () => ${initBody});`;
+    // GITI-014: paren-wrap object-literal bodies — `() => {a: 1}` mis-parses
+    // as a block statement; `() => ({a: 1})` parses as the expression we want.
+    const wrappedInit = arrowBodyNeedsParens(node.initExpr) ? `(${initBody})` : initBody;
+    return `_scrml_init_set(${JSON.stringify(encodedName)}, () => ${wrappedInit});`;
   }
   const initStr: string = node.init ?? "";
   // M-7C-D-12 Track 3: post-OQ-5(a) the "no init present" sentinel string is "null"
@@ -641,7 +647,10 @@ function _emitInitThunkSidecar(node: any, qualifiedName: string, opts: EmitLogic
   // Use emitExprField with the raw fallback so derivedNames/server-mode
   // routing matches the main reactive-set arm.
   const initBody = emitExprField(node.initExpr, initStr, _makeExprCtx(opts));
-  return `_scrml_init_set(${JSON.stringify(encodedName)}, () => ${initBody});`;
+  // GITI-014: same paren-wrap guard for the fallback string path. No ExprNode
+  // available here, so use the string-form predicate.
+  const wrappedInit = arrowBodyStringNeedsParens(initBody) ? `(${initBody})` : initBody;
+  return `_scrml_init_set(${JSON.stringify(encodedName)}, () => ${wrappedInit});`;
 }
 
 /**
@@ -1445,7 +1454,12 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
           const ctx = opts.encodingCtx;
           const encodedName = ctx ? ctx.encode(node.name) : node.name;
           const lines: string[] = [];
-          lines.push(`_scrml_derived_declare(${JSON.stringify(encodedName)}, () => ${rewrittenBody});`);
+          // GITI-014: paren-wrap object-literal bodies — `() => {a: 1}` mis-parses
+          // as a block statement; `() => ({a: 1})` parses as the expression we want.
+          // Use string-form predicate because emitExprField may return either an
+          // ExprNode emit or a rewritten raw string.
+          const wrappedTildeBody = arrowBodyStringNeedsParens(rewrittenBody) ? `(${rewrittenBody})` : rewrittenBody;
+          lines.push(`_scrml_derived_declare(${JSON.stringify(encodedName)}, () => ${wrappedTildeBody});`);
           for (const dep of tildeDeps) {
             const encodedDep = ctx ? ctx.encode(dep) : dep;
             lines.push(`_scrml_derived_subscribe(${JSON.stringify(encodedName)}, ${JSON.stringify(encodedDep)});`);
@@ -1769,7 +1783,12 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         const encodedDerivedDeclName = ctxDerived ? ctxDerived.encode(_qualifiedName) : _qualifiedName;
 
         const derivedLines: string[] = [];
-        derivedLines.push(`_scrml_derived_declare(${JSON.stringify(encodedDerivedDeclName)}, () => ${rewrittenBody});`);
+        // GITI-014: paren-wrap object-literal bodies — `() => {a: 1}` mis-parses
+        // as a block statement; `() => ({a: 1})` parses as the expression we want.
+        // Use string-form predicate because emitExprField may return either an
+        // ExprNode emit or a rewritten raw string.
+        const wrappedDerivedBody = arrowBodyStringNeedsParens(rewrittenBody) ? `(${rewrittenBody})` : rewrittenBody;
+        derivedLines.push(`_scrml_derived_declare(${JSON.stringify(encodedDerivedDeclName)}, () => ${wrappedDerivedBody});`);
         for (const dep of reactiveDepsFound) {
           const encodedDep = ctxDerived ? ctxDerived.encode(dep) : dep;
           derivedLines.push(`_scrml_derived_subscribe(${JSON.stringify(encodedDerivedDeclName)}, ${JSON.stringify(encodedDep)});`);

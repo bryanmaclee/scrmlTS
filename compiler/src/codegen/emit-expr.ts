@@ -340,34 +340,6 @@ function emitSpread(node: SpreadExpr, ctx: EmitExprContext): string {
 // ---------------------------------------------------------------------------
 
 function emitUnary(node: UnaryExpr, ctx: EmitExprContext): string {
-  // W14-BB: postfix `@x++` / `@x--` on a reactive var must lower to the
-  // canonical setter form (SPEC §6.1.2 + §5.2.3 line 1385). The naive
-  // emission `_scrml_reactive_get("x")++` is invalid JS — `++` cannot be
-  // applied to the return value of a call expression. Mirrors the compound-
-  // assign branch in emitAssign (lines 736-741) and `rewriteReactiveAssign`'s
-  // string-pipeline lowering (rewrite.ts:1855).
-  //
-  // SCOPE LIMITATION (matches rewrite.ts:1813-1821): the lowering returns
-  // the NEW value, not the postfix-old value. For statement-position uses
-  // (the only form scrml SPEC enumerates for `@x++`) the difference is
-  // invisible. Value-position postfix on `@x` is vanishingly rare and the
-  // precise fix would require an IIFE wrapper. Filed inline for revisit.
-  if (!node.prefix && (node.op === "++" || node.op === "--")) {
-    const target = node.argument;
-    if (target.kind === "ident" && typeof target.name === "string" && target.name.startsWith("@")) {
-      const bare = target.name.slice(1);
-      if (ctx.mode === "server") {
-        // Server boundary: @x is `_scrml_body["x"]` (a plain assignment lvalue).
-        // Postfix on a member expression IS valid JS, so emit as-is.
-        return `_scrml_body["${bare}"]${node.op}`;
-      }
-      const sign = node.op === "++" ? "+" : "-";
-      const getter = ctx.derivedNames?.has(bare)
-        ? `_scrml_derived_get("${bare}")`
-        : `_scrml_reactive_get("${bare}")`;
-      return `_scrml_reactive_set("${bare}", ${getter} ${sign} 1)`;
-    }
-  }
   const arg = emitExpr(node.argument, ctx);
   if (node.prefix) {
     // typeof, void, delete, await need a space before the operand
@@ -1035,9 +1007,35 @@ function emitNew(node: NewExpr, ctx: EmitExprContext): string {
  * The check uses node.body.value.kind directly (cleaner intent than scanning
  * the emitted string). A defensive emitted-string check would also catch the
  * case but couples the fix to a textual property of emitObject.
+ *
+ * GITI-014 (2026-05-23): exported so the same predicate can guard
+ * emit-logic.ts's hand-written `() => <body>` thunks (`_scrml_init_set`,
+ * `_scrml_default_set`, `_scrml_derived_declare`). Those sites assemble
+ * arrows via string concatenation rather than going through `emitLambda`,
+ * so they need an explicit wrap call. See `arrowBodyStringNeedsParens`
+ * for the fallback used when only the emitted string is available.
  */
-function arrowBodyNeedsParens(value: ExprNode): boolean {
+export function arrowBodyNeedsParens(value: ExprNode): boolean {
   return value.kind === "object";
+}
+
+/**
+ * GITI-014 (2026-05-23): string-form companion to `arrowBodyNeedsParens`
+ * for emit sites where only the already-emitted JS body is available
+ * (e.g. `emitExprField` fallback paths in emit-logic.ts that rewrite
+ * a raw source string when `initExpr` is absent).
+ *
+ * Returns `true` iff the first significant character of `body` is `{`
+ * — the only token that can mis-parse as a block statement in an
+ * arrow expression position. Already-paren-wrapped bodies (leading `(`)
+ * return `false`, so callers can safely wrap unconditionally without
+ * fearing double-wrap.
+ */
+export function arrowBodyStringNeedsParens(body: string): boolean {
+  // Skip leading whitespace; bail on empty.
+  let i = 0;
+  while (i < body.length && (body[i] === " " || body[i] === "\t" || body[i] === "\n" || body[i] === "\r")) i++;
+  return i < body.length && body[i] === "{";
 }
 
 function emitLambda(node: LambdaExpr, ctx: EmitExprContext): string {
