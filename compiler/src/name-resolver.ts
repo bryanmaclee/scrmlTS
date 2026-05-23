@@ -391,8 +391,14 @@ export interface NRInput {
    *  derived field. NR prefers `category` for kind/category derivation. */
   exportRegistry?: Map<string, Map<string, { kind: string; isComponent: boolean; category?: string }>>;
   /** MOD's importGraph (per-file imports). When provided alongside exportRegistry,
-   *  NR resolves imported names that match an opener tag. */
-  importGraph?: Map<string, { imports: Array<{ names: string[]; absSource: string }> }>;
+   *  NR resolves imported names that match an opener tag.
+   *
+   *  S122 Wave 12 Unit W: each import record also carries `specifiers[]` so
+   *  aliased imports (`import { Foo as Bar } from './lib.scrml'`) register `Bar`
+   *  in the use-site registry, not `Foo`. The bare `names[]` is the source-side
+   *  imported name list (used for exportRegistry lookup); `specifiers[].local`
+   *  is the in-scope local binding name. */
+  importGraph?: Map<string, { imports: Array<{ names: string[]; specifiers?: Array<{ imported: string; local: string }>; absSource: string }> }>;
 }
 
 /**
@@ -413,7 +419,21 @@ export function runNR(input: NRInput): NRResult {
       for (const imp of fileImports.imports ?? []) {
         const targetExports = exportRegistry.get(imp.absSource);
         if (!targetExports) continue;
-        for (const importedName of imp.names ?? []) {
+        // S122 Wave 12 Unit W: build the iteration list as
+        // [{ imported, local }] pairs — the IMPORTED name is what
+        // exportRegistry is keyed on (source-side); the LOCAL name is what
+        // NR's use-site registry must be keyed on (alias-aware).
+        //
+        // Prefer specifiers[] when present (named-import form, populated by
+        // ast-builder.js:7049-7057 for `import { X as Y }`). Fall back to
+        // names[] otherwise — default imports (`import X from '...'`) have
+        // names=[X] with empty specifiers and default-import locals are
+        // unaliasable per ES syntax, so X is both imported and local.
+        const pairs: Array<{ imported: string; local: string }> =
+          Array.isArray(imp.specifiers) && imp.specifiers.length > 0
+            ? imp.specifiers.map(s => ({ imported: s.imported, local: s.local }))
+            : (imp.names ?? []).map(n => ({ imported: n, local: n }));
+        for (const { imported: importedName, local: localName } of pairs) {
           const exported = targetExports.get(importedName);
           if (!exported) continue;
           // P3-FOLLOW: prefer info.category (NR-authoritative); fall back
@@ -433,9 +453,10 @@ export function runNR(input: NRInput): NRResult {
           } else {
             local = { kind: "user-state-type", category: "user-state-type" };
           }
-          // Same-file declarations win over imports.
-          if (!sameFileRegistry.has(importedName)) {
-            importedRegistry.set(importedName, local);
+          // Same-file declarations win over imports. Collision check is on
+          // the LOCAL name (the use-site identifier the resolver looks up).
+          if (!sameFileRegistry.has(localName)) {
+            importedRegistry.set(localName, local);
           }
         }
       }
@@ -476,7 +497,10 @@ export function runNR(input: NRInput): NRResult {
 export function runNRBatch(
   tabResults: Array<{ filePath: string; ast: FileAST }>,
   exportRegistry?: Map<string, Map<string, { kind: string; isComponent: boolean; category?: string }>>,
-  importGraph?: Map<string, { imports: Array<{ names: string[]; absSource: string }> }>,
+  // S122 Wave 12 Unit W: type signature includes `specifiers?` to mirror
+  // module-resolver.js buildImportGraph; runNR (above) consults specifiers
+  // when present for alias-aware local-name registration.
+  importGraph?: Map<string, { imports: Array<{ names: string[]; specifiers?: Array<{ imported: string; local: string }>; absSource: string }> }>,
 ): NRResult[] {
   const out: NRResult[] = [];
   for (const r of tabResults) {
