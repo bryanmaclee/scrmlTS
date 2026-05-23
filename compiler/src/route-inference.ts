@@ -1170,37 +1170,82 @@ export function walkBodyForTriggers(
     //
     // The fix mirrors the existing string-field handling (let-decl /
     // const-decl init, bare-expr expr) — extract callees from the ExprNode
-    // tree via exprNodeCollectCallees and push to the callees array. No
-    // trigger detection (server-only resource, protected-field-access) is
-    // added on these fields — that's an orthogonal class of false-negatives
-    // out of scope for this dispatch (callees-only mirrors the brief).
+    // tree via exprNodeCollectCallees and push to the callees array.
+    //
+    // S122 Wave 12 Unit Y — sister fix: TRIGGER DETECTION on the same
+    // EXPR_NODE fields. Pre-Y, a function whose only server signal was
+    // `while (?{`SELECT ...`}.get())` (SQL inside a while condExpr) or
+    // `if (row.passwordHash)` (protected field inside an if condExpr) would
+    // mis-classify as client because the string-based Trigger 1/2 detectors
+    // only ran against bare-expr/let-decl/state-decl/return-stmt's STRING
+    // field surface. For each ExprNode field we now also emit the
+    // canonical string via emitStringFromTree and apply the same three
+    // detectors (server-only-resource, imported-server-namespace,
+    // protected-field-access) used by the bare-expr branch above.
     //
     // Mirrors the sister-walker markupReferencedNames EXPR_NODE_FIELDS scan
-    // at L2597-2605 (closed S95 Bug 7 / Bug 4 markup-context callsites);
+    // at L2649-2654 (closed S95 Bug 7 / Bug 4 markup-context callsites);
     // mirrors the per-kind guarded-expr fix at L1143-1156 (S93 d437589a,
     // closed the failable-call-in-let-init class).
-    const EXPR_NODE_CALLEE_FIELDS = [
+    const EXPR_NODE_TRIGGER_FIELDS = [
       "condExpr",    // if-stmt, if-expr, while-stmt
       "iterExpr",    // for-stmt, for-expr
       "headerExpr",  // switch-stmt, match-stmt, match-expr
       "resultExpr",  // match-arm-inline
       "valueExpr",   // reactive-nested-assign
     ] as const;
-    for (const field of EXPR_NODE_CALLEE_FIELDS) {
-      const v = (node as any)[field];
-      if (v && typeof v === "object" && typeof v.kind === "string") {
-        callees.push(...exprNodeCollectCallees(v));
+    /**
+     * Run callee + trigger detection against a single ExprNode-bearing field.
+     * Factored so the cStyleParts triple uses the identical scan.
+     */
+    function scanExprNodeField(v: any): void {
+      if (!v || typeof v !== "object" || typeof v.kind !== "string") return;
+      // Callees (Wave 10 Unit P).
+      callees.push(...exprNodeCollectCallees(v));
+      // Triggers (Wave 12 Unit Y) — same three string-based detectors used
+      // by the bare-expr branch (L885-914). emitStringFromTree round-trips
+      // the ExprNode to its canonical string surface so the regex-based
+      // detectors see the same text they would on a string-field initializer.
+      let exprStr: string;
+      try { exprStr = emitStringFromTree(v); } catch { return; }
+      // Trigger 1: server-only resource access.
+      const resourceType = detectServerOnlyResource(exprStr);
+      if (resourceType !== null) {
+        triggers.push({
+          kind: "server-only-resource",
+          resourceType,
+          span: node.span,
+        });
       }
+      // D2c (Insight 26): server-only namespace import member access.
+      const nsRef = detectImportedServerNamespaceRef(exprStr);
+      if (nsRef !== null) {
+        triggers.push({
+          kind: "server-only-resource",
+          resourceType: `imported-server-namespace:${nsRef}`,
+          span: node.span,
+        });
+      }
+      // Trigger 2: protected field access via direct member expression.
+      for (const fieldName of protectedFields) {
+        if (bareExprAccessesField(exprStr, fieldName)) {
+          triggers.push({
+            kind: "protected-field-access",
+            field: fieldName,
+            stateBlockId: stateBlockIdByField.get(fieldName) ?? "",
+          });
+        }
+      }
+    }
+    for (const field of EXPR_NODE_TRIGGER_FIELDS) {
+      scanExprNodeField((node as any)[field]);
     }
     // for-stmt C-style header: cStyleParts = { initExpr, condExpr, updateExpr } —
     // a nested object holding three ExprNodes. Scan each in turn.
     const cParts = (node as any).cStyleParts;
     if (cParts && typeof cParts === "object") {
       for (const k of ["initExpr", "condExpr", "updateExpr"] as const) {
-        const en = cParts[k];
-        if (en && typeof en === "object" && typeof en.kind === "string") {
-          callees.push(...exprNodeCollectCallees(en));
-        }
+        scanExprNodeField(cParts[k]);
       }
     }
 

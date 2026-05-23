@@ -4123,3 +4123,315 @@ describe("§32 — Wave 10 Unit P: walkBodyForTriggers — callees from object-v
     expect(helperDead, "isAttrWhitespace is called from tokenizeAttributeRegion's while-condExpr — must NOT fire").toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §33 — Wave 12 Unit Y (S122): walkBodyForTriggers must run TRIGGER DETECTION
+// (Trigger 1 server-only-resource / D2c imported-server-namespace / Trigger 2
+// protected-field-access) on the same object-valued ExprNode fields that
+// Wave 10-P (§32 above) extended for CALLEE collection.
+//
+// Pre-Y, a function whose only server-signal lived inside an EXPR_NODE field
+// — `while (?{`SELECT ...`}.get())` or `if (row.passwordHash)` — would
+// mis-classify as client because Trigger 1/2 detectors only ran against the
+// STRING fields on bare-expr / let-decl / state-decl / return-stmt.
+//
+// Sibling to §32 (CALLEE collection) — same fields, same root structural
+// gap (single-object ExprNode skipped by array-only generic-fallback), same
+// fix shape (per-field scan via emitStringFromTree + apply string detector).
+//
+// Fix lives in src/route-inference.ts walkBodyForTriggers visitNode at
+// the EXPR_NODE_TRIGGER_FIELDS block (formerly EXPR_NODE_CALLEE_FIELDS):
+// scanExprNodeField now calls detectServerOnlyResource +
+// detectImportedServerNamespaceRef + bareExprAccessesField against the
+// emitStringFromTree(exprNode) string in addition to exprNodeCollectCallees.
+// ---------------------------------------------------------------------------
+
+describe("§33 — Wave 12 Unit Y: walkBodyForTriggers — Trigger 1/2 detection on object-valued ExprNode fields", () => {
+  /**
+   * Build a `call` ExprNode invoking `name` with zero args.
+   */
+  function makeCallExpr(name) {
+    return {
+      kind: "call",
+      callee: { kind: "ident", name },
+      args: [],
+      optional: false,
+    };
+  }
+
+  /**
+   * Build a `member` ExprNode for `object.property`.
+   */
+  function makeMemberExpr(objectName, propertyName) {
+    return {
+      kind: "member",
+      object: { kind: "ident", name: objectName },
+      property: propertyName,
+      computed: false,
+      optional: false,
+    };
+  }
+
+  /**
+   * Build a SQL ExprNode (the canonical `?{...}.method()` shape). The
+   * AST builder lowers `?{...}` to a sql-ref ExprNode (the SQL text is
+   * extracted into a separate sql node attached elsewhere; the in-expr
+   * site holds a reference). emitStringFromTree("sql-ref") emits
+   * `?{ /* sql *\/ }`, which contains `?{` so the SERVER_ONLY_PATTERNS
+   * sql-query regex (/\?\{/) matches.
+   */
+  function makeSqlGetExpr(_query = "SELECT 1") {
+    return {
+      kind: "call",
+      callee: {
+        kind: "member",
+        object: { kind: "sql-ref", nodeId: -1 },
+        property: "get",
+        computed: false,
+        optional: false,
+      },
+      args: [],
+      optional: false,
+    };
+  }
+
+  test("server-trigger inside if-stmt.condExpr (SQL ?{}.get()) — fn classifies SERVER", () => {
+    // Per §12.2 Trigger 1: `?{}` SQL context is server-only.
+    // Pre-Unit-Y, this fn classified client because the trigger detectors
+    // only saw STRING-field surfaces. Now it must classify server via
+    // EXPR_NODE_TRIGGER_FIELDS scan over condExpr.
+    const file = "/test/u-y-if-sql.scrml";
+    const fn = makeFunctionDecl({
+      name: "checkAndAct",
+      body: [
+        {
+          id: 31,
+          kind: "if-stmt",
+          condExpr: makeSqlGetExpr("SELECT COUNT(*) FROM users"),
+          consequent: [],
+          alternate: null,
+          span: span(31, file),
+        },
+      ],
+      spanStart: 10,
+      file,
+    });
+    const fileAST = makeFileAST(file, [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, file, 10);
+    expect(route).toBeDefined();
+    expect(route.boundary, "if-stmt.condExpr with ?{} SQL must escalate to server").toBe("server");
+    const kinds = route.escalationReasons.map(r => r.kind);
+    expect(kinds).toContain("server-only-resource");
+    const sqlReason = route.escalationReasons.find(r => r.kind === "server-only-resource");
+    expect(sqlReason.resourceType).toBe("sql-query");
+  });
+
+  test("server-trigger inside while-stmt.condExpr (SQL ?{}.get()) — fn classifies SERVER", () => {
+    // SQL inside a loop condition — pattern common to long-running poll loops.
+    const file = "/test/u-y-while-sql.scrml";
+    const fn = makeFunctionDecl({
+      name: "pollUntilDone",
+      body: [
+        {
+          id: 31,
+          kind: "while-stmt",
+          condExpr: makeSqlGetExpr("SELECT 1 FROM jobs WHERE pending = 1"),
+          body: [],
+          span: span(31, file),
+        },
+      ],
+      spanStart: 10,
+      file,
+    });
+    const fileAST = makeFileAST(file, [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, file, 10);
+    expect(route.boundary, "while-stmt.condExpr with ?{} SQL must escalate to server").toBe("server");
+    const kinds = route.escalationReasons.map(r => r.kind);
+    expect(kinds).toContain("server-only-resource");
+  });
+
+  test("server-trigger inside for-stmt.iterExpr (?{}.all()) — fn classifies SERVER", () => {
+    // SQL inside a for-loop iterable — pattern: `for (row in ?{}.all()) { ... }`.
+    const file = "/test/u-y-for-sql.scrml";
+    const fn = makeFunctionDecl({
+      name: "iterateUsers",
+      body: [
+        {
+          id: 31,
+          kind: "for-stmt",
+          variable: "row",
+          iterExpr: makeSqlGetExpr("SELECT * FROM users"),
+          body: [],
+          span: span(31, file),
+        },
+      ],
+      spanStart: 10,
+      file,
+    });
+    const fileAST = makeFileAST(file, [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, file, 10);
+    expect(route.boundary, "for-stmt.iterExpr with ?{} SQL must escalate to server").toBe("server");
+    const kinds = route.escalationReasons.map(r => r.kind);
+    expect(kinds).toContain("server-only-resource");
+  });
+
+  test("protected-field-access inside if-stmt.condExpr — fn classifies SERVER", () => {
+    // Per §12.2 Trigger 2: a function reading a protect= field is server-only.
+    // Pattern: `if (row.passwordHash != null) { ... }` — the bare-expr branch
+    // detects this in the string `row.passwordHash`; pre-Unit-Y the condExpr
+    // ExprNode shape was invisible to the same detector.
+    const file = "/test/u-y-if-protected.scrml";
+    const pa = makeProtectAnalysis(`${file}::0`, "users", ["passwordHash"]);
+    const fn = makeFunctionDecl({
+      name: "verifyAndContinue",
+      body: [
+        {
+          id: 31,
+          kind: "if-stmt",
+          condExpr: makeMemberExpr("row", "passwordHash"),
+          consequent: [],
+          alternate: null,
+          span: span(31, file),
+        },
+      ],
+      spanStart: 10,
+      file,
+    });
+    const fileAST = makeFileAST(file, [fn]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const route = getRoute(routeMap, file, 10);
+    expect(route.boundary, "if-stmt.condExpr reading protected field must escalate to server").toBe("server");
+    const kinds = route.escalationReasons.map(r => r.kind);
+    expect(kinds).toContain("protected-field-access");
+    const protReason = route.escalationReasons.find(r => r.kind === "protected-field-access");
+    expect(protReason.field).toBe("passwordHash");
+  });
+
+  test("server-trigger inside for-stmt.cStyleParts.condExpr (?{}.get()) — fn classifies SERVER", () => {
+    // C-style for header: `for (let i = 0; ?{...}.get() > 0; i++) { ... }`.
+    // cStyleParts is a nested object holding three ExprNode children —
+    // its own traversal mirrors the EXPR_NODE_TRIGGER_FIELDS scan.
+    const file = "/test/u-y-cstyle-for-sql.scrml";
+    const fn = makeFunctionDecl({
+      name: "untilExhausted",
+      body: [
+        {
+          id: 31,
+          kind: "for-stmt",
+          cStyleParts: {
+            initExpr: { kind: "literal", value: 0 },
+            condExpr: makeSqlGetExpr("SELECT COUNT(*) FROM queue"),
+            updateExpr: { kind: "ident", name: "i" },
+          },
+          body: [],
+          span: span(31, file),
+        },
+      ],
+      spanStart: 10,
+      file,
+    });
+    const fileAST = makeFileAST(file, [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, file, 10);
+    expect(route.boundary, "for-stmt.cStyleParts.condExpr with ?{} SQL must escalate to server").toBe("server");
+    const kinds = route.escalationReasons.map(r => r.kind);
+    expect(kinds).toContain("server-only-resource");
+  });
+
+  test("REGRESSION GUARD — pure client expression in if-stmt.condExpr stays CLIENT (no false escalation)", () => {
+    // Critical false-positive guard: the new trigger scan must NOT escalate
+    // benign client conditions. A simple boolean expression in a condExpr
+    // SHALL stay client.
+    const file = "/test/u-y-no-false-escalation.scrml";
+    const fn = makeFunctionDecl({
+      name: "simpleCheck",
+      body: [
+        {
+          id: 31,
+          kind: "if-stmt",
+          condExpr: {
+            kind: "binary",
+            op: ">",
+            left: { kind: "ident", name: "x" },
+            right: { kind: "literal", value: 0 },
+          },
+          consequent: [],
+          alternate: null,
+          span: span(31, file),
+        },
+      ],
+      spanStart: 10,
+      file,
+    });
+    const fileAST = makeFileAST(file, [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, file, 10);
+    expect(route.boundary, "benign if-condition must stay client").toBe("client");
+    expect(route.escalationReasons, "no escalation reasons for benign condExpr").toHaveLength(0);
+  });
+
+  test("REGRESSION GUARD — Wave 10-P CALLEE collection still works alongside new trigger detection", () => {
+    // The Unit Y refactor extracts callee+trigger collection into a shared
+    // scanExprNodeField helper. This test re-asserts that Wave 10-P's
+    // W-DEAD-FUNCTION suppression for helpers called from if-condExpr still
+    // fires post-Y. Same shape as §32's first test.
+    const file = "/test/u-y-callee-still-works.scrml";
+    const helperFn = makeFunctionDecl({
+      name: "helper",
+      body: [makeBareExpr("return true", 21, file)],
+      spanStart: 10,
+      file,
+    });
+    const outerFn = makeFunctionDecl({
+      name: "outer",
+      body: [
+        {
+          id: 71,
+          kind: "if-stmt",
+          condExpr: makeCallExpr("helper"),
+          consequent: [],
+          alternate: null,
+          span: span(71, file),
+        },
+      ],
+      spanStart: 60,
+      file,
+    });
+    const callerFn = makeFunctionDecl({
+      name: "callerOfOuter",
+      body: [makeBareExpr("return outer()", 91, file)],
+      spanStart: 80,
+      file,
+    });
+    const exportDecl = {
+      id: 200,
+      kind: "export-decl",
+      raw: "export function callerOfOuter",
+      exportedName: "callerOfOuter",
+      exportKind: "function",
+      span: span(200, file),
+    };
+    const fileAST = {
+      filePath: file,
+      nodes: [{ id: 1, kind: "logic", body: [helperFn, outerFn, callerFn], span: span(0, file) }],
+      imports: [],
+      exports: [exportDecl],
+      components: [],
+      typeDecls: [],
+      spans: new Map(),
+    };
+    const { errors } = runRIClean([fileAST]);
+
+    const helperDead = errors.filter(e => e.code === "W-DEAD-FUNCTION" && e.message.includes("`helper`"));
+    expect(helperDead, "Wave 10-P CALLEE collection must still work — helper has a call from if-condExpr").toHaveLength(0);
+  });
+});
