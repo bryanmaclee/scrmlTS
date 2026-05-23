@@ -280,6 +280,221 @@ export function hoistCounts(ast) {
   return out;
 }
 
+// =============================================================================
+// countSourceExportLines / countSourceImportDeclLines — source-witness counters
+// for the LIVE-HOIST-MISCLASSIFY class (Wave 9 Unit H). Both walk the source
+// line-by-line and count lines whose TRIMMED prefix is the requested keyword
+// shape — a conservative, false-positive-tight signal of how many real
+// top-level `export` / `import ... from ...` statements the source contains.
+//
+// Conservative shape gates (false-negatives are OK, false-positives are not):
+//   - the LINE'S trimmed prefix must literally start with `export ` /
+//     `import ` (whitespace + keyword + at least one trailing space char);
+//   - for `import ... from ...` the line must ALSO contain a `from` token
+//     surrounded by whitespace (rules out the dynamic-import-call form
+//     `import("path")`, which has no `from` clause);
+//   - lines whose trimmed prefix begins with `//` are skipped (single-line
+//     comment guard);
+//   - lines whose prefix starts with `*` are skipped (block-comment-body
+//     guard — covers the `/** ... */` JSDoc style without needing a stateful
+//     scanner). Block-comment OPENERS (`/* export ...`) that contain the
+//     keyword on the same logical line are not stripped — rare in real
+//     scrml; if it ever bites, the helper can be tightened later. Same
+//     spirit as `parse-markup.js`'s defensive scanners — keep it simple,
+//     resist over-engineering.
+//
+// The helpers are exported so the unit tests can lock the line-shape
+// contract directly.
+// =============================================================================
+function trimmedIsComment(line) {
+  const t = line.trim();
+  if (t.length === 0) return true;
+  if (t.startsWith("//")) return true;
+  if (t.startsWith("*")) return true;
+  return false;
+}
+
+export function countSourceExportLines(source) {
+  if (typeof source !== "string" || source.length === 0) return 0;
+  let count = 0;
+  for (const line of source.split("\n")) {
+    if (trimmedIsComment(line)) continue;
+    const t = line.trim();
+    // `export ` followed by anything — `export type X`, `export async`,
+    // `export function`, `export const`, `export { ... }`, `export *`.
+    if (t.startsWith("export ")) count = count + 1;
+  }
+  return count;
+}
+
+export function countSourceImportDeclLines(source) {
+  if (typeof source !== "string" || source.length === 0) return 0;
+  let count = 0;
+  for (const line of source.split("\n")) {
+    if (trimmedIsComment(line)) continue;
+    const t = line.trim();
+    // The two real `import-decl` shapes:
+    //   `import { a, b } from "..."`
+    //   `import x from "..."`
+    //   `import * as x from "..."`
+    // All carry a `from` clause. The dynamic-import-call form `import("...")`
+    // does NOT — it's a CALL expression, not a declaration. Excluding lines
+    // without a `from` token rules out the cg.scrml phantom-import shape.
+    if (t.startsWith("import ") === false) continue;
+    // Match `from` as a standalone token (word-boundary). A path like
+    // `./from-utils.js` would otherwise false-positive.
+    if (/\bfrom\s/.test(t) === false) continue;
+    count = count + 1;
+  }
+  return count;
+}
+
+// =============================================================================
+// liveImportsHaveDynamicCallShape — for a set of "extra" import records the
+// live pipeline produced that native does not, report whether ALL of them
+// have the dynamic-import-call shape (no `from` clause, raw matches
+// `import\s*(`). The LIVE-HOIST-MISCLASSIFY detector uses this to gate the
+// import-axis branch: live's broad `import(...)` scanner is a known oracle
+// defect that captures dynamic-import expressions as if they were module-
+// level import-decls; the cg.scrml `^{...}` meta block is its canonical
+// witness. If even one of the live "extras" is not dynamic-shaped, the
+// divergence is something else and the classifier must NOT absorb it.
+//
+// Signature shape gates:
+//   - the record's `source` is null / undefined / empty string (no `from`
+//     clause was parsed); AND
+//   - the record's `raw` text starts (after optional whitespace) with
+//     `import` + optional whitespace + `(`.
+// Both gates must fire for every record. The helper returns false on an
+// empty input (no "extras" means nothing to credit).
+// =============================================================================
+export function liveImportsHaveDynamicCallShape(extraImports) {
+  if (Array.isArray(extraImports) === false) return false;
+  if (extraImports.length === 0) return false;
+  for (const im of extraImports) {
+    if (im === null || im === undefined) return false;
+    if (im.source !== null && im.source !== undefined && im.source !== "") {
+      return false;
+    }
+    if (typeof im.raw !== "string") return false;
+    if (/^\s*import\s*\(/.test(im.raw) === false) return false;
+  }
+  return true;
+}
+
+// =============================================================================
+// isLiveHoistMisclassify — the LIVE-HOIST-MISCLASSIFY detector. True iff the
+// hoist-count divergence is FULLY explained by a known live-oracle defect
+// where the source (treated as ground truth) agrees with NATIVE on every
+// diverging axis. The two surveyed shapes (Wave 9 Unit H, post-S121 P5
+// re-triage §2.2):
+//
+//   - EXPORTS-AXIS  — `stdlib/auth/jwt.scrml`. Source contains four
+//     line-leading `export ` keywords (one `export type`, one `export async
+//     function signJwt`, one `export async function verifyJwt`, one `export
+//     function decodeJwt`); native correctly hoists 4 export records; live's
+//     scanner harvests only 1 (the type-decl). Native matches the source-
+//     witness count exactly.
+//
+//   - IMPORTS-AXIS  — `compiler/self-host/cg.scrml`. Source contains zero
+//     `import ... from ...` declarations and five `await import("...")`
+//     dynamic-import-call expressions inside an `^{...}` meta block. Native
+//     correctly hoists 0 imports; live's scanner phantoms the dynamic-import
+//     calls as if they were import-decls, recording 5. Native matches the
+//     source-witness count exactly; the five "extra" live records have the
+//     dynamic-import-call shape (no `from` clause, raw matches
+//     `import\s*(`).
+//
+// The detector composes both axes with conjunctive shape gates. It runs
+// after `diffFileASTs` (which already established hoist-count divergence):
+//
+//   For each of the six hoist fields:
+//     - if counts agree, the field is not a diverging axis;
+//     - if counts disagree, the field MUST match one of the two recognised
+//       LIVE-WRONG shapes (above). Even ONE diverging field that does not
+//       match a recognised shape disqualifies the file — it falls through
+//       to the generic `DIFF-hoist-count` class (an unexplained gap).
+//
+//   Both diverging-axis shapes additionally require the SOURCE-WITNESS
+//   count to equal NATIVE's count. This rules out cases where neither
+//   pipeline is the broken side (e.g. `compiler/self-host/bs.scrml` where
+//   native phantoms an empty type-decl mid-statement at line 241 — native
+//   over-counts; source-witness count agrees with LIVE, not native; that
+//   file must remain `DIFF-hoist-count` as a Wave 5 H-bs-tail investigation
+//   unit, not be absorbed here).
+//
+// EXISTS BECAUSE OF: live's scanner-level heuristics for `export` /
+// `import(...)` recognition pre-date the canonical native parser. The
+// corpus-sweep PLAN (docs/changes/corpus-sweep/PLAN.md) defers live-side
+// fixes until M6. WILL GO AWAY at M6 when block-splitter.js + ast-builder
+// are deleted and the native parser is the sole front-end.
+//
+// The helper takes the LIVE + NATIVE FileASTs (not just the diff record)
+// because identifying the dynamic-import-call shape requires inspection of
+// the actual import records' `raw` text — which `diffFileASTs` does not
+// keep. Live's "extra" imports are computed by suffix-slice on the live
+// imports array (live.length > native.length ⇒ the extras are the tail —
+// since native's count is the source-witness truth, ANY live import beyond
+// native's count is a phantom that must have dynamic-call shape).
+// =============================================================================
+export function isLiveHoistMisclassify(liveAst, nativeAst, source) {
+  if (liveAst === null || liveAst === undefined) return false;
+  if (nativeAst === null || nativeAst === undefined) return false;
+  if (typeof source !== "string" || source.length === 0) return false;
+
+  const lh = hoistCounts(liveAst);
+  const nh = hoistCounts(nativeAst);
+
+  // For each diverging field, decide whether it matches a recognised
+  // LIVE-WRONG shape. Any diverging field that does NOT match disqualifies.
+  let anyDivergence = false;
+  for (const f of HOIST_FIELDS) {
+    if (lh[f] === nh[f]) continue;
+    anyDivergence = true;
+
+    if (f === "exports") {
+      // Live UNDERCOUNTS exports the source actually contains; native's
+      // count must equal the source-witness count.
+      if (nh.exports <= lh.exports) return false;
+      const witness = countSourceExportLines(source);
+      if (nh.exports !== witness) return false;
+      continue;
+    }
+
+    if (f === "imports") {
+      // Live OVERCOUNTS imports because its scanner phantom-matches the
+      // dynamic-import-call form. Native's count must equal the source-
+      // witness count, and live's "extras" (the records beyond native's
+      // count) must all have the dynamic-import-call shape.
+      if (lh.imports <= nh.imports) return false;
+      const witness = countSourceImportDeclLines(source);
+      if (nh.imports !== witness) return false;
+      // The extras: live's import records beyond native's count. Pick from
+      // the tail — block-splitter's scan order is positional; in cg.scrml
+      // the dynamic-import calls all live in the `^{...}` body that
+      // follows the (zero) top-level import-decls.
+      const liveImports = Array.isArray(liveAst.imports) ? liveAst.imports : [];
+      if (liveImports.length !== lh.imports) return false;
+      // Defensive: every live import beyond native's index must be dynamic-
+      // call shaped. Equivalently: if native count is zero, ALL live
+      // imports must be dynamic-call shaped (the cg.scrml case).
+      const extras = liveImports.slice(nh.imports);
+      if (liveImportsHaveDynamicCallShape(extras) === false) return false;
+      continue;
+    }
+
+    // Any other diverging field (components / typeDecls / machineDecls /
+    // channelDecls) — no recognised LIVE-WRONG shape today. The bs.scrml
+    // `typeDecls live=0 native=1` shape is exactly this branch: a native
+    // mid-statement phantom, NOT a live miss. Falling through here keeps
+    // the file in the generic `DIFF-hoist-count` class as a Wave 5
+    // investigation entry.
+    return false;
+  }
+
+  return anyDivergence;
+}
+
 // errorCodeMultiset — the diagnostic-code multiset for an errors[] stream.
 export function errorCodeMultiset(errors) {
   const out = {};
@@ -414,8 +629,31 @@ export function diffFileASTs(liveAst, nativeAst) {
 //                            divergence (a placement difference).
 //   - "GAP-program-root"   — `hasProgramRoot` disagrees and nothing else.
 //                            `explained: false`.
+//   - "LIVE-HOIST-MISCLASSIFY" — the only divergence is in hoist counts
+//                            (top-kind sets match, programRootEqual), and
+//                            EVERY diverging hoist field matches a recognised
+//                            LIVE-WRONG shape (source-witness count agrees
+//                            with NATIVE, not live). Two shapes today:
+//                              EXPORTS-AXIS — live undercounts (jwt.scrml:
+//                              live=1, native=4, source has 4 line-leading
+//                              `export ` keywords);
+//                              IMPORTS-AXIS — live phantom-matches the
+//                              dynamic-import-call form (cg.scrml: live=5,
+//                              native=0, source has 0 real `import ... from`
+//                              lines, 5 `await import(...)` calls inside
+//                              `^{...}`; live's "extras" all have raw
+//                              `import\s*(` shape with no `from` clause).
+//                            Sibling to LIVE-DEGENERATE / LIVE-PHANTOM —
+//                            credits NATIVE-CORRECTNESS when LIVE is the
+//                            broken oracle. `explained: true`. EXISTS
+//                            BECAUSE OF: live's scanner-level heuristics
+//                            for `export` / `import(...)` recognition;
+//                            corpus-sweep PLAN defers live-side fixes
+//                            until M6. WILL GO AWAY at M6.
 //   - "DIFF-hoist-count"   — a hoisted-collection count disagrees and the
-//                            top-kind sets match. `explained: false`.
+//                            top-kind sets match, and the divergence does
+//                            NOT match a recognised LIVE-WRONG shape.
+//                            `explained: false`.
 //   - "DIFF-top-seq"       — the top-kind SETS match but the SEQUENCE (order
 //                            or count) differs — a block-segmentation
 //                            divergence. `explained: false`.
@@ -547,6 +785,28 @@ export function classifyDivergence(filePath, source) {
     return { class: "GAP-program-root", explained: false, detail: d };
   }
 
+  // LIVE-HOIST-MISCLASSIFY — the only divergence is in hoist counts, AND
+  // every diverging field matches a recognised LIVE-WRONG shape (native's
+  // count equals the source-witness ground truth). Two surveyed shapes:
+  // exports-axis (jwt.scrml — live's scanner undercounts top-level `export`
+  // keywords); imports-axis (cg.scrml — live's scanner phantom-matches the
+  // dynamic-import-call form `import("...")` inside an `^{...}` meta
+  // block). Sibling to LIVE-DEGENERATE / LIVE-PHANTOM — credits native-
+  // correctness when LIVE is the broken oracle. `explained: true`.
+  //
+  // Checked BEFORE `DIFF-hoist-count` so its tight predicate (source-
+  // witness match + per-axis shape gate) absorbs the recognised cases
+  // while leaving genuinely-native-wrong hoist defects (e.g. bs.scrml's
+  // phantom empty type-decl at line 241 col 17) in the unexplained
+  // `DIFF-hoist-count` class for Wave 5 investigation.
+  if (
+    liveOnly.length === 0 && nativeOnly.length === 0 &&
+    d.programRootEqual && d.hoistEqual === false &&
+    isLiveHoistMisclassify(live.ast, native.ast, source)
+  ) {
+    return { class: "LIVE-HOIST-MISCLASSIFY", explained: true, detail: d };
+  }
+
   // a hoisted-collection count disagrees, top-kind sets match.
   if (
     liveOnly.length === 0 && nativeOnly.length === 0 &&
@@ -600,6 +860,21 @@ export function summarizeDetail(verdict) {
       ": live=state native=" + nk +
       " (deep len live=" + (d.liveDeep ? d.liveDeep.length : "?") +
       " native=" + (d.nativeDeep ? d.nativeDeep.length : "?") + ")";
+  }
+  if (verdict.class === "LIVE-HOIST-MISCLASSIFY") {
+    // Re-derive the per-axis diff from the hoist counts kept on the detail
+    // record. summarizeDetail intentionally does NOT re-run the source-
+    // witness counter — the verdict is the authoritative classification.
+    const hf = [];
+    for (const f of Object.keys(d.liveHoist || {})) {
+      if (d.liveHoist[f] !== d.nativeHoist[f]) {
+        hf.push(f + " live=" + d.liveHoist[f] + " native=" + d.nativeHoist[f]);
+      }
+    }
+    return "live hoist scanner mis-classified the source — native count " +
+      "matches the source-witness ground truth on every diverging axis " +
+      "(corpus-sweep PLAN defers live-side fixes to M6). Diverging axes: " +
+      hf.join("; ");
   }
   const parts = [];
   if (d.liveOnlyKinds && d.liveOnlyKinds.length > 0) {

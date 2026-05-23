@@ -26,6 +26,10 @@ import {
   classifyDivergence,
   sourceHasPhantomStateAdmission,
   isLiveDegenerate,
+  countSourceExportLines,
+  countSourceImportDeclLines,
+  liveImportsHaveDynamicCallShape,
+  isLiveHoistMisclassify,
 } from "./parser-conformance/dual-pipeline-canary.js";
 
 // fakeFileAST — a minimal FileAST-shaped record for the diff. `diffFileASTs`
@@ -439,5 +443,413 @@ describe("dual-pipeline-canary — classifyDivergence absorbs surveyed GAP-NEB s
     const nativeDeep = ["markup", "text", "text", "text", "text", "text", "text"];
     expect(nativeDeep.length / liveDeep.length).toBeCloseTo(1.4, 2);
     expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(false);
+  });
+});
+
+// =============================================================================
+// Wave 9 Unit H — LIVE-HOIST-MISCLASSIFY class coverage. The new class credits
+// native-correctness when the LIVE hoist scanner mis-classifies source the
+// native parser correctly handles. Two surveyed shapes (post-S121 P5 re-triage
+// §2.2):
+//   - EXPORTS-AXIS (jwt.scrml): live undercounts top-level `export` keywords;
+//     native correctly hoists all four — source has four line-leading `export `
+//     declarations.
+//   - IMPORTS-AXIS (cg.scrml): live phantom-matches the dynamic-import-call
+//     form `import("...")` inside an `^{...}` meta block as if it were an
+//     import-decl; native correctly produces zero — source has zero real
+//     `import ... from ...` lines.
+//
+// Sibling to LIVE-DEGENERATE / LIVE-PHANTOM — all three are explained: true
+// classes that credit native-correctness against a broken live oracle. The
+// class will go away at M6 when the live pipeline is deleted.
+// =============================================================================
+describe("dual-pipeline-canary — countSourceExportLines", () => {
+  test("counts a single line-leading `export ` declaration", () => {
+    const src = "export function foo() {}";
+    expect(countSourceExportLines(src)).toBe(1);
+  });
+
+  test("counts four mixed shapes — type / async function / function / const", () => {
+    const src =
+      "export type Foo:enum = { Bar(msg: string) }\n" +
+      "export async function signA(payload, secret) { return 1 }\n" +
+      "export async function signB(payload, secret) { return 2 }\n" +
+      "export function decode(token) { return token }\n";
+    expect(countSourceExportLines(src)).toBe(4);
+  });
+
+  test("skips `// export ...` single-line comments", () => {
+    const src =
+      "// export function foo() {}\n" +
+      "export function bar() {}\n";
+    expect(countSourceExportLines(src)).toBe(1);
+  });
+
+  test("skips `* export ...` JSDoc block-comment-body lines", () => {
+    const src =
+      "/**\n" +
+      " * export function foo() {} — example, NOT a real export\n" +
+      " */\n" +
+      "export function bar() {}\n";
+    expect(countSourceExportLines(src)).toBe(1);
+  });
+
+  test("ignores `export` lacking a trailing space (e.g. `exportedName`)", () => {
+    const src =
+      "const exportedName = 42\n" +
+      "export function foo() {}\n";
+    expect(countSourceExportLines(src)).toBe(1);
+  });
+
+  test("returns 0 on empty / non-string input", () => {
+    expect(countSourceExportLines("")).toBe(0);
+    expect(countSourceExportLines(null)).toBe(0);
+    expect(countSourceExportLines(undefined)).toBe(0);
+    expect(countSourceExportLines(42)).toBe(0);
+  });
+
+  test("matches the jwt.scrml source-witness count (4)", () => {
+    const path = __dirname + "/../../stdlib/auth/jwt.scrml";
+    const src = readFileSync(path, "utf8");
+    expect(countSourceExportLines(src)).toBe(4);
+  });
+});
+
+describe("dual-pipeline-canary — countSourceImportDeclLines", () => {
+  test("counts a single `import { ... } from \"...\"` declaration", () => {
+    const src = `import { x, y } from "scrml:host"`;
+    expect(countSourceImportDeclLines(src)).toBe(1);
+  });
+
+  test("counts `import x from \"...\"` (default import)", () => {
+    const src = `import foo from "./foo.js"`;
+    expect(countSourceImportDeclLines(src)).toBe(1);
+  });
+
+  test("counts `import * as ns from \"...\"` (namespace import)", () => {
+    const src = `import * as ns from "scrml:test"`;
+    expect(countSourceImportDeclLines(src)).toBe(1);
+  });
+
+  test("does NOT count the dynamic-import-call form `import(\"...\")` — no `from` clause", () => {
+    const src = `const m = await import("./section-core.js")`;
+    expect(countSourceImportDeclLines(src)).toBe(0);
+  });
+
+  test("does NOT count five dynamic-import-call lines (the cg.scrml shape)", () => {
+    const src =
+      `const a = await import("./cg-parts/section-core.js")\n` +
+      `const b = await import("./cg-parts/section-rewrite.js")\n` +
+      `const c = await import("./cg-parts/section-emit-core.js")\n` +
+      `const d = await import("./cg-parts/section-emit-wiring.js")\n` +
+      `const e = await import("./cg-parts/section-assembly.js")\n`;
+    expect(countSourceImportDeclLines(src)).toBe(0);
+  });
+
+  test("counts both real import-decls and skips dynamic-import calls in a mixed source", () => {
+    const src =
+      `import { x } from "scrml:host"\n` +
+      `const a = await import("./a.js")\n` +
+      `import y from "./y.js"\n`;
+    expect(countSourceImportDeclLines(src)).toBe(2);
+  });
+
+  test("does NOT count `// import ... from ...` single-line comments", () => {
+    const src =
+      `// import { x } from "scrml:host"\n` +
+      `import { y } from "scrml:host"\n`;
+    expect(countSourceImportDeclLines(src)).toBe(1);
+  });
+
+  test("a `from` token must be whitespace-bounded — `./from-utils.js` does NOT false-positive", () => {
+    // A line `import foo "./from-utils.js"` (note: bad syntax) — the regex
+    // demands `\bfrom\s`, so the `from` inside the path must NOT register.
+    // The line lacks the `from ` token-with-trailing-whitespace shape.
+    const src = `import "./from-utils.js"`;
+    expect(countSourceImportDeclLines(src)).toBe(0);
+  });
+
+  test("returns 0 on empty / non-string input", () => {
+    expect(countSourceImportDeclLines("")).toBe(0);
+    expect(countSourceImportDeclLines(null)).toBe(0);
+    expect(countSourceImportDeclLines(undefined)).toBe(0);
+  });
+
+  test("matches the cg.scrml source-witness count (0 — all imports are dynamic-call form)", () => {
+    const path = __dirname + "/../../compiler/self-host/cg.scrml";
+    const src = readFileSync(path, "utf8");
+    expect(countSourceImportDeclLines(src)).toBe(0);
+  });
+});
+
+describe("dual-pipeline-canary — liveImportsHaveDynamicCallShape", () => {
+  test("returns true for the cg.scrml live-extras shape (all five records)", () => {
+    const extras = [
+      { source: null, names: [], raw: `import ( "./cg-parts/section-core.js" )` },
+      { source: null, names: [], raw: `import ( "./cg-parts/section-rewrite.js" )` },
+      { source: null, names: [], raw: `import ( "./cg-parts/section-emit-core.js" )` },
+      { source: null, names: [], raw: `import ( "./cg-parts/section-emit-wiring.js" )` },
+      { source: null, names: [], raw: `import ( "./cg-parts/section-assembly.js" )` },
+    ];
+    expect(liveImportsHaveDynamicCallShape(extras)).toBe(true);
+  });
+
+  test("returns false if ANY record has a `from` source (a real import-decl)", () => {
+    const extras = [
+      { source: null, names: [], raw: `import ( "./a.js" )` },
+      { source: "./b.js", names: [], raw: `import "./b.js"` },
+    ];
+    expect(liveImportsHaveDynamicCallShape(extras)).toBe(false);
+  });
+
+  test("returns false if ANY record's `raw` is not the dynamic-call shape", () => {
+    const extras = [
+      { source: null, names: [], raw: `import ( "./a.js" )` },
+      { source: null, names: [], raw: `import { x } from ` },
+    ];
+    expect(liveImportsHaveDynamicCallShape(extras)).toBe(false);
+  });
+
+  test("returns false on an empty array (no extras means nothing to credit)", () => {
+    expect(liveImportsHaveDynamicCallShape([])).toBe(false);
+  });
+
+  test("returns false on null / non-array input", () => {
+    expect(liveImportsHaveDynamicCallShape(null)).toBe(false);
+    expect(liveImportsHaveDynamicCallShape(undefined)).toBe(false);
+    expect(liveImportsHaveDynamicCallShape("not-an-array")).toBe(false);
+  });
+
+  test("tolerates whitespace between `import` and `(` (`import (...)` with a space)", () => {
+    const extras = [
+      { source: null, names: [], raw: `import   (   "./a.js"   )` },
+    ];
+    expect(liveImportsHaveDynamicCallShape(extras)).toBe(true);
+  });
+});
+
+describe("dual-pipeline-canary — isLiveHoistMisclassify", () => {
+  // fakeAst — minimal FileAST shape carrying the hoist arrays the detector
+  // inspects. `nodes` and the other hoist arrays are filled in if relevant.
+  function fakeAst(opts) {
+    return {
+      nodes: opts.nodes || [],
+      imports: opts.imports || [],
+      exports: opts.exports || [],
+      components: opts.components || [],
+      typeDecls: opts.typeDecls || [],
+      machineDecls: opts.machineDecls || [],
+      channelDecls: opts.channelDecls || [],
+      hasProgramRoot: true,
+    };
+  }
+
+  // ----- exports-axis (jwt.scrml shape) ---------------------------------
+
+  test("EXPORTS-AXIS: jwt-shape — live=1, native=4, source has 4 line-leading `export ` keywords → true", () => {
+    const live = fakeAst({ exports: [{}] });
+    const native = fakeAst({ exports: [{}, {}, {}, {}] });
+    const src =
+      "export type JwtError:enum = { DecodeFailed(message: string) }\n" +
+      "export async function signJwt(payload, secret) { return 1 }\n" +
+      "export async function verifyJwt(token, secret) { return 2 }\n" +
+      "export function decodeJwt(token) { return token }\n";
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(true);
+  });
+
+  test("EXPORTS-AXIS: a source with 3 `export ` keywords would NOT match native=4 — disqualified", () => {
+    const live = fakeAst({ exports: [{}] });
+    const native = fakeAst({ exports: [{}, {}, {}, {}] });
+    const src =
+      "export function a() {}\n" +
+      "export function b() {}\n" +
+      "export function c() {}\n";
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(false);
+  });
+
+  test("EXPORTS-AXIS: a source where native UNDER counts (native < live) is NOT this shape — disqualified", () => {
+    const live = fakeAst({ exports: [{}, {}, {}, {}] });
+    const native = fakeAst({ exports: [{}] });
+    const src =
+      "export function a() {}\n" +
+      "export function b() {}\n" +
+      "export function c() {}\n" +
+      "export function d() {}\n";
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(false);
+  });
+
+  // ----- imports-axis (cg.scrml shape) ----------------------------------
+
+  test("IMPORTS-AXIS: cg-shape — live=5 with dynamic-call shape, native=0, source has 0 `import ... from` → true", () => {
+    const liveImports = [
+      { source: null, names: [], raw: `import ( "./a.js" )` },
+      { source: null, names: [], raw: `import ( "./b.js" )` },
+      { source: null, names: [], raw: `import ( "./c.js" )` },
+      { source: null, names: [], raw: `import ( "./d.js" )` },
+      { source: null, names: [], raw: `import ( "./e.js" )` },
+    ];
+    const live = fakeAst({ imports: liveImports });
+    const native = fakeAst({ imports: [] });
+    const src =
+      `const a = await import("./a.js")\n` +
+      `const b = await import("./b.js")\n` +
+      `const c = await import("./c.js")\n` +
+      `const d = await import("./d.js")\n` +
+      `const e = await import("./e.js")\n`;
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(true);
+  });
+
+  test("IMPORTS-AXIS: live extras WITHOUT dynamic-call shape → disqualified", () => {
+    const liveImports = [
+      { source: "./a.js", names: [], raw: `import "./a.js"` },
+      { source: "./b.js", names: [], raw: `import "./b.js"` },
+    ];
+    const live = fakeAst({ imports: liveImports });
+    const native = fakeAst({ imports: [] });
+    const src = "// no imports — but live's extras don't look dynamic-shaped";
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(false);
+  });
+
+  test("IMPORTS-AXIS: native imports > live imports (live UNDERcounts) is NOT this shape — disqualified", () => {
+    const live = fakeAst({ imports: [] });
+    const native = fakeAst({
+      imports: [
+        { source: "./a.js", names: [], raw: `import "./a.js"` },
+      ],
+    });
+    const src = `import "./a.js"`;
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(false);
+  });
+
+  // ----- non-recognised axes (must NOT absorb) --------------------------
+
+  test("typeDecls divergence does NOT match a recognised shape — disqualified (the bs.scrml H-bs-tail case)", () => {
+    // Native phantoms an empty type-decl (live=0 native=1). No recognised
+    // LIVE-WRONG shape for this; classifier must keep the file in
+    // DIFF-hoist-count for Wave 5 investigation.
+    const live = fakeAst({ typeDecls: [] });
+    const native = fakeAst({ typeDecls: [{ kind: "type-decl", name: "", raw: "" }] });
+    const src = "function foo() { step() }";
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(false);
+  });
+
+  test("components divergence does NOT match a recognised shape — disqualified", () => {
+    const live = fakeAst({ components: [{}, {}] });
+    const native = fakeAst({ components: [{}] });
+    const src = "component X() { return <p/> }";
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(false);
+  });
+
+  test("machineDecls divergence does NOT match a recognised shape — disqualified", () => {
+    const live = fakeAst({ machineDecls: [] });
+    const native = fakeAst({ machineDecls: [{}] });
+    const src = "engine X {}";
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(false);
+  });
+
+  test("channelDecls divergence does NOT match a recognised shape — disqualified", () => {
+    const live = fakeAst({ channelDecls: [{}] });
+    const native = fakeAst({ channelDecls: [] });
+    const src = "channel X {}";
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(false);
+  });
+
+  // ----- mixed-axis composition ----------------------------------------
+
+  test("a mixed diff with ONE recognised shape and ONE unrecognised → disqualified (the partial-match safety)", () => {
+    // The detector demands EVERY diverging axis match a recognised shape.
+    // exports-axis fires (jwt-shape) but typeDecls is the bs.scrml unrecognised
+    // shape — the file must NOT be absorbed (the unrecognised divergence is
+    // still a real gap).
+    const live = fakeAst({ exports: [{}], typeDecls: [] });
+    const native = fakeAst({
+      exports: [{}, {}, {}, {}],
+      typeDecls: [{ kind: "type-decl", name: "", raw: "" }],
+    });
+    const src =
+      "export function a() {}\n" +
+      "export function b() {}\n" +
+      "export function c() {}\n" +
+      "export function d() {}\n";
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(false);
+  });
+
+  test("BOTH axes recognised — exports-axis jwt-shape + imports-axis cg-shape together → true", () => {
+    // A defensive composition test — neither real corpus file has both axes
+    // diverging, but the detector should handle the multi-axis case the same
+    // way it handles single-axis ones.
+    const liveImports = [
+      { source: null, names: [], raw: `import ( "./a.js" )` },
+    ];
+    const live = fakeAst({ imports: liveImports, exports: [{}] });
+    const native = fakeAst({ imports: [], exports: [{}, {}, {}, {}] });
+    const src =
+      "export function a() {}\n" +
+      "export function b() {}\n" +
+      "export function c() {}\n" +
+      "export function d() {}\n" +
+      `const x = await import("./a.js")\n`;
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(true);
+  });
+
+  // ----- input validation ----------------------------------------------
+
+  test("returns false on null / non-string source", () => {
+    const live = fakeAst({ exports: [{}] });
+    const native = fakeAst({ exports: [{}, {}, {}, {}] });
+    expect(isLiveHoistMisclassify(live, native, null)).toBe(false);
+    expect(isLiveHoistMisclassify(live, native, undefined)).toBe(false);
+    expect(isLiveHoistMisclassify(live, native, "")).toBe(false);
+  });
+
+  test("returns false on null / undefined AST input", () => {
+    expect(isLiveHoistMisclassify(null, null, "x")).toBe(false);
+    expect(isLiveHoistMisclassify(undefined, fakeAst({}), "x")).toBe(false);
+    expect(isLiveHoistMisclassify(fakeAst({}), null, "x")).toBe(false);
+  });
+
+  test("returns false when there is NO divergence at all (no anyDivergence)", () => {
+    const live = fakeAst({});
+    const native = fakeAst({});
+    const src = "no exports, no imports";
+    expect(isLiveHoistMisclassify(live, native, src)).toBe(false);
+  });
+});
+
+describe("dual-pipeline-canary — classifyDivergence LIVE-HOIST-MISCLASSIFY branch (corpus smoke)", () => {
+  // End-to-end smoke against the two real surveyed files. classifyDivergence
+  // drives both pipelines from source, so these tests wire the entire chain:
+  // both parsers + the diff + the detector + the verdict.
+
+  test("the real jwt.scrml corpus file classifies LIVE-HOIST-MISCLASSIFY (exports-axis)", () => {
+    const path = __dirname + "/../../stdlib/auth/jwt.scrml";
+    const src = readFileSync(path, "utf8");
+    const v = classifyDivergence(path, src);
+    expect(v.class).toBe("LIVE-HOIST-MISCLASSIFY");
+    expect(v.explained).toBe(true);
+    expect(v.detail.liveHoist.exports).toBe(1);
+    expect(v.detail.nativeHoist.exports).toBe(4);
+  });
+
+  test("the real cg.scrml corpus file classifies LIVE-HOIST-MISCLASSIFY (imports-axis)", () => {
+    const path = __dirname + "/../../compiler/self-host/cg.scrml";
+    const src = readFileSync(path, "utf8");
+    const v = classifyDivergence(path, src);
+    expect(v.class).toBe("LIVE-HOIST-MISCLASSIFY");
+    expect(v.explained).toBe(true);
+    expect(v.detail.liveHoist.imports).toBe(5);
+    expect(v.detail.nativeHoist.imports).toBe(0);
+  });
+
+  test("the real bs.scrml corpus file does NOT classify LIVE-HOIST-MISCLASSIFY (native-phantom typeDecl — Wave 5 H-bs-tail)", () => {
+    // Native phantoms an empty type-decl at line 241 col 17 (a `step()` call
+    // mid-statement). Source has zero `type` declarations; native is wrong;
+    // the file must stay in unexplained `DIFF-hoist-count` for Wave 5
+    // investigation, NOT be absorbed into LIVE-HOIST-MISCLASSIFY.
+    const path = __dirname + "/../../compiler/self-host/bs.scrml";
+    const src = readFileSync(path, "utf8");
+    const v = classifyDivergence(path, src);
+    expect(v.class).toBe("DIFF-hoist-count");
+    expect(v.explained).toBe(false);
   });
 });
