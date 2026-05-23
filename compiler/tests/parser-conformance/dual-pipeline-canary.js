@@ -151,16 +151,30 @@ export function topKindSequence(nodes) {
 // size) for a degenerate-live one:
 //   - the LIVE deep tree carries ZERO `markup` nodes, AND
 //   - the NATIVE deep tree carries at least one `markup` node, AND
-//   - the NATIVE deep tree is at least 3x the size of the LIVE deep tree.
-// The 3x ratio is what excludes a genuine small component-only file (where
-// native and live land within ~2x of each other) from the degenerate class.
+//   - the NATIVE deep tree is at least 1.5x the size of the LIVE deep tree.
+//
+// W8-CANARY-DEGEN-GUARD (S121): the ratio guard was lowered from 3.0x to 1.5x
+// per the GAP-native-extra-block survey
+// (docs/changes/m5-c2-gap-ledger/gap-neb-survey-s121-2026-05-22.md §4 Unit
+// W8-CANARY-DEGEN-GUARD). The surveyed corpus shows a clean empirical gap:
+// the two surviving GAP-NEB files (gauntlet-r11-zig-buildconfig.scrml at
+// 1.86x and tailwind-prose-coverage.scrml at 2.50x) carry the exact
+// LIVE-DEGENERATE signature (liveMarkup===0, nativeMarkup>=1) — corpus-stale
+// shapes (S80 trailing-slash + §4.17 raw-content) where live silently drops
+// content and native correctly preserves it. The lowest legitimate
+// LIVE-DEGENERATE ratio in the current corpus is 3.36x, so the 1.5x cutoff
+// absorbs both GAP-NEB files (1.86 > 1.5 AND 2.50 > 1.5) while preserving a
+// generous 1.86x headroom below the lowest existing LIVE-DEGENERATE. The
+// `liveMarkup === 0 ∧ nativeMarkup >= 1` shape gate remains the primary
+// fingerprint; the ratio guard is defense-in-depth against a tiny
+// component-only file landing here by coincidence.
 // =============================================================================
 export function isLiveDegenerate(liveDeep, nativeDeep) {
   const liveMarkup = liveDeep.filter((k) => k === "markup").length;
   const nativeMarkup = nativeDeep.filter((k) => k === "markup").length;
   if (liveMarkup !== 0) return false;
   if (nativeMarkup < 1) return false;
-  return nativeDeep.length >= 3 * Math.max(liveDeep.length, 1);
+  return nativeDeep.length >= 1.5 * Math.max(liveDeep.length, 1);
 }
 
 // =============================================================================

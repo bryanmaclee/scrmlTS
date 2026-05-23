@@ -25,6 +25,7 @@ import {
   diffFileASTs,
   classifyDivergence,
   sourceHasPhantomStateAdmission,
+  isLiveDegenerate,
 } from "./parser-conformance/dual-pipeline-canary.js";
 
 // fakeFileAST — a minimal FileAST-shaped record for the diff. `diffFileASTs`
@@ -254,5 +255,189 @@ describe("dual-pipeline-canary — classifyDivergence LIVE-PHANTOM branch", () =
     // DIFF-deep-seq.
     expect(v.detail.deepFirstDivergence).not.toBe(null);
     expect(v.detail.deepFirstDivergence.liveKind).toBe("state");
+  });
+});
+
+// =============================================================================
+// Wave 8 Unit W8-CANARY-DEGEN-GUARD — LIVE-DEGENERATE ratio-guard relaxation.
+//
+// The S121 GAP-NEB survey
+// (docs/changes/m5-c2-gap-ledger/gap-neb-survey-s121-2026-05-22.md §4) lowered
+// the `isLiveDegenerate` size-ratio guard from 3.0x to 1.5x. Two corpus files
+// (`gauntlet-r11-zig-buildconfig.scrml` at 1.86x, `tailwind-prose-coverage.
+// scrml` at 2.50x) carry the LIVE-DEGENERATE signature (liveMarkup===0,
+// nativeMarkup>=1) but had been suppressed by the 3.0x threshold — corpus-
+// stale shapes where live silently drops content and native correctly
+// preserves it. The 1.5x cutoff absorbs both while preserving 1.86x headroom
+// below the lowest legitimate LIVE-DEGENERATE ratio (3.36x).
+//
+// These tests lock the new threshold against silent regression: a ratio at or
+// above 1.5x classifies as LIVE-DEGENERATE; a ratio below does not. The
+// `liveMarkup === 0 ∧ nativeMarkup >= 1` shape gate remains the primary
+// fingerprint; the ratio guard is defense-in-depth.
+// =============================================================================
+describe("dual-pipeline-canary — isLiveDegenerate ratio guard (W8-CANARY-DEGEN-GUARD)", () => {
+  // mkDegenSeqs(liveLen, nativeLen, nativeMarkup) — build two synthetic
+  // recursive-kind sequences (liveDeep, nativeDeep) shaped exactly the way
+  // `isLiveDegenerate` consumes them. The live sequence has ZERO `markup`
+  // entries (the degenerate signature); the native sequence contains
+  // `nativeMarkup` `markup` entries followed by filler `text` entries to
+  // reach the requested length.
+  function mkDegenSeqs(liveLen, nativeLen, nativeMarkup) {
+    if (nativeMarkup > nativeLen) {
+      throw new Error("nativeMarkup must be <= nativeLen");
+    }
+    const liveDeep = new Array(liveLen).fill("text");
+    const nativeDeep = [];
+    for (let i = 0; i < nativeMarkup; i = i + 1) nativeDeep.push("markup");
+    for (let i = nativeMarkup; i < nativeLen; i = i + 1) nativeDeep.push("text");
+    return { liveDeep, nativeDeep };
+  }
+
+  // The two W8-CANARY-DEGEN-GUARD absorption targets — the surveyed corpus
+  // ratios at which the post-fix predicate MUST fire. The pre-fix predicate
+  // returned false on both because 1.86 < 3.0 and 2.50 < 3.0.
+
+  test("2.50x ratio (tailwind-prose-coverage shape) classifies as LIVE-DEGENERATE", () => {
+    // live deep len 6, native deep len 15 — the surveyed tailwind ratio.
+    const { liveDeep, nativeDeep } = mkDegenSeqs(6, 15, 4);
+    expect(nativeDeep.length / liveDeep.length).toBeCloseTo(2.5, 2);
+    expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(true);
+  });
+
+  test("1.86x ratio (zig-buildconfig shape) classifies as LIVE-DEGENERATE", () => {
+    // live deep len 7, native deep len 13 — the surveyed zig ratio.
+    const { liveDeep, nativeDeep } = mkDegenSeqs(7, 13, 1);
+    expect(nativeDeep.length / liveDeep.length).toBeCloseTo(1.857, 2);
+    expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(true);
+  });
+
+  // The previously-handled LIVE-DEGENERATE population — confirm the new
+  // threshold did NOT regress any of them.
+
+  test("3.36x ratio (lowest legitimate LIVE-DEGENERATE — rust-dev-lin-lift-pipeline shape) still classifies as LIVE-DEGENERATE", () => {
+    // live deep len 11, native deep len 37 — the lowest legitimate
+    // LIVE-DEGENERATE ratio in the surveyed corpus.
+    const { liveDeep, nativeDeep } = mkDegenSeqs(11, 37, 3);
+    expect(nativeDeep.length / liveDeep.length).toBeCloseTo(3.36, 1);
+    expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(true);
+  });
+
+  test("ratios above the old 3.0x threshold (e.g. 4.0x / 10.0x / 26.7x) still classify as LIVE-DEGENERATE", () => {
+    // dashboard-like ratio 4.0x.
+    const a = mkDegenSeqs(10, 40, 5);
+    expect(isLiveDegenerate(a.liveDeep, a.nativeDeep)).toBe(true);
+    // blog-cms-like ratio 10.0x.
+    const b = mkDegenSeqs(10, 100, 20);
+    expect(isLiveDegenerate(b.liveDeep, b.nativeDeep)).toBe(true);
+    // dashboard-parallel-like ratio 26.7x.
+    const c = mkDegenSeqs(9, 240, 60);
+    expect(isLiveDegenerate(c.liveDeep, c.nativeDeep)).toBe(true);
+  });
+
+  // Threshold pin — the boundary cases. The predicate is `>= 1.5 *
+  // liveDeep.length` so a 1.5x ratio FIRES (boundary inclusive); just below
+  // (e.g. 1.49x) does NOT.
+
+  test("a ratio exactly at the 1.5x threshold classifies as LIVE-DEGENERATE (boundary inclusive)", () => {
+    // live deep len 10, native deep len 15 — exactly 1.5x.
+    const { liveDeep, nativeDeep } = mkDegenSeqs(10, 15, 4);
+    expect(nativeDeep.length).toBe(1.5 * liveDeep.length);
+    expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(true);
+  });
+
+  test("a ratio just below 1.5x does NOT classify as LIVE-DEGENERATE", () => {
+    // live deep len 10, native deep len 14 — ratio 1.4x.
+    const { liveDeep, nativeDeep } = mkDegenSeqs(10, 14, 3);
+    expect(nativeDeep.length / liveDeep.length).toBeCloseTo(1.4, 2);
+    expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(false);
+  });
+
+  // The shape gate is non-negotiable — even at very large ratios, a live
+  // sequence with at least one `markup` node OR a native sequence with zero
+  // `markup` nodes must NOT classify as LIVE-DEGENERATE. The class encodes
+  // "live dropped markup; native preserved it"; a live tree carrying a
+  // `markup` is not degenerate-in-the-LIVE-DEGENERATE-sense.
+
+  test("a live sequence WITH at least one `markup` does NOT classify (shape gate)", () => {
+    // liveDeep includes a `markup` — degenerate-live signature broken even at
+    // a huge ratio.
+    const liveDeep = ["markup", "text"];
+    const nativeDeep = new Array(20).fill("markup");
+    expect(nativeDeep.length / liveDeep.length).toBe(10);
+    expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(false);
+  });
+
+  test("a native sequence with zero `markup` nodes does NOT classify (shape gate)", () => {
+    // nativeDeep has no `markup` at all — the native side is not the
+    // substantial-markup-tree the class encodes.
+    const liveDeep = ["text"];
+    const nativeDeep = new Array(20).fill("text");
+    expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(false);
+  });
+
+  test("empty deep sequences do NOT classify (shape gate)", () => {
+    expect(isLiveDegenerate([], [])).toBe(false);
+    expect(isLiveDegenerate([], ["markup"])).toBe(false);
+  });
+});
+
+describe("dual-pipeline-canary — classifyDivergence absorbs surveyed GAP-NEB shapes via the relaxed guard", () => {
+  // End-to-end: build synthetic FileASTs whose recursive node-kind sequences
+  // reproduce the surveyed `gauntlet-r11-zig-buildconfig` and `tailwind-
+  // prose-coverage` shapes (liveDeep length 7 / 6, nativeDeep length 13 / 15
+  // — ratios 1.86 and 2.50). With the 1.5x guard these flow through the
+  // LIVE-DEGENERATE branch (explained: true). With the prior 3.0x guard
+  // they would have flowed through to GAP-native-extra-block (explained:
+  // false). This locks the absorption against silent re-regression.
+
+  function fakeFileASTWithDeep(nodes) {
+    return {
+      nodes,
+      imports: [],
+      exports: [],
+      components: [],
+      typeDecls: [],
+      machineDecls: [],
+      channelDecls: [],
+      hasProgramRoot: true,
+    };
+  }
+
+  test("zig-buildconfig-shape (1.86x ratio, liveMarkup=0, nativeMarkup>=1) — isLiveDegenerate fires", () => {
+    // liveDeep length 7 (no markup), nativeDeep length 13 (>=1 markup).
+    // We test the predicate directly here — the full classifyDivergence call
+    // would need a matching source string which is what the corpus harness
+    // covers.
+    const liveDeep = ["comment", "comment", "comment", "comment", "comment", "comment", "text"];
+    const nativeDeep = [
+      "comment", "comment", "comment", "comment", "comment", "comment", "text",
+      "markup", "text", "logic", "text", "logic", "text",
+    ];
+    expect(liveDeep.length).toBe(7);
+    expect(nativeDeep.length).toBe(13);
+    expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(true);
+  });
+
+  test("tailwind-prose-coverage-shape (2.50x ratio, liveMarkup=0, nativeMarkup=4) — isLiveDegenerate fires", () => {
+    // liveDeep length 6 (no markup), nativeDeep length 15 (4 markup nodes:
+    // article, h1, p, code).
+    const liveDeep = ["comment", "comment", "comment", "comment", "comment", "text"];
+    const nativeDeep = [
+      "comment", "comment", "comment", "comment", "comment", "text",
+      "markup", "text", "markup", "text", "text", "markup", "text", "markup", "text",
+    ];
+    expect(liveDeep.length).toBe(6);
+    expect(nativeDeep.length).toBe(15);
+    expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(true);
+  });
+
+  test("a small genuine non-`<program>` file (live and native within 1.4x — below the guard) does NOT mis-classify", () => {
+    // The defense-in-depth case: a small component-only file where live and
+    // native agree at comparable size; the guard must NOT classify it.
+    const liveDeep = ["text", "text", "text", "text", "text"];
+    const nativeDeep = ["markup", "text", "text", "text", "text", "text", "text"];
+    expect(nativeDeep.length / liveDeep.length).toBeCloseTo(1.4, 2);
+    expect(isLiveDegenerate(liveDeep, nativeDeep)).toBe(false);
   });
 });
