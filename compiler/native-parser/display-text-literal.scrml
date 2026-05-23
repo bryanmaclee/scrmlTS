@@ -341,10 +341,10 @@ ${
     // "dollarBrace" / "malformed". A `\` at EOF (no following char) is
     // "malformed".
     export fn classifyEscape(afterBackslash, afterAfter) {
-        if (afterBackslash === doubleQuote()) { return "quote" }
-        if (afterBackslash === backslash())   { return "backslash" }
-        if (afterBackslash === String.fromCharCode(36) &&
-            afterAfter === String.fromCharCode(123)) {
+        if (afterBackslash == doubleQuote()) { return "quote" }
+        if (afterBackslash == backslash())   { return "backslash" }
+        if (afterBackslash == String.fromCharCode(36) &&
+            afterAfter == String.fromCharCode(123)) {
             return "dollarBrace"
         }
         return "malformed"
@@ -363,15 +363,15 @@ ${
         const after = peekChar(cursor, 0)
         const afterAfter = peekChar(cursor, 1)
         const kind = classifyEscape(after, afterAfter)
-        if (kind === "quote") {
+        if (kind == "quote") {
             advance(cursor, 1)
             return { cooked: doubleQuote(), malformed: false }
         }
-        if (kind === "backslash") {
+        if (kind == "backslash") {
             advance(cursor, 1)
             return { cooked: backslash(), malformed: false }
         }
-        if (kind === "dollarBrace") {
+        if (kind == "dollarBrace") {
             advance(cursor, 2)
             return { cooked: interpolationOpen(), malformed: false }
         }
@@ -416,7 +416,7 @@ ${
     // ensureDiagnostics — STATE write (lazy init). A parse context built
     // before MK2.2 has no `diagnostics` slot; this keeps the helper total.
     export fn ensureDiagnostics(ctx) {
-        if (ctx.diagnostics === undefined || ctx.diagnostics === null) {
+        if (ctx.diagnostics is not) {
             ctx.diagnostics = []
         }
     }
@@ -463,17 +463,17 @@ ${
     // RBrace that brings depth to 0 is the matching close.
     export fn findInterpolationCloseOffset(braceOnwardSource) {
         const tokens = lex(braceOnwardSource)
-        if (tokens.length === 0) { return -1 }
-        if (tokens[0].kind !== TokenKind.LBrace) { return -1 }
+        if (tokens.length == 0) { return -1 }
+        if (tokens[0].kind != TokenKind.LBrace) { return -1 }
         let depth = 0
         let i = 0
         while (i < tokens.length) {
             const tok = tokens[i]
-            if (tok.kind === TokenKind.LBrace) {
+            if (tok.kind == TokenKind.LBrace) {
                 depth = depth + 1
-            } else if (tok.kind === TokenKind.RBrace) {
+            } else if (tok.kind == TokenKind.RBrace) {
                 depth = depth - 1
-                if (depth === 0) {
+                if (depth == 0) {
                     return tok.span.end
                 }
             }
@@ -488,11 +488,11 @@ ${
     // body parses to `not`. The M2 parser's diagnostics are forwarded into
     // `ctx.diagnostics`.
     export fn parseInterpolationBody(bodyText, ctx) {
-        if (bodyText === undefined || bodyText === null) { return null }
-        if (bodyText.trim().length === 0) { return null }
+        if (bodyText is not) { return null }
+        if (bodyText.trim().length == 0) { return null }
         const tokens = lex(bodyText)
         const result = parseExpr(tokens)
-        if (result.errors !== undefined && result.errors !== null) {
+        if (result.errors is some) {
             let i = 0
             while (i < result.errors.length) {
                 const e = result.errors[i]
@@ -568,7 +568,7 @@ ${
         const openPos = cursor.pos
         const openLine = cursor.line
         const openCol = cursor.col
-        if (peekChar(cursor, 0) !== doubleQuote()) {
+        if (peekChar(cursor, 0) != doubleQuote()) {
             const span = makeSpan(openPos, openPos, openLine, openCol)
             return {
                 node: makeDisplayTextLiteralNode(
@@ -588,7 +588,7 @@ ${
         while (!isEof(cursor)) {
             const c = peekChar(cursor, 0)
 
-            if (c === backslash()) {
+            if (c == backslash()) {
                 const escapePos = cursor.pos
                 const escapeLine = cursor.line
                 const escapeCol = cursor.col
@@ -604,12 +604,12 @@ ${
                 continue
             }
 
-            if (c === doubleQuote()) {
+            if (c == doubleQuote()) {
                 terminated = true
                 break
             }
 
-            if (peekStr(cursor, 2) === interpolationOpen()) {
+            if (peekStr(cursor, 2) == interpolationOpen()) {
                 const raw = cursor.source.substring(segmentStart, cursor.pos)
                 segments.push(makeLiteralSegment(raw, cooked))
                 const interp = scanInterpolation(cursor, ctx)
