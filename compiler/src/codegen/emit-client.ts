@@ -2,7 +2,7 @@ import { SCRML_RUNTIME } from "../runtime-template.js";
 import { exprNodeContainsCall } from "../expression-parser.ts";
 // F8 / v0.6 — dual-mode meta-block kind test (live `"meta"` / native `"Meta"`).
 import { isMetaKind } from "../types/ast.ts";
-import { assembleRuntime, RUNTIME_CHUNK_ORDER } from "./runtime-chunks.ts";
+import { assembleRuntime, RUNTIME_CHUNK_ORDER, applyChunkDependencies } from "./runtime-chunks.ts";
 import { buildFunctionBodyRegistry, iterableHasReactiveRefs } from "./reactive-deps.ts";
 import { CGError } from "./errors.ts";
 import { escapeRegex } from "./utils.ts";
@@ -860,6 +860,16 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
   if (hasBindProps(allAstNodes)) {
     chunks.add("deep_reactive");
   }
+
+  // 6nz Bug P (S124, 2026-05-23) — close cross-chunk dependency edges before
+  // chunk-set consumption. The `scope` chunk (always-seeded — see
+  // context.ts:211) unconditionally calls `_scrml_stop_scope_timers` (timers
+  // chunk) and `_scrml_cancel_animation_frames` (animation chunk) inside
+  // `_scrml_destroy_scope`. Without this closure, a compile unit with no
+  // user-facing timer / animation-frame usage would tree-shake both chunks
+  // and crash on first reactive-scope teardown. Full edge table + audit
+  // shape lives at `codegen/runtime-chunks.ts:CHUNK_DEPENDENCIES`.
+  applyChunkDependencies(chunks);
 }
 
 // ---------------------------------------------------------------------------

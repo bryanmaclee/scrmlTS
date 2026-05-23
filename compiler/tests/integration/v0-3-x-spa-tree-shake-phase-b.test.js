@@ -293,3 +293,66 @@ describe("§4 embed-mode regression-free path", () => {
     expect(clientJs).not.toContain("_scrml_wire_decode");
   });
 });
+
+// ---------------------------------------------------------------------------
+// §5 — 6nz Bug P regression: cross-chunk dependency closure (S124, 2026-05-23)
+//
+// `_scrml_destroy_scope` (scope chunk, always-seeded) unconditionally calls
+// `_scrml_stop_scope_timers` (timers chunk) and `_scrml_cancel_animation_frames`
+// (animation chunk) on every reactive scope teardown. Pre-S124, both target
+// chunks were tree-shaken when the compile unit had no user-facing timer /
+// animation-frame usage, causing `ReferenceError: _scrml_stop_scope_timers
+// is not defined` on every reactive cleanup — killed all subsequent reactive
+// effects in any non-trivial adopter app (6nz Bug P).
+//
+// Fix: declarative CHUNK_DEPENDENCIES edge `scope → {timers, animation}` +
+// `applyChunkDependencies` closure at the end of detectRuntimeChunks.
+// Edge table at codegen/runtime-chunks.ts.
+// ---------------------------------------------------------------------------
+
+describe("§5 6nz Bug P — cross-chunk dependency closure", () => {
+  test("SPA shape includes _scrml_stop_scope_timers definition (scope → timers dep edge)", () => {
+    // SPA_COUNTER has no user-facing timer usage. Pre-fix, the `timers`
+    // chunk was tree-shaken and `_scrml_stop_scope_timers` was undefined
+    // even though `_scrml_destroy_scope` (always-included scope chunk)
+    // calls it. Post-fix, the dep edge pulls timers along.
+    const { result, outDir } = compileSingle(SPA_COUNTER);
+    const runtime = readFileSync(join(outDir, result.runtimeFilename), "utf8");
+    expect(runtime).toContain("function _scrml_stop_scope_timers");
+  });
+
+  test("SPA shape includes _scrml_cancel_animation_frames definition (scope → animation dep edge)", () => {
+    const { result, outDir } = compileSingle(SPA_COUNTER);
+    const runtime = readFileSync(join(outDir, result.runtimeFilename), "utf8");
+    expect(runtime).toContain("function _scrml_cancel_animation_frames");
+  });
+
+  test("SPA shape: every _scrml_stop_scope_timers CALL site has a matching definition", () => {
+    // Belt-and-suspenders structural check: pre-fix the call count was 1
+    // and the def count was 0; post-fix the def is guaranteed present.
+    const { result, outDir } = compileSingle(SPA_COUNTER);
+    const runtime = readFileSync(join(outDir, result.runtimeFilename), "utf8");
+    const defs = (runtime.match(/function _scrml_stop_scope_timers/g) ?? []).length;
+    const calls = (runtime.match(/_scrml_stop_scope_timers\(/g) ?? []).length;
+    expect(defs).toBeGreaterThanOrEqual(1);
+    expect(calls).toBeGreaterThanOrEqual(1); // sanity — destroy_scope calls it
+  });
+
+  test("SPA shape: every _scrml_cancel_animation_frames CALL site has a matching definition", () => {
+    const { result, outDir } = compileSingle(SPA_COUNTER);
+    const runtime = readFileSync(join(outDir, result.runtimeFilename), "utf8");
+    const defs = (runtime.match(/function _scrml_cancel_animation_frames/g) ?? []).length;
+    const calls = (runtime.match(/_scrml_cancel_animation_frames\(/g) ?? []).length;
+    expect(defs).toBeGreaterThanOrEqual(1);
+    expect(calls).toBeGreaterThanOrEqual(1);
+  });
+
+  test("embed-mode SPA bundle: timers + animation chunks pulled by scope dep edge", () => {
+    const { outDir } = compileSingle(SPA_COUNTER, { embedRuntime: true });
+    const clientJs = readFileSync(join(outDir, "app.client.js"), "utf8");
+    // Same gate as shared-runtime — embed mode also consumes
+    // usedRuntimeChunks post-applyChunkDependencies.
+    expect(clientJs).toContain("function _scrml_stop_scope_timers");
+    expect(clientJs).toContain("function _scrml_cancel_animation_frames");
+  });
+});

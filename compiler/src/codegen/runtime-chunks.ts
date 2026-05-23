@@ -314,6 +314,71 @@ function buildRuntimeChunks(): Record<RuntimeChunkName, string> {
 export const RUNTIME_CHUNKS: Record<RuntimeChunkName, string> = buildRuntimeChunks();
 
 // ---------------------------------------------------------------------------
+// CHUNK_DEPENDENCIES — declarative cross-chunk dependency edges.
+//
+// 6nz Bug P (S124, 2026-05-23): a function in chunk A may call a function in
+// chunk B. If A is included but B is tree-shaken, the resulting runtime has
+// an unresolved reference and crashes at first invocation. This table
+// records the edges so `applyChunkDependencies` can transitively pull
+// dependent chunks before assembly.
+//
+// Maintenance: when a new cross-chunk call is added to runtime-template.js,
+// add the edge here. The audit shape is: for each function in chunk A's
+// body, list every `_scrml_*` call whose definition lives in a chunk other
+// than A. If that other chunk is conditional and A is always-included (or
+// transitively reachable from an always-included chunk), the edge MUST be
+// recorded here.
+//
+// Edges as of S124:
+//
+//   scope → {timers, animation}
+//     `_scrml_destroy_scope` (scope chunk, always-included) calls
+//     `_scrml_stop_scope_timers` (timers chunk) and
+//     `_scrml_cancel_animation_frames` (animation chunk). When a compile
+//     unit had no timer/animation-frame usage, both target chunks were
+//     tree-shaken and `_scrml_destroy_scope` crashed on first scope
+//     teardown — symptom: `ReferenceError: _scrml_stop_scope_timers is
+//     not defined` on every reactive scope cleanup, killing all
+//     subsequent reactive effects (6nz Bug P, every adopter app).
+//
+// Forward note: declaring an edge here makes the target chunk effectively
+// always-included whenever the source is. For `scope → timers/animation`
+// this is correct (scope is unconditionally seeded — see context.ts:211 —
+// so the conditional gates on timers/animation in detectRuntimeChunks
+// become moot for chunk-set composition, though they remain useful as
+// documentation of which features pull the chunk for non-transitive
+// reasons). For future edges where the source is itself conditional, the
+// closure logic correctly propagates only when the source actually fires.
+// ---------------------------------------------------------------------------
+
+export const CHUNK_DEPENDENCIES: Partial<Record<RuntimeChunkName, RuntimeChunkName[]>> = {
+  scope: ['timers', 'animation'],
+};
+
+// Pulls all transitive chunk dependencies into the set in place. Returns
+// the set for chaining. Safe to call repeatedly (idempotent). Called once
+// at the end of `detectRuntimeChunks` (emit-client.ts) before chunk-set
+// consumption.
+export function applyChunkDependencies(chunks: Set<string>): Set<string> {
+  // Fixed-point iteration — current dep set is shallow (max depth 1) but
+  // the loop tolerates future deeper chains without re-engineering.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [src, deps] of Object.entries(CHUNK_DEPENDENCIES)) {
+      if (!chunks.has(src) || !deps) continue;
+      for (const dep of deps) {
+        if (!chunks.has(dep)) {
+          chunks.add(dep);
+          changed = true;
+        }
+      }
+    }
+  }
+  return chunks;
+}
+
+// ---------------------------------------------------------------------------
 // assembleRuntime — produce the runtime string from a set of chunk names.
 //
 // Chunks are assembled in RUNTIME_CHUNK_ORDER so the output is always in the
