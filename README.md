@@ -57,7 +57,7 @@ API layer, no ORM, and no route files. This is the shape of a scrml app:
       reset(@email)
     }
 
-    server function loadContacts() {
+    function loadContacts() {
       lift ?{`SELECT name, email FROM contacts ORDER BY name`}.all()
     }
   }
