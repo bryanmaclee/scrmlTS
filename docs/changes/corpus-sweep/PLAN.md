@@ -130,6 +130,41 @@ once it is the basis — some may change shape or vanish; new ones will surface.
 Bug 8 is a server-codegen defect — independent of front-end basis; will
 persist across M6.
 
+9. **Client-side codegen — non-`async` function bodies call `async` server-fn
+   wrappers without `await`.** Same bug class as Bug #4. The compiler-emitted
+   `_scrml_fetch_<name>_<id>(...)` helpers are `async` (they `await fetch(...)`),
+   but caller functions are emitted as plain (non-`async`) JS functions that
+   invoke the helpers without `await`. Result: `const x = _scrml_fetch_foo()`
+   binds `x` to a Promise; subsequent uses (`x.someField`, `x.slice(...)`,
+   `for (const k in x)`) operate on the Promise object instead of the
+   resolved value. Silent at compile time; surfaces as:
+     - "doesn't work" with no visible error if the caller's broken state isn't
+       reflected in DOM (e.g. `state[name]` reads undefined-via-Promise.name
+       and the loop pushes nonsense)
+     - Uncaught TypeError if a string method is called (`Promise.slice` is
+       undefined → TypeError on call)
+     - Click handlers that "won't click" — handler fires, body throws,
+       browser swallows the rejection
+   **Found S121** running `dashboard/app.scrml` for the first time end-to-end.
+   `_scrml_loadStatuses_14`, `_scrml_refresh_16`, `_scrml_verify_17`,
+   `_scrml_markVerified_15` all emit as non-`async`; all call
+   `_scrml_fetch_*` helpers without `await`. The Refresh button's `onclick`
+   handler fires `_scrml_refresh_16()` which calls `_scrml_fetch_readCurrent
+   Head_13()` then `.slice(0, 8)` on the Promise → TypeError → handler
+   silently fails. The "browser shows nothing but a button that won't click"
+   is precisely this dynamic.
+   **Narrow fix shape (likely):** in `compiler/src/codegen/emit-client.ts`,
+   any function whose body calls an `_scrml_fetch_*` helper (or any other
+   compiler-emitted `async` helper) gets emitted as `async function`, and
+   the calls get `await`-prefixed. Cascades up the call graph (callers of
+   the rewritten function need the same treatment). The body-split / CPS
+   pass at codegen is the structurally-right place; the narrow fix is a
+   simpler-but-bounded variant.
+
+Bug 9 is a client-codegen defect — independent of front-end basis; will
+persist across M6. Same shape as Bug #4 (server-fn called in render loop
+without await); the two are likely closed by one codegen change.
+
 ## Corpus-stale ledger (S121 Wave 7 Unit D survey)
 
 Two GAP-native-extra-block residual files surveyed at S121
