@@ -130,6 +130,24 @@ once it is the basis — some may change shape or vanish; new ones will surface.
 Bug 8 is a server-codegen defect — independent of front-end basis; will
 persist across M6.
 
+## Corpus-stale ledger (S121 Wave 7 Unit D survey)
+
+Two GAP-native-extra-block residual files surveyed at S121
+(`docs/changes/m5-c2-gap-ledger/gap-neb-survey-s121-2026-05-22.md`):
+both are corpus-stale, NOT compiler bugs. Native is correct per SPEC.
+Defer corpus edits to the M6-gated sweep (this PLAN's timing rule).
+
+C1. `samples/gauntlet-r11-zig-buildconfig.scrml` — 30+ retired trailing-
+slash closer forms per S80 Appendix E `</>` migration. The file pre-dates
+the migration. **Fix at sweep time:** apply the `</>` → explicit-closer
+migration mechanically (S80's migration tool may apply directly; verify).
+
+C2. `samples/compilation-tests/tailwind-prose-coverage.scrml` — uses
+`<code>x</>` against SPEC §4.17 line 1068: `</>` is plain text inside
+raw-content elements; only `</code>` closes a `<code>` element. **Fix at
+sweep time:** rewrite every `<code>x</>` to `<code>x</code>` (and same
+for `<pre>` if any) — trivial mechanical edit.
+
 ## Deliverables
 
 1. A sweep report — full compile + runtime matrix per artifact.
