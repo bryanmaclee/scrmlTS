@@ -373,17 +373,187 @@ function makeBareExpr(nativeExpr, span, counter) {
     };
 }
 
+// isUpperInitial — predicate. True iff `name`'s first character is an ASCII
+// uppercase letter (the live component-call gate — ast-builder.js L2993 / the
+// parse-file.js `isUpperInitial` discipline).
+function isUpperInitial(name) {
+    if (typeof name !== "string" || name.length === 0) return false;
+    const code = name.charCodeAt(0);
+    return code >= 65 && code <= 90;
+}
+
+// Exported for unit-test access; also indirectly drives the bridge through
+// `makeLiftExpr` which is reached via `translateStmtList`.
+export { translateMarkupValueToLiveNode };
+
+// translateMarkupValueToLiveNode — calculation. Convert a native MarkupValue
+// (the `<tag>...</tag>` markup-as-value form from parse-expr.js:2054) into a
+// live MarkupNode-shaped object (ast.ts:214). This is the M6.2a bridge that
+// closes the gap surfaced by M6.2's component-expander migration: consumers
+// downstream of `lift-expr.expr.node` (component-expander, name-resolver,
+// dependency-graph, codegen) read `.tag` / `.attrs` / `.children` / `.isComponent`
+// — all undefined on a raw native MarkupValue.
+//
+// SHAPE NOTES:
+//   - A source-available MarkupValue carries `markup` as an ARRAY of native
+//     blocks (parse-expr.js:2104 -- `trace.ctx.nodes.slice(0, 1)`), each being
+//     a native parse-markup Markup block with `kind:"Markup"`, `name`, `attrs`,
+//     `children` (Block[]), `closerForm`, `span`.
+//   - A source-unavailable MarkupValue carries `markup` as a single object
+//     `{ kind: "MarkupTokenRange", tokens, tokenStart, tokenEnd, span }`
+//     (parse-expr.js:2184). No structured tag/attrs/children — defensive stub.
+//
+// MIRRORS `synthMarkupNode` (parse-file.js:326) — kept LOCAL here (rather than
+// importing parse-file.js) to avoid a circular import (parse-file imports this
+// module). The recursion handles nested Markup blocks; non-Markup children
+// (Text / Comment / Logic / Sql / Css / etc.) are preserved verbatim — the
+// non-Markup ASTNode shapes already match live shapes closely enough for the
+// known lift-expr consumers (component-expander walks Markup children only).
+//
+// A1/A2 bridge note: this is the MarkupValue counterpart of the parse-file.js
+// `synthMarkupNode` synthesizer. Any future consumer that needs deeper non-
+// Markup-child conversion (e.g. a Logic child synthesized through translate-
+// stmt's `synthLogicNode` equivalent) should be added here AND in parse-file.js
+// in lockstep.
+function translateMarkupValueToLiveNode(markupValue, counter) {
+    if (markupValue === undefined || markupValue === null) return null;
+    if (markupValue.kind !== "MarkupValue") return null;
+    const markup = markupValue.markup;
+    // Pick the FIRST native Markup block from the array (parse-expr.js:2104
+    // already slices to the first when source is available). The single
+    // top-level block IS the markup-as-value's outer element.
+    let block = null;
+    if (Array.isArray(markup) && markup.length > 0) {
+        block = markup[0];
+    } else if (markup && typeof markup === "object" && markup.kind === "Markup") {
+        block = markup;
+    }
+    // Token-range fallback (source-unavailable): no structured tag/attrs/
+    // children. Emit a defensive empty markup node — consumers reading
+    // `.tag` / `.children` / `.isComponent` see safe defaults and the lift's
+    // span is preserved.
+    if (block === null || block.kind !== "Markup") {
+        return {
+            id: stampId(counter),
+            kind: "markup",
+            tag: "",
+            attrs: [],
+            children: [],
+            selfClosing: true,
+            closerForm: "",
+            isComponent: false,
+            span: spanOrZero(markupValue.span),
+        };
+    }
+    return synthLiveMarkupNodeFromBlock(block, counter);
+}
+
+// synthLiveMarkupNodeFromBlock — calculation (mutually-recursive helper for
+// translateMarkupValueToLiveNode). Build a live MarkupNode from one native
+// Markup block; recurse on children.
+function synthLiveMarkupNodeFromBlock(block, counter) {
+    const tag = typeof block.name === "string" ? block.name : "";
+    const children = synthLiveChildren(block.children, counter);
+    const closerForm = (block.closerForm !== undefined && block.closerForm !== null)
+        ? block.closerForm
+        : "";
+    return {
+        id: stampId(counter),
+        kind: "markup",
+        tag,
+        attrs: Array.isArray(block.attrs) ? block.attrs : [],
+        children,
+        selfClosing: block.closerForm === undefined || block.closerForm === null,
+        closerForm,
+        isComponent: isUpperInitial(tag),
+        span: spanOrZero(block.span),
+    };
+}
+
+// synthLiveChildren — calculation. Map a native Block[] (the children of a
+// Markup block) into the live ASTNode[] shape. Nested Markup blocks recurse
+// into `synthLiveMarkupNodeFromBlock`; non-Markup blocks (Text / Comment /
+// LogicEscape / Sql / Css / Meta / ErrorEffect / etc.) are routed through
+// parse-file.js's mapBlocksToNodes via a LAZY require so the bridge does not
+// create a circular module-load dep (parse-file.js imports this module).
+//
+// Why we delegate: a child `LogicEscape` block inside a component body's
+// markup (e.g. `<li>${task.title}</li>`) MUST be converted into a live
+// `logic` node with a translated body — otherwise downstream consumers
+// (codegen's emit-logic, name-resolver, dependency-graph) see a raw native
+// LogicEscape block and fail to thread the expression. Same for nested
+// state-blocks, engine-blocks, meta, comments, text — each has its own
+// synth* function in parse-file.js that this bridge must invoke to produce
+// the correct live shape.
+//
+// LAZY-REQUIRE rationale: parse-file.js -> translate-stmt.js (this module)
+// is the existing import direction. A direct top-of-module
+// `import { mapBlocksToNodes } from "./parse-file.js"` would create a
+// cycle. Lazy-require (the pattern parse-expr.js uses for parseMarkupTrace
+// at L2275) loads the helper at FIRST CALL, by which time both modules
+// have finished their top-level eval.
+let _mapBlocksToNodesCached = null;
+function mapBlocksToNodesViaLazyRequire(blocks, counter, errors) {
+    if (_mapBlocksToNodesCached === null) {
+        try {
+            // eslint-disable-next-line global-require
+            const mod = require("./parse-file.js");
+            _mapBlocksToNodesCached = mod.mapBlocksToNodesForBridge;
+        } catch (e) {
+            _mapBlocksToNodesCached = undefined;
+        }
+    }
+    if (typeof _mapBlocksToNodesCached !== "function") return null;
+    // mapBlocksToNodesForBridge(blocks, idGen, source, errors): source is
+    // unavailable here (the bridge runs on the catalog, not on raw source),
+    // so source = "". The `synth*` paths that need source (Text/Comment
+    // sliceSpan) fall back to an empty string verbatim — acceptable for
+    // a markup-as-value subtree where Text/Comment children are rare and
+    // the live consumers walk Markup children only.
+    return _mapBlocksToNodesCached(blocks, counter, "", errors);
+}
+
+function synthLiveChildren(blocks, counter) {
+    if (Array.isArray(blocks) === false) return [];
+    const errors = [];
+    const live = mapBlocksToNodesViaLazyRequire(blocks, counter, errors);
+    if (live !== null) return live;
+    // Defensive fallback when the lazy-require fails (should never happen
+    // outside genuine module-resolution breakage): recurse Markup children
+    // ourselves, pass non-Markup children through verbatim. This keeps the
+    // bridge crash-free even when parse-file.js is unreachable.
+    const out = [];
+    for (const child of blocks) {
+        if (child === undefined || child === null) continue;
+        if (child.kind === "Markup") {
+            out.push(synthLiveMarkupNodeFromBlock(child, counter));
+        } else {
+            out.push(child);
+        }
+    }
+    return out;
+}
+
 // makeLiftExpr — a `lift-expr` node. The live `LiftExprNode.expr` is a
 // `LiftTarget` — `{ kind: "expr"; expr: string; exprNode?: ExprNode }` or
 // `{ kind: "markup"; node: ASTNode }` (ast.ts:196). The native `Lift` carries
 // `argument` (an Expr). A native `MarkupValue` argument is the markup-as-value
-// form -> `{ kind: "markup", node }`; anything else -> `{ kind: "expr" }` with
-// the native Expr in `exprNode`.
+// form -> `{ kind: "markup", node }` where `node` is the LIVE MarkupNode
+// produced by `translateMarkupValueToLiveNode` (M6.2a bridge); anything else
+// -> `{ kind: "expr" }` with the native Expr in `exprNode`.
 function makeLiftExpr(nativeLift, span, counter) {
     const arg = nativeLift ? nativeLift.argument : null;
     let target;
     if (arg && arg.kind === "MarkupValue") {
-        target = { kind: "markup", node: arg };
+        // M6.2a bridge: convert the native MarkupValue payload to a live-
+        // MarkupNode-shaped object so downstream consumers (component-
+        // expander L2498 `expr.node as MarkupNode`, name-resolver L375,
+        // dependency-graph L2729, codegen) can read `.tag` / `.attrs` /
+        // `.children` / `.isComponent`. Pre-M6.2a this stored the raw
+        // native MarkupValue here and every downstream `expr.node.tag`
+        // read produced undefined.
+        const liveNode = translateMarkupValueToLiveNode(arg, counter);
+        target = { kind: "markup", node: liveNode };
     } else {
         target = { kind: "expr", expr: "", exprNode: arg === undefined ? null : arg };
     }

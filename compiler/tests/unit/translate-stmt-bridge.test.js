@@ -359,6 +359,155 @@ describe("§5 — scrml-only un-wrap from native expression kinds", () => {
 });
 
 // =============================================================================
+// §5b — M6.2a — translateMarkupValueToLiveNode bridge.
+//
+// The M6.2 STOP-doc (commit a30c2b17) identified a bridge-parity gap:
+// `makeLiftExpr` wrapped a raw native `MarkupValue` inside
+// `lift-expr.expr.node`, but downstream consumers (component-expander,
+// name-resolver, dependency-graph, codegen) read `expr.node.tag` /
+// `expr.node.children` / `expr.node.isComponent` — all undefined on a raw
+// native MarkupValue. M6.2a's `translateMarkupValueToLiveNode` converts the
+// native shape to the live MarkupNode shape so consumers walk cleanly.
+// =============================================================================
+
+import { translateMarkupValueToLiveNode } from "../../native-parser/translate-stmt.js";
+
+describe("§5b — M6.2a translateMarkupValueToLiveNode bridge", () => {
+    test("converter on a synthetic MarkupValue produces a live MarkupNode shape", () => {
+        const markupValue = {
+            kind: "MarkupValue",
+            markup: [{
+                kind: "Markup",
+                name: "div",
+                attrs: [{ name: "class", value: { kind: "string-literal", value: "card", span: { start: 5, end: 11, line: 1, col: 1 } }, span: { start: 5, end: 11, line: 1, col: 1 } }],
+                children: [],
+                closerForm: "</div>",
+                span: { start: 0, end: 20, line: 1, col: 1 },
+            }],
+            span: { start: 0, end: 20, line: 1, col: 1 },
+        };
+        const counter = { next: 0 };
+        const node = translateMarkupValueToLiveNode(markupValue, counter);
+        expect(node).not.toBeNull();
+        expect(node.kind).toBe("markup");
+        expect(node.tag).toBe("div");
+        expect(node.isComponent).toBe(false);
+        expect(Array.isArray(node.attrs)).toBe(true);
+        expect(Array.isArray(node.children)).toBe(true);
+        expect(node.id).toBe(1);
+    });
+
+    test("converter sets isComponent=true for uppercase-initial tag names", () => {
+        const markupValue = {
+            kind: "MarkupValue",
+            markup: [{
+                kind: "Markup",
+                name: "TaskCard",
+                attrs: [],
+                children: [],
+                closerForm: null,
+                span: { start: 0, end: 10, line: 1, col: 1 },
+            }],
+            span: { start: 0, end: 10, line: 1, col: 1 },
+        };
+        const node = translateMarkupValueToLiveNode(markupValue, { next: 0 });
+        expect(node.tag).toBe("TaskCard");
+        expect(node.isComponent).toBe(true);
+        expect(node.selfClosing).toBe(true);
+    });
+
+    test("converter is defensive against null / undefined / wrong-kind", () => {
+        expect(translateMarkupValueToLiveNode(null, { next: 0 })).toBeNull();
+        expect(translateMarkupValueToLiveNode(undefined, { next: 0 })).toBeNull();
+        expect(translateMarkupValueToLiveNode({ kind: "Ident", name: "x" }, { next: 0 })).toBeNull();
+    });
+
+    test("converter handles MarkupTokenRange fallback (source-unavailable) — defensive empty stub", () => {
+        const markupValue = {
+            kind: "MarkupValue",
+            markup: { kind: "MarkupTokenRange", tokens: [], tokenStart: 0, tokenEnd: 0, span: { start: 0, end: 5, line: 1, col: 1 } },
+            span: { start: 0, end: 5, line: 1, col: 1 },
+        };
+        const node = translateMarkupValueToLiveNode(markupValue, { next: 0 });
+        expect(node).not.toBeNull();
+        expect(node.kind).toBe("markup");
+        expect(node.tag).toBe("");
+        expect(node.attrs).toEqual([]);
+        expect(node.children).toEqual([]);
+        expect(node.isComponent).toBe(false);
+        expect(node.span.start).toBe(0);
+        expect(node.span.end).toBe(5);
+    });
+
+    test("`lift <Div/>` via parseProgram (no-source path) produces a defensive empty MarkupNode (token-range fallback)", () => {
+        // parseProgram does NOT thread `ctx.source` through, so parseMarkupValue
+        // takes the source-unavailable path and emits a MarkupTokenRange-shaped
+        // MarkupValue. The bridge's fallback emits a defensive empty markup
+        // node — kind:"markup" with empty tag/attrs/children — so consumers
+        // are crash-free even though structural info is unrecoverable here.
+        // The PRIMARY value of M6.2a — recovering structural info — only
+        // applies in the source-available path (the lift body inside a real
+        // FileAST parse). The source-aware path is verified end-to-end by the
+        // integration test bug-5-nested-component-ce-phantom-dom.test.js.
+        const out = translate("lift <Div/>;");
+        expect(out.length).toBe(1);
+        expect(out[0].kind).toBe("lift-expr");
+        expect(out[0].expr.kind).toBe("markup");
+        expect(out[0].expr.node).not.toBeNull();
+        expect(out[0].expr.node.kind).toBe("markup");
+        // Token-range fallback — tag is the defensive empty string.
+        expect(out[0].expr.node.tag).toBe("");
+        expect(out[0].expr.node.isComponent).toBe(false);
+        expect(Array.isArray(out[0].expr.node.children)).toBe(true);
+        expect(Array.isArray(out[0].expr.node.attrs)).toBe(true);
+    });
+
+    test("synthetic source-available MarkupValue: a `lift <Wrapper><Inner/></Wrapper>` shape converts recursively", () => {
+        // Synthesize the source-available MarkupValue shape directly to
+        // verify the recursive-Markup-child conversion. This mirrors what
+        // the JS-host parseMarkupValue produces when `ctx.source` is set
+        // (parse-expr.js:2104 — `trace.ctx.nodes.slice(0, 1)`).
+        const markupValue = {
+            kind: "MarkupValue",
+            markup: [{
+                kind: "Markup",
+                name: "Wrapper",
+                attrs: [],
+                children: [{
+                    kind: "Markup",
+                    name: "Inner",
+                    attrs: [],
+                    children: [],
+                    closerForm: null,
+                    span: { start: 9, end: 17, line: 1, col: 10 },
+                }],
+                closerForm: "</Wrapper>",
+                span: { start: 0, end: 25, line: 1, col: 1 },
+            }],
+            span: { start: 0, end: 25, line: 1, col: 1 },
+        };
+        const counter = { next: 0 };
+        const node = translateMarkupValueToLiveNode(markupValue, counter);
+        expect(node.kind).toBe("markup");
+        expect(node.tag).toBe("Wrapper");
+        expect(node.isComponent).toBe(true);
+        expect(node.children.length).toBe(1);
+        const inner = node.children[0];
+        expect(inner.kind).toBe("markup");
+        expect(inner.tag).toBe("Inner");
+        expect(inner.isComponent).toBe(true);
+    });
+
+    test("lift target that is NOT a MarkupValue routes through the expr branch (unchanged behavior)", () => {
+        const out = translate("lift value;");
+        expect(out[0].kind).toBe("lift-expr");
+        expect(out[0].expr.kind).toBe("expr");
+        // No node field on the expr-target shape.
+        expect(out[0].expr.node).toBeUndefined();
+    });
+});
+
+// =============================================================================
 describe("§6 — destructuring binding patterns", () => {
     test("array destructuring let translates to destructure-array name", () => {
         const out = translate("let [a, b] = pair;");

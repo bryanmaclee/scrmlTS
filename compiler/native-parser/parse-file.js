@@ -187,6 +187,20 @@ export function nativeParseFile(filePath, source) {
 }
 
 // =============================================================================
+// mapBlocksToNodesForBridge — calculation. The PUBLIC entry point through
+// which translate-stmt.js's M6.2a `translateMarkupValueToLiveNode` bridge
+// recursively converts a markup-as-value subtree's children. Same surface as
+// `mapBlocksToNodes` (the file-internal helper); exported under a distinct
+// name to keep the bridge call-site self-documenting and the existing module
+// API undisturbed. The bridge passes `source = ""` (it has no source
+// available — the lift-expr lives inside a logic body whose own source slice
+// is owned by the JS-host expression layer, not the markup-block stream).
+// =============================================================================
+export function mapBlocksToNodesForBridge(blocks, idGen, source, errors) {
+    return mapBlocksToNodes(blocks, idGen, source, errors);
+}
+
+// =============================================================================
 // mapBlocksToNodes — calculation (pure-ish; appends to the shared `errors`).
 // Translate a native `Block[]` into the live `ASTNode[]`. Each block is mapped
 // by `mapOneBlock`; a block that maps to nothing (a dropped Test / ForeignCode
