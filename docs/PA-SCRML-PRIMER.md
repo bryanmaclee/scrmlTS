@@ -4,7 +4,7 @@
 
 **Status:** living document. Updated when SPEC changes, when locks land, when patterns emerge. Treat as the canon snapshot at the listed date.
 
-**Last updated:** 2026-05-17 (S98 — NEW Pillar 5b "Reach discipline" landed in §2 as companion to Pillar 5; ratified via the scrml-native JS parser Phase 0 deep-dive `scrml-support/docs/deep-dives/scrml-native-parser-design-2026-05-17.md` §D1; charter form: "When a problem has a finite condition set with a transition contract, REACH FOR state primitives FIRST; reach for fn/function only when the problem is calculation, or when state-shape demonstrably loses on a named axis." Operationalized via a two-table YES/NO test; canonical state examples include lexer modes / engine state / parser-context / brace-depth tracking; canonical calculation examples include numeric-literal value parsing / string escape resolution / AST node construction. Pillar 5b is the procedural form of the corrected S95 state-vs-logic axiom — state describes its own transitions; logic does pure compute; reach for state first. Earlier baseline preserved below.) — 2026-05-14 (S92 — Approach A close end-to-end: A-1 markup-context edges (S88) + A-2 Reachability Solver (S89-S91, 5 components + outer fixpoint + canonical JSON §40.9.8) + A-3 §40 AuthGraph (S91, `<auth role>` first-class element + 5 sub-phases) + A-4 Per-Route Artifact Splitter (S91, 7 sub-phases + §47 FNV-1a content-addressing) + A-5 Integration Tests (S92, 5 sub-phases). v0.3.0 critical path complete; cut gated only on Wave 4.A adopter content. See new §9.7 below for the full overview. Plus: Q-OPEN-4 (S92) sourced `chunks.json` `compiler` field from package.json + bumped pkg.json to 0.3.0-alpha.0; Q-OPEN-6 (S92) split W-CG-CHUNK-NO-PREFETCH into Info (case 1: no internal links) + new W-CG-CHUNK-PREFETCH-UNRESOLVED Warning (case 2: links resolve nowhere); Q-OPEN-5 (S92) added `--chunk-size-budget` CLI flag. Insight 30 (S87) ratified: channels are CHILDREN of entry-file `<program>` (sibling of `<page>`) — §9.1 below rewritten. S86 ratifications: idiomatic-examples styling rule (no file-top `#{}`), corpus-ouroboros warning, BS-layer over SPEC retreat (Option A). S89 ABSOLUTE rule: `null` and `undefined` do NOT exist in scrml source; `not` for absence; `""`/`0`/`false`/`[]`/`{}` are defined values. Earlier baselines: 2026-05-07 (S68 — A5-1 spec amendments) → 2026-05-06 (S64 — forgotten-surface audit + Phase 4d completion sweep).
+**Last updated:** 2026-05-23 (S122 — NEW §6.2 Match block-form (Tier 1) — primer subsection added after the native parser's match-block FileAST synthesis shipped at S121 P5-7 / Wave 9-J `69388e28`. Covers block-form syntax, payload binding, both-shape coexistence, promotion path to Tier-2 engines, implementation status. Earlier baseline preserved below.) — 2026-05-17 (S98 — NEW Pillar 5b "Reach discipline" landed in §2 as companion to Pillar 5; ratified via the scrml-native JS parser Phase 0 deep-dive `scrml-support/docs/deep-dives/scrml-native-parser-design-2026-05-17.md` §D1; charter form: "When a problem has a finite condition set with a transition contract, REACH FOR state primitives FIRST; reach for fn/function only when the problem is calculation, or when state-shape demonstrably loses on a named axis." Operationalized via a two-table YES/NO test; canonical state examples include lexer modes / engine state / parser-context / brace-depth tracking; canonical calculation examples include numeric-literal value parsing / string escape resolution / AST node construction. Pillar 5b is the procedural form of the corrected S95 state-vs-logic axiom — state describes its own transitions; logic does pure compute; reach for state first. Earlier baseline preserved below.) — 2026-05-14 (S92 — Approach A close end-to-end: A-1 markup-context edges (S88) + A-2 Reachability Solver (S89-S91, 5 components + outer fixpoint + canonical JSON §40.9.8) + A-3 §40 AuthGraph (S91, `<auth role>` first-class element + 5 sub-phases) + A-4 Per-Route Artifact Splitter (S91, 7 sub-phases + §47 FNV-1a content-addressing) + A-5 Integration Tests (S92, 5 sub-phases). v0.3.0 critical path complete; cut gated only on Wave 4.A adopter content. See new §9.7 below for the full overview. Plus: Q-OPEN-4 (S92) sourced `chunks.json` `compiler` field from package.json + bumped pkg.json to 0.3.0-alpha.0; Q-OPEN-6 (S92) split W-CG-CHUNK-NO-PREFETCH into Info (case 1: no internal links) + new W-CG-CHUNK-PREFETCH-UNRESOLVED Warning (case 2: links resolve nowhere); Q-OPEN-5 (S92) added `--chunk-size-budget` CLI flag. Insight 30 (S87) ratified: channels are CHILDREN of entry-file `<program>` (sibling of `<page>`) — §9.1 below rewritten. S86 ratifications: idiomatic-examples styling rule (no file-top `#{}`), corpus-ouroboros warning, BS-layer over SPEC retreat (Option A). S89 ABSOLUTE rule: `null` and `undefined` do NOT exist in scrml source; `not` for absence; `""`/`0`/`false`/`[]`/`{}` are defined values. Earlier baselines: 2026-05-07 (S68 — A5-1 spec amendments) → 2026-05-06 (S64 — forgotten-surface audit + Phase 4d completion sweep).
 
 **Word of caution:** if this primer disagrees with `compiler/SPEC.md` or `docs/articles/llm-kickstarter-v2-2026-05-04.md`, the SPEC + kickstarter are authoritative. Surface the contradiction.
 
@@ -181,6 +181,88 @@ These COMPOSE — body-split stubs are implicitly `!`-typed because network/serv
 **Generators (`yield` / `yield*` / `function*`) are NOT covered by this rule.** They are a separate conversation — preserved in the JS-subset bound at M4.3, semantic policy open per S114.
 
 **Trail.** User has stated the "no async/await" position on multiple prior occasions (see `scrml-support/docs/research/developer-ergonomics-report.md:127` — *"parallel by default, no async/await"*); S114 user-voice is the formal capture, not the origination.
+
+---
+
+## §6.2 Match block-form (Tier 1) — `<match for=Type>` (§18.0.1)
+
+**Added 2026-05-23 (S122 — primer subsection added after P5-7 / Wave 9-J shipped match-block FileAST synthesis in the native parser at S121 commit `69388e28`).**
+
+The structural rung of the Tier-0/1/2 commitment ladder (per §1). Two coexisting shapes; this is the **block-form**.
+
+```scrml
+type Phase:enum = { Idle, Loading, Error(msg: string), Empty, Success(count: int) }
+
+<phase>: Phase = .Idle
+
+<match for=Phase on=@phase>
+
+    <Idle>
+        <button onclick=load()>Load</button>
+    </>
+
+    <Loading>
+        Loading...
+    </>
+
+    <Error msg>
+        Error: ${msg}
+    </>
+
+    <Empty>
+        No rows yet.
+    </>
+
+    <Success count>
+        Got ${count} rows
+    </>
+
+</>
+```
+
+**What it gives you:**
+
+- **Structural exhaustiveness check** — `E-MATCH-NOT-EXHAUSTIVE` fires if any variant of the discriminating type is missing. Wildcard `_` legal as escape hatch.
+- **Bare-variant inference inside arm tags** (§14.10 / M9) — write `<Idle>` not `<Phase.Idle>`. The arm-tag's variant qualifier is inferred from the `for=` type.
+- **Payload binding** (§18.7 / §51.0.B.1 sister form) — `<Error msg>` binds the variant's payload field positionally; `<Success count>` likewise. Named form: `<Error msg=err>`; parenthesized form: `<Error(msg)>`. Unit variants reject payload binding (`E-ENGINE-PAYLOAD-ON-UNIT-VARIANT` — same shape for match-block).
+- **Rules-inert** — `rule=` on a match arm parses but does nothing (`W-MATCH-RULE-INERT` lints — that's the engine surface). `effect=` and `<onTransition>` are forbidden inside match arms (`E-MATCH-EFFECT-FORBIDDEN` / `E-MATCH-ONTRANSITION-FORBIDDEN`).
+
+**The other Tier-1 shape — JS-style value-return:**
+
+```scrml
+const <label> = match @phase {
+    .Idle               -> "Idle"
+    .Loading            -> "Loading"
+    .Error(msg)         -> "Error: " + msg
+    .Empty              -> "No rows"
+    .Success(count)     -> count + " rows"
+}
+```
+
+Both shapes check exhaustiveness against the discriminating type; use whichever fits the surrounding context — **markup-tree position uses block-form; expression position uses value-return form**. They are not interchangeable — value-return doesn't render markup, block-form doesn't return a value.
+
+**Promotion path: Tier 1 → Tier 2 (engines).** Block-form match arms carry forward to engine state-children verbatim. Mechanical:
+
+```scrml
+<engine for=Phase initial=.Idle>          <!-- promoted: <match for=Phase on=@phase> -->
+
+    <Idle rule=.Loading>                  <!-- NEW: rule= becomes active -->
+        <button onclick=load()>Load</button>
+    </>
+
+    ...
+
+</>
+```
+
+The `bun scrml promote --match <file>[:line]` CLI lifts block-form to engine form mechanically (§56, S66 SHIPPED). The state-children content carries over unchanged; the wrapper swap (`<match>` → `<engine>`) + `initial=` addition + per-arm `rule=` additions are the commitment moments.
+
+**JS-style match does NOT promote directly to engine.** Its semantic is value-return; if value-return logic accumulates state-transition shape, hoist into a `<match for=Type>` block first, then to `<engine>`.
+
+**Implementation status (as of S121 / S122):**
+
+- Block-form FileAST synthesis lands in the native parser at S121 P5-7 / Wave 9-J commit `69388e28`. Live (BS+Acorn) pipeline shipped earlier (D2.8 / S57).
+- `I-MATCH-PROMOTABLE` info-lint surfaces Tier-0 chains (`if (@cell is .X)`) ready for Tier-1 lifting (§56, S66 Tier B SHIPPED). Subsequent W-MATCH-TRANSITIONS-ACCRUING lint nudges Tier-1→Tier-2 (deferred to §56 Tier C — needs the lint's groundwork; not yet shipped).
 
 ---
 

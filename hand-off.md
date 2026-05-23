@@ -77,10 +77,58 @@ Per S121 hand-off carry-forward + pa.md maps-discipline protocol. Map watermark 
 - Unit U (E-MU-001 tag-frame.scrml TILDE-DECL confusion) + Unit W (imp.names misuse at name-resolver + api.js) remain unchanged.
 - NEW Unit X (deep-dive recommended cleanup) — bounded ~2-2.5h, file-disjoint from U/V/W, dispatchable in parallel.
 
-**Sequencing options (awaiting PA decision):**
-- A: Cleanup (Unit X) now in parallel with U+W; re-scope V post-cleanup
-- B: Unit V survey first (now narrower question), then cleanup with broader framing
-- C: Original U → V → W → cleanup last
+**Sequencing — user picked A (2026-05-23 ~05:10):**
+- Unit X (native-parser-mirror cleanup) + Unit U (tag-frame TILDE-DECL) + Unit W (imp.names → spec.local at name-resolver + api.js) dispatched in parallel ~05:15.
+- Unit V re-scoped post-cleanup (narrower question; evidence from X cleanup will inform whether auto-state-cell synthesis exists / should be killed / should lint).
+
+**User-surfaced mid-session items:**
+- **README server-keyword cleanup** (line 60 — `server function loadContacts()`). User asked "when can we get rid of the server keyword in the first example of the readme?" PA verified: NOW. `W-DEPRECATED-SERVER-MODIFIER` already fires on this pattern today (SQL body is a Trigger 1/2/3 escalation; warning fires "ONLY when at least one other trigger would escalate the function regardless"). Example also self-contradicts: line 91 already teaches inference. **Fold into Wave 12 wrap commit** unless user redirects.
+- **Dashboard work queued** — user noted "when we can we need to get to the testing dashboard." Per S121 hand-off the dashboard is broken at runtime (Bug 9 — `_scrml_fetch_*` async-not-awaited codegen class) and was filed defer-post-M6 per corpus-sweep PLAN timing rule. User raising it again may indicate priority shift OR a different angle (e.g., fix Bug 9 sooner, OR add a dashboard feature, OR something else). **Surface for direction after Wave 12 lands.**
+- **Context budget note:** user reported "26% ctx so far" at S122 OPEN; will signal wrap timing.
+
+**Wave 12 IN-FLIGHT STATE (mid-session snapshot 2026-05-23 ~05:50):**
+
+| Unit | Worktree | Branch | Status | Landing |
+|---|---|---|---|---|
+| X | agent-a70cac45c3e21dd80 | changes/s122-w12-native-parser-mirror-at-sigil-cleanup | ✅ done @ `46d759c9` | gate-blocked by W |
+| U | agent-a6aafec7a66348a9e | changes/unit-u-tilde-decl-mu-001 | ✅ done @ `c8e39a3b` (5 clean commits + 8 new tests) — **brief was wrong about site** (bug in type-system must-use-tracker, NOT parser); agent correctly re-routed | gate-blocked by W |
+| W | agent-a361fb7c70311fbb7 | worktree-agent-a361fb7c70311fbb7 | ⚠️ PATH-DISCIPLINE LEAK (incident #5) | partial in main, test failing |
+
+**S99 path-discipline leak (incident #5) — Unit W:**
+- WIP startup commit landed in worktree (`262aaf54`) per F4 protocol
+- BUT subsequent edits + commits went to main (3 commits: `abdf4873`/`eb2275da`/`dd28a6a1`)
+- Test files (`aliased-imports-local-name.test.js`, `aliased-imports-cross-file.test.js`) authored in main, **untracked + uncommitted**
+- The unit test fails (specifiers[].length=1 expected, 0 received) — buildImportGraph not populating specifiers correctly
+- Either W is still mid-flight (will commit fix to make test pass) OR terminated with broken state
+- Per pa.md S99 recovery: "if clean, accept the landing and note the process violation" — NOT clean here; the gate IS failing
+- **Recovery decision pending W completion notification**
+
+**Blocker for X + U landings:** RESOLVED at 2026-05-23 ~05:55. W landed test commit `cbfefef2` mid-flight; gate passed. X landed at `bb1f0b9c`; U landed at `d90298a2`. Wave 12 X+U+W all in main; +20 tests across the wave; 0 regressions.
+
+**S99 path-discipline leak (incident #5 — Unit W) — POST-INCIDENT NOTES:**
+- Agent's final report claimed worktree path `/home/bryan/.../agent-a361fb7c70311fbb7` (correct) — startup verification passed
+- But all substantive edits + commits (4 of them, including the test commit `cbfefef2`) landed in main, not the worktree
+- Worktree contains only `262aaf54 WIP(Unit W): start at ...`
+- Hypothesis: agent's Edit/Write tool calls used main-path absolute paths instead of $WORKTREE_ROOT-rooted absolute paths (the S99 canonical leak shape)
+- Result clean (tests pass, code is correct) — per pa.md S99 recovery protocol "if clean, accept landing and note process violation." Noted.
+- Empirical record: S99 incident counter now at 5 in this session-arc post-S99. Platform-level fix (PreToolUse hook rejecting main-path edits from subagents) remains the load-bearing structural mitigation.
+
+**Wave 12 final tallies (X + U + W + README):**
+- 4 commits → main: `bb1f0b9c` (X), `d90298a2` (U), `cbfefef2`+`dd28a6a1`+`eb2275da`+`abdf4873` (W, 4 commits leaked), `62612b44` (README)
+- Tests: 13819 → 13928 (+109 from Wave 12 + W; 8 + 8 = 16 explicitly new). Hmm — count delta is higher than agent reports; some recount artifact.
+- 0 regressions throughout
+- Rule 5 brief-corrections at S122: at least 3 (Unit X scope narrowed, Unit U site re-routed, Unit Y dispatched as sibling-followon — agents-as-second-set-of-eyes pattern holds)
+
+**S122 — Wave 13 dispatches (2026-05-23 ~06:00 — in flight):**
+
+- **Unit V (auto-state-cell investigation, re-scoped)** — scrml-deep-dive — narrower bounded ~2-3h question: does compiler auto-synthesize phantom state cells from undeclared `@x = v` writes? Hypothesis A (auto-synth = SPEC divergence) vs B (errors out, no divergence) vs C (context-dependent) vs D (S121 framing was wrong). Empirical compile-a-test-file experiment settles A vs B. Doc target: `scrml-support/docs/deep-dives/auto-state-cell-synthesis-investigation-2026-05-23.md`.
+- **Unit Y (RI TRIGGER walker EXPR_NODE extension)** — scrml-dev-pipeline, isolation:worktree — sister to S121 Wave 10-P CALLEE walker fix. TRIGGER detection for §12.2 server-only resource access (SQL, protected fields, server-only stdlib) needs the same EXPR_NODE field recursion (condExpr/iterExpr/headerExpr/resultExpr/valueExpr/cStyleParts.*) that CALLEE collection got at S121. Bounded ~1-2h.
+
+**Mid-session done in S122:**
+- README first-example `server` keyword drop at `62612b44`
+- Wave 12 complete (X+U+W)
+- 2 new dispatches in flight (V + Y)
+- PRIMER match-block subsection (this session, in progress — text-only addition documenting §18.0.1 since P5-7 shipped FileAST synthesis at S121)
 
 ---
 
