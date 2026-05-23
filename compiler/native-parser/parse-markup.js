@@ -2086,6 +2086,257 @@ function synthPrefixTextBlock(textBlock, prefixRaw) {
     return { ...textBlock, span: newSpan };
 }
 
+// =============================================================================
+// M6.4a — P2-Form1 (SPEC §21.2) desugaring helpers.
+//
+// Mirrors ast-builder.js L457-704 (scanOpenerForAttrs / extractOuterAttrSource /
+// parseAttrNames / findSingleBodyRoot / spliceAttrsIntoBodyRoot) so the native
+// pipeline can synthesize the same `${ export const Name = <body-root
+// mergedAttrs>...</body-root> }` body the live oracle produces from a
+// `export <Name outerAttrs>{body}</>` Form-1 pair (text block ending in
+// `export ` + following PascalCase markup block).
+//
+// Per SPEC §21.2 normative: the outer self-named tag is dropped at the source
+// level; the body's single root markup element absorbs all of the outer's
+// attributes. Class-merging (§15.5) is the one exception — `class` is allowed
+// on both sides because scrml class-attr merging combines them.
+//
+// E-EXPORT-002 (empty / multi-rooted body) and E-EXPORT-003 (attr conflict)
+// are recognized by the M6.4a happy-path: the helpers detect the bad shapes
+// but the native side currently falls through to `null` (no pairing) rather
+// than emitting the diagnostic — the structural canary credits the no-pair
+// disposition as correct, and a future M6.4-followup unit can add diagnostic
+// attribution if cross-pipeline drift surfaces.
+// =============================================================================
+
+// isUpperInitial — predicate. True iff `name`'s first character is an ASCII
+// uppercase letter (the live component-call gate — ast-builder.js L2993
+// `/^[A-Z]/` — mirrored from parse-file.js's `isUpperInitial`).
+function isFormOneComponentName(name) {
+    if (typeof name !== "string" || name.length === 0) return false;
+    const code = name.charCodeAt(0);
+    return code >= 65 && code <= 90;
+}
+
+// scanOpenerForAttrsNative — calculation. VERBATIM port of ast-builder.js L471
+// `scanOpenerForAttrs`. Scan an opener tag (`<TagName ...>` or
+// `<TagName ... />`) starting at position `start` in `raw`. Returns metadata
+// about the opener: { attrStart, openerEnd, selfClosing, tagName } where
+// `attrStart` is the offset right after the tag name, and `openerEnd` is the
+// offset of the closing `>` (or the `/` of `/>` if self-closing).
+//
+// Respects quote escaping ("..." and '...'), brace nesting (sigil-prefixed
+// ${, ?{, #{, !{, ^{, ~{ and bare {), and paren nesting ((expr)). Returns
+// null if `raw` is malformed (no closing `>`).
+function scanOpenerForAttrsNative(raw, start) {
+    const len = raw.length;
+    if (start >= len || raw[start] !== "<") return null;
+    let pos = start + 1;
+    while (pos < len && /\s/.test(raw[pos])) pos = pos + 1;
+    const nameStart = pos;
+    while (pos < len && /[A-Za-z0-9_-]/.test(raw[pos])) pos = pos + 1;
+    const tagName = raw.slice(nameStart, pos);
+    if (tagName.length === 0) return null;
+    const attrStart = pos;
+    let inDouble = false;
+    let inSingle = false;
+    let braceDepth = 0;
+    let parenDepth = 0;
+    let selfClosing = false;
+    let openerEnd = -1;
+    while (pos < len) {
+        const c = raw[pos];
+        if (braceDepth > 0) {
+            if (c === "{") braceDepth = braceDepth + 1;
+            else if (c === "}") braceDepth = braceDepth - 1;
+            pos = pos + 1;
+            continue;
+        }
+        if (parenDepth > 0) {
+            if (c === "(") parenDepth = parenDepth + 1;
+            else if (c === ")") parenDepth = parenDepth - 1;
+            pos = pos + 1;
+            continue;
+        }
+        if (inDouble === false && inSingle === false) {
+            if (c === ">") { openerEnd = pos; break; }
+            if (c === "/" && raw[pos + 1] === ">") {
+                selfClosing = true;
+                openerEnd = pos;
+                break;
+            }
+            if ((c === "$" || c === "?" || c === "#" || c === "!" || c === "^" || c === "~") && raw[pos + 1] === "{") {
+                braceDepth = 1;
+                pos = pos + 2;
+                continue;
+            }
+            if (c === "{") { braceDepth = braceDepth + 1; pos = pos + 1; continue; }
+            if (c === "(") { parenDepth = parenDepth + 1; pos = pos + 1; continue; }
+            if (c === "\"") { inDouble = true; pos = pos + 1; continue; }
+            if (c === "'") { inSingle = true; pos = pos + 1; continue; }
+        } else if (inDouble && c === "\"") { inDouble = false; pos = pos + 1; continue; }
+        else if (inSingle && c === "'") { inSingle = false; pos = pos + 1; continue; }
+        else if (c === "\\") { pos = pos + 2; continue; }
+        pos = pos + 1;
+    }
+    if (openerEnd === -1) return null;
+    return { attrStart, openerEnd, selfClosing, tagName };
+}
+
+// extractOuterAttrSourceNative — calculation. VERBATIM port of
+// ast-builder.js L529 `extractOuterAttrSource`. Returns the trimmed
+// attribute-portion source of an outer markup block, or null if malformed.
+function extractOuterAttrSourceNative(rawOpener) {
+    const scan = scanOpenerForAttrsNative(rawOpener, 0);
+    if (scan === null) return null;
+    return rawOpener.slice(scan.attrStart, scan.openerEnd).trim();
+}
+
+// parseAttrNamesNative — calculation. VERBATIM port of ast-builder.js L565
+// `parseAttrNames`. Parse a flat list of attribute names from a raw
+// attribute-portion string. For typed-prop syntax `name:type`, the
+// conflict-relevant identifier is the bare `name` (before `:`). For
+// directives like `bind:value`, the full `bind:value` is kept so it doesn't
+// collide with `value`. Returns { name, fullName, span: { start, end } }[].
+function parseAttrNamesNative(attrSource) {
+    const names = [];
+    const len = attrSource.length;
+    let pos = 0;
+    const DIRECTIVE_PREFIXES = new Set([
+        "bind", "on", "class", "use", "style", "transition", "in", "out", "animate",
+    ]);
+    while (pos < len) {
+        while (pos < len && /\s/.test(attrSource[pos])) pos = pos + 1;
+        if (pos >= len) break;
+        const nameStart = pos;
+        while (pos < len && /[A-Za-z0-9_:\-.@]/.test(attrSource[pos])) pos = pos + 1;
+        if (pos === nameStart) { pos = pos + 1; continue; }
+        const fullName = attrSource.slice(nameStart, pos);
+        let nameForCompare = fullName;
+        const colonIdx = fullName.indexOf(":");
+        if (colonIdx > 0) {
+            const prefix = fullName.slice(0, colonIdx);
+            if (DIRECTIVE_PREFIXES.has(prefix) === false) {
+                nameForCompare = prefix;
+            }
+        }
+        names.push({ name: nameForCompare, fullName, span: { start: nameStart, end: pos } });
+        while (pos < len && /\s/.test(attrSource[pos])) pos = pos + 1;
+        if (pos < len && attrSource[pos] === "=") {
+            pos = pos + 1;
+            while (pos < len && /\s/.test(attrSource[pos])) pos = pos + 1;
+            if (pos >= len) break;
+            const c = attrSource[pos];
+            if (c === "\"" || c === "'") {
+                const quote = c;
+                pos = pos + 1;
+                while (pos < len && attrSource[pos] !== quote) {
+                    if (attrSource[pos] === "\\" && pos + 1 < len) { pos = pos + 2; continue; }
+                    pos = pos + 1;
+                }
+                if (pos < len) pos = pos + 1;
+                continue;
+            }
+            if (c === "{" || ((c === "$" || c === "?" || c === "#" || c === "!" || c === "^" || c === "~") && attrSource[pos + 1] === "{")) {
+                if (c !== "{") pos = pos + 1;
+                let depth = 0;
+                while (pos < len) {
+                    const ch = attrSource[pos];
+                    if (ch === "{") depth = depth + 1;
+                    else if (ch === "}") {
+                        depth = depth - 1;
+                        if (depth === 0) { pos = pos + 1; break; }
+                    }
+                    pos = pos + 1;
+                }
+                continue;
+            }
+            if (c === "(") {
+                let depth = 0;
+                while (pos < len) {
+                    const ch = attrSource[pos];
+                    if (ch === "(") depth = depth + 1;
+                    else if (ch === ")") {
+                        depth = depth - 1;
+                        if (depth === 0) { pos = pos + 1; break; }
+                    }
+                    pos = pos + 1;
+                }
+                continue;
+            }
+            while (pos < len && /\s/.test(attrSource[pos]) === false) {
+                pos = pos + 1;
+            }
+        }
+    }
+    return names;
+}
+
+// findSingleBodyRootNative — calculation. Native analogue of ast-builder.js
+// L637 `findSingleBodyRoot`, operating on native Block kinds (Markup / Text /
+// Comment) rather than live block types. Whitespace-only Text blocks and
+// Comment blocks are skipped. Returns:
+//   { ok: true, root }
+//   { ok: false, reason: "empty" | "multi-rooted", offendingBlocks }
+//
+// A native Markup block with TagKind.StateOpener (a state block per F7.a)
+// counts as a markup root (the live oracle accepts both `markup` and `state`
+// block types as body-root candidates — ast-builder.js L648).
+function findSingleBodyRootNative(children, source) {
+    if (Array.isArray(children) === false) {
+        return { ok: false, reason: "empty", offendingBlocks: [] };
+    }
+    const markupChildren = [];
+    const textNonWs = [];
+    for (const child of children) {
+        if (child === undefined || child === null) continue;
+        if (child.kind === "Comment") continue;
+        if (child.kind === "Text") {
+            const raw = sliceBlockRaw(source, child.span);
+            if (raw.trim().length === 0) continue;
+            textNonWs.push(child);
+            continue;
+        }
+        if (child.kind === "Markup") {
+            markupChildren.push(child);
+            continue;
+        }
+        // LogicEscape / CssEscape / SqlEscape / ErrorEffect / Meta / Test /
+        // ForeignCode / DisplayTextLiteral inside a component body are
+        // non-markup payload — count them as a non-whitespace offender so
+        // the body is treated as multi-rooted (matches the live's textNonWs
+        // catch-all at ast-builder.js L652).
+        textNonWs.push(child);
+    }
+    if (markupChildren.length === 0 && textNonWs.length === 0) {
+        return { ok: false, reason: "empty", offendingBlocks: [] };
+    }
+    if (markupChildren.length !== 1 || textNonWs.length > 0) {
+        return {
+            ok: false,
+            reason: "multi-rooted",
+            offendingBlocks: [...markupChildren, ...textNonWs],
+        };
+    }
+    return { ok: true, root: markupChildren[0] };
+}
+
+// spliceAttrsIntoBodyRootNative — calculation. VERBATIM port of
+// ast-builder.js L671 `spliceAttrsIntoBodyRoot`. Splice the outer's
+// attribute-source into the body root's opener. Returns the spliced raw
+// string, or null if the body root's opener is malformed.
+function spliceAttrsIntoBodyRootNative(bodyRootRaw, outerAttrSource) {
+    if (typeof outerAttrSource !== "string" || outerAttrSource.length === 0) {
+        return bodyRootRaw;
+    }
+    const scan = scanOpenerForAttrsNative(bodyRootRaw, 0);
+    if (scan === null) return null;
+    const before = bodyRootRaw.slice(0, scan.openerEnd);
+    const after = bodyRootRaw.slice(scan.openerEnd);
+    const sep = /\s$/.test(before) ? "" : " ";
+    return before + sep + outerAttrSource + after;
+}
+
 // liftBareBlocks — calculation (pure; returns a new array, no mutation). The
 // P4-2 post-pass. Walk a native `Block[]` and convert bare-declaration `Text`
 // blocks into synthetic `LogicEscape` blocks, mirroring the live
@@ -2304,10 +2555,121 @@ function liftPairedExport(textBlock, markupBlock, raw, source, ctx, counter) {
         return { blocks: out };
     }
 
-    // No other `export <markup>` form is recognized as a pairing here — a
-    // bare `export <Component>` Form-1 desugar (outer-attr splice into the
-    // body root, SPEC §21.2) is a separate, more involved pass; return null
-    // so the caller's other lift rules apply.
+    // COMPONENT — `export <PascalCaseName outerAttrs>{body}</>` Form 1
+    // (SPEC §21.2). M6.4a — native-side desugar mirror of ast-builder.js
+    // L807-940. Per SPEC §21.2 normative: the outer self-named tag is dropped
+    // at the source level; the body's single root markup element absorbs all
+    // of the outer's attributes. Form 1 is then byte-equivalent to Form 2
+    // (`export const Name = <body-root mergedAttrs>...</body-root>`) at the
+    // AST and rendered-HTML level.
+    //
+    // The native side synthesizes the equivalent Form-2 body text and runs
+    // it through `synthPairedLogicBlock` — `parseLogicBodyBestEffort` parses
+    // `export const Name = <markup>` into an `Export(VarDecl)` Stmt whose
+    // declaration carries the markup-as-value RHS, and `collectHoisted`
+    // hoists it into `FileAST.exports` AND `FileAST.components` (via
+    // `collectComponentDefs` recognizing the PascalCase `const Name = <markup>`
+    // pattern). Downstream MOD/CE then resolves `<Name/>` references at use
+    // sites, closing the M6.4 E-COMPONENT-035 regression.
+    //
+    // E-EXPORT-002 (empty / multi-rooted body) and E-EXPORT-003 (attr
+    // conflict) fall through to `null` here — no pairing emitted. The
+    // structural canary's `LIVE-DEGENERATE` heuristic credits the no-pair
+    // disposition as acceptable for those error shapes; a future unit can
+    // extend native diagnostic attribution if cross-pipeline drift surfaces.
+    if (isFormOneComponentName(markupName)) {
+        const m = raw.match(EXPORT_PREFIX_SPLIT_RE);
+        const prefixRaw = m !== null ? m[1] : "";
+        const out = [];
+        // Re-emit + re-lift the pre-`export` prefix (a preceding state-decl,
+        // a `function f() {...}` bare-decl, etc.) so its own lift rules
+        // still fire. Mirrors the channel branch above + ast-builder.js
+        // L817 (legacy emits the prefix without re-lifting; native is
+        // already conservative on this point in the channel branch — keep
+        // them symmetric here).
+        const prefixBlock = synthPrefixTextBlock(textBlock, prefixRaw);
+        if (prefixBlock !== null) {
+            const reLifted = liftBareBlocks([prefixBlock], source, "state", ctx, counter);
+            for (const b of reLifted) out.push(b);
+        }
+        // Step 1: slice the outer markup's full raw (opener through closer).
+        const outerRaw = sliceBlockRaw(source, markupBlock.span);
+        // Step 2: extract the outer's attribute source (between the tag name
+        // and the closing `>` of the opener).
+        const outerAttrSource = extractOuterAttrSourceNative(outerRaw);
+        // outerAttrSource === null is unreachable for a well-formed Markup
+        // block (the parser already validated the opener), but defensively
+        // fall through to null so the caller's other lift rules apply.
+        if (outerAttrSource === null) return null;
+        // Step 3: locate the single root markup body. Empty / multi-rooted
+        // bodies are E-EXPORT-002 in the live oracle — native falls through
+        // to null (no pairing) so the markup is emitted unlifted.
+        const bodyResult = findSingleBodyRootNative(markupBlock.children, source);
+        if (bodyResult.ok === false) return null;
+        const bodyRoot = bodyResult.root;
+        // Step 4: detect attr-name conflicts between outer and body root.
+        // §15.5 class-merging exception: `class` may legitimately appear on
+        // both the outer and the body root because scrml class-attr merging
+        // combines them. Only non-class names trigger E-EXPORT-003.
+        const bodyRootRaw = sliceBlockRaw(source, bodyRoot.span);
+        let bodyAttrSource = "";
+        const bodyOpenerScan = scanOpenerForAttrsNative(bodyRootRaw, 0);
+        if (bodyOpenerScan !== null) {
+            bodyAttrSource = bodyRootRaw
+                .slice(bodyOpenerScan.attrStart, bodyOpenerScan.openerEnd)
+                .trim();
+        }
+        const outerNames = outerAttrSource.length > 0
+            ? parseAttrNamesNative(outerAttrSource) : [];
+        const bodyNames = bodyAttrSource.length > 0
+            ? parseAttrNamesNative(bodyAttrSource) : [];
+        const bodyNameSet = new Set(bodyNames.map(n => n.name));
+        const conflicts = outerNames.filter(n =>
+            n.name !== "class" && bodyNameSet.has(n.name)
+        );
+        if (conflicts.length > 0) return null;
+        // Step 5: splice outer attrs into body root opener, producing the
+        // RHS markup raw for `export const Name = <body-root mergedAttrs>...
+        // </body-root>`. The body root's children are preserved verbatim
+        // (their text is inside `bodyRootRaw` already — slicing from
+        // bodyRoot.span captures the whole element).
+        const splicedRaw = spliceAttrsIntoBodyRootNative(bodyRootRaw, outerAttrSource);
+        if (splicedRaw === null) return null;
+        // Step 6: build the synthetic logic body text. The form is
+        // `export const Name = <body-root mergedAttrs>...</body-root>` —
+        // exactly the Form 2 RHS. `parseLogicBodyBestEffort` parses it into
+        // an `Export(VarDecl)` Stmt; `collectHoisted` then hoists both the
+        // export entry AND the component-def.
+        const compName = markupName;
+        const bodyText = "export const " + compName + " = " + splicedRaw;
+        // Step 7: span the synthesized logic node from the original text-
+        // block's `export ` trailer start through the markup block's end.
+        const tSpan = textBlock.span;
+        const mSpan = markupBlock.span;
+        const trailerStart = (tSpan !== undefined && tSpan !== null
+            && typeof tSpan.start === "number")
+            ? tSpan.start + prefixRaw.length : 0;
+        const markupEnd = (mSpan !== undefined && mSpan !== null
+            && typeof mSpan.end === "number")
+            ? mSpan.end : trailerStart + bodyText.length;
+        const synthSpan = (tSpan !== undefined && tSpan !== null)
+            ? { ...tSpan, start: trailerStart, end: markupEnd }
+            : tSpan;
+        const synthLogic = synthPairedLogicBlock(bodyText, synthSpan, ctx);
+        // M6.4a observability markers (mirrors ast-builder.js L929-936 —
+        // _p2Form1 / _p2Form1Name / _p2Form1BodyRoot). Native-bridge
+        // `synthLogicNode` does not currently forward these to the live
+        // FileAST node shape; they are carried on the native block for
+        // dual-pipeline canary diffing + future test assertions.
+        synthLogic._p2Form1 = true;
+        synthLogic._p2Form1Name = compName;
+        synthLogic._p2Form1BodyRoot = typeof bodyRoot.name === "string"
+            ? bodyRoot.name : null;
+        out.push(synthLogic);
+        return { blocks: out };
+    }
+
+    // No other `export <markup>` form is recognized as a pairing here.
     return null;
 }
 

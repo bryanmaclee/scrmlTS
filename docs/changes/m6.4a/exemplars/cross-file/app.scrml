@@ -1,0 +1,6 @@
+<program>
+${ import { X1Badge } from './components.scrml' }
+<div>
+  <X1Badge/>
+</div>
+</program>

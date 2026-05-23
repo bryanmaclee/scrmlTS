@@ -205,9 +205,44 @@ export function collectHoisted(blocks, idGen, source) {
                 if (typeof stmt.source !== "string" || stmt.source.length === 0) {
                     continue;
                 }
-                imports.push(stmt);
+                // M6.4a — synthesize the live `import-decl` shape so cross-
+                // file consumers (module-resolver.js L155 + name-resolver.ts
+                // L416 + api.js L1458 + component-expander.ts L3160) can
+                // read `imp.names` directly. The native `Import` Stmt
+                // carries `specifiers[]` only; many host consumers (notably
+                // name-resolver and api.js's TS-pass) iterate `imp.names`
+                // which is empty on the native shape — silently dropping
+                // every cross-file user-component / type binding from NR
+                // (the surface bug: `<X1Badge/>` use-site stays unresolved
+                // post-CE, firing VP-2 E-COMPONENT-035 in the cross-file
+                // Form-1 case once the EXPORT side resolves via
+                // synthExportDecl above).
+                //
+                // The live `ImportDeclNode` (ast.ts:1184) carries BOTH
+                // `names` (legacy parallel array) and `specifiers` (modern
+                // structured form) — populate both so every consumer path
+                // works regardless of which shape it reads.
+                imports.push(synthImportDecl(stmt, stampId));
             } else if (stmt.kind === StmtKind.Export) {
-                exports.push(stmt);
+                // M6.4a — synthesize the live `export-decl` shape so cross-
+                // file consumers (module-resolver.js L195-235 + api.js L1018-
+                // L1038) can read `exportedName` + `exportKind` directly. The
+                // pre-M6.4a native push pushed the raw `Export` Stmt
+                // (`{ kind: "Export", declaration, specifiers, source, ... }`)
+                // — module-resolver's `if (exp.exportedName)` gate silently
+                // dropped every native-pipeline cross-file export because
+                // `exportedName` is not a field on the native shape.
+                //
+                // Translation mirrors `makeExportDecl` (translate-stmt.js
+                // L1101) — the live ExportDeclNode (ast.ts:1216) shape with
+                // the behaviour fields MOD reads (`exportedName`, `exportKind`,
+                // `reExportSource`, `raw`). `raw` is sourced from the
+                // enclosing LogicEscape/Meta `bodyText` so cross-file CE
+                // (component-expander.ts L2957-2978 "path b") can strip the
+                // `export const NAME =` prefix and recover the component
+                // markup body — this is the LIVE oracle's path-b shape that
+                // mirrors how the desugared Form 1 / Form 2 reaches CE.
+                exports.push(synthExportDecl(stmt, stampId, blockText, blockSpan));
                 // A3 — `export type Name : kind = {...}` is an Export Stmt
                 // whose `declaration` is a TypeDecl. The live pipeline pushes
                 // BOTH a type-decl AND the export-decl (ast-builder.js:7297 —
@@ -404,6 +439,178 @@ export function synthEngineDecl(block, stamp, source) {
         legacyMachineKeyword: block.name === "machine",
         span: block.span,
     };
+}
+
+// synthImportDecl — calculation (pure). SYNTHESIZE a live `ImportDeclNode`
+// (ast.ts:1184 — `{ kind:"import-decl", raw, names, specifiers, source,
+// isDefault }` + BaseNode) from a native `StmtKind.Import` Stmt. Mirrors
+// `makeImportDecl` (translate-stmt.js L1015). The native Stmt carries
+// `specifiers[]` (`{specifierKind, imported, local, ...}`) + `source` + an
+// optional `isDefault`. The live shape carries BOTH:
+//   - `names`        — legacy parallel string[] of imported names (the
+//                      ast-builder.js parses `import {a, b}` and pushes
+//                      ["a","b"]; consumers like name-resolver.ts L416 +
+//                      api.js L1458 iterate this array — empty on the
+//                      native shape silently drops cross-file bindings).
+//   - `specifiers[]` — modern `{imported, local, pinned}[]` (component-
+//                      expander.ts + symbol-table.ts L1030 read this form).
+// Default imports populate `names[0]` only; named imports populate both.
+// Namespace imports (`import * as N from`) ride as a single ImportNamespace
+// specifier whose `local` is the namespace alias.
+function synthImportDecl(stmt, stamp) {
+    const specs = Array.isArray(stmt.specifiers) ? stmt.specifiers : [];
+    const isDefault = stmt.isDefault === true;
+    const names = [];
+    const liveSpecifiers = [];
+    for (const spec of specs) {
+        if (spec === undefined || spec === null) continue;
+        // The live ast-builder's `names` array pushes the LOCAL name (the
+        // binding the consumer sees in scope). For a non-renamed import
+        // (`import { Foo }`), local === imported === "Foo"; for a renamed
+        // import (`import { Foo as Bar }`), local === "Bar". Mirror the
+        // ast-builder pattern: push `local` to `names` when present.
+        const localName = typeof spec.local === "string" ? spec.local
+            : (typeof spec.imported === "string" ? spec.imported : null);
+        const importedName = typeof spec.imported === "string" ? spec.imported
+            : (typeof spec.local === "string" ? spec.local : null);
+        if (localName !== null) {
+            names.push(localName);
+        }
+        if (importedName !== null) {
+            liveSpecifiers.push({
+                imported: importedName,
+                local: localName !== null ? localName : importedName,
+                pinned: spec.pinned === true,
+            });
+        }
+    }
+    return {
+        id: stamp(),
+        kind: "import-decl",
+        raw: "",
+        names,
+        specifiers: liveSpecifiers,
+        source: typeof stmt.source === "string" ? stmt.source : null,
+        isDefault,
+        span: stmt.span,
+    };
+}
+
+// synthExportDecl — calculation (pure). SYNTHESIZE a live `ExportDeclNode`
+// (ast.ts:1216 — `{ kind:"export-decl", raw, exportedName, exportKind,
+// reExportSource, ...isPure/isServer/isAsync }` + BaseNode) from a native
+// `StmtKind.Export` Stmt. Mirrors `makeExportDecl` (translate-stmt.js L1101)
+// — the same shape, derived from the same three native shapes:
+//   - `export <declaration>` — exportedName/exportKind from declaration
+//   - `export { ... } from '...'` — re-export (specifiers + source)
+//   - `export { ... }` — bare specifiers (no source)
+// Cross-file consumers (module-resolver.js L195-235 + api.js L1018-L1038)
+// read `exportedName` + `exportKind`; without translation they silently drop
+// every native-pipeline export.
+//
+// `blockText` + `blockSpan` (optional) — the enclosing LogicEscape/Meta
+// `bodyText` + `span`, threaded through by `walkStmts`. When present, the
+// `raw` field is sliced from `blockText` so cross-file CE (component-
+// expander.ts L2957-2978 "path b") can strip the `export const NAME =`
+// prefix to recover the component-def markup body — the LIVE oracle's path-b
+// shape. When absent (a non-Block-bound caller), `raw` is "".
+//
+// M6.4a — added so the P2-Form1 desugar's `export const Name = <markup>`
+// reaches MOD's exportRegistry with isComponent semantics AND CE's path-b
+// raw-stripping can recover the markup body. Without this, the cross-file
+// Form-1 fix's synthesized export-decl never registered, and `<X1Badge/>`
+// use-sites raised E-COMPONENT-035 in CE.
+function synthExportDecl(stmt, stamp, blockText, blockSpan) {
+    let exportedName = null;
+    let exportKind = null;
+    const reExportSource = (stmt.source === undefined || stmt.source === null)
+        ? null : stmt.source;
+
+    if (stmt.declaration !== undefined && stmt.declaration !== null) {
+        const d = stmt.declaration;
+        if (d.kind === StmtKind.FunctionDecl) {
+            exportKind = (d.fnKind === "fn") ? "fn" : "function";
+            exportedName = (d.name === undefined || d.name === null) ? null : d.name;
+        } else if (d.kind === StmtKind.ClassDecl) {
+            exportKind = "const";
+            exportedName = (d.name === undefined || d.name === null) ? null : d.name;
+        } else if (d.kind === StmtKind.VarDecl) {
+            exportKind = (d.declKind === "const") ? "const" : "let";
+            const decls = Array.isArray(d.declarations) ? d.declarations : [];
+            if (decls.length > 0) {
+                const tgt = decls[0].target;
+                if (tgt !== undefined && tgt !== null) {
+                    // Plain identifier binding — the common case (the live
+                    // export-decl exportedName is a single name per
+                    // ast-builder.js L7285 declMatch[2]). Pattern bindings
+                    // (destructuring) are uncommon in scrml exports; we mirror
+                    // makeExportDecl's first-target behaviour for parity.
+                    if (tgt.bindingKind === "Ident"
+                        && typeof tgt.name === "string") {
+                        exportedName = tgt.name;
+                    }
+                }
+            }
+        } else if (d.kind === StmtKind.TypeDecl) {
+            exportKind = "type";
+            exportedName = (d.name === undefined || d.name === null) ? null : d.name;
+        } else if (d.kind === StmtKind.LinDecl) {
+            exportKind = "let";
+            exportedName = (d.name === undefined || d.name === null) ? null : d.name;
+        }
+    } else if (reExportSource !== null) {
+        exportKind = "re-export";
+        const specs = Array.isArray(stmt.specifiers) ? stmt.specifiers : [];
+        if (specs.length > 0) {
+            exportedName = exportSpecifierNameLocal(specs[0]);
+        }
+    } else {
+        const specs = Array.isArray(stmt.specifiers) ? stmt.specifiers : [];
+        if (specs.length > 0) {
+            exportedName = exportSpecifierNameLocal(specs[0]);
+        }
+    }
+
+    // Slice the export's raw source from the enclosing bodyText. The native
+    // Stmt's span is in HOST coordinates; bodyText is the LogicEscape /
+    // Meta bodyText (host-coordinate slice that starts at blockSpan.start).
+    // CE's path-b strip-prefix logic (component-expander.ts L2962-2978)
+    // expects the raw to include the literal `export const NAME = <markup>`
+    // form so it can prepend `export const ${name} =` and indexOf-strip.
+    let raw = "";
+    if (typeof blockText === "string"
+        && stmt.span !== undefined && stmt.span !== null
+        && typeof stmt.span.start === "number"
+        && typeof stmt.span.end === "number"
+        && blockSpan !== undefined && blockSpan !== null
+        && typeof blockSpan.start === "number") {
+        const lo = stmt.span.start - blockSpan.start;
+        const hi = stmt.span.end - blockSpan.start;
+        if (lo >= 0 && hi <= blockText.length && lo <= hi) {
+            raw = blockText.slice(lo, hi);
+        }
+    }
+
+    return {
+        id: stamp(),
+        kind: "export-decl",
+        raw,
+        exportedName,
+        exportKind,
+        reExportSource,
+        span: stmt.span,
+    };
+}
+
+// exportSpecifierNameLocal — mirrors translate-stmt.js's exportSpecifierName
+// (L1165). Returns the outward-facing name of one export-clause specifier:
+// `{ local as exported }` -> `exported`; a `*`-re-export namespace alias rides
+// as an ImportNamespace specifier whose `local` is the outward name.
+function exportSpecifierNameLocal(spec) {
+    if (spec === undefined || spec === null) return null;
+    if (spec.exported !== undefined && spec.exported !== null) return spec.exported;
+    if (spec.local !== undefined && spec.local !== null) return spec.local;
+    return null;
 }
 
 // synthTypeDecl — calculation (pure). SYNTHESIZE a live `TypeDeclNode`

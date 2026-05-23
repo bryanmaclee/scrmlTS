@@ -117,7 +117,14 @@ describe("F3 §2 — imports / exports from LogicEscape bodies", () => {
   test("a single import in a `${...}` block is collected", () => {
     const r = nativeSurface('${\nimport { foo } from "./m.js"\n}');
     expect(r.imports.length).toBe(1);
-    expect(r.imports[0].kind).toBe("Import");
+    // M6.4a — collectHoisted now synthesizes the LIVE `import-decl` shape
+    // (ast.ts:1184) via synthImportDecl so cross-file MOD / NR / api.js
+    // consumers can read `imp.names` directly. Pre-M6.4a the raw native
+    // `Import` Stmt was pushed; the consumer-shape mismatch silently
+    // dropped every native-pipeline cross-file binding.
+    expect(r.imports[0].kind).toBe("import-decl");
+    expect(r.imports[0].names).toEqual(["foo"]);
+    expect(r.imports[0].source).toBe("./m.js");
     expect(r.exports.length).toBe(0);
   });
 
@@ -161,8 +168,10 @@ describe("F3 §2 — imports / exports from LogicEscape bodies", () => {
   test("P4-6 GUARD — a legitimate top-level import IS hoisted", () => {
     const r = nativeSurface('${\nimport { Status } from "./helper.scrml"\n}');
     expect(r.imports.length).toBe(1);
-    expect(r.imports[0].kind).toBe("Import");
+    // M6.4a — synthImportDecl produces the live `import-decl` shape.
+    expect(r.imports[0].kind).toBe("import-decl");
     expect(r.imports[0].source).toBe("./helper.scrml");
+    expect(r.imports[0].names).toEqual(["Status"]);
   });
 
   // P4-6 GUARD — a bare side-effect import (`import "m"`, empty specifiers but
@@ -442,7 +451,15 @@ describe("F3 §9 — typeDecls synthesis", () => {
     expect(r.typeDecls[0].fromExport).toBe(true);
     // The live ast-builder pushes a type-decl AND an export-decl.
     expect(r.exports.length).toBe(1);
-    expect(r.exports[0].kind).toBe("Export");
+    // M6.4a — collectHoisted now synthesizes the LIVE `export-decl` shape
+    // (ast.ts:1216) via synthExportDecl so cross-file MOD / api.js
+    // consumers can read `exportedName` + `exportKind` directly. Pre-M6.4a
+    // the raw native `Export` Stmt was pushed; module-resolver.js L207
+    // `if (exp.exportedName)` silently dropped every native-pipeline
+    // cross-file export.
+    expect(r.exports[0].kind).toBe("export-decl");
+    expect(r.exports[0].exportedName).toBe("Status");
+    expect(r.exports[0].exportKind).toBe("type");
   });
 
   test("a plain `export const` does NOT add a type-decl", () => {

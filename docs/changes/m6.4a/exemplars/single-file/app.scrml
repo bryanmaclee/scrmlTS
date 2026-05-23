@@ -1,0 +1,5 @@
+<program>
+  export <Greeting props={ name: string }>
+    <p class="hello">Hello, ${name}!</>
+  </>
+</program>
