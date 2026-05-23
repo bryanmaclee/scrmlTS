@@ -1040,9 +1040,20 @@ export function tokenizeLogic(content: string, baseOffset: number, baseLine: num
 
 
   // Multi-char operators (longest first)
+  // W14-BB: added "++" and "--" for postfix update on @x reactive vars
+  // (SPEC §5.2.3 line 1385, §6.1.2). Without them, `@x++` lexed as three
+  // PUNCT tokens (@x, +, +) and `joinWithNewlines` reassembled the source
+  // as `@x + +`, which Acorn rejected, producing escape-hatch JS like
+  // `_scrml_reactive_get("x") + +`. Placed BEFORE `+=` / `-=` so the
+  // alternation matches the longest applicable op: scanner walks the list
+  // in order, and `+=` is also two chars, but the loop tries them in
+  // declared order so `++` must come first when both could match the same
+  // 2-char window. (In practice they're disjoint — `+=` vs `++` differ in
+  // the second char — but list-order is the documented contract.)
   const MULTI_OPS = [
     "...", "===", "!==", "**=", "&&=", "||=", "??=", "=>", ":>",
     "==", "!=", "<=", ">=", "**", "&&", "||", "??",
+    "++", "--",
     "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
     "<<", ">>", ">>>", "::", ".."
   ];
