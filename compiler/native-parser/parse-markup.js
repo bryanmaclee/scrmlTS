@@ -208,6 +208,28 @@ export function recognizeContextEntryAt(cursor) {
 // start letter. A `<` followed by whitespace then anything else (a bare
 // `< ` in free text, a `< 3` numeric) is NOT a tag boundary — it stays
 // free-text per §4.6.
+//
+// P5-12b — TIGHTEN: the bare letter-start test was over-admissive. The
+// `< p.low_stock_threshold)` substring in `@products.filter(p => p.stock_qty
+// < p.low_stock_threshold).length` matched (`<`, ws, `p` — a letter), so
+// the predicate admitted it as a state-opener boundary. The opaque opener
+// scan then phantom-opened a state frame the file never closes (an
+// arrow-body less-than comparison is a code expression, not a tag).
+//
+// The tighten: after the tag-name-start letter, walk the maximal tag-name
+// run, then require the FIRST non-tag-name char to be a tag-shape
+// terminator — whitespace, `>`, `/`, `=`, or EOF. A `.`, `(`, `,`, `+`,
+// `-`, `*`, etc. immediately after the identifier proves this is an
+// expression (`< p.low_*`, `< n+1`, `< fn()`), not a `< Ident ...>` opener.
+//
+// Mirrors live block-splitter's `\s/.test(next)` rule TIGHTER — live admits
+// the same broken shapes, but its `scanAttributes` keeps consuming until
+// EOF, so the phantom-state silently swallows the rest of the file in a
+// way the canary diff happens to compare clean here. Native's P5-12 abort
+// stops the scan at the first depth-0 closer, so the phantom-state is
+// closed early; the structural divergence surfaces in the deep-seq diff.
+// Tightening the boundary predicate eliminates the admission entirely, the
+// correct behaviour for both pipelines.
 export function isStateTagBoundaryAfterLt(cursor) {
     // The char after `<` must be whitespace (a `<ident` opener with NO
     // space is handled by isMarkupTagOpener above — this branch is the
@@ -221,7 +243,36 @@ export function isStateTagBoundaryAfterLt(cursor) {
         ch = peekChar(cursor, k);
     }
     // The first non-whitespace char must be a tag-name start letter.
-    return isAsciiTagNameStart(ch);
+    if (!isAsciiTagNameStart(ch)) return false;
+    // P5-12b — walk the maximal tag-name run and require a tag-shape
+    // terminator after it. `< p.` is rejected (`.` after the identifier);
+    // `< db src=...>` is admitted (whitespace after `db`).
+    k = k + 1;
+    ch = peekChar(cursor, k);
+    while (isTagNameContinue(ch)) {
+        k = k + 1;
+        ch = peekChar(cursor, k);
+    }
+    // After the identifier the next char must be a tag-shape terminator.
+    // Whitespace / `>` / `/` / `=` (attribute) / EOF — anything else
+    // (`.`, `(`, `,`, `+`, `-`, ...) proves this is an expression.
+    if (ch === "" || ch === undefined || ch === null) return true;
+    if (ch === " " || ch === "\t" || ch === "\r" || ch === "\n") return true;
+    if (ch === ">" || ch === "/" || ch === "=") return true;
+    return false;
+}
+
+// isTagNameContinue — calculation (predicate). A continuation character
+// for a markup/state tag name — ASCII letter, digit, `_`, or `-`. Mirrors
+// block-splitter.js's readIdent regex `[A-Za-z0-9_\-]`.
+export function isTagNameContinue(ch) {
+    if (ch === "" || ch === undefined || ch === null) return false;
+    if (ch === "_" || ch === "-") return true;
+    const c = ch.charCodeAt(0);
+    if (c >= 48 && c <= 57) return true;                           // 0-9
+    if (c >= 65 && c <= 90) return true;                           // A-Z
+    if (c >= 97 && c <= 122) return true;                          // a-z
+    return false;
 }
 
 // isAsciiTagNameStart — calculation (predicate). The state-opener name's

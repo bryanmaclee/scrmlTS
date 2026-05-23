@@ -71,6 +71,9 @@ import {
     isValidCodeRun,
     // P4-3 — the orphan-brace suppression counter (read accessor).
     markupOrphanBraceDepth,
+    // P5-12b — the `< Ident` state-opener boundary predicate.
+    isStateTagBoundaryAfterLt,
+    isTagNameContinue,
 } from "../native-parser/parse-markup.js";
 import { makeParseContext } from "../native-parser/parse-ctx.js";
 // K9 (S114) — DelegationFrame surface moved to delegation-frame.js
@@ -6143,5 +6146,138 @@ describe("P4-3 orphan-brace — the mechanism is GATED OFF in a code-default bod
         // No enclosing body — the §4.18.1 default free-text mode applies, so
         // the orphan-brace mechanism is active at markup top level.
         expect(isCodeDefault(currentBodyMode({ tagFrameStack: [] }))).toBe(false);
+    });
+});
+
+// =============================================================================
+// P5-12b — `isStateTagBoundaryAfterLt` post-identifier terminator check.
+//
+// The S121 native-parser triage surfaced `gauntlet-r10-bun-admin.scrml`'s
+// `< p.low_stock_threshold)` substring (an arrow-body less-than comparison
+// inside `@products.filter(p => p.stock_qty < p.low_stock_threshold).length`)
+// being admitted by `isStateTagBoundaryAfterLt` as a `< Ident>` state-opener
+// boundary. The opaque opener scan then phantom-opened a state frame that the
+// file never closes — the canary's deep-seq diverges at the phantom site.
+//
+// The tighten: after the tag-name-start letter, walk the maximal tag-name
+// run, then require the FIRST non-tag-name char to be a tag-shape terminator
+// — whitespace, `>`, `/`, `=`, or EOF. A `.`, `(`, `,`, `+`, `-`, `*`, etc.
+// immediately after the identifier proves this is an expression.
+//
+// These tests pin the regression closed AND guard the legitimate `< Ident`
+// state-opener forms (the front-half SPEC §4.3 admission) against
+// over-correction.
+// =============================================================================
+describe("P5-12b — isStateTagBoundaryAfterLt post-identifier terminator", () => {
+    test("REGRESSION — `< p.low_stock_threshold)` is NOT a state-tag boundary", () => {
+        // The canonical phantom-opener from `gauntlet-r10-bun-admin.scrml`
+        // line 38 — a less-than comparison inside a `.filter(p => ...)`
+        // arrow-body. The `.` immediately after the identifier proves this
+        // is a code expression, not a `< Ident ...>` opener.
+        const cursor = makeCursor("< p.low_stock_threshold)");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(false);
+    });
+
+    test("REGRESSION — `< n+1)` (operator after ident) is NOT a state boundary", () => {
+        // A less-than comparison followed by a single-letter binding + an
+        // operator — the broader shape `< [WS] ident OPERATOR` is rejected.
+        const cursor = makeCursor("< n+1)");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(false);
+    });
+
+    test("REGRESSION — `< fn(args))` (call after ident) is NOT a state boundary", () => {
+        // A function-call comparison — `(` immediately after the identifier
+        // proves expression, not opener.
+        const cursor = makeCursor("< fn(args))");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(false);
+    });
+
+    test("REGRESSION — `< x, y)` (comma after ident) is NOT a state boundary", () => {
+        // A comma-separated expression list — `,` after the identifier
+        // proves expression.
+        const cursor = makeCursor("< x, y)");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(false);
+    });
+
+    test("GUARD — `< db src=\"./products.db\">` IS still a state boundary", () => {
+        // The canonical SPEC §4.3 `< Ident ...>` state-opener form (line 17 of
+        // `gauntlet-r10-bun-admin.scrml`). Whitespace after the identifier is
+        // the legitimate terminator.
+        const cursor = makeCursor(`< db src="./products.db">`);
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(true);
+    });
+
+    test("GUARD — `< db>` (immediate `>` after ident) IS still a state boundary", () => {
+        // The minimal state-opener form — no attributes, ident-then-`>`.
+        const cursor = makeCursor(`< db>`);
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(true);
+    });
+
+    test("GUARD — `< counter label(string) initial(number = 0)>` IS a boundary", () => {
+        // A state-constructor-def opener with typed-attr declarations
+        // (SPEC §35.2). Whitespace after the identifier is the terminator;
+        // the `(` inside the attribute region is the typed-decl, not an
+        // expression call on the identifier itself.
+        const cursor = makeCursor("< counter label(string) initial(number = 0)>");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(true);
+    });
+
+    test("GUARD — `< Ident/>` (self-closing immediately after ident) IS a boundary", () => {
+        // A self-closing opener with no attribute region — `/` is a
+        // tag-shape terminator.
+        const cursor = makeCursor("< x/>");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(true);
+    });
+
+    test("GUARD — `< Ident=...>` (attribute-shorthand) IS a boundary", () => {
+        // A shorthand opener form — `=` immediately after the identifier is
+        // a tag-shape terminator (attribute-shorthand grammar).
+        const cursor = makeCursor("< x=something>");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(true);
+    });
+
+    test("GUARD — `<db src=\"...\">` (NO-SPACE form) is unaffected", () => {
+        // The no-space form is handled by `isMarkupTagOpener`, not this
+        // predicate — the predicate's first guard returns false when no
+        // whitespace follows the `<`. The no-space `<db>` state recognition
+        // (`STATE_FORM_LIFECYCLE_KEYWORDS`) remains untouched.
+        const cursor = makeCursor(`<db src="./test.db">`);
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(false);
+    });
+
+    test("GUARD — `< 3` (numeric after ws) is still rejected", () => {
+        // A pre-existing rejection — the char after the whitespace run is
+        // not a tag-name start letter. Unchanged by the tighten.
+        const cursor = makeCursor("< 3 + x");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(false);
+    });
+
+    test("GUARD — `<` followed by no whitespace stays rejected", () => {
+        // The pre-existing first-guard — the char after `<` must be
+        // whitespace. `<db>` falls to `isMarkupTagOpener` upstream.
+        const cursor = makeCursor("<db>");
+        expect(isStateTagBoundaryAfterLt(cursor)).toBe(false);
+    });
+
+    test("isTagNameContinue accepts ASCII letters, digits, `_`, `-`", () => {
+        expect(isTagNameContinue("a")).toBe(true);
+        expect(isTagNameContinue("Z")).toBe(true);
+        expect(isTagNameContinue("0")).toBe(true);
+        expect(isTagNameContinue("9")).toBe(true);
+        expect(isTagNameContinue("_")).toBe(true);
+        expect(isTagNameContinue("-")).toBe(true);
+    });
+
+    test("isTagNameContinue rejects `.`, `(`, `,`, ` `, `>`, `/`, `=`, EOF", () => {
+        expect(isTagNameContinue(".")).toBe(false);
+        expect(isTagNameContinue("(")).toBe(false);
+        expect(isTagNameContinue(",")).toBe(false);
+        expect(isTagNameContinue(" ")).toBe(false);
+        expect(isTagNameContinue(">")).toBe(false);
+        expect(isTagNameContinue("/")).toBe(false);
+        expect(isTagNameContinue("=")).toBe(false);
+        expect(isTagNameContinue("")).toBe(false);
+        expect(isTagNameContinue(null)).toBe(false);
+        expect(isTagNameContinue(undefined)).toBe(false);
     });
 });
