@@ -1129,8 +1129,11 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
   // absence-sentinel `/(not) .../` (no trailing whitespace → operator-form
   // regex never matched) are likewise preserved.
   s = rewriteCodeSegments(s, (code) => {
-    // Replace `not (expr)` prefix negation → `!(expr)`
-    code = code.replace(/(?<![A-Za-z0-9_$@])not\s*\(/g, "!(");
+    // Replace `not (expr)` prefix negation → `!(expr)`.
+    // 6nz-s (S127): `[ \t]*` not `\s*` — never bridge a statement boundary
+    // (a real `not (...)` negation keeps its operand on the same logical line;
+    // `not\n(` is standalone absence followed by a separate parenthesised stmt).
+    code = code.replace(/(?<![A-Za-z0-9_$@])not[ \t]*\(/g, "!(");
 
     // §45.7 operator-form: `not <operand>` — unary boolean negation → `!<operand>`.
     // Acorn does not know `not` is a unary operator, so without this rewrite it
@@ -1152,8 +1155,23 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
     // is NOT matched here because no operand-ident follows. It falls through to
     // esTreeToExprNode which converts Identifier `not` → LitExpr { litType: "not" }
     // (the §42 non-presence value form, which then emits as `null`).
+    //
+    // 6nz-s (S127): two guards so a STANDALONE `not` (value-completion position:
+    // `return not`, `@x = not`, `f(not)`, `[a, not]`) is NOT mis-lowered to `!`
+    // by greedily eating the following token:
+    //   (a) Statement-boundary guard — `[ \t]+` (horizontal whitespace only), so
+    //       the rewrite never crosses a newline / statement break. `return not\n
+    //       const pos = ...` previously emitted `return !const pos = ...`
+    //       (glued + invalid JS, killing the whole bundle at load — the adopter
+    //       6nz repro). The newline now keeps `not` standalone → it falls through
+    //       to esTreeToExprNode as Identifier `not` → LitExpr { litType: "not" }
+    //       (the canonical §42 absence value, emitted as `null`).
+    //   (b) Keyword-exclusion lookahead — a JS reserved keyword is never a valid
+    //       negation operand, so `not const` / `not return` / `not if` (even on
+    //       one line) is standalone absence, not negation. Defensive complement
+    //       to (a) for any same-line keyword-adjacency.
     code = code.replace(
-      /(?<![A-Za-z0-9_$@.])not\s+(@?[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:\[[^\]]*\])*)/g,
+      /(?<![A-Za-z0-9_$@.])not[ \t]+(?!(?:const|let|var|return|if|else|for|while|do|switch|case|break|continue|function|new|typeof|void|delete|in|instanceof|class|import|export|yield|await|throw|try|catch|finally|with|debugger|default)(?![A-Za-z0-9_$]))(@?[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:\[[^\]]*\])*)/g,
       "!$1"
     );
     return code;

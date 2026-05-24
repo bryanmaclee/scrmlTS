@@ -727,8 +727,10 @@ function _rewriteNotSegment(segment: string, errors?: any[]): string {
   // (the @-to-reactive_get() rewrite runs after this pass).
   segment = segment.replace(/(@?[A-Za-z_$][A-Za-z0-9_$.]*) is not(?![A-Za-z0-9_$])/g,
     '($1 === null || $1 === undefined)');
-  // `not (expr)` — logical negation before a parenthesized expression → `!(expr)`
-  segment = segment.replace(/(?<![A-Za-z0-9_$@])not\s*\(/g, '!(');
+  // `not (expr)` — logical negation before a parenthesized expression → `!(expr)`.
+  // 6nz-s (S127): `[ \t]*` not `\s*` — never bridge a statement boundary; a real
+  // `not (...)` keeps its operand on the same logical line.
+  segment = segment.replace(/(?<![A-Za-z0-9_$@])not[ \t]*\(/g, '!(');
   // §45.7 operator-form: `not <operand>` — unary boolean negation → `!<operand>`.
   // Must run BEFORE the bare-`not`-to-`null` rule below so the operator-form is
   // consumed first; otherwise the operand would be left dangling next to a
@@ -747,8 +749,20 @@ function _rewriteNotSegment(segment: string, errors?: any[]): string {
   // The standalone-value form (`@x = not`, `return not`, `f(not)`, `[a, not, b]`)
   // is NOT matched here because there is no operand-ident following `not`. It
   // falls through to the bare-`not`-to-`null` rule on the next line.
+  //
+  // 6nz-s (S127): the same two guards as the preprocessForAcorn sibling so a
+  // STANDALONE `not` (value-completion: `return not`, `@x = not`, `f(not)`) is
+  // NOT mis-lowered to `!` by eating the following token. This is the site that
+  // lowers ARROW BLOCK BODIES (EscapeHatchExpr raw text): `(n)=>{ return not\n
+  // const x = ... }` previously emitted `return !const x = ...` (glued, invalid
+  // JS — the adopter 6nz repro, hard parse-failure killing the bundle at load).
+  //   (a) statement-boundary guard — `[ \t]+` (horizontal whitespace only), so
+  //       the rewrite never crosses a newline / statement break. Standalone `not`
+  //       then falls through to the bare-`not`-to-`null` rule below.
+  //   (b) keyword-exclusion lookahead — a JS reserved keyword is never a valid
+  //       negation operand (`not const` / `not return` is standalone absence).
   segment = segment.replace(
-    /(?<![A-Za-z0-9_$@.])not\s+(@?[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:\[[^\]]*\])*)/g,
+    /(?<![A-Za-z0-9_$@.])not[ \t]+(?!(?:const|let|var|return|if|else|for|while|do|switch|case|break|continue|function|new|typeof|void|delete|in|instanceof|class|import|export|yield|await|throw|try|catch|finally|with|debugger|default)(?![A-Za-z0-9_$]))(@?[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:\[[^\]]*\])*)/g,
     '!$1'
   );
   // Bare `not` as a value → `null`
