@@ -206,3 +206,85 @@ strategy is what PA needs to decide.
 - `docs/changes/m66-b2-symbol-table-migration/progress.md` — this file
 
 NO walker landed. NO symbol-table call-site swap landed.
+
+---
+
+## Re-dispatch (after b.1.5 corrigendum)
+
+- [START] /home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/agent-ade0bdad78e822bd9
+  - baseline: 20000 pass / 0 fail / 171 skip / 1 todo across 757 files at HEAD ad335d0a (post-merge)
+  - b.1.5 (commit ad335d0a) landed dotted-ident + wildcard + sourceText extensions
+  - cookbook recipes now empirically supported
+
+### Phase 1 plan
+
+1. Author `compiler/src/native-walker/engine-statechild-walker.ts` per the
+   corrected cookbook (12 fields + nested types).
+2. Migrate `symbol-table.ts:5014` call site (discriminated branch on
+   `_nativeEngineBlock` presence; legacy fallback preserved).
+3. Author dual-pipeline parity tests at
+   `compiler/tests/unit/m66-b2-engine-statechild-walker.test.js`.
+4. Run full suite; expect 20020+ pass / 0 fail; canary 998/1000 unchanged.
+
+### Re-dispatch results
+
+- Walker authored at compiler/src/native-walker/engine-statechild-walker.ts
+  (~520 LOC + dual-pipeline tests). All 12 EngineStateChildEntry fields
+  produced via b.1.5-corrected cookbook recipes.
+- symbol-table.ts:5014 call-site swapped to discriminated branch
+  (`_nativeEngineBlock` present -> walker; absent -> legacy fallback).
+- Test suite at compiler/tests/unit/m66-b2-engine-statechild-walker.test.js
+  — 27 tests, 0 fail, dual-pipeline parity over every shape category.
+
+### Walker corrections vs cookbook (re-dispatch deviations)
+
+The cookbook had two non-fatal recipe oversights surfaced during empirical
+implementation. Both are corrections in this dispatch; not blockers.
+
+1. **bodyRaw recipe — state-children are opener-only at the native level.**
+   The cookbook's `sliceBodyFromChildren(child, source)` produces "" for
+   text-only state-child bodies because the native parser does NOT walk
+   the text content into `children[]` (only structural children like
+   `<onTimeout>`, `<onTransition>`, nested `<engine>` show up). For
+   parity with legacy (which returns the verbatim opener-to-closer
+   text), I added a `sliceBodyFromSpan` helper that walks the opener
+   attribute region respecting `${...}`/quote/paren/bracket depth and
+   back-scans for the closer `</`. Same fix applies to <onTransition>
+   bodies (they're also opener-only at the native level).
+
+2. **onTimeout `to=` admits dotted-ident (b.1.5 kind).** Cookbook
+   `readOnTimeoutEntry` recipe used `readAttrName` (only handles
+   variable-ref + string-literal kinds). `<onTimeout to=.Active/>`
+   tokenizes to dotted-ident under b.1.5. Replaced with
+   `readRuleAttrInput` + `stripLeadingDot` for the verbatim multi-form
+   read.
+
+### Documented divergence — :-shorthand in-opener form
+
+Native b.1 IMPL handles SPEC §4.14 canonical `<Tag : body>` (colon
+INSIDE the opener); legacy `colonShortcutMatch` regex expects `>` then
+`:` (so only `<Tag> : body` form). Parity impossible for the canonical
+form — the walker test asserts native-only behavior for that shape
+(bodyRaw='grow()', isColonShorthand=true) and leaves the parity
+assertion off.
+
+### Test deltas vs baseline
+
+- Baseline:     20000 pass / 0 fail / 171 skip / 1 todo across 757 files
+- Post-walker:  20027 pass / 0 fail / 171 skip / 1 todo across 758 files (+27 new)
+- Native conformance canary: 998/1000 strict-pass UNCHANGED.
+
+### Open seams for b.3..b.6
+
+b.3..b.6 are deletion-only follow-ons that retire the now-unused legacy
+paths (`scanForOnTimeoutEntries`, `scanForOnTransitionEntries`,
+`scanForNestedEngineEntries`, `parsePayloadBindings`, `parseOpenerAttributes`,
+and ultimately `parseEngineStateChildren` itself once the fallback path is
+proven obsolete in synthetic tests). `parseRuleAttrValue` (the pure helper)
+stays — it's the canonical rule= value parser the walker imports.
+
+### Commits (re-dispatch)
+
+- 240a8912 — WIP(M6.6.b.2 re-dispatch): start
+- 49fb0a84 — feat(M6.6.b.2): native-walker + symbol-table call-site swap
+- 3a24d994 — test(M6.6.b.2): dual-pipeline parity tests + walker corrections

@@ -123,12 +123,24 @@ import {
   ARRAY_MUTATING_METHODS,
   isDerivedMutatingAssignOp,
 } from "./derived-mutation-ops.ts";
-// B15 — engine state-child structural parser.
+// B15 — engine state-child structural parser. Legacy text-rescanner; M6.6.b.2
+// retired its use at PASS 11 step 3 in favor of the native block-tree walker
+// (`walkEngineStateChildren`). The legacy parser survives here as a fallback
+// for synthetic ASTs that don't carry `_nativeEngineBlock` (test harnesses
+// that build an engine-decl directly without going through the native
+// pipeline). `isLegacyArrowRulesBody` + `scanForOnIdleEntries` remain in use.
 import {
   parseEngineStateChildren,
   isLegacyArrowRulesBody,
   scanForOnIdleEntries,
 } from "./engine-statechild-parser.ts";
+// M6.6.b.2 — native block-tree walker for engine state-children. Reads the
+// `_nativeEngineBlock` + `_source` fields stamped on the engine-decl by
+// `synthEngineDecl` (collect-hoisted.js) and produces the same
+// `EngineStateChildEntry[]` shape the legacy text-rescanner did. Used when
+// the engine-decl was synthesized by the native pipeline; falls back to the
+// legacy parser when the bridge fields are absent.
+import { walkEngineStateChildren } from "./native-walker/engine-statechild-walker.ts";
 // B18 — multi-statement event-handler validation helper.
 import { scanForTopLevelSemicolon } from "./multi-statement-scan.ts";
 // B14 fix — `resolveModulePath` is the path-shape normalizer used by MOD when
@@ -5009,9 +5021,22 @@ export function validateEngineStateChildrenAndRules(
     }
   }
 
-  // Step 3 — parse state-children from rulesRaw.
+  // Step 3 — parse state-children. M6.6.b.2: prefer the native block-tree
+  // walker (`walkEngineStateChildren`) when the engine-decl was synthesized
+  // by the native pipeline (it stamps `_nativeEngineBlock` + `_source` on the
+  // decl). Fall back to the legacy text-rescanner when those bridge fields
+  // are absent — synthetic ASTs (test harnesses constructing engine-decls
+  // directly) and the live `buildAST` pipeline don't populate them.
   const rulesRaw: string = typeof engineDecl.rulesRaw === "string" ? engineDecl.rulesRaw : "";
-  const stateChildren = parseEngineStateChildren(rulesRaw);
+  const nativeEngineBlock = (engineDecl as { _nativeEngineBlock?: unknown })._nativeEngineBlock;
+  const nativeSource = (engineDecl as { _source?: unknown })._source;
+  const stateChildren =
+    nativeEngineBlock !== undefined && nativeEngineBlock !== null
+      ? walkEngineStateChildren(
+          nativeEngineBlock as Parameters<typeof walkEngineStateChildren>[0],
+          typeof nativeSource === "string" ? nativeSource : "",
+        )
+      : parseEngineStateChildren(rulesRaw);
   meta.stateChildren = stateChildren;
 
   // Step 3.5 (A5-6, S77) — scan for engine-root `<onIdle>` event-timeout
