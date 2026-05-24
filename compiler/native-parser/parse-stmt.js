@@ -630,6 +630,25 @@ export function parseStatement(ctx) {
         return parseScrmlFunctionDecl(ctx, false);
     }
 
+    // M6.7-C2 — the `server @var = expr` cell-authority state declaration (SPEC
+    // §52.4, the legacy `@`-form authority modifier). Live's ast-builder
+    // (ast-builder.js:4879) recognizes a `server` KEYWORD immediately followed by
+    // an `@`-ident as a server-authoritative reactive `state-decl`
+    // (`isServer: true`). D2 already routes `server` leading to a `fn`/`function`
+    // into parseScrmlFunctionDecl; a `server` leading to `@` is the DISTINCT cell
+    // authority production. Without this arm `server @x = e` falls through to the
+    // expression-statement arm, where `server` (KwServer) is not a valid
+    // expression head — native fired E-EXPR-UNEXPECTED + E-STMT-MISSING-SEMICOLON
+    // + E-STMT-UNEXPECTED-TOKEN, the whole `${...}` logic block failed, and the
+    // §8.11 mount-hydrate coalescing collector (collect.ts:549, which gates on
+    // `state-decl{isServer:true}`) never saw the decl. The guard is precise — a
+    // bare `server` not leading to `@` (or to `fn`/`function`, handled above)
+    // still falls through, so a rare bare `server` identifier use is unaffected.
+    // §52.4 is NOT deprecated (W-DEPRECATED-SERVER-MODIFIER is function-only).
+    if (kind === TokenKind.KwServer && peekKind(cursor, 1) === TokenKind.ScrmlAt) {
+        return parseServerAtStateDecl(ctx);
+    }
+
     // M4.3 — RETRACTED. An `async function` declaration is no longer valid in
     // scrml. We fire E-ASYNC-NOT-IN-SCRML at the `async` keyword and recover
     // by parsing the form as a plain function declaration (the underlying
@@ -3323,6 +3342,104 @@ export function parseStructuralStateDecl(ctx, isConst) {
         debouncedRaw,
         throttledRaw,
         validators,
+        init,
+        span,
+    };
+}
+
+// --- parseServerAtStateDecl — the `server @name [: Type] = expr` form ---
+// M6.7-C2. SPEC §52.4 cell-authority modifier on the LEGACY `@`-form reactive
+// declaration. The live oracle is ast-builder.js:4879 (`server` KEYWORD +
+// AT_IDENT -> `state-decl{ isServer:true, structuralForm:false, shape:"plain",
+// isConst:false }`). The dispatcher confirmed `KwServer` is immediately followed
+// by a `ScrmlAt` token (the `@name` ident — the tokenizer fuses the `@` sigil
+// into the ident text, so `@a` is ONE `ScrmlAt` token whose `.text` is `"@a"`).
+//
+// The produced node is a native `StateDecl` with `structuralForm:false` — the
+// translate-stmt bridge's makeStateDeclNode reads that flag to emit the live
+// legacy-`@`-form shape (vs the V5-strict `<name>` structural shape). `server`
+// is set so the bridge maps it to live `isServer:true`. Type annotation (`:T`)
+// is captured raw, mirroring parseStructuralStateDecl's §35.2 handling.
+function parseServerAtStateDecl(ctx) {
+    const cursor = ctx.cursor;
+    const kw = advance(cursor);          // consume `server`
+    const atTok = advance(cursor);       // consume `@name` (ScrmlAt)
+    // Strip the leading `@` sigil — live's `state-decl.name` is the bare cell
+    // name (ast-builder.js:4885 `atTok.text.slice(1)`).
+    const atText = atTok.text === undefined || atTok.text === null ? "" : atTok.text;
+    const name = atText.charAt(0) === "@" ? atText.slice(1) : atText;
+
+    // §35.2/§53 optional type annotation — `server @name: Type = expr`. Consume
+    // the annotation tokens raw up to the `=`, depth-tracking delimiters (the
+    // same shape parseStructuralStateDecl uses for its typed form).
+    let typeAnnotation = "";
+    if (currentKind(cursor) === TokenKind.Colon) {
+        advance(cursor);   // consume `:`
+        const annParts = [];
+        let parenDepth = 0;
+        let braceDepth = 0;
+        let bracketDepth = 0;
+        while (atEnd(cursor) === false) {
+            const k = currentKind(cursor);
+            const topLevel = (parenDepth === 0 && braceDepth === 0 && bracketDepth === 0);
+            if (topLevel && k === TokenKind.Assign) {
+                break;   // the `=` ends the annotation; the RHS follows
+            }
+            if (k === TokenKind.LParen) parenDepth = parenDepth + 1;
+            else if (k === TokenKind.RParen && parenDepth > 0) parenDepth = parenDepth - 1;
+            else if (k === TokenKind.LBrace) braceDepth = braceDepth + 1;
+            else if (k === TokenKind.RBrace && braceDepth > 0) braceDepth = braceDepth - 1;
+            else if (k === TokenKind.LBracket) bracketDepth = bracketDepth + 1;
+            else if (k === TokenKind.RBracket && bracketDepth > 0) bracketDepth = bracketDepth - 1;
+            const annTok = advance(cursor);
+            annParts.push(annTok.text === undefined || annTok.text === null ? "" : annTok.text);
+        }
+        typeAnnotation = annParts.join(" ");
+    }
+
+    // The initializer. `server @x` REQUIRES an `=` RHS (a bare `server @x` with
+    // no init is malformed — live ast-builder.js:4903 recovers it as a bare-expr;
+    // here we record a diagnostic and emit the node with a null init so the rest
+    // of the program still parses). Set `atStateDeclStmtPos` around the init parse
+    // exactly as parseStructuralStateDecl does, so a sibling `<NAME> =` on the
+    // next line is not greedily consumed into this initializer.
+    let init = null;
+    if (currentKind(cursor) === TokenKind.Assign) {
+        advance(cursor);   // consume `=`
+        const prior = enterMode(ctx, ParseMode.InExpression);
+        const sdPrior = ctx.atStateDeclStmtPos;
+        ctx.atStateDeclStmtPos = true;
+        init = parseAssignmentLevelExpr(ctx);
+        ctx.atStateDeclStmtPos = sdPrior;
+        exitMode(ctx, prior);
+        reenterBlockStubs(init);
+    } else {
+        recordError(ctx, "E-STMT-STATE-DECL-INIT",
+            "a `server @var` declaration must have an initializer ('server @name = expr')",
+            spanHere(ctx));
+    }
+
+    const prevTok = lastTokenBefore(ctx);
+    consumeSemicolon(ctx, prevTok);
+
+    const endE = (init === undefined || init === null) ? atTok.span.end : nodeEnd(init);
+    const span = makeSpan(kw.span.start, endE, kw.span.line, kw.span.col);
+
+    // Native StateDecl — legacy `@`-form. Field names + value types match the
+    // live ReactiveDeclNode (ast.ts:502) so translate-stmt does a structural copy.
+    return {
+        kind: "StateDecl",
+        name,
+        typeAnnotation,
+        structuralForm: false,
+        isConst: false,
+        shape: "plain",
+        defaultExprRaw: null,
+        pinned: false,
+        server: true,
+        debouncedRaw: null,
+        throttledRaw: null,
+        validators: [],
         init,
         span,
     };

@@ -2025,44 +2025,31 @@
     "SPAN-COORD": 8
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-server-reactive-bare-006.scrml": {
-    "KIND-NAME": 1,
     "FIELD-SHAPE": 2,
-    "MISSING-FIELD": 7,
-    "EXTRA-FIELD": 5,
-    "COUNT-LENGTH": 1,
-    "SPAN-COORD": 4
+    "EXTRA-FIELD": 4,
+    "SPAN-COORD": 5
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-server-reactive-derived-from-local-009.scrml": {
-    "KIND-NAME": 1,
     "FIELD-SHAPE": 3,
-    "MISSING-FIELD": 7,
-    "EXTRA-FIELD": 5,
-    "COUNT-LENGTH": 1,
-    "SPAN-COORD": 6
+    "EXTRA-FIELD": 4,
+    "SPAN-COORD": 9
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-server-reactive-not-007.scrml": {
-    "KIND-NAME": 1,
     "FIELD-SHAPE": 2,
-    "MISSING-FIELD": 7,
-    "EXTRA-FIELD": 5,
-    "COUNT-LENGTH": 1,
-    "SPAN-COORD": 4
+    "EXTRA-FIELD": 4,
+    "SPAN-COORD": 5
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-server-reactive-optimistic-008.scrml": {
-    "KIND-NAME": 2,
+    "KIND-NAME": 1,
     "FIELD-SHAPE": 3,
-    "MISSING-FIELD": 19,
+    "MISSING-FIELD": 12,
     "EXTRA-FIELD": 7,
-    "COUNT-LENGTH": 1,
-    "SPAN-COORD": 7
+    "SPAN-COORD": 9
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-server-reactive-typed-010.scrml": {
-    "KIND-NAME": 2,
     "FIELD-SHAPE": 4,
-    "MISSING-FIELD": 16,
-    "EXTRA-FIELD": 10,
-    "COUNT-LENGTH": 1,
-    "SPAN-COORD": 6
+    "EXTRA-FIELD": 6,
+    "SPAN-COORD": 8
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-type-enum-adjacent-015.scrml": {
     "MISSING-FIELD": 3,
@@ -4511,19 +4498,15 @@
     "SPAN-COORD": 8
   },
   "samples/compilation-tests/gauntlet-s20-sql/server-var-001.scrml": {
-    "KIND-NAME": 1,
-    "FIELD-SHAPE": 2,
-    "MISSING-FIELD": 7,
+    "FIELD-SHAPE": 1,
+    "MISSING-FIELD": 1,
     "EXTRA-FIELD": 5,
-    "COUNT-LENGTH": 1,
     "SPAN-COORD": 4
   },
   "samples/compilation-tests/gauntlet-s20-sql/server-var-multiple-001.scrml": {
-    "KIND-NAME": 3,
-    "FIELD-SHAPE": 6,
-    "MISSING-FIELD": 21,
+    "FIELD-SHAPE": 3,
+    "MISSING-FIELD": 3,
     "EXTRA-FIELD": 11,
-    "COUNT-LENGTH": 1,
     "SPAN-COORD": 8
   },
   "samples/compilation-tests/gauntlet-s20-sql/sql-all-001.scrml": {

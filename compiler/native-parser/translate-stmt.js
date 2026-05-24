@@ -850,7 +850,13 @@ function makeStateDeclNode(stmt, counter) {
         kind: "state-decl",
         name: stmt.name === undefined || stmt.name === null ? "" : stmt.name,
         init: "",
-        structuralForm: true,
+        // M6.7-C2 — honor the native node's `structuralForm` flag. The V5-strict
+        // `<name>` path (parseStructuralStateDecl) sets it `true`; the legacy
+        // `server @name` path (parseServerAtStateDecl) sets it `false`, matching
+        // the live ast-builder (the legacy `@`-form is `structuralForm:false`,
+        // ast-builder.js:4891). Default `true` preserves the structural path for
+        // any native StateDecl that omits the flag.
+        structuralForm: stmt.structuralForm !== false,
         isConst: stmt.isConst === true,
         shape: stmt.shape === "derived" ? "derived" : "plain",
         defaultExpr: null,
