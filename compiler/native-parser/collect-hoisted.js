@@ -661,17 +661,35 @@ function synthTypeDecl(stmt, stamp, fromExport) {
 // block-stream + a `span`; the raw template text is recovered by slicing the
 // enclosing block's `bodyText`. (R2 noted the live `component-def.raw`
 // follows `component-expander.ts`'s space-joined-token `normalizeTokenizedRaw`
-// contract; the native `bodyText` slice is the verbatim source form. A
-// raw-normalization reconciliation is a downstream component-expander
-// concern — surfaced as a deferred item.)
+// contract; the native `bodyText` slice is the verbatim source form.
+// M6.7-C1 RESOLVED the slice-offset bug: `init.span` is bodyText-relative, so
+// the slice no longer subtracts `blockSpan.start`. The remaining verbatim-vs-
+// token-joined raw-FORM difference is reconciled downstream by CE's
+// `normalizeTokenizedRaw`, which is idempotent on already-canonical markup — so
+// both pipelines' `raw` re-parse to the same registry entry.)
 function synthComponentDef(name, init, blockText, blockSpan, stamp) {
+    // M6.7-C1: the native `MarkupValue.init.span` is bodyText-RELATIVE — an
+    // index INTO the enclosing LogicEscape/Meta `bodyText`, NOT a host-absolute
+    // source offset. (Verified across logic-escape, multi-line, and meta blocks:
+    // `bodyText.slice(init.span.start, init.span.end)` recovers the exact markup
+    // initializer source.) The earlier code subtracted `blockSpan.start` as if
+    // `init.span` were host-absolute; for a `${ }` LogicEscape (`blockSpan.start`
+    // points at `$`, > 0) this shifted the slice LEFT by `blockSpan.start`,
+    // truncating the markup and leaking the LHS `nst Name =` prefix into `raw`.
+    // The defect was masked for `^{ }` Meta blocks only because their
+    // `blockSpan.start === 0` makes the subtraction a no-op. The broken `raw`
+    // failed `component-expander.ts`'s `parseComponentBody` re-parse
+    // (E-COMPONENT-021), so the component never registered and every use-site
+    // raised E-COMPONENT-020. Slicing the bodyText-relative span directly yields
+    // the verbatim markup body, which CE's `normalizeTokenizedRaw` (idempotent on
+    // already-canonical markup) + `parseComponentBody` re-parse cleanly — the
+    // same shape the live ast-builder's `component-def.raw` resolves to.
     let raw = "";
     const initSpan = init.span;
     if (initSpan !== undefined && initSpan !== null
-        && typeof blockText === "string"
-        && blockSpan !== undefined && blockSpan !== null) {
-        const lo = initSpan.start - blockSpan.start;
-        const hi = initSpan.end - blockSpan.start;
+        && typeof blockText === "string") {
+        const lo = initSpan.start;
+        const hi = initSpan.end;
         if (lo >= 0 && hi <= blockText.length && lo <= hi) {
             raw = blockText.slice(lo, hi);
         }
