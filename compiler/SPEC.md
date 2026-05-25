@@ -15618,7 +15618,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-PROG-005 | §40.4 | Circular nested-program dependency detected. Program A nests/uses program B, B nests/uses A. (Catalog addition S84 Wave 2 #5; full prose at §40 line 18040.) | Error |
 | E-SCHEMA-001 | §39.12 | A `< schema>` block appears in a file whose `<program>` root has no `db=` attribute. The schema block declares table shapes for the program's database driver; without a driver the schema has no target. (Catalog addition S84 Wave 2 #5; full prose at §39.12 line 16683.) | Error |
 | E-SCHEMA-002 | §39.12 | A file contains more than one `< schema>` block. Each file declares at most one schema. (Catalog addition S84 Wave 2 #5; full prose at §39.12 line 16684.) | Error |
-| E-SCHEMA-003 | §39.12 | A `< schema>` block is nested inside another block (logic context, component body, etc.). Schemas are file-level declarations only. (Catalog addition S84 Wave 2 #5; full prose at §39.12 line 16976.) | Error |
+| E-SCHEMA-003 | §39.12 | A `<schema>` block is nested inside any block other than the `<program>` root (logic context, component body, `<page>`, `<db>`, etc.). Schemas are immediate children of `<program>` only. (Catalog addition S84 Wave 2 #5; placement amended S130 phase-2 D per Q7 ratification; full prose at §39.12.) | Error |
 | E-SCHEMA-004 | §39.12 | A `< schema>` column declaration uses an unrecognized column type name. The legal type set is enumerated per-driver (SQLite, Postgres, MySQL). (Catalog addition S84 Wave 2 #5; full prose at §39.12 line 16977.) | Error |
 | E-SCHEMA-005 | §39.12 | A `default(...)` value in a `< schema>` column declaration is syntactically invalid SQL, OR a cross-field shared-core constraint references a column not in the same table. Validation is performed via SQLite `EXPLAIN` or statement preparation at compile time. (Catalog addition S84 Wave 2 #5; full prose at §39.12 lines 16734, 16803.) | Error |
 | E-SCHEMA-006 | §39.12 | A `references` clause in a `< schema>` column declaration targets a table or column that is not in scope. (Catalog addition S84 Wave 2 #5; full prose at §39.12 line 16979.) | Error |
@@ -17618,7 +17618,7 @@ column-constraint ::= 'primary key' | 'not null' | 'unique' | 'default' '(' lite
                     | 'rename from' identifier
 ```
 
-A `< schema>` block appears at the top level of a file, alongside (not inside) `< db>` blocks. It does not require the `src=` or `tables=` attributes of `< db>` because the database path is read from `<program db="...">`.
+A `<schema>` block appears as an immediate child of the `<program>` root, alongside (not nested inside) `<db>` / `<page>` / other program children. It does not require the `src=` or `tables=` attributes of `<db>` because the database path is read from the enclosing `<program db="...">`.
 
 **Worked example — valid:**
 
@@ -17660,7 +17660,7 @@ The `< schema>` block takes no attributes. The database path is always read from
 
 - A `< schema>` block SHALL be valid only inside a file whose `<program>` root element has a `db=` attribute. A `< schema>` block without an enclosing `<program db="...">` SHALL be a compile error (E-SCHEMA-001).
 - A file SHALL NOT contain more than one `< schema>` block. A second `< schema>` block in the same file SHALL be a compile error (E-SCHEMA-002).
-- A `< schema>` block SHALL appear at file top-level only. A `< schema>` block nested inside any other block SHALL be a compile error (E-SCHEMA-003).
+- A `<schema>` block SHALL appear as an immediate child of the `<program>` root. A `<schema>` block nested inside any other block (logic context, component body, `<page>`, `<db>`, etc.) SHALL be a compile error (E-SCHEMA-003).
 
 ### 39.4 Column Types
 
@@ -17980,7 +17980,7 @@ rule); §39.1 (`<schema>` opener forms).
 |---|---|---|
 | E-SCHEMA-001 | `< schema>` block without `<program db="...">` attribute | Error |
 | E-SCHEMA-002 | More than one `< schema>` block in the same file | Error |
-| E-SCHEMA-003 | `< schema>` block nested inside another block | Error |
+| E-SCHEMA-003 | `<schema>` block nested inside any block other than the `<program>` root | Error |
 | E-SCHEMA-004 | Unrecognized column type name in `< schema>` | Error |
 | E-SCHEMA-005 | `default(...)` value is syntactically invalid SQL | Error |
 | E-SCHEMA-006 | `references` targets a table or column not in scope | Error |
