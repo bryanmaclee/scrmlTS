@@ -1627,6 +1627,16 @@ export function parseFunctionDecl(ctx, isAsync, allowAnonymous) {
     }
 
     const params = parseParamList(ctx);
+    // M6.7-D8a-i: optional `-> ReturnType` annotation (SPEC §14 line 5590 —
+    // `->` is the sole return-type annotation for BOTH `function` and `fn`).
+    // The annotation is consumed and discarded (downstream-typer concern,
+    // exactly like parseScrmlFunctionDecl's call at parse-stmt.js:1853).
+    // `->` lexes as two tokens (`Minus` + `GreaterThan`); see arrowFollows.
+    if (arrowFollows(cursor)) {
+        advance(cursor);   // consume `-`
+        advance(cursor);   // consume `>`
+        skipReturnTypeAnnotation(ctx);
+    }
     // M4.1 — the body parses in the function's own async/generator scope.
     const inline = parseFunctionBodyInline(ctx, isAsync, isGenerator);
 
