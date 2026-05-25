@@ -32,8 +32,23 @@ type-system.ts:1444 resolves `(A -> B)` to type B (post-transition type) — but
 
 ## 2026-05-25 T4 — Phase 3 expert synthesis complete
 
-Read agent-store files for: scrml-typed-change, scrml-state-types, rust-result-statemachine, rust-exhaustive-enums, haskell-adts, ocaml-polymorphic-variants. Synthesizing positions on lifecycle-extension-to-enum-state-cells question.
+Read agent-store files for: scrml-typed-change, scrml-state-types, rust-result-statemachine, rust-exhaustive-enums, haskell-adts, ocaml-polymorphic-variants. Synthesizing positions on lifecycle-extension-to-enum-state-cells question. 5 of 6 support extension; 3 of 6 specifically support carve-out (Approach C); 0 support narrow (Approach A).
 
-## 2026-05-25 T5 — Writing final report
+## 2026-05-25 T5 — Phase 4 deep-dive output LANDED
 
-Drafting deep-dive output at scrml-support/docs/deep-dives/lifecycle-annotation-extension-and-flagship-scope-2026-05-25.md
+Wrote `scrml-support/docs/deep-dives/lifecycle-annotation-extension-and-flagship-scope-2026-05-25.md`:
+- 3 candidate approaches (A keep-narrow / B extend-everywhere / C hybrid carve-out engines)
+- 2 explicit eliminations (D retire-entirely / E engine-subsumes-struct-lifecycle) with reasoning
+- Trade-off matrix on 10 dimensions
+- Prior-art table (11 systems + 1 idiomatic comparison)
+- Expert synthesis from 6 agent-store files (no live dispatch)
+- Composition analyses for V-kill, engines, Shape 1/2/3, match block-form, bare-variant inference, lin, predicates
+- 6 GENUINE design questions flagged with PA-lean disclosure
+- Flagship-section authoring scope (anchor examples, not section prose)
+- HU framing — 7 questions (1 LOAD-BEARING + 6 sub-questions); PA lean on Q1 = Approach C
+
+## 2026-05-25 T6 — Phase 5 feed-to-HU
+
+PA lean: Approach C (extend to non-engine cell positions; carve out engine cells explicitly).
+Designer-card window noted for the user at HU — Approach D (retire entirely) returns if invoked.
+Multiple viable approaches (A vs B vs C) — debate framing optional, depending on user preference at HU.

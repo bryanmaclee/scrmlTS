@@ -146,3 +146,30 @@ Iteration is on record as a name-axis ergonomics surface.
 - **Marko's tag parameters `|item, index|`** are notable for binding-via-pipe-delimiters rather than `as`-keyword — but rarely copied; the `as` keyword is dominant.
 - **Lit's two-mode default** (`map()` for simple, `repeat()` for keyed) is closest to scrml's current accidental two-mode (with-key vs without-key); the user-choice surface is identical.
 
+
+## Phase 3-5 — Curation + Output + Feed-to-debate complete
+
+**Deep-dive report landed:** `/home/bryan-maclee/scrmlMaster/scrml-support/docs/deep-dives/iteration-design-surface-2026-05-25.md` (~750 lines)
+
+**Report structure:**
+- §1 Scope (central question + 9 sub-questions, in-scope, out-of-scope)
+- §2 Context (corpus survey + gauntlet R10 friction + SPEC anchors)
+- §3 Five candidate designs (A/B/C/D/E with gains/losses/complexity/prior-art each)
+- §4 Trade-off matrix (6 dimensions × 5 candidates; B/D/E close call; C eliminated)
+- §5 Prior art table (12 systems)
+- §6 Composition analysis (V5-strict / engines / match / components)
+- §7 Migration path from current for/lift (with CLI tool recommendation)
+- §8 Component vs each (orthogonality analysis)
+- §9 Recommended direction + 8 GENUINE DESIGN QUESTIONS (HU framing)
+- §10 Open questions (8 OQs as sub-DD triggers)
+- §11 Pre-debate / pre-HU summary
+- §12 References
+- §13 PA action requested
+
+**Phase 5 — Feed to debate:**
+
+The brief said "if multiple viable designs exist, recommend debate participants". 3 viable designs exist (A, B/D, E). Debate framing included in §9.5 with suggested participants: svelte-expert, vue-expert OR liveview-expert, solid-expert, simplicity-defender, marko-expert.
+
+Alternative recommendation in §9.4: 2-3 HU sub-sessions starting with HU-Q1 (designer-card axis on existence question).
+
+PA should choose between HU-first (designer-card) or debate-first (comparative analysis) per user preference signaling.
