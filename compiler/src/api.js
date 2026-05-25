@@ -557,7 +557,7 @@ export function compileScrml(options = {}) {
      * Default `false` per OQ-A4-F (S91 ratification). Default-on at
      * the v0.3.0 cut release once A-4.1..A-4.7 have all landed.
      */
-    emitPerRoute = false,
+    emitPerRoute: _emitPerRouteOpt = false,
     /**
      * Q-OPEN-5 — Soft size budget (bytes) for `W-CG-CHUNK-LARGE`.
      * When unset (or non-positive), the route-splitter uses the
@@ -609,6 +609,16 @@ export function compileScrml(options = {}) {
   if (!outputDir && inputFiles.length > 0) {
     outputDir = join(dirname(inputFiles[0]), "dist");
   }
+
+  // MCP V0 Sub-unit D (2026-05-25) — `<program mcp>` opt-in can auto-flip
+  // emitPerRoute below (after PRECG identifies the attribute). Start from the
+  // adopter-provided value (default false); override to true ONLY if a
+  // <program mcp> attribute is detected during PRECG. Auto-activation is
+  // surfaced in the compileScrml result + verbose log so adopters see what was
+  // wired without being surprised by per-route splitting they didn't request.
+  let emitPerRoute = _emitPerRouteOpt;
+  let mcpAutoActivated = false;
+  let mcpMode = null; // "dev-only" | "always" — set when auto-activated.
 
   const allErrors = [];
 
@@ -902,7 +912,58 @@ export function compileScrml(options = {}) {
       const cfg = computeProgramConfig(nodes);
       fileAST.authConfig = cfg.authConfig;
       fileAST.middlewareConfig = cfg.middlewareConfig;
+      // MCP V0 Sub-unit D — stash <program mcp> opt-in result. Consumed by
+      // the auto-activation pass below (which scans every fileAST after the
+      // PRECG loop completes) to set emitPerRoute + emit a boot import in
+      // the generated _server.js.
+      fileAST.mcpConfig = cfg.mcpConfig;
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // MCP V0 Sub-unit D — `<program mcp>` auto-activation pass.
+  //
+  // After PRECG has stamped each fileAST with mcpConfig (null when the file's
+  // <program> markup lacks `mcp=`, an McpConfig {mode} when present), scan
+  // every fileAST and decide whether the build is in MCP-enabled mode.
+  //
+  // Activation rule: if ANY fileAST has a non-null mcpConfig, the entire
+  // build is MCP-enabled and emitPerRoute is auto-flipped on (so the four
+  // descriptor sidecars + chunks.json reach disk; see SCOPING §3 Sub-unit A
+  // gating). The "mode" wins is "always" > "dev-only" (if any fileAST asks
+  // for "always", the boot in _server.js is unconditional; otherwise it
+  // runtime-gates on NODE_ENV).
+  //
+  // The decision is single-program in practice today (typical scrml apps
+  // have one top-level <program>); the fold-across-files shape future-proofs
+  // for the multi-<program> / nested-<program> §43 case.
+  //
+  // When mcpAutoActivated && !_emitPerRouteOpt, surface an info log line so
+  // adopters running with --verbose can see emitPerRoute was wired
+  // implicitly — fewer footguns than a silent auto-flip per SCOPING risk 1.
+  // ---------------------------------------------------------------------------
+  let anyMcpMode = null;
+  for (const tabResult of tabResults) {
+    const fileAST = tabResult?.ast;
+    if (!fileAST?.mcpConfig) continue;
+    const m = fileAST.mcpConfig.mode;
+    if (m === "always") {
+      anyMcpMode = "always";
+      break; // "always" wins; no need to keep folding.
+    }
+    if (anyMcpMode === null) anyMcpMode = m;
+  }
+  if (anyMcpMode !== null) {
+    mcpAutoActivated = true;
+    mcpMode = anyMcpMode;
+    if (!emitPerRoute) {
+      emitPerRoute = true;
+      if (verbose) {
+        log(`  [MCP] <program mcp> detected — auto-flipping --emit-per-route ON (mode: ${mcpMode})`);
+      }
+    } else if (verbose) {
+      log(`  [MCP] <program mcp> detected (mode: ${mcpMode}); --emit-per-route already set`);
+    }
   }
 
   // Stage 3.005 (GCP1): Gauntlet Phase 1 checks (§21, §41, §7.6) — runs before NR.
@@ -1734,6 +1795,17 @@ export function compileScrml(options = {}) {
   // emitting file's location in the output tree).
   // ---------------------------------------------------------------------------
   const stdlibSpecifiers = collectStdlibSpecifiers(tabResults);
+  // MCP V0 Sub-unit D — auto-include `scrml:mcp` in the stdlib bundle when
+  // `<program mcp>` is set, even if no source file imports it directly. The
+  // attribute IS the opt-in; the boot import lives in the build-time-
+  // generated `_server.js` (commands/build.js), not in any TAB-parsed file,
+  // so it would never reach collectStdlibSpecifiers naturally. Without this
+  // splice, the `_server.js` boot would `import "./_scrml/mcp.js"` against a
+  // missing file. Q4 (a) in SCOPING — compiler-internal stdlib; adopters do
+  // not directly import it.
+  if (mcpAutoActivated) {
+    stdlibSpecifiers.add("mcp");
+  }
   const bundledStdlib = (write && outputDir)
     ? bundleStdlibForRun(stdlibSpecifiers, outputDir, verbose ? log : null, allErrors)
     : new Set();
@@ -2141,5 +2213,19 @@ export function compileScrml(options = {}) {
       cgResult.chunksManifest
         ? serializeChunksManifest(cgResult.chunksManifest, cgResult.chunks)
         : null,
+    // MCP V0 Sub-unit D — `<program mcp>` opt-in auto-activation surface.
+    // Consumed by commands/compile.js (--verbose log) and commands/build.js
+    // (boot-import injection into the generated _server.js).
+    //   mcpAutoActivated — true when ANY fileAST in this build carries the
+    //     <program mcp> attribute (and we therefore auto-flipped emitPerRoute
+    //     + intend to inject the boot import); false when no mcp attribute
+    //     was present.
+    //   mcpMode — "dev-only" | "always" when activated; null otherwise.
+    //   mcpEmitPerRouteAutoFlipped — true when adopter did NOT pass
+    //     --emit-per-route but we flipped it anyway because of <program mcp>;
+    //     surfaced for the --verbose log line.
+    mcpAutoActivated,
+    mcpMode,
+    mcpEmitPerRouteAutoFlipped: mcpAutoActivated && !_emitPerRouteOpt,
   };
 }

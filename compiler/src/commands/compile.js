@@ -500,6 +500,30 @@ function runOnce(opts, selfHostModules = null) {
     console.log(c.yellow(`  ${lintDiags.length} lint${lintDiags.length !== 1 ? "s" : ""} (ghost pattern)`));
   }
 
+  // MCP V0 Sub-unit D (2026-05-25) — surface auto-flips so adopters see
+  // what was wired implicitly by the <program mcp> opt-in. The line shows
+  // up after the per-warning detail block and the success summary, so the
+  // visual hierarchy is: errors > warnings > MCP-info > summary.
+  //
+  // When --verbose is OFF we still print a ONE-line "MCP opt-in" line so
+  // adopters don't deploy a build with hidden auto-flips. With --verbose,
+  // we add the implicit-emitPerRoute detail line for full traceability.
+  if (result.mcpAutoActivated) {
+    const mcpMode = result.mcpMode || "dev-only";
+    console.log(c.dim(`  [MCP] <program mcp> opt-in detected (mode: ${mcpMode})`));
+    if (result.mcpEmitPerRouteAutoFlipped) {
+      console.log(c.dim(`  [MCP] Auto-flipped --emit-per-route ON (required for descriptor sidecars + chunks.json)`));
+    }
+    if (verbose) {
+      console.log(c.dim(`  [MCP] Boot import will be injected into the production _server.js by 'scrml build'.`));
+      if (mcpMode === "dev-only") {
+        console.log(c.dim(`  [MCP] Runtime gate: boot skips when NODE_ENV === "production" (mode='always' to override)`));
+      } else {
+        console.log(c.dim(`  [MCP] Runtime gate: unconditional boot (mode='always')`));
+      }
+    }
+  }
+
   if (emitBatchPlan && typeof result.batchPlanJson === "function") {
     console.log("\n" + c.dim("// --- BatchPlan (§PIPELINE Stage 7.5) ---"));
     console.log(result.batchPlanJson());

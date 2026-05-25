@@ -44,9 +44,37 @@ export interface MiddlewareConfig {
   channelReconnect: string | null;
 }
 
+/**
+ * MCP V0 Sub-unit D — config struct for the `<program mcp>` opt-in attribute.
+ *
+ * Present when the <program> markup carries the `mcp` attribute (bare or with
+ * a recognized value). Two recognized values per SCOPING §3 Q3.4 ratification:
+ *
+ *   - "dev-only" (default — also resolved when the attribute is bare-present,
+ *     e.g. `<program mcp>` or `<program mcp="">` — the boolean-attribute
+ *     idiom). Generated `_server.js` runtime gates the MCP boot behind
+ *     `process.env.NODE_ENV !== "production"`.
+ *   - "always" — boot unconditionally (CI / production introspection).
+ *
+ * When this config is non-null, api.js auto-flips `emitPerRoute: true` (so the
+ * MCP descriptor sidecars + chunks.json are emitted) and the generated
+ * `_server.js` includes a `scrml:mcp` boot import. When null, no MCP-related
+ * compile-time effect occurs (zero opt-out cost for non-adopters).
+ *
+ * Per SCOPING line 275 caveat: there is no canonical compile-time dev-vs-prod
+ * hook in the compiler today (§58 Build Story is spec-only as of S118), so
+ * the "dev-only" gate is implemented as a RUNTIME env-var check in the
+ * generated `_server.js`. Revisit once build-story implementation lands.
+ */
+export interface McpConfig {
+  /** "dev-only" | "always" — canonicalized from the attribute value. */
+  mode: "dev-only" | "always";
+}
+
 export interface ProgramConfig {
   authConfig: AuthConfig | null;
   middlewareConfig: MiddlewareConfig | null;
+  mcpConfig: McpConfig | null;
 }
 
 /**
@@ -175,5 +203,44 @@ export function computeProgramConfig(nodes: any[]): ProgramConfig {
     }
   }
 
-  return { authConfig, middlewareConfig };
+  // ---------------------------------------------------------------------------
+  // MCP V0 Sub-unit D — extract <program mcp> opt-in attribute.
+  //
+  // Per attribute-registry.js the allowedValues are ["dev-only", "always"];
+  // bare-present (`<program mcp>`) — the boolean-attribute idiom — defaults
+  // to "dev-only". Any other value is silently treated as "dev-only" here
+  // (VP-1 W-ATTR-002 has already surfaced the unknown-value warning to the
+  // adopter); falling back to the safer default avoids accidentally enabling
+  // the "always" path on a typo.
+  //
+  // Authority: docs/changes/mcp-v0-devtools-scoping/SCOPING.md §3 Sub-unit D.
+  // ---------------------------------------------------------------------------
+  let mcpConfig: McpConfig | null = null;
+  if (programNode) {
+    const programAttrs3 = programNode.attrs ?? [];
+    const mcpAttr = programAttrs3.find((attr: any) => attr.name === "mcp");
+    if (mcpAttr) {
+      let mode: "dev-only" | "always" = "dev-only";
+      if (mcpAttr.value && mcpAttr.value.kind === "string-literal") {
+        const literal = mcpAttr.value.value;
+        if (literal === "always") {
+          mode = "always";
+        } else if (literal === "" || literal === "dev-only") {
+          mode = "dev-only";
+        } else {
+          // Unrecognized literal — VP-1 surfaces W-ATTR-002. Default to the
+          // safer "dev-only" so a typo does not silently enable production
+          // wiring.
+          mode = "dev-only";
+        }
+      } else if (mcpAttr.value && mcpAttr.value.kind === "absent") {
+        // <program mcp> with no `=value` syntax at all — boolean-attribute
+        // idiom; resolve to the default.
+        mode = "dev-only";
+      }
+      mcpConfig = { mode };
+    }
+  }
+
+  return { authConfig, middlewareConfig, mcpConfig };
 }

@@ -140,6 +140,19 @@ ELEMENT_ATTR_REGISTRY.set("program", {
     })],
     ["max-restarts",  attrSpec({ supportsInterpolation: false })],
     ["within",        attrSpec({ supportsInterpolation: false })],
+    // MCP V0 Sub-unit D (2026-05-25) — opt-in attribute that auto-installs
+    // the scrml:mcp DevTools server on the top-level <program>. Two recognized
+    // values per SCOPING §3 Q3.4 ratification: "dev-only" (default when
+    // attribute is bare-present, e.g. <program mcp>) gates the runtime boot
+    // behind `process.env.NODE_ENV !== "production"`; "always" boots
+    // unconditionally (CI / production introspection panels). Compile-time
+    // effect: api.js auto-flips emitPerRoute and a boot import is injected
+    // into the generated _server.js entry. Authority:
+    // docs/changes/mcp-v0-devtools-scoping/SCOPING.md §3 Sub-unit D.
+    ["mcp",           attrSpec({
+      supportsInterpolation: false,
+      allowedValues: ["dev-only", "always"],
+    })],
   ]),
 });
 
