@@ -57,3 +57,56 @@
 3. Read PA-SCRML-PRIMER.md for Tier ladder + pillars
 4. Read llm-kickstarter-v2-2026-05-04.md for current canonical recipes
 5. Read examples/03-contact-book.scrml (hero) + 15-channel-chat.scrml
+
+## Phase 2 — Corpus survey complete
+
+**Iteration site counts in current corpus (2026-05-25 snapshot):**
+
+- Total `for (... of ...)` sites in `.scrml` files (examples/ + samples/): **173**
+- Files containing iteration: **113 unique `.scrml` files**
+- Sites paired with `lift` in same logic block: **93** of 113 (82%)
+- Sites with `key=` clause (§17.4b): **5** test-fixture (`phase2-for-keyed-reconcile-051`) — ZERO live use in `examples/` apps
+- Sites with `else { lift ... }` empty-state (§17.4a): handful (e.g. `phase2-for-lift-else-empty-049`); zero live use in `examples/`
+- Bulk of iteration: simple `${ for (let x of @items) { lift <li>...</li> } }`
+
+**Canonical shape (recurring across 70+ sites):**
+
+```scrml
+<ul>
+  ${ for (let item of @items) {
+    lift <li class="row">
+      <span>${item.title}</span>
+      <button onclick=remove(item.id)>×</button>
+    </li>
+  } }
+</ul>
+```
+
+**Variations observed:**
+
+1. **`if/continue` filtering pattern** (kanban + live-search) — pre-filter inside loop
+2. **Component-row pattern** (trucking-dispatch) — `lift <div><LoadCard load=l/></div>`
+3. **`match` inside `lift` body** (phase2-match-in-for-lift-098) — match expression for per-item branching
+4. **Chained array operations** (`@tasks.filter(t => t.column == col).sort(...)`) — fluent inside for-head
+5. **Multi-child body** (contact-book, 03) — `<li>` with multiple `<span>` siblings; this is the majority shape
+6. **Component-only emit** (trucking-dispatch board.scrml) — `lift <div><LoadCard .../></div>` wrapper-div hack for single-component case
+7. **Numbered/indexed access** — `@tasks.filter(...)` evaluated in for-head (reactive dependency)
+
+**No live use of `key=` in production examples — ZERO files.** This is one of the load-bearing finding for the DD: the keyed-reconciliation surface exists in SPEC but is not used.
+
+**No live use of `else { lift ... }` in examples/ — empty-state is currently handled via separate `if (@items.length == 0)` check OR omitted.**
+
+**Kickstarter explicit:** "There are no `<for>` or `<if>` markup tags. Iteration uses `${ for (let x of xs) { ... lift ... } }`."
+(`docs/articles/llm-kickstarter-v2-2026-05-04.md` §7 line 688, §8.5 line 729)
+
+This is the single load-bearing prior commitment this DD must address: any `<each>` proposal directly contradicts the kickstarter's stated negative-space.
+
+**Gauntlet R10 (2026-04-08, `optimal-syntax-from-gauntlet-2026-04-08.md`) friction:**
+
+- 9-10 of 13 dev agents wrote tripled-markup kanban columns because they DID NOT REACH for `for/lift` iteration over `Column.variants` (enum-iteration was unattempted by most)
+- 2/13 used `for` over `Column.variants` (Vue + Rust)
+- Quote: "This problem has two solutions: A (enum iteration `for (let col of Column.variants)`)..."
+
+**User-voice signal (elevator-pitch.md line 144):** "If scrml added keyed iteration, transitions, and file routing, I would switch for new projects."
+Iteration is on record as a name-axis ergonomics surface.
+
