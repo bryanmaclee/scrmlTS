@@ -716,9 +716,11 @@ export function tokenizeAttributes(raw: string, baseOffset: number, baseLine: nu
     } else {
       // Sigil-prefixed brace block in standalone attribute position:
       // ${...}, ^{...}, ?{...}, #{...}, !{...}, ~{...}
-      // Must consume as opaque unit — otherwise content like bun.eval() or
-      // process.env would be tokenized as ATTR_NAME/ATTR_CALL, leaking
+      // Must consume as opaque unit — otherwise content like process.env
+      // or Bun.file() would be tokenized as ATTR_NAME/ATTR_CALL, leaking
       // server-context code into client JS via event binding paths.
+      // (Post-S130 / HU-2 Q4: `bun.eval()` retires as a user-facing surface
+      // per Approach C extension; the broader server-context concern remains.)
       if (
         (c === '$' || c === '^' || c === '?' || c === '#' || c === '!' || c === '~') &&
         pos + 1 < raw.length && raw[pos + 1] === '{'

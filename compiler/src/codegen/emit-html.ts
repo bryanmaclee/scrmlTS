@@ -4,7 +4,7 @@ import { emitStringFromTree, exprNodeContainsMemberAccess } from "../expression-
 import { isMetaKind } from "../types/ast.ts";
 import { escapeHtmlAttr, VOID_ELEMENTS } from "./utils.ts";
 import { extractReactiveDeps, collectReactiveVarNames, extractReactiveDepsTransitive, buildFunctionBodyRegistry } from "./reactive-deps.ts";
-import { hasTemplateInterpolation, rewriteBunEval } from "./rewrite.js";
+import { hasTemplateInterpolation } from "./rewrite.js";
 import { CGError } from "./errors.ts";
 import type { BindingRegistry } from "./binding-registry.ts";
 import type { CompileContext } from "./context.ts";
@@ -1687,33 +1687,26 @@ export function generateHtml(
         const bareExpr = node.body[0];
         // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
         const expr: string = bareExpr.exprNode ? emitStringFromTree(bareExpr.exprNode) : (bareExpr.expr ?? "");
-        if (/\bbun\s*\.\s*eval\s*\(/.test(expr)) {
-          const evalErrors: any[] = [];
-          const inlined: string = rewriteBunEval(expr, evalErrors);
-          if (evalErrors.length === 0 && !inlined.includes("bun.eval")) {
-            try {
-              const parsed = JSON.parse(inlined);
-              parts.push(String(parsed));
-            } catch {
-              parts.push(inlined);
-            }
-            if (errors) {
-              for (const e of evalErrors) errors.push(new CGError(e.code, e.message, node.span ?? { file: "", start: 0, end: 0, line: 1, col: 1 }));
-            }
-            return;
-          }
-        }
 
-        // S108 Bug 5 Phase 3 — Constant-fold (Option γ) for non-bun.eval forms.
+        // S130 Phase 2 (HU-2 Q4 / F-003) — the former `${ bun.eval(...) }`
+        // user-facing inline-evaluation surface (former SPEC §30.2) is RETIRED
+        // per Approach C extension (SPEC §22.12). User-source `bun.eval()` in
+        // `${...}` interpolation is no longer recognized as a special-case
+        // compile-time-fold path. The pre-S130 inline-evaluator block that
+        // previously lived here is removed; user-written `${bun.eval(...)}`
+        // now falls through to the standard constant-fold + runtime-binding
+        // path below, where `bun` is no longer in META_BUILTINS and triggers
+        // E-META-001 at meta-checker time.
+
+        // S108 Bug 5 Phase 3 — Constant-fold (Option γ).
         //
         // SPEC §7.4.2 (S108 amendment) normative permission: "When `expr`
         // references NO reactive cells AND the expression collapses to a
         // compile-time-known constant value (literal, `const`-bound to a
-        // literal, simple arithmetic on constants, `bun.eval()`-produced
-        // literal per §30.2), the compiler MAY inline the string value
-        // directly into the emitted HTML at that position. This is a
-        // permitted optimization — the rendered output is observationally
-        // equivalent."
+        // literal, simple arithmetic on constants), the compiler MAY inline
+        // the string value directly into the emitted HTML at that position.
+        // This is a permitted optimization — the rendered output is
+        // observationally equivalent."
         //
         // The canonical adopter shape this folds is:
         //   const VERSION = "v0.3.0"

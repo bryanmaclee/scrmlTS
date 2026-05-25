@@ -13,6 +13,14 @@
  *    the determinism constraints of §22 (no Date.now(), no bun.eval() of
  *    non-deterministic shape, no I/O)."
  *
+ * Post-S130 note (HU-2 Q4 / F-003): `bun.eval()` retires as a USER-FACING
+ * surface entirely (the prior §30.2 `${ bun.eval(...) }` interpolation form
+ * is RETIRED per Approach C extension; see SPEC §22.12 + §30.1 retirement
+ * note). The determinism reference above remains valid because `bun.eval()`
+ * persists as a compiler-INTERNAL mechanism only (§30.1). The compile-time
+ * evaluator still constrains its admissible compiler-internal surface to
+ * deterministic expression shapes.
+ *
  * **OQ-A2-D disposition (S89, option (a)):** extract a constant-folding
  * primitive that Component 1 + future passes (UVB attribute-allowlist
  * narrowing, the §22 evaluator, the §17.5 if= classifier) can all consume.

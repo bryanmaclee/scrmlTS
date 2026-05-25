@@ -443,7 +443,12 @@ function exprTreeContainsSqlRef(node: unknown): boolean {
  *   - kind === "sql" — all SQL blocks are server-only
  *   - kind === "transaction-block" — all transaction blocks are server-only
  *   - kind === "meta" whose body contains server-context API patterns
- *     (process.env, Bun.env, bun.eval, Bun.file, fs.*, etc.)
+ *     (process.env, Bun.env, Bun.file, fs.*, etc.).
+ *     Per S130 (HU-2 Q4 / F-003) Approach C extension: `bun.eval()` retires
+ *     as a user-facing surface entirely (no longer a recognized compile-time
+ *     API per SPEC §22.12). The defense-in-depth `bun.eval` entry in
+ *     SERVER_CONTEXT_META_PATTERNS is retained as a stale-emission guard
+ *     against any residual literal bun.eval calls.
  *   - kind === "let-decl" or "const-decl" whose init string contains ?{` SQL sigil
  *   - kind === "bare-expr" whose expr string contains ?{` SQL sigil
  *

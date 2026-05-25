@@ -12,7 +12,7 @@ import { isMetaKind } from "./types/ast.ts";
  *   1. **Phase separation check (E-META-001)**
  *      Detects when runtime-scoped variables are referenced inside ^{} meta
  *      contexts that are compile-time-only. Meta contexts that use compile-time
- *      APIs (reflect, bun.eval, emit) execute at compile time and
+ *      APIs (reflect, emit, emit.raw) execute at compile time and
  *      cannot access runtime values. This check runs after the type system has
  *      built the scope chain, so we know which variables exist and where they
  *      were declared.
@@ -176,7 +176,11 @@ export const META_BUILTINS = new Set([
 export const COMPILE_TIME_API_PATTERNS: RegExp[] = [
   /(?<!\.\s{0,10})\breflect\s*\(/,          // reflect(TypeName) — NOT meta.types.reflect()
   /(?<!\.\s{0,10})\bemit(?:\.raw)?\s*\(/,    // emit(...) or emit.raw(...) — NOT meta.emit()
-  /\bbun\s*\.\s*eval\s*\(/,    // bun.eval(...)
+  // Per HU-2 Q4 (F-003): `bun.eval()` retires as a user-facing surface entirely.
+  // It is no longer a recognized compile-time-API pattern. Approach C (§22.12)
+  // extends transitively to `${}` interpolation; the META_BUILTINS primitive
+  // set closes at reflect / emit / emit.raw. The former `bun.eval(...)` entry
+  // here is retired with the §30.2 user-facing surface.
 ];
 
 // ---------------------------------------------------------------------------
@@ -379,10 +383,13 @@ export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
 
   function testExprNode(exprNode: ExprNode | undefined): boolean {
     if (!exprNode) return false;
+    // Per HU-2 Q4 (F-003) / SPEC §22.12 Approach C extension: `bun.eval()`
+    // retires from the compile-time-API classification surface entirely
+    // (closed primitive set is reflect / emit / emit.raw). Sibling change at
+    // COMPILE_TIME_API_PATTERNS keeps the string-path consistent.
     return exprNodeContainsCompileTimeReflect(exprNode)
       || exprNodeContainsCall(exprNode, "emit")
-      || exprNodeContainsEmitRawCall(exprNode)
-      || exprNodeContainsMemberAccess(exprNode, ["bun", "eval"]);
+      || exprNodeContainsEmitRawCall(exprNode);
   }
 
   function testExpr(expr: string | undefined): boolean {
@@ -1619,7 +1626,7 @@ export function runMetaChecker(input: MetaCheckerInput): MetaCheckerOutput {
         allErrors.push(new MetaError(
           "E-META-005",
           `E-META-005: Phase separation violation — this ^{} block references both ` +
-          `compile-time APIs (reflect, emit, bun.eval) and runtime-only values. ` +
+          `compile-time APIs (reflect, emit, emit.raw) and runtime-only values. ` +
           `Split into separate compile-time and runtime ^{} blocks.`,
           metaNode.span || { file: filePath, start: 0, end: 0, line: 1, col: 1 } as Span,
         ));
@@ -1653,7 +1660,7 @@ export function runMetaChecker(input: MetaCheckerInput): MetaCheckerOutput {
           "E-META-010",
           `E-META-010: The \`compiler.*\` namespace is reserved for future use ` +
           `and is not implemented in this revision. Remove the reference, or use ` +
-          `a different compile-time mechanism (reflect, emit, bun.eval).`,
+          `a different compile-time mechanism (reflect, emit, emit.raw).`,
           metaNode.span || { file: filePath, start: 0, end: 0, line: 1, col: 1 } as Span,
         ));
       }

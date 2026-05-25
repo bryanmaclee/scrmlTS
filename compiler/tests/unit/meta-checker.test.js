@@ -868,9 +868,13 @@ describe("bodyUsesCompileTimeApis", () => {
     expect(bodyUsesCompileTimeApis(body)).toBe(true);
   });
 
-  test("§51 returns true when bun.eval() is present in const-decl init", () => {
+  test("§51 returns false when bun.eval() is present — retired per HU-2 Q4 (F-003)", () => {
+    // Per S130 Approach C extension: `bun.eval()` retires as a recognized
+    // compile-time-API pattern. The META primitive set closes at reflect /
+    // emit / emit.raw (SPEC §22.12). A body containing only `bun.eval(...)`
+    // is no longer classified as compile-time meta.
     const body = [makeConstDecl("CONFIG", "bun.eval(`return { port: 3000 }`)")];
-    expect(bodyUsesCompileTimeApis(body)).toBe(true);
+    expect(bodyUsesCompileTimeApis(body)).toBe(false);
   });
 
   test("§52 returns true when emit() is present", () => {
@@ -887,8 +891,11 @@ describe("bodyUsesCompileTimeApis", () => {
     expect(bodyUsesCompileTimeApis(body)).toBe(false);
   });
 
-  test("§60 returns false when bun.readFile is used (not bun.eval)", () => {
-    // bun.readFile is not in the compile-time API patterns — only bun.eval()
+  test("§60 returns false when bun.readFile is used", () => {
+    // bun.readFile is not in the compile-time API patterns. Post-S130, neither
+    // is `bun.eval()` (retired per HU-2 Q4 / F-003 — META set closes at
+    // reflect / emit / emit.raw per §22.12). The only recognized compile-time
+    // API patterns are reflect and emit/emit.raw.
     const body = [makeBareExpr("bun.readFile('./data.json')")];
     expect(bodyUsesCompileTimeApis(body)).toBe(false);
   });
@@ -2008,11 +2015,15 @@ describe("§22.4 / S48 — compiler.* phantom closed (E-META-010) + E-META-009 b
     expect(e010.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("§S48c runMetaChecker — reflect/emit/bun.eval still classify compile-time (regression guard)", () => {
+  test("§S48c runMetaChecker — reflect/emit still classify compile-time (regression guard)", () => {
     // After removing the `compiler.*` regex, the remaining compile-time API
-    // classifiers (reflect, emit, bun.eval) MUST still trigger compile-time
+    // classifiers (reflect, emit, emit.raw) MUST still trigger compile-time
     // classification. This guards against accidental breakage during the
     // deletion.
+    //
+    // Post-S130: `bun.eval()` retired from this list per HU-2 Q4 (F-003) /
+    // SPEC §22.12 Approach C extension. The closed primitive set is now
+    // reflect / emit / emit.raw.
     const reflectResult = runMetaChecker({
       files: [makeFileAST({
         nodes: [makeMetaNode([makeBareExpr("info = reflect(Color)")])],
@@ -2024,8 +2035,8 @@ describe("§22.4 / S48 — compiler.* phantom closed (E-META-010) + E-META-009 b
     const emitBody = [makeBareExpr("emit('<p>hi</p>')")];
     expect(bodyUsesCompileTimeApis(emitBody)).toBe(true);
 
-    const bunEvalBody = [makeConstDecl("CFG", "bun.eval(`return { port: 3000 }`)")];
-    expect(bodyUsesCompileTimeApis(bunEvalBody)).toBe(true);
+    const emitRawBody = [makeBareExpr("emit.raw('<p>hi</p>')")];
+    expect(bodyUsesCompileTimeApis(emitRawBody)).toBe(true);
 
     const reflectBody = [makeBareExpr("reflect(Color)")];
     expect(bodyUsesCompileTimeApis(reflectBody)).toBe(true);

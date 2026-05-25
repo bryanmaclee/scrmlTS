@@ -203,8 +203,16 @@ describe("self-host parity: bodyUsesCompileTimeApis", () => {
     expect(bodyUsesCompileTimeApis(body)).toBe(true);
   });
 
-  test("detects bun.eval() in bare-expr", () => {
+  test("does NOT detect bun.eval() in bare-expr — retired per HU-2 Q4 (F-003)", () => {
+    // Per S130 Approach C extension (SPEC §22.12): `bun.eval()` retires from
+    // the closed compile-time-API primitive set entirely. A body containing
+    // only `bun.eval(...)` is no longer classified as compile-time meta.
     const body = [makeBareExpr("bun.eval(`return 42`)")];
+    expect(bodyUsesCompileTimeApis(body)).toBe(false);
+  });
+
+  test("detects emit.raw() call in bare-expr", () => {
+    const body = [makeBareExpr("emit.raw(`<p>raw</p>`)")];
     expect(bodyUsesCompileTimeApis(body)).toBe(true);
   });
 
