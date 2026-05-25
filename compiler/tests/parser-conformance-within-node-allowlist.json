@@ -180,11 +180,11 @@
   },
   "examples/13-worker.scrml": {
     "KIND-NAME": 6,
-    "FIELD-SHAPE": 16,
-    "MISSING-FIELD": 53,
-    "EXTRA-FIELD": 36,
-    "COUNT-LENGTH": 4,
-    "SPAN-COORD": 67
+    "FIELD-SHAPE": 29,
+    "MISSING-FIELD": 54,
+    "EXTRA-FIELD": 28,
+    "COUNT-LENGTH": 3,
+    "SPAN-COORD": 135
   },
   "examples/14-mario-state-machine.scrml": {
     "KIND-NAME": 33,
@@ -559,12 +559,10 @@
     "SPAN-COORD": 402
   },
   "examples/24-tilde-pipeline.scrml": {
-    "KIND-NAME": 1,
-    "FIELD-SHAPE": 8,
-    "MISSING-FIELD": 28,
-    "EXTRA-FIELD": 13,
-    "COUNT-LENGTH": 4,
-    "SPAN-COORD": 55
+    "FIELD-SHAPE": 12,
+    "MISSING-FIELD": 18,
+    "EXTRA-FIELD": 5,
+    "SPAN-COORD": 71
   },
   "examples/25-triage-board.scrml": {
     "KIND-NAME": 26,
@@ -1736,11 +1734,10 @@
     "SPAN-COORD": 6
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-function-typed-params-007.scrml": {
-    "FIELD-SHAPE": 3,
-    "MISSING-FIELD": 7,
-    "EXTRA-FIELD": 5,
-    "COUNT-LENGTH": 2,
-    "SPAN-COORD": 5
+    "FIELD-SHAPE": 4,
+    "MISSING-FIELD": 6,
+    "EXTRA-FIELD": 3,
+    "SPAN-COORD": 9
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-function-with-sql-002.scrml": {
     "FIELD-SHAPE": 1,
@@ -3219,12 +3216,10 @@
     "SPAN-COORD": 8
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-fn-arg-expr-091.scrml": {
-    "KIND-NAME": 1,
-    "FIELD-SHAPE": 4,
-    "MISSING-FIELD": 10,
-    "EXTRA-FIELD": 7,
-    "COUNT-LENGTH": 2,
-    "SPAN-COORD": 3
+    "FIELD-SHAPE": 5,
+    "MISSING-FIELD": 6,
+    "EXTRA-FIELD": 3,
+    "SPAN-COORD": 15
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-for-arith-iterable-090.scrml": {
     "FIELD-SHAPE": 4,
@@ -3346,12 +3341,10 @@
     "SPAN-COORD": 8
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-is-some-paren-call-011.scrml": {
-    "KIND-NAME": 1,
-    "FIELD-SHAPE": 2,
-    "MISSING-FIELD": 11,
-    "EXTRA-FIELD": 7,
-    "COUNT-LENGTH": 2,
-    "SPAN-COORD": 2
+    "FIELD-SHAPE": 3,
+    "MISSING-FIELD": 7,
+    "EXTRA-FIELD": 3,
+    "SPAN-COORD": 11
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-is-unknown-variant-005.scrml": {
     "KIND-NAME": 1,
@@ -3655,12 +3648,10 @@
     "SPAN-COORD": 9
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-return-expr-092.scrml": {
-    "KIND-NAME": 1,
-    "FIELD-SHAPE": 3,
-    "MISSING-FIELD": 10,
-    "EXTRA-FIELD": 7,
-    "COUNT-LENGTH": 2,
-    "SPAN-COORD": 3
+    "FIELD-SHAPE": 4,
+    "MISSING-FIELD": 6,
+    "EXTRA-FIELD": 3,
+    "SPAN-COORD": 18
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-spread-array-066.scrml": {
     "FIELD-SHAPE": 3,
@@ -3668,12 +3659,11 @@
     "SPAN-COORD": 13
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-spread-as-fn-args-110.scrml": {
-    "KIND-NAME": 2,
-    "FIELD-SHAPE": 6,
-    "MISSING-FIELD": 13,
-    "EXTRA-FIELD": 9,
-    "COUNT-LENGTH": 2,
-    "SPAN-COORD": 4
+    "KIND-NAME": 1,
+    "FIELD-SHAPE": 8,
+    "MISSING-FIELD": 7,
+    "EXTRA-FIELD": 5,
+    "SPAN-COORD": 17
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-spread-object-067.scrml": {
     "FIELD-SHAPE": 3,
@@ -4791,20 +4781,16 @@
     "SPAN-COORD": 16
   },
   "samples/compilation-tests/lin-001-basic-linear.scrml": {
-    "KIND-NAME": 3,
-    "FIELD-SHAPE": 3,
-    "MISSING-FIELD": 23,
-    "EXTRA-FIELD": 17,
-    "COUNT-LENGTH": 2,
-    "SPAN-COORD": 4
+    "FIELD-SHAPE": 4,
+    "MISSING-FIELD": 10,
+    "EXTRA-FIELD": 4,
+    "SPAN-COORD": 10
   },
   "samples/compilation-tests/lin-002-double-use.scrml": {
-    "KIND-NAME": 5,
     "FIELD-SHAPE": 6,
-    "MISSING-FIELD": 35,
-    "EXTRA-FIELD": 27,
-    "COUNT-LENGTH": 2,
-    "SPAN-COORD": 6
+    "MISSING-FIELD": 14,
+    "EXTRA-FIELD": 5,
+    "SPAN-COORD": 14
   },
   "samples/compilation-tests/logic-001-let-decl.scrml": {
     "FIELD-SHAPE": 1,
@@ -5694,20 +5680,19 @@
     "COUNT-LENGTH": 2
   },
   "samples/debate-lin-lift-edge-cases.scrml": {
-    "KIND-NAME": 5,
-    "FIELD-SHAPE": 9,
-    "MISSING-FIELD": 55,
-    "EXTRA-FIELD": 27,
-    "COUNT-LENGTH": 7,
-    "SPAN-COORD": 29
+    "KIND-NAME": 3,
+    "FIELD-SHAPE": 12,
+    "MISSING-FIELD": 38,
+    "EXTRA-FIELD": 15,
+    "COUNT-LENGTH": 1,
+    "SPAN-COORD": 39
   },
   "samples/debate-lin-lift-pipeline.scrml": {
-    "KIND-NAME": 3,
-    "FIELD-SHAPE": 5,
-    "MISSING-FIELD": 36,
-    "EXTRA-FIELD": 15,
-    "COUNT-LENGTH": 2,
-    "SPAN-COORD": 16
+    "KIND-NAME": 1,
+    "FIELD-SHAPE": 8,
+    "MISSING-FIELD": 21,
+    "EXTRA-FIELD": 7,
+    "SPAN-COORD": 29
   },
   "samples/expense-tracker.scrml": {
     "FIELD-SHAPE": 1,
@@ -6105,20 +6090,19 @@
     "SPAN-COORD": 78
   },
   "samples/react-dev-lin-lift-edge-cases.scrml": {
-    "KIND-NAME": 5,
-    "FIELD-SHAPE": 9,
-    "MISSING-FIELD": 55,
-    "EXTRA-FIELD": 27,
-    "COUNT-LENGTH": 7,
-    "SPAN-COORD": 29
+    "KIND-NAME": 3,
+    "FIELD-SHAPE": 12,
+    "MISSING-FIELD": 38,
+    "EXTRA-FIELD": 15,
+    "COUNT-LENGTH": 1,
+    "SPAN-COORD": 39
   },
   "samples/react-dev-lin-lift-pipeline.scrml": {
-    "KIND-NAME": 2,
-    "FIELD-SHAPE": 4,
-    "MISSING-FIELD": 23,
-    "EXTRA-FIELD": 11,
-    "COUNT-LENGTH": 2,
-    "SPAN-COORD": 15
+    "KIND-NAME": 1,
+    "FIELD-SHAPE": 5,
+    "MISSING-FIELD": 15,
+    "EXTRA-FIELD": 6,
+    "SPAN-COORD": 19
   },
   "samples/recipe-book.scrml": {
     "FIELD-SHAPE": 2,
