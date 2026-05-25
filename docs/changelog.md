@@ -2,7 +2,72 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-24 **S128 CLOSE**). Full `bun run test` **21,393 pass / 0 fail / 174 skip / 1 todo across 783 files**; pre-commit gate (unit + integration + conformance) clean on every commit. Native-parser canary strict-pass **1000/1001 (EXACT 964)** — held through all 4 S128 M6.7 D-class units. S127 CLOSE baseline (pre-S128): 21,337 pass.
+Current baseline (2026-05-25 **S129 CLOSE**). Full `bun run test` **21,414 pass / 0 fail / 170 skip / 1 todo across 784 files**; pre-commit gate (unit + integration + conformance) clean on every commit. Native-parser canary strict-pass **1000/1001 (EXACT 964)** — held through the D8a-i parser-fix landing. Prior baseline (S128 CLOSE): 21,393 pass.
+
+### 2026-05-25 (S129 CLOSE — STOP + grammar consolidation; 3 audits + HU-2 batch + D8a-i parser fix)
+
+A pivotal session. PA was about to dispatch a D8c parser-fix that would have ADDED a contradiction back into scrml (the V-kill grammar at SPEC §7.5 / §52.4.1 would have been "fixed" as a parse-completeness gap when actually the canon-canonical form is V5-strict `<x>: T = v`). User pulled the brakes hard and ratified a 4-phase grammar-lockdown plan: (1) inventory, (2) heads-up resolution, (3) 100% example coverage, (4) re-evaluate further refactor.
+
+**Phase 1 deliverables (3 audit docs landed):**
+
+- `b3859770` **Phase 1a — SPEC.md consolidation inventory.** 17 findings (5 LB / 5 MED / 7 LOW) from SPEC-anchored sequential walk. Audit at `docs/audits/spec-consolidation-inventory-2026-05-24.md`.
+- `1ac874f2` **Phase 1b — canon-anchored corroboration + PIPELINE + SPEC re-pass.** 22 findings (18 substantive, 11 LB) from canon-anchored projection (PRIMER + kickstarter + native-parser + design-insights + user-voice + PIPELINE → SPEC). Audit at `docs/audits/spec-corroboration-canons-pipeline-2026-05-24.md`.
+- `91acb4f0` **Phase 1c — inverse-direction coverage audit.** 26 GAP findings (F-025-F-055, 11 LB) where SPEC ratifies a feature but PRIMER + kickstarter are silent. This was the remediation Phase 1a + 1b's briefs missed via one-direction hole-detection only. Audit at `docs/audits/spec-feature-canon-coverage-2026-05-25.md`. Triggered by a user question that surfaced F-023 (`(A -> B)` lifecycle annotation absent from canons despite SPEC §14.3 ratifying it as flagship).
+
+**Phase 2 HU-2 batch (6 heads-up resolutions; doc-only):**
+
+- Q3 — `${ bun.eval("year") }` retire (HU-1 carry-forward from F-003); replacement is `scrml:time.currentYear` runtime call.
+- Q4 — E-EVAL-001 retire entirely. PA's initial recommendation was wrong (speculation about coverage); 5-minute grep revealed E-EVAL-001 has zero remaining fire paths post-F-003 (a) ratification. Doc-only retire + drop dead-code at `rewrite.ts:510`. F-003 source-cascade scoped (8 additional sites in compiler-source — all stale comments / filter checks).
+- Q5 — V-kill cluster (4 LB closed): F-001 / F-009 / F-008 / F-016. SPEC §7.5 grammar production moves to §6.1 alongside V-kill normative statements; §52.4.1 grammar retires (production folds into §6.1 with `server` joining the bare-attribute family inside the V5-strict tag); ~30 worked-example mechanical sweep authorized. **Q5.B sub-decision** ratified the bare-attribute form `<cards server>: T = []` over the prefix-modifier form `server <cards>: T = []` — user's cohesion-and-falls-under-fingers design lens (ratified user-voice S129) trumped PA's lowest-touch lean.
+- Q6 — PIPELINE `deriveEngineVarName` "Machine" suffix-strip retires (F-021). Compiler code already aligns with SPEC §51.0.C (`symbol-table.ts:4234` literal lowercase-first); PIPELINE prose was the lone outlier.
+- Q7 — `<schema>` placement post-v0.3 (F-019). Inside `<program>` as immediate child; §39.2 prose + §39.3 normative + E-SCHEMA-003 catalog row rewrite. Worked example unchanged.
+- Q8 — §55.5 validity surface synthesis predictability wins (F-018). Compiler code already implements unconditional synthesis (`symbol-table.ts:3356` verbatim "UNCONDITIONAL for compound parents"); PIPELINE Stage 6.7 invariants extend to explicitly document the no-validator-compound case. Zero compiler-code change.
+
+**Lifecycle-annotation thread (NEW findings F-023 + F-024 surfaced and closed in-session):**
+
+- **F-023** — `(A -> B)` lifecycle annotation is canonical SPEC §14.3 but absent from PRIMER + kickstarter v2 (zero mentions). User identified as FOUNDATIONAL to scrml's type-system identity (*"this was part of the basis. when I first envistioned the scrml type-system, this was my first real novel ... idea for scrmls type system"*). PRIMER + kickstarter catch up to SPEC — flagship section, not footnote.
+- **F-024** — `->` glyph overload (function-return vs lifecycle annotation). Ratified `(A to B)` with CONTEXTUAL-KEYWORD semantics for `to` (parallel to scrml's existing `from`-in-import contextual handling). No existing-sample migration needed; the `function isValid(from, to)` parameter-list use stays valid.
+
+**Parser fix landing (`6b6e3086` + `7d2ef528`):**
+
+- **M6.7-D8a-i** — native `parseFunctionDecl` accepts `-> ReturnType` annotation. SPEC §14 line 5590 ratifies `->` for both `function` and `fn`; the `function`-keyword path had a one-call omission that `parseScrmlFunctionDecl` already had. 5-line fix (parse-stmt.js + parse-stmt.scrml mirror) + 17-assertion coupled test. ~30 native parse-gap fails closed. strict-pass EXACT held at 964. Tests +21 (21,393 → 21,414). PA Phase-0 caught a hypothesis error: `TokenKind.Arrow` is `=>` (fat arrow), not `->`; correct gate is the sibling-form's `arrowFollows` predicate consuming `Minus`+`GreaterThan`. Banked methodology rule.
+
+**Banked methodology rules (6 new memory files + 1 banked observation):**
+
+- `feedback_amendment_direction_and_target_explicit` (HU-1 D8c brakes-pull) — name direction AND migration target explicitly; no buried-axis "amendment + migration" framings.
+- `feedback_triage_genuine_needs_spec_crosscheck` (HU-1) — triage GENUINE-PARSE-GAP labels need SPEC + ratification cross-check before fix dispatch.
+- `feedback_no_greek_chars_in_options` (HU-1) — PA SHALL NOT use Greek characters in option labels; user can't type them.
+- `feedback_bidirectional_hole_detection` (audit-meta) — canon-anchored audits must check BOTH "canon claims X / SPEC silent" AND "SPEC ratifies X / canon silent."
+- `feedback_grep_fire_sites_before_claiming_coverage` (Q4) — PA must grep actual fire sites before claiming "X covers Y" / "X fires on Z"; don't speculate.
+- `feedback_cohesion_and_falls_under_fingers` (Q5.B) — design-evaluation lens; weight cohesion + falls-under-fingers heavily; lowest-touch option is NOT automatically right.
+- Banked observation (3x re-validation across Q5+Q6+Q7+Q8): PIPELINE / SPEC prose drift from already-correct compiler behavior is the dominant Phase 2 work shape. The compiler is more spec-canonical than the documentation around it. Phase 2 amendment work is predominantly doc-text editing, not code-change work.
+
+**State as of S129 close:**
+
+| Item | Value |
+|---|---|
+| HEAD | `1b8317bd` (Q8 close) — will advance one more on the wrap-docs commit |
+| pkg.json | 0.6.0 (no tag) |
+| Full test | 21,414 pass / 0 fail / 170 skip / 1 todo / 784 files |
+| strict-pass canary | EXACT 964 (held) |
+| within-node canary | 1005 pass / 0 fail |
+| Worktrees | main only (all worktrees cleaned post-landing per S83) |
+| S99 path-discipline counter | 15 (zero new agent leaks across 4 dispatches this session) |
+| Push state | NOT PUSHED (default-no-push; user said "wrap" without push verb per pa.md) |
+
+**Carry-forward queue (open from S129):**
+
+- Iteration design surface — `<each in=@items as a>` structural element + `@`-bare contextual iteration-item binding + `:`-shorthand template-body extension. Estimated 8-14h deep-dive + 2-3 HU sub-sessions.
+- L19 multi-statement-handler relaxation question (HU follow-on).
+- state-dynamics-design DD extension question (`(A to B)` extension to enum-state-cells?; DD `status: active` since 2026-04-08).
+- Q5.B sub-questions — server+pinned composition; server+validators firing point; Tier 1 vs Tier 2 doc overlap.
+- Phase 1c 8-cluster catch-up (H-O) for the 26 GAP findings.
+- F-003 source-cascade Phase 2 amendment work (8 compiler-source sites).
+- E-SCHEMA-003 compiler-side enforcement (currently no fire site).
+- versioning drift (pkg.json 0.6.0 vs changelog).
+- Pre-existing S128 carry-forwards (compiler-managed-async gap, 6nz-V, GITI-015, MCP-V0.D/E, build-story arc, etc.).
+
+Tag: NONE. No new compiler code beyond the D8a-i fix.
 
 ### 2026-05-24 (S128 CLOSE — M6.7 D-class: D4 empty-confirm + D3/D6/D7 native parse-completeness fixes)
 
