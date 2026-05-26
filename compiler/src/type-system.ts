@@ -517,13 +517,13 @@ export class TSError {
   code: string;
   message: string;
   span: Span;
-  severity: "error" | "warning";
+  severity: "error" | "warning" | "info";
 
   constructor(
     code: string,
     message: string,
     span: Span,
-    severity: "error" | "warning" = "error",
+    severity: "error" | "warning" | "info" = "error",
   ) {
     this.code = code;
     this.message = message;
@@ -1441,15 +1441,22 @@ function resolveTypeExpr(expr: string, typeRegistry: Map<string, ResolvedType>):
 
   const trimmed = expr.trim();
 
-  // Lifecycle annotation: (A -> B) — resolve to B (post-transition type).
+  // Lifecycle annotation: (A to B) or legacy (A -> B) — resolve to B
+  // (post-transition type). The transition glyph is detected via the same
+  // shared `findTopLevelArrow` helper used by the lifecycle-registry builder,
+  // so both glyph forms (canonical `to` per S130 Lifecycle Landing 2 + legacy
+  // `->`) resolve identically. Per §14.12.2, the legacy `->` glyph surfaces
+  // `W-LIFECYCLE-LEGACY-ARROW` (the lint emission lives at the registry-build
+  // site since it has access to the span + error accumulator; resolveTypeExpr
+  // is span-free and runs in many non-decl contexts).
   if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
     const inner = trimmed.slice(1, -1);
-    const arrowIdx = inner.indexOf("->");
-    if (arrowIdx !== -1) {
-      const rhs = inner.slice(arrowIdx + 2).trim();
+    const glyph = findTopLevelArrow(inner);
+    if (glyph !== null) {
+      const rhs = inner.slice(glyph.idx + glyph.len).trim();
       return resolveTypeExpr(rhs, typeRegistry);
     }
-    // No arrow: just remove parens and re-resolve.
+    // No transition glyph: just remove parens and re-resolve.
     return resolveTypeExpr(inner, typeRegistry);
   }
 
@@ -2100,19 +2107,32 @@ type LifecycleRegistry = Map<string, Map<string, LifecycleFieldSpec>>;
 function buildLifecycleRegistry(
   typeDecls: ASTNodeLike[],
   typeRegistry: Map<string, ResolvedType>,
+  errors?: TSError[],
+  fileSpan?: Span,
 ): LifecycleRegistry {
   const registry: LifecycleRegistry = new Map();
 
   for (const decl of typeDecls) {
     if (!decl.name) continue;
     // Lifecycle annotation is only defined on struct fields in §14.3.
-    // (Landing 2 will extend to error fields, schema fields, etc.; held for now.)
+    // (Landing 2 SPEC §14.12 extends to non-engine cell positions; per-locus
+    // lifecycle detection at non-struct sites is wired through the per-decl
+    // pathway — `extractLifecycleFields` is the struct-body extractor; the
+    // other loci consume `resolveTypeExpr` directly, which already routes
+    // both glyph forms via `findTopLevelArrow`.)
     if (decl.typeKind !== "struct") continue;
 
     const raw = (decl.raw as string) ?? "";
     if (!raw) continue;
 
-    const lifecycleFields = extractLifecycleFields(raw, typeRegistry);
+    const declSpan = (decl.span as Span | undefined) ?? fileSpan;
+    const lifecycleFields = extractLifecycleFields(
+      raw,
+      typeRegistry,
+      errors,
+      declSpan,
+      decl.name as string,
+    );
     if (lifecycleFields.size > 0) {
       registry.set(decl.name as string, lifecycleFields);
     }
@@ -2124,17 +2144,26 @@ function buildLifecycleRegistry(
 /**
  * Walk a struct body source string and extract lifecycle-annotated fields.
  *
- * Recognises the form `fieldName: (A -> B)` (whitespace tolerant). Returns
- * a map of fieldName → {preType, postType} for each lifecycle field detected.
+ * Recognises the form `fieldName: (A to B)` (canonical, S130 Lifecycle
+ * Landing 2) and `fieldName: (A -> B)` (legacy, deprecation-window-supported)
+ * — whitespace tolerant. Returns a map of fieldName → {preType, postType}
+ * for each lifecycle field detected.
  *
- * Disambiguation from §53 predicates: lifecycle is recognised by the literal
- * `->` token at the TOP LEVEL of the parenthesised expression. Predicate
- * annotations `(!A && !B)` do not contain `->`, so the disambiguation is
- * lexical and reliable.
+ * Disambiguation from §53 predicates: lifecycle is recognised by a top-level
+ * transition glyph (`to` keyword OR `->` arrow) inside a parenthesised
+ * expression. Predicate annotations `(!A && !B)` do not contain either glyph,
+ * so the disambiguation is lexical and reliable.
+ *
+ * When `errors` + `fieldSpan` are supplied AND the legacy `->` glyph is
+ * detected, emits `W-LIFECYCLE-LEGACY-ARROW` per §14.12.5 (info-level
+ * deprecation lint, S130 Lifecycle Landing 2).
  */
 function extractLifecycleFields(
   raw: string,
   typeRegistry: Map<string, ResolvedType>,
+  errors?: TSError[],
+  fieldSpan?: Span,
+  structName?: string,
 ): Map<string, LifecycleFieldSpec> {
   const out = new Map<string, LifecycleFieldSpec>();
 
@@ -2159,13 +2188,15 @@ function extractLifecycleFields(
 
     if (!fieldName || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(fieldName)) continue;
 
-    // Detect `(A -> B)` form. Must be paren-wrapped AND contain top-level `->`.
+    // Detect `(A to B)` or `(A -> B)` form. Must be paren-wrapped AND contain
+    // a top-level transition glyph.
     if (!typeExpr.startsWith("(") || !typeExpr.endsWith(")")) continue;
 
     const inner = typeExpr.slice(1, -1);
-    // The arrow must be at the TOP LEVEL of the inner expression. Use a
-    // depth-aware scan so `(A -> B)` is recognised but `(!a(b -> c) && d)`
-    // (hypothetical nested arrow inside a sub-expression) is not.
+    // The transition glyph must be at the TOP LEVEL of the inner expression.
+    // Use a depth-aware scan so `(A to B)` is recognised but
+    // `(!a(b -> c) && d)` (hypothetical nested arrow inside a sub-expression)
+    // is not.
     const arrow = findTopLevelArrow(inner);
     if (arrow === null) continue;
 
@@ -2177,36 +2208,193 @@ function extractLifecycleFields(
     const postType = resolveTypeExpr(postExpr, typeRegistry);
 
     out.set(fieldName, { preType, postType });
+
+    // §14.12.5 — emit W-LIFECYCLE-LEGACY-ARROW for legacy `->` glyph.
+    if (arrow.glyph === "arrow" && errors && fieldSpan) {
+      const qualifiedName = structName ? `${structName}.${fieldName}` : fieldName;
+      errors.push(new TSError(
+        "W-LIFECYCLE-LEGACY-ARROW",
+        `W-LIFECYCLE-LEGACY-ARROW: Lifecycle annotation on field '${qualifiedName}' ` +
+        `uses the legacy '->' glyph. The canonical form is the 'to' keyword: ` +
+        `\`(${preExpr} to ${postExpr})\`. Both forms parse identically during ` +
+        `the deprecation window; new code SHALL use 'to' (a contextual keyword ` +
+        `parallel to 'from' in 'import' declarations). See SPEC §14.12.5.`,
+        fieldSpan,
+        "info",
+      ));
+    }
   }
 
   return out;
 }
 
 /**
- * Find the index of a top-level `->` (or `- >` with intervening whitespace —
- * the parser tokenises `->` with a space inserted before the `>` in some
- * paths) inside a parenthesised lifecycle inner expression. Returns
- * `{ idx, len }` where `idx` is the start position of `-` and `len` is the
- * total length of the arrow span (2 for `->`, 3+ for `- >` with whitespace).
- * Returns null if no top-level arrow exists. Depth-aware: arrows nested
- * inside parentheses or brackets do not count.
+ * Find the index of a top-level lifecycle-transition glyph — either the
+ * canonical `to` contextual keyword (S130 Lifecycle Landing 2) or the legacy
+ * `->` arrow (with intervening whitespace — the parser tokenises `->` with a
+ * space inserted before the `>` in some paths) — inside a parenthesised
+ * lifecycle inner expression. Returns `{ idx, len, glyph }` where `idx` is
+ * the start position of the glyph, `len` is the total length of the glyph
+ * span, and `glyph` discriminates `"to"` vs `"arrow"`. Returns null if no
+ * top-level transition glyph exists. Depth-aware: glyphs nested inside
+ * parentheses or brackets do not count.
+ *
+ * Glyph precedence: scans left-to-right; the first top-level glyph wins. In
+ * practice a single lifecycle expression carries one glyph; mixed-glyph
+ * expressions (`(A to B -> C)`) are nonsensical and resolve via whichever
+ * comes first.
+ *
+ * `to` is a contextual keyword in this position — it is reserved only inside
+ * a parenthesised lifecycle expression (parallel to `from` in `import`
+ * declarations per §21.3). Elsewhere `to` may be used as an identifier.
+ * Detection is whitespace-bounded: a top-level `to` must be preceded by
+ * whitespace AND followed by whitespace (so `tomorrow`, `intoExpr`,
+ * `tolerance` are not mistaken for the glyph).
  */
-function findTopLevelArrow(s: string): { idx: number; len: number } | null {
+function findTopLevelArrow(
+  s: string,
+): { idx: number; len: number; glyph: "to" | "arrow" } | null {
   let depth = 0;
   for (let i = 0; i < s.length - 1; i++) {
     const c = s[i];
     if (c === "(" || c === "[" || c === "{") { depth++; continue; }
     if (c === ")" || c === "]" || c === "}") { depth--; continue; }
     if (depth !== 0) continue;
-    if (c !== "-") continue;
-    // After the `-`, skip whitespace, then expect `>`.
-    let j = i + 1;
-    while (j < s.length && (s[j] === " " || s[j] === "\t")) j++;
-    if (j < s.length && s[j] === ">") {
-      return { idx: i, len: (j - i) + 1 };
+
+    // Legacy arrow form: `-` followed by optional whitespace and `>`.
+    if (c === "-") {
+      let j = i + 1;
+      while (j < s.length && (s[j] === " " || s[j] === "\t")) j++;
+      if (j < s.length && s[j] === ">") {
+        return { idx: i, len: (j - i) + 1, glyph: "arrow" };
+      }
+      continue;
+    }
+
+    // Canonical keyword form: standalone `to` bounded by whitespace.
+    // `t` at index i + `o` at index i+1 + boundary before and after.
+    if (c === "t" && s[i + 1] === "o") {
+      const prev = i === 0 ? " " : s[i - 1];
+      const nextIdx = i + 2;
+      const next = nextIdx < s.length ? s[nextIdx] : " ";
+      // Boundary characters: whitespace or string-bounds. `to` must not be a
+      // prefix of a longer identifier (`tomorrow`, `top`) and must not be the
+      // suffix of one (`autoFlush`).
+      const prevIsBoundary = prev === " " || prev === "\t" || prev === "\n";
+      const nextIsBoundary = next === " " || next === "\t" || next === "\n";
+      if (prevIsBoundary && nextIsBoundary) {
+        return { idx: i, len: 2, glyph: "to" };
+      }
     }
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// §14.12.4 — Engine-cell carve-out for lifecycle annotation
+// (E-TYPE-LIFECYCLE-ON-ENGINE-CELL)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per S130 HU-1 Q1=c + Q5=a (Lifecycle Landing 2): lifecycle annotation
+ * `(A to B)` is FORBIDDEN on engine cells. Engine cells declare their
+ * variant-graph progression via `rule=` / `initial=` / `<onTransition>`
+ * (§51.0). A lifecycle annotation on the same cell would create a second,
+ * redundant progression mechanism — that's the carve-out.
+ *
+ * Detects state-decl nodes whose name matches a known engine-cell name AND
+ * whose `typeAnnotation` is a lifecycle form (`(A to B)` canonical or
+ * `(A -> B)` legacy). Fires `E-TYPE-LIFECYCLE-ON-ENGINE-CELL` per §34.
+ *
+ * Engine-cell names are sourced from the per-file `machineRegistry` (built at
+ * `buildMachineRegistry` in type-system.ts ~2392); `MachineType.name` IS the
+ * auto-decl variable name per `decl.engineName`.
+ *
+ * Walks recursively into nested arrays (body, children) so engine cells
+ * declared inside nested logic blocks or component bodies still get checked.
+ * Skips nested function-decl bodies (their state-decl-shaped writes are
+ * runtime mutations, not declarations).
+ *
+ * @param nodes            — top-level file nodes (or recursed children)
+ * @param engineCellNames  — set of auto-declared engine cell names
+ * @param errors           — error accumulator
+ * @param fileSpan         — fallback span when node.span absent
+ */
+function checkLifecycleOnEngineCells(
+  nodes: ASTNodeLike[],
+  engineCellNames: Set<string>,
+  errors: TSError[],
+  fileSpan: Span,
+): void {
+  if (engineCellNames.size === 0) return;
+  if (!Array.isArray(nodes)) return;
+
+  function isLifecycleAnnotation(typeExpr: string): boolean {
+    const trimmed = typeExpr.trim();
+    if (!trimmed.startsWith("(") || !trimmed.endsWith(")")) return false;
+    const inner = trimmed.slice(1, -1);
+    return findTopLevelArrow(inner) !== null;
+  }
+
+  function walk(ns: ASTNodeLike[]): void {
+    for (const n of ns) {
+      if (!n || typeof n !== "object") continue;
+
+      // Don't recurse into function bodies — `state-decl`-shaped writes inside
+      // a function are runtime mutations (`@x = .V`), not declarations. The
+      // engine-cell carve-out applies at declaration site, not at every write.
+      if (n.kind === "function-decl") continue;
+
+      // Check state-decl nodes for lifecycle annotation on engine cell.
+      if (n.kind === "state-decl" && typeof n.name === "string") {
+        const cellName = n.name;
+        const typeAnnotation = (n as ASTNodeLike).typeAnnotation as string | undefined;
+        if (typeAnnotation && engineCellNames.has(cellName)
+            && isLifecycleAnnotation(typeAnnotation)) {
+          const span = (n.span as Span | undefined) ?? fileSpan;
+          errors.push(new TSError(
+            "E-TYPE-LIFECYCLE-ON-ENGINE-CELL",
+            `E-TYPE-LIFECYCLE-ON-ENGINE-CELL: Lifecycle annotation '${typeAnnotation}' ` +
+            `is not permitted on engine cell '@${cellName}'. Engine cells declare their ` +
+            `variant-graph progression via 'rule=' / 'initial=' / '<onTransition>' (§51.0); ` +
+            `a lifecycle annotation on the same cell would create a second, redundant ` +
+            `progression mechanism. ` +
+            `Resolution: for variant-graph state, use the engine. For value-shape ` +
+            `progression (e.g., '<status>: (Idle to Active) = .Idle'), declare as a plain ` +
+            `reactive cell (not an engine cell). See SPEC §14.12.4.`,
+            span,
+          ));
+        }
+      }
+
+      // Recurse into common child-bearing fields. Same traversal shape as
+      // `checkLifecycleFieldAccess`'s recursion (body, children, consequent,
+      // alternate, then, else). Engine-decl bodyChildren may carry state-decl
+      // nodes via state-children's payload-binding extraction — walk those too.
+      for (const key of [
+        "body", "children", "bodyChildren",
+        "consequent", "alternate", "then", "else",
+        "nodes", "ast",
+      ]) {
+        const val = (n as Record<string, unknown>)[key];
+        if (Array.isArray(val)) {
+          walk(val as ASTNodeLike[]);
+        }
+      }
+
+      // match-arms carry their body separately.
+      const arms = (n as Record<string, unknown>).arms;
+      if (Array.isArray(arms)) {
+        for (const arm of arms) {
+          if (!arm || typeof arm !== "object") continue;
+          const armBody = (arm as Record<string, unknown>).body;
+          if (Array.isArray(armBody)) walk(armBody as ASTNodeLike[]);
+        }
+      }
+    }
+  }
+
+  walk(nodes);
 }
 
 /**
@@ -11924,10 +12112,12 @@ function processFile(
     }
   }
 
-  // §14.3 — Build the per-file lifecycle registry. Empty if no struct type
-  // declares any `(A -> B)` lifecycle annotation; the runLifecycleAccessCheck
-  // call below short-circuits on empty.
-  const lifecycleRegistry = buildLifecycleRegistry(typeDecls, typeRegistry);
+  // §14.3 + §14.12 — Build the per-file lifecycle registry. Empty if no struct
+  // type declares any `(A to B)` (canonical) or `(A -> B)` (legacy) lifecycle
+  // annotation; the runLifecycleAccessCheck call below short-circuits on empty.
+  // Pass errors + fileSpan so the builder can emit W-LIFECYCLE-LEGACY-ARROW
+  // info-level lints (§14.12.5, S130 Lifecycle Landing 2).
+  const lifecycleRegistry = buildLifecycleRegistry(typeDecls, typeRegistry, errors, fileSpan);
 
   // TS-B Step 1.5: Build the state type registry.
   const stateTypeRegistry = buildStateTypeRegistry();
@@ -11983,6 +12173,33 @@ function processFile(
     stateTypeRegistry,
     machineRegistry,
   );
+
+  // §14.12.4 — Engine-cell carve-out for lifecycle annotation
+  // (E-TYPE-LIFECYCLE-ON-ENGINE-CELL). Fires when a state-decl carries a
+  // lifecycle-annotated typeAnnotation AND the cell's name matches an
+  // engine's auto-declared variable name. The engine-cell-name set is sourced
+  // from `machineRegistry` (the `MachineType.name` IS the auto-decl variable
+  // name, per the pre-bind loop at type-system.ts ~6713 + buildMachineRegistry
+  // line ~2392). Runs before `runLifecycleAccessCheck` so the carve-out fires
+  // before per-access tracking — preserves the "engines own variant-graph
+  // progression" framing per S130 HU-1 Q1=c.
+  {
+    const lifecycleTopNodes = (fileAST.nodes as ASTNodeLike[] | undefined)
+      ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
+      ?? [];
+    const engineCellNames = new Set<string>();
+    for (const machine of machineRegistry.values()) {
+      if (typeof machine.name === "string" && machine.name.length > 0) {
+        engineCellNames.add(machine.name);
+      }
+    }
+    checkLifecycleOnEngineCells(
+      lifecycleTopNodes,
+      engineCellNames,
+      errors,
+      fileSpan,
+    );
+  }
 
   // §14.3 — Per-access lifecycle transition-state check (E-TYPE-001 fire).
   // Runs after annotation so the AST shape is stable; short-circuits when no
@@ -13560,6 +13777,7 @@ export {
   mapSqliteType,
   buildTypeRegistry,
   buildLifecycleRegistry,
+  checkLifecycleOnEngineCells,
   generateDbTypes,
   parseStructBody,
   parseEnumBody,

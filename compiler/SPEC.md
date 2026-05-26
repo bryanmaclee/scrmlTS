@@ -7129,7 +7129,7 @@ type name:kind = { ... }
 type user:struct = {
     id: number,
     email: string,
-    passwordHash: (not -> string),
+    passwordHash: (not to string),
     metadata: (!not && !number)
 }
 ```
@@ -7137,7 +7137,7 @@ type user:struct = {
 **Field annotations:**
 
 - `field: type` — field is of the given type.
-- `(A -> B)` — lifecycle annotation. The field starts as type `A` and transitions to type `B`. The compiler tracks this transition; accessing the field before it has transitioned is a type error (E-TYPE-001).
+- `(A to B)` — lifecycle annotation. The field starts as type `A` and transitions to type `B`. The compiler tracks this transition; accessing the field before it has transitioned is a type error (E-TYPE-001). See §14.12 for the full lifecycle-annotation specification, including extension to non-struct-field positions and the engine-cell carve-out. The glyph `to` is a contextual keyword in this position (parallel to `from` in `import` statements); the legacy `->` glyph remains accepted during the deprecation window (W-LIFECYCLE-LEGACY-ARROW per §14.12.5).
 - `!type` — type negation. The field's value SHALL NOT be of the given type.
 - `(!A && !B)` — conjunction of constraints. The value must satisfy all constraints simultaneously.
 - `A | B` — union. The value is one of the listed types.
@@ -7708,6 +7708,169 @@ type Point:struct = { x: number, y: number }
 - §6.3 — Variant C ad-hoc compound state (the named-only path).
 - §14.3 — struct types and field declaration order.
 - §14.10 — bare-variant inference (a different M9 affordance; both are M-moves about reducing redundancy when the type is known).
+
+### 14.12 Lifecycle Annotation — `(A to B)`
+
+**Added:** 2026-05-25 (S130 — HU-1 ratifications; promoted from sub-content under §14.3 per Q6=a). Canonical home for the full lifecycle-annotation extension specification. Authority: `docs/heads-up/lifecycle-annotation-extension-2026-05-25.md`; deep-dive `scrml-support/docs/deep-dives/lifecycle-annotation-extension-and-flagship-scope-2026-05-25.md`. Companion to Landing 1's compiler-source fire-implementation at `compiler/src/type-system.ts:1444`.
+
+#### 14.12.1 Overview
+
+The lifecycle annotation `(A to B)` declares that a typed location starts holding a value of type `A` and transitions to type `B`. The compiler tracks the per-access transition state and fires `E-TYPE-001` at any read site that references the location before it has transitioned.
+
+```scrml
+type User:struct = {
+    id: number,
+    email: string,
+    passwordHash: (not to string)         // starts absent; transitions to string after hashing
+}
+```
+
+Reads of `user.passwordHash` before the transition fire `E-TYPE-001` (per Landing 1). Reads after the transition (the `passwordHash` field has been assigned a string value) pass.
+
+The lifecycle annotation is a **type-system** mechanism, not a state-machine mechanism. For variant-graph progression with explicit `from → to` declarations, use an engine (§51.0) — engines and lifecycle annotation are complementary, not competing, surfaces. The engine-cell carve-out below preserves this separation.
+
+#### 14.12.2 Canonical glyph — `to` (contextual keyword)
+
+The canonical glyph is the lowercase keyword `to`. Inside the parenthesised lifecycle expression `(A to B)`, the token `to` is a **contextual keyword** parallel to `from` in `import` declarations (§21.3) — it is reserved only in this position; elsewhere (identifiers, attribute names, struct fields, etc.) `to` remains usable.
+
+The legacy glyph `->` is RECOGNISED during the deprecation window and surfaces an info-level lint (`W-LIFECYCLE-LEGACY-ARROW`, §14.12.5). The two forms are semantically equivalent during the window:
+
+```scrml
+type User:struct = {
+    passwordHash: (not to string)         // canonical (S130 — HU-1)
+    passwordHash: (not -> string)         // legacy — accepted; surfaces W-LIFECYCLE-LEGACY-ARROW
+}
+```
+
+The migration to `to` is folded into the S130 Landing 2 amendment; new code SHALL use the `to` form. Existing samples (per S129 HU-2 F-024) MAY remain on the `->` glyph during the deprecation window — bulk-migration of samples is OUT OF SCOPE for the v0.6.0 cycle. Source files added or edited after the S130 landing SHALL use `to`.
+
+**Disambiguation from JS arrow function `=>`:** the JS arrow function syntax `(x) => expr` is distinct from the lifecycle annotation — the arrow function uses `=>` (equals-greater-than) and appears in expression position; the lifecycle annotation appears in TYPE position and uses `to` (or legacy `->`, hyphen-greater-than). The two glyphs do not collide.
+
+**Disambiguation from `fn` return-type arrow (§48):** the `fn` signature uses `->` in return-type position (`fn name() -> ReturnType { ... }`). That `->` is a structural separator in the function signature grammar, NOT a lifecycle annotation. Lifecycle annotations on function returns are SCOPED OUT of the S130 landing — see §14.12.6.
+
+#### 14.12.3 Extension scope (S130 — HU-1 Q1=c)
+
+Lifecycle annotation `(A to B)` is permitted at every typed location EXCEPT engine cells. The teachable rule: **"Lifecycle annotation goes anywhere a type goes, except engine cells."**
+
+| Position | Permitted? | Worked example | Cross-ref |
+|---|---|---|---|
+| Struct field | YES | `passwordHash: (not to string)` | §14.3 (original locus) |
+| Shape 1 plain reactive cell | YES | `<status>: (Idle to Active) = .Idle` | §6.2 (Shape 1) |
+| Function parameter | YES | `fn process(u: (not to User))` | §48 |
+| Schema field | YES | (cross-ref §39 §14.12.7) | §39 |
+| Channel cell | YES | (cross-ref §38 §14.12.8) | §38 |
+| Engine cell | **NO** — fires E-TYPE-LIFECYCLE-ON-ENGINE-CELL | (see §14.12.4) | §51.0 |
+
+Each position's semantics — when the compiler considers the transition fired — inherits from the per-access transition-state tracker in `compiler/src/type-system.ts` (Landing 1). For struct fields, transition fires on `instance.field = value` where `value` is type B-shaped. For Shape 1 reactive cells, transition fires on `@cell = value` where the cell's initial value is A-shaped and the written value is B-shaped. Function-parameter and schema-field transition semantics follow the same per-access tracker shape.
+
+#### 14.12.4 Engine-cell carve-out
+
+A cell that is the **auto-declared variable of an engine declaration** (§51.0.C) — including the engine's auto-derived variable name and any explicit `var=` override — is an **engine cell** and SHALL NOT carry a lifecycle annotation. Engines own variant-graph progression via `rule=` / `initial=` / `<onTransition>` (§51.0); a lifecycle annotation on an engine cell would create a second, redundant progression mechanism on the same surface.
+
+**Diagnostic** — `E-TYPE-LIFECYCLE-ON-ENGINE-CELL` (§34):
+
+> Lifecycle annotation `(A to B)` is not permitted on engine cells. Engine cells declare their variant-graph progression via `rule=` / `initial=` / `<onTransition>` (§51.0). For variant-graph state, use an engine. For value-shape progression (e.g., `<status>: (Idle to Active) = .Idle`), declare as a plain reactive cell (not an engine cell).
+
+**Worked example — fires:**
+
+```scrml
+type Phase:enum = { Idle, Loading, Done }
+
+<engine for=Phase initial=.Idle>
+  <Idle    rule=.Loading>: "idle"
+  <Loading rule=.Done>:    "loading"
+  <Done>:                  "done"
+</>
+
+<phase>: (Idle to Done) = .Idle              // E-TYPE-LIFECYCLE-ON-ENGINE-CELL
+                                              // `@phase` is the engine's auto-declared cell;
+                                              // engine `rule=` already owns the progression.
+```
+
+**Worked example — does NOT fire (plain reactive cell, not an engine cell):**
+
+```scrml
+type Phase:enum = { Idle, Loading, Done }
+
+<phase>: (Idle to Done) = .Idle              // Shape 1 plain reactive cell — lifecycle permitted.
+                                              // No engine declaration exists for the `phase` name.
+@phase = .Done                                // legal — transition fires; subsequent reads pass.
+```
+
+The carve-out is detected at type-resolution time: the compiler classifies a state-decl as an "engine cell" iff a sibling `<engine>` declaration in the same enclosing scope's `engineMeta.varName` (or `var=` override) matches the state-decl's name. The classification is unambiguous — engine declarations are syntactic constructs (`<engine for=...>` element), not user-named conventions.
+
+#### 14.12.5 Glyph deprecation — `W-LIFECYCLE-LEGACY-ARROW`
+
+During the deprecation window for the legacy `->` glyph, the compiler SHALL emit an info-level lint `W-LIFECYCLE-LEGACY-ARROW` at every lifecycle-annotation site that uses `->` instead of `to`. The lint's diagnostic surface names the location, suggests the canonical form, and cross-references this section.
+
+**Deprecation window scope:**
+
+- **In-window (S130 landing):** both `->` and `to` parse and resolve to the same type. `->` surfaces `W-LIFECYCLE-LEGACY-ARROW`.
+- **End of window (TBD, follow-on landing):** `->` becomes `E-LIFECYCLE-LEGACY-ARROW`; only `to` parses.
+
+The end-of-window timing is gated on adoption-corpus migration (NOT scoped here). Adopters MAY mechanically migrate via `scrml-migrate` (separate tool dispatch, not part of S130 Landing 2).
+
+#### 14.12.6 Function-return position — NOTE (deferred to HU follow-on)
+
+Lifecycle annotation on **function-return type position** is NOT YET ratified for the v0.6.0 surface. The S130 HU-1 Q3 ratification extends lifecycle conceptually to fn-return position (Q3=a), but the **transition-marker mechanism** — what counts as the transition signal for a returned value — is an OPEN sub-question with multiple candidates (explicit caller-side transition; validator-passage transition; assignment-to-typed-binding transition; explicit marker function). The mechanism choice has implications for ergonomics, typestate-flavored output contracts, and validator composition (§55).
+
+This SPEC subsection therefore omits worked examples for fn-return position. A separate HU follow-on resolves the transition-marker mechanism + a subsequent SPEC amendment lands fn-return semantics.
+
+In the interim, function-return positions accept the lifecycle annotation syntactically (the type-system resolver returns type B), but per-access transition-state tracking on returned values is NOT YET implemented. Adopters who write `fn loadUser() -> (not to User)` see the post-transition type at use sites; the per-access fire semantics will land with the transition-marker mechanism ratification.
+
+#### 14.12.7 Schema-field lifecycle (cross-ref §39)
+
+Lifecycle annotation on **schema-field** position is governed by this section (per S130 HU-1 Q4=a — §14.12 is the canonical home; §39 cross-refs back). The §14.12.3 extension table includes schema fields.
+
+```scrml
+<schema>
+  users {
+    id:            integer primary key
+    email:         text not null unique
+    passwordHash:  text req                    // shared-core; lifecycle-annotated via separate mechanism
+  }
+</>
+```
+
+**SQL-shape downstream consequences** — schema columns may correspond to fields with lifecycle annotations declared elsewhere (e.g., in a corresponding `:struct` type used to seed inserts). The lifecycle-annotation rule is type-system semantics; SQL DDL emission, migration behavior, and NULL-vs-NOT-NULL transitions are downstream consequences documented at §39 (cross-ref §39.12.8 below for the SQL-shape addendum prose).
+
+The pre-transition value `not` corresponds to SQL NULL in storage; transition fires when the column receives a non-NULL write. Migration semantics for schema changes that add or remove the lifecycle annotation are documented at §39's migration-diff section (§39.6).
+
+#### 14.12.8 Channel-cell lifecycle (cross-ref §38)
+
+Lifecycle annotation on **channel cells** (state declared inside a `<channel>` body — §38) is governed by this section (per S130 HU-1 Q7=a). The lifecycle-annotation semantics inherit from the §14.12.3 base: per-access transition-state tracking applies.
+
+```scrml
+<channel name="presence">
+  <userInfo>: (not to User) = not              // lifecycle on a channel cell — per-client replicated
+</>
+```
+
+**Channel-specific consideration** — channel cells have auto-sync semantics (state propagates to all connected clients per §38). A lifecycle annotation on a channel cell means the per-client-replicated value follows the `(A to B)` progression. Each client's local view of the channel cell tracks its own transition state; transitions are NOT auto-synchronized across clients via the channel sync layer. (A client that has not received the transition write does NOT consider its local copy transitioned.)
+
+The interaction with `broadcast()` calls (§38.9 — `E-CHANNEL-004`) is unchanged: lifecycle annotation does not alter the broadcast mechanism; it gates per-access reads at the type-system layer.
+
+#### 14.12.9 Cross-references
+
+- §14.3 — original struct-field locus; canonical worked example preserved (`passwordHash: (not to string)`).
+- §6.2 — three RHS shapes for state declarations; Shape 1 plain reactive cells receive the extension.
+- §38 — channel cells; §14.12.8 applies.
+- §39 — schema; §14.12.7 + §39's SQL-shape addendum apply.
+- §48 — function parameters; the extension extends to fn-param position.
+- §51.0 — engines; engine cells are CARVED OUT (§14.12.4).
+- §34 — error catalog entries `E-TYPE-001` (per-access fire), `E-TYPE-LIFECYCLE-ON-ENGINE-CELL` (carve-out), `W-LIFECYCLE-LEGACY-ARROW` (glyph deprecation).
+- `docs/heads-up/lifecycle-annotation-extension-2026-05-25.md` — S130 HU-1 ratifications (7 of 7 closed).
+
+#### 14.12.10 Normative statements
+
+- The canonical glyph for the lifecycle annotation SHALL be `to`. The token `to` SHALL be reserved as a contextual keyword inside the parenthesised lifecycle expression (`(A to B)`); elsewhere `to` is not reserved.
+- The legacy glyph `->` SHALL parse and resolve identically during the deprecation window; the compiler SHALL emit `W-LIFECYCLE-LEGACY-ARROW` at every legacy-glyph occurrence.
+- Lifecycle annotation SHALL be permitted at the positions enumerated in §14.12.3 (struct fields, Shape 1 plain reactive cells, function parameters, schema fields, channel cells).
+- Lifecycle annotation on engine cells SHALL be rejected via `E-TYPE-LIFECYCLE-ON-ENGINE-CELL`. The classification of a state-decl as an engine cell SHALL be unambiguous via sibling `<engine>` declaration metadata (`engineMeta.varName` and explicit `var=` overrides).
+- Per-access transition-state tracking SHALL fire `E-TYPE-001` at every read of a lifecycle-annotated location whose local transition state is `pre`. The tracker semantics are normatively specified by the Landing 1 implementation at `compiler/src/type-system.ts` (the `checkLifecycleFieldAccess` walker + the lifecycle-registry build pass).
+- Function-return position lifecycle annotation SHALL be SYNTACTICALLY accepted; per-access transition-state tracking for returned values is deferred to a follow-on HU + SPEC amendment that ratifies the transition-marker mechanism.
+- Schema-field lifecycle annotation SHALL inherit semantics from this section; downstream SQL-shape consequences (DDL emission, migration, NULL-vs-NOT-NULL) are documented at §39's SQL-shape addendum cross-referencing this section.
+- Channel-cell lifecycle annotation SHALL inherit semantics from this section; per-client transition state is local to each client and SHALL NOT auto-synchronise across the channel sync layer.
 
 ---
 
@@ -15161,6 +15324,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-TYPE-061 | §14.5 | Shorthand `.VariantName` in a position where the enum type cannot be inferred | Error |
 | E-TYPE-062 | §18.17 | `is` operator applied to a non-enum-typed operand | Error |
 | E-TYPE-063 | §18.17 | Unknown variant name in `is` expression | Error |
+| E-TYPE-LIFECYCLE-ON-ENGINE-CELL | §14.12.4 | Lifecycle annotation `(A to B)` declared on an engine cell (the auto-declared variable of an `<engine>` declaration, including any `var=` override). Engines own variant-graph progression via `rule=` / `initial=` / `<onTransition>` (§51.0); a lifecycle annotation on the same cell would create a second, redundant progression mechanism. Resolution: for variant-graph state, use the engine. For value-shape progression, declare as a plain reactive cell (not an engine cell). (S130 — HU-1 Q5=a, Lifecycle Landing 2.) | Error |
+| W-LIFECYCLE-LEGACY-ARROW | §14.12.5 | A lifecycle annotation uses the legacy `->` glyph instead of the canonical `to` keyword. Both forms parse and resolve identically during the deprecation window; the canonical form is `to` (a contextual keyword inside the parenthesised lifecycle expression, parallel to `from` in `import` declarations). Resolution: rewrite `(A -> B)` as `(A to B)`. New code SHALL use `to`; existing samples MAY migrate at convenience. The end-of-window timing promotes this to `E-LIFECYCLE-LEGACY-ARROW` (reserved; not yet emitted). (S130 — Lifecycle Landing 2 + S129 HU-2 F-024.) | Info |
 | E-FOREIGN-001 | §23.2 | Level mismatch between `_{}` opener and closer | Error |
 | E-FOREIGN-002 | §23.2 | `_{}` block reaches end-of-file without a matching closer | Error |
 | E-FOREIGN-003 | §23.2 | `_{}` block has no `lang=` declaration in any ancestor `<program>` | Error |
@@ -17971,6 +18136,55 @@ The `< schema>` block is the authoritative source for table type generation. Whe
 - The compiler generates struct types for each table in `< schema>` before running the `< db>` type inference pass (§14.8).
 - If the database file is absent, the compiler uses `< schema>` alone to generate types (no introspection fallback needed).
 - If the database file exists and the schema is out of sync with `< schema>`, the compiler generates types from the `< schema>` declaration (desired state), not the actual database. The compiler SHALL emit W-SCHEMA-003 when types are generated from `< schema>` and the database is out of sync: "Schema and database differ. Types reflect desired schema. Run `scrml migrate` to sync."
+
+**Lifecycle-annotation cross-reference (S130 — HU-1 Q4=a).** Schema-field lifecycle annotation `(A to B)` semantics are governed by §14.12 (the canonical home for lifecycle annotation). §39 is a downstream consumer of the §14.12 rule for the schema locus; SQL-shape consequences are documented at §39.11.1 below.
+
+#### 39.11.1 Lifecycle annotation — SQL-shape consequences
+
+**Added:** 2026-05-25 (S130 — HU-1 Q4=a; Lifecycle Landing 2 SQL-shape addendum).
+
+When a schema column corresponds to a lifecycle-annotated struct field (per §14.12.3 — typically a `:struct` type used to seed inserts or as a query result shape), the lifecycle-annotation rule has downstream consequences on SQL DDL emission, migration behavior, and NULL-vs-NOT-NULL transitions. This subsection documents those consequences without restating the §14.12 semantics.
+
+**DDL emission for lifecycle-annotated fields.** A lifecycle annotation `(A to B)` where the pre-transition type `A` is `not` lowers to a NULL-allowed column at DDL time — the column may legitimately hold SQL NULL before the transition fires. Once the transition fires (per §14.12 — typically when the field receives a non-NULL write at the struct-instance or row level), the column SHOULD hold a non-NULL value of type `B`. The DDL constraint surface (NOT NULL / `req`) is INDEPENDENT of the lifecycle annotation:
+
+| Lifecycle annotation on struct field | Schema column constraint | Combination semantics |
+|---|---|---|
+| `(not to string)` | (no `not null` / no `req`) | column allows NULL; lifecycle tracks per-access transition state at the scrml type-system layer |
+| `(not to string)` | `not null` (or `req`) | DDL rejects NULL on INSERT; lifecycle annotation becomes redundant (column can never be in pre-state at the DB layer) — surface as info-level lint via future amendment |
+| `(string to string)` | (any) | both pre and post values are non-NULL — DDL choice independent of lifecycle |
+
+The compiler does NOT auto-infer schema column constraints from lifecycle annotations; the two surfaces are orthogonal. Adopters declare each explicitly.
+
+**Migration behavior for schema changes that ADD a lifecycle annotation.** Adding a lifecycle annotation to an existing struct field is a TYPE-SYSTEM change (per-access transition state tracking begins at the next compile); it does NOT require a database migration. The on-disk schema is unaffected.
+
+**Migration behavior for schema changes that REMOVE a lifecycle annotation.** Removing a lifecycle annotation is also a type-system change; the per-access transition-state tracker stops firing E-TYPE-001 on the field. On-disk schema unaffected.
+
+**NULL-vs-NOT-NULL transitions when the column constraint changes.** If an adopter changes a column's DDL constraint from NULL-allowed to NOT NULL (or vice versa) AND the field carries a lifecycle annotation, the migration diff (§39.6) generates the standard DDL-change migration. The lifecycle annotation has no additional effect on the migration — it is type-system-only.
+
+**Worked example — lifecycle-annotated field + DB column:**
+
+```scrml
+type User:struct = {
+    id:           number,
+    email:        string,
+    passwordHash: (not to string)         // lifecycle: starts not, transitions to string
+}
+
+<schema>
+  users {
+    id:            integer primary key
+    email:         text not null unique
+    password_hash: text                    // NULL-allowed; matches the lifecycle pre-state
+  }
+</>
+```
+
+The struct field `passwordHash` (lifecycle-annotated `(not to string)`) corresponds to the `password_hash` column (NULL-allowed). Adopter code inserting a fresh `User` may leave `password_hash` as SQL NULL initially; once the hashing pass completes and `user.passwordHash = hash(plaintext)` fires, the type-system transition fires AND the adopter persists the non-NULL value via `?{UPDATE users SET password_hash = ${user.passwordHash}}`. The lifecycle annotation governs the per-access read semantics in scrml; the DDL governs DB storage.
+
+**Cross-references:**
+- §14.12 — canonical lifecycle annotation specification.
+- §39.6 — migration diff algorithm (unaffected by lifecycle annotations).
+- §14.8 — database-schema-derived types (the integration point where struct types reflect column shapes).
 
 ### 39.12.0 v0.3 `<program db=>` "db-anchor" workaround note
 

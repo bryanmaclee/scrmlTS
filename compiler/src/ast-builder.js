@@ -3510,7 +3510,28 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume();
       }
     }
-    const annotation = parts.join('').trim();
+    // Join parts. Insert a single space between two consecutive tokens whose
+    // adjacent characters are both `[A-Za-z0-9_$]` — otherwise the parser
+    // would silently fuse identifier-shape tokens like `not to string` into
+    // `nottostring`, breaking the `to` contextual-keyword glyph detection
+    // for SPEC §14.12 lifecycle annotations (S130 Landing 2). Single-space
+    // is canonical (the `findTopLevelArrow` helper treats space as the
+    // boundary). Pre-S130 callers tolerated the no-space join because the
+    // glyphs they checked (`->`, `&&`, `!`) were punctuation-shaped and
+    // unambiguous; the `to` glyph requires whitespace boundaries.
+    const buf = [];
+    for (let pi = 0; pi < parts.length; pi++) {
+      const cur = parts[pi];
+      if (pi > 0) {
+        const prevEnd = buf[buf.length - 1].slice(-1);
+        const curStart = cur.slice(0, 1);
+        if (/[A-Za-z0-9_$]/.test(prevEnd) && /[A-Za-z0-9_$]/.test(curStart)) {
+          buf.push(' ');
+        }
+      }
+      buf.push(cur);
+    }
+    const annotation = buf.join('').trim();
     return annotation || null;
   }
 
