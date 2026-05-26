@@ -14,7 +14,7 @@
 
 | Severity | Open | Closed-this-arc | Notes |
 |---|---|---|---|
-| HIGH | 2 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132 — §2.1 false present-tense claim removed; §29 marked Nominal; NOT retired) · **E-FN-003 attributed-markup-return in `fn` (RESOLVED S133 `dbef4f4d`)** | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) |
+| HIGH | 3 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132 — §2.1 false present-tense claim removed; §29 marked Nominal; NOT retired) · **E-FN-003 attributed-markup-return in `fn` (RESOLVED S133 `dbef4f4d`)** | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) · **NEW S133 — E-META-001 runtime-meta scoping gap (SPEC §22.12 categorical / impl compile-time-only)** |
 | MED | 6 | Bug 15 `~snapshot` codegen leak (S131 SHIPPED) | Bug 1 Tailwind residuals · V-kill READ-side fire · E-SCHEMA-003 enforcement · MCP V0 partial-impl deferrals · Generator policy · L19 multi-statement-handler |
 | LOW | 4 | (rotate out below) | Bug 4 bare-`/` · GITI-015 · §11-folded-citation sweep · `bun scrml promote --engine` Tier-1→2 deferred |
 | Nominal (spec-ahead-of-impl) | 7 | — | Build Story §58 · `import:host` §21.3.1 · Quoted-text §4.18 compiler fire · `_{}` foreign code · WASM call-char sigils · Sidecar process decls · RemoteData enum |
@@ -22,6 +22,24 @@
 ---
 
 ## §1 HIGH — adopter-visible / silent-wrong-output
+
+### Bug 17 — E-META-001 only fires in compile-time meta blocks; runtime blocks silently accept JS-host globals — `spec'd; design call open` (S133 NEW)
+
+**Surfaced S133 Step A** (commit `80b168e6`) — after closing the META_BUILTINS membership divergence, the Step A agent surfaced a second-order architectural gap. SPEC §22.12 line 14687 reads as **categorical**:
+
+> "JS-host ambient globals (`bun`, `process`, `setInterval`, `fetch`, etc.) are NOT in the META_BUILTINS set and trigger `E-META-001`."
+
+But current meta-checker fires E-META-001 only inside **compile-time** meta blocks (`bodyUsesCompileTimeApis === true` from `reflect` / `emit` / `emit.raw` API references). A pure **runtime** meta block — `^{ const x = bun.eval(...); /* no reflect/emit */ }` — gets early-returned in `checkMetaBlock` without consulting META_BUILTINS membership. The block emits unchanged into the generated `_scrml_meta_effect` body. At JS runtime: `bun` is not a Bun-runtime global (only `Bun` capital-B is), so the call **silently fails with ReferenceError** at runtime.
+
+- **Severity rationale:** HIGH. Compiles cleanly + crashes at runtime + adopter-visible. Exact "silent wrong output" class Rule 2 ("scrml is not a toy") + Rule 3 ("right answer beats easy answer") flag.
+- **Reproducer (verify-runnable post-Step-A):** `${ ^{ const x = bun.eval("Date.now()") } }` inside a `<program>` — compiles; runtime crashes.
+- **Workaround:** avoid JS-host globals (`bun` / `process` / `Bun` / `console` / `setInterval` / `fetch`) inside any `^{}` body, runtime OR compile-time. Use the enumerated `meta.*` API (§22.5.1) for runtime meta needs.
+- **Resolution path — DESIGN CALL OPEN (next session):**
+  - **(a) Extend impl** — make `checkMetaBlock` (or an earlier sub-walker) check META_BUILTINS membership on ALL `^{}` bodies, not just compile-time-classified ones. Fires E-META-001 in the runtime case too. ~2-4h dispatch. Matches SPEC literal reading.
+  - **(c) SPEC amendment to narrow §22.12** — argue the categorical phrasing was over-reach; runtime meta has different semantics; scope E-META-001 to compile-time only. SPEC text + amendment ratification required.
+  - **(d) Partial — warning-only for runtime case** — fire W-META-RUNTIME-HOST-GLOBAL (warn, not error). Adopter signal without compile-fail.
+- **Cross-refs:** Step A commit `80b168e6` agent report `OPEN follow-ups #1`; SPEC §22.12 line 14687 (the categorical statement); §22.5 + §22.5.1 (runtime meta surface); `compiler/src/meta-checker.ts` `checkMetaBlock` + early-return condition.
+- **Not blocking adopters today** — pre-S133 adopters didn't write `bun.eval(...)` (the user-facing surface retired S130); post-S133 they're more likely to hit it via reflex. Watch adopter bug reports for first sighting; treat as load-bearing trigger if it shows up.
 
 ### Bug 9 — Compiler-managed async transitive coloring (A9-class) — `deferred`
 
