@@ -2,7 +2,20 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-25 **S131 CLOSE**). Full `bun run test` **21,584 pass / 0 fail / 170 skip / 1 todo across 794 files**; pre-commit gate (unit + integration + conformance) clean on every commit. Prior baseline (S130 CLOSE): 21,462 pass.
+Current baseline (2026-05-26 **S132 CLOSE**). S132 was docs/spec-ONLY (zero compiler-source) so no test-count delta: **21,584 pass / 0 fail / 170 skip / 1 todo across 794 files** (S131 baseline carried; pre-commit subset green on every S132 landing; full suite not re-run — `--no-verify` authed for the machine-switch wrap). Prior baseline (S131 CLOSE): 21,584 pass.
+
+### 2026-05-26 (S132 CLOSE — grammar-lockdown decisions A+B + one-shot-lift canon + maps refresh + user-voice cadence rule)
+
+A session-open + grammar-lockdown remaining-decisions session, ending in a machine-switch wrap. **Docs/spec-ONLY — zero compiler-source changes.** 5 scrmlTS commits + 5 scrml-support. Both repos pushed at wrap (`--no-verify` authed for machine-switch speed; docs-only so the pre-push full-suite was safe to skip).
+
+- `51dd589d` **Maps refresh** — `.claude/maps/` was 5 sessions stale (`3a909c1d`/S126); `project-mapper` incremental refresh to HEAD (62 commits); all 9 maps + non-compliance report rewatermarked.
+- **User-voice cadence rule (durable, user-directed):** append AS-WE-GO, never batch-at-wrap — S131's missing user-voice was POWER LOSS, not negligence; a wrap-time batch dies with an interrupted session, a written-to-disk file survives reboot. Supersedes the prior "user-voice is the first thing written at wrap" framing.
+- `5ec5af56` **Decision A — §29 vanilla-interop → (c) defer + Nominal-reframe** (NOT retire). PA initially teed it up on STALE status (false binary retire-vs-implement; carry-forward said "open since S110" but S131 Q-W3-4 had ratified "(c) defer"); the user said "retire," the retirement agent surfaced the conflict, PA HELD the land + re-presented the true 3-option space + S131's anti-retire reasoning, the user chose (c). §2.1's false present-tense "passes through the rest" claim removed (the real S110 contradiction); §29 KEPT as Nominal; §47.5 three mislabeled §29→§21 cross-refs fixed; Q-W3-4 reaffirmed.
+- `77976bf8` **Iteration Landing 4** — PRIMER §6.3 + kickstarter §11.10 `<each>` canon catch-up (was zero coverage); all examples compile-verified.
+- `5d52e4c8` **one-shot-lift canon (Decision B resolution)** — the `$(param){}` DD returned verdict DROP: the disliked `${ function name(){…lift…} }` shape NEVER compiled (E-SYNTAX-002 — `lift` illegal in a `function` body); scrml already expresses one-shot-lift 5 ways; `$(param){}` is an L22-synonym. User ratified all 4 HU-Qs. PRIMER §6.4 "Producing markup from logic — the one-shot-lift idioms" (teachable rule + 5 sub-shapes, 10/10 examples compile-verified) + kickstarter §11.11 + the SPEC fix scoping E-SYNTAX-002 to bare `function` not `fn` (§10.4 + §49.6.2/§49.7/§49.12.1; verified lift-in-while-in-fn compiles). **L19 multi-statement-handler relaxation MOOT** (coupled to dropped `$(param){}`).
+- **E-FN-003 triage** (HU-Q4) — HIGH/blocking false-positive: a `fn` returning attributed markup (`<span class=…>`) false-fires `E-FN-003: writes to 'class'` (the text-heuristic write-check misreads markup attribute names). Root-caused + fix-shape + 4 regression tests fully specified; **fix queued FIRST for S133** (brief in hand-off). Distinct from the §48.3.3 `@cell`-mutation DD.
+
+**Methodology lesson banked (user-voice):** verify a carry-forward "open" status against the ratification record before teeing it up as a decision, and present the full disposition space — not a binary (the §29 false-binary near-miss). **Findings:** `scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md` (pa.md-mandated in every dev brief) DOES NOT EXIST — author or de-mandate; `key=.id` doesn't silence `W-EACH-KEY-001` (§17.7.5-ahead-of-impl, conservative lint).
 
 ### 2026-05-25 (S131 CLOSE — grammar-lockdown closure + 3+4 parallel dispatch waves + MCP V0 series COMPLETE + Lifecycle Landing 2+2.5 + Iteration Landing 1+2 SPEC + known-gaps Bug 15 closed)
 

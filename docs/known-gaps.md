@@ -14,7 +14,7 @@
 
 | Severity | Open | Closed-this-arc | Notes |
 |---|---|---|---|
-| HIGH | 2 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132 — §2.1 false present-tense claim removed; §29 marked Nominal; NOT retired) | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) |
+| HIGH | 3 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132 — §2.1 false present-tense claim removed; §29 marked Nominal; NOT retired) | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) · E-FN-003 attributed-markup-return in `fn` (triaged S132; fix queued FIRST S133) |
 | MED | 6 | Bug 15 `~snapshot` codegen leak (S131 SHIPPED) | Bug 1 Tailwind residuals · V-kill READ-side fire · E-SCHEMA-003 enforcement · MCP V0 partial-impl deferrals · Generator policy · L19 multi-statement-handler |
 | LOW | 4 | (rotate out below) | Bug 4 bare-`/` · GITI-015 · §11-folded-citation sweep · `bun scrml promote --engine` Tier-1→2 deferred |
 | Nominal (spec-ahead-of-impl) | 7 | — | Build Story §58 · `import:host` §21.3.1 · Quoted-text §4.18 compiler fire · `_{}` foreign code · WASM call-char sigils · Sidecar process decls · RemoteData enum |
@@ -50,6 +50,16 @@ When a `for...of` loop with `lift` produces DOM nodes that get reused across ren
 - **Workaround:** use static class strings inside for-lift bodies; bind reactive classes outside the loop or via a per-item wrapper component that gets full re-mount.
 - **Reproducer:** filed by 6nz S126; `class:active=@item.selected` inside `for (let item of @items) { lift <li class:active=...>...</li> }`.
 - **Status:** GENUINE; runtime bug (lift/reconcile path), not codegen. Queued MED; not currently in implementation. Filed S126.
+
+---
+
+### Bug 12 — E-FN-003 false-positive on attributed-markup-return inside `fn` — `triaged; fix queued FIRST S133` (HIGH)
+
+A `fn` that returns (or `let`-binds) markup carrying ANY attribute (`class`, `id`, `href`, …) false-fires `E-FN-003: fn body writes to '<attr>'`. The fn-purity write-check `checkOuterScopeMutation` (`compiler/src/type-system.ts` ~12780-12813, call-site ~13135) runs a text-heuristic `ASSIGN_RE` regex over the SERIALIZED statement text (`nodeText` → `emitStringFromTree`, which re-serializes returned markup including attributes); markup `name="…"` / `name={…}` is indistinguishable from an assignment LHS to that regex, so the attribute NAME is captured as an outer-scope variable write. Bare `function` escapes (the purity walker runs only for `fnKind==="fn"`); unattributed `fn` escapes (no `=` in the serialized text). **Blocks the documented "fn returns markup" idiom** (PRIMER §6.4 sub-shape 4 / kickstarter §11.11) — the common case carries `class`/`id`.
+
+- **Workaround:** return UNattributed markup from the `fn` (push classes/attributes into the body or a wrapper), OR use a bare `function` (returns markup as a value — compiles), OR `const <x> = <markup>` / a `snippet` prop.
+- **Reproducer:** `${ fn badge(x){ return <span class="b">${x}</span> } }` → E-FN-003. Files `/tmp/efn003-{repro,B,C,D,E}.scrml`; invocation `bun run compiler/src/cli.js compile <f>`.
+- **Status:** TRIAGED S132 (agent `aab45a46`). Root-cause + structural fix-shape (skip the `kind==="markup"` subtree before `ASSIGN_RE`; the `@cell`-mutation path at ~13013-13064 + the node-kind assignment path at ~12785-12798 stay intact, so real purity enforcement is preserved) + 4 regression tests (incl. a negative control) fully specified. **Fix queued FIRST for S133 — full dispatch brief in `hand-off.md`.** Distinct from the §48.3.3 `@cell`-mutation DD (different code path).
 
 ---
 
