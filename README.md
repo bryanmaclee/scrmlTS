@@ -10,8 +10,9 @@ API layer to drift out of sync.
 scrml compile app.scrml -o dist/
 ```
 
-You declare the shape of the app; the compiler builds the machine. The example
-further down is a real, running app — but first
+You declare the shape of the app; the compiler builds the machine.
+
+> **This README demonstrates the *language*, not the *current compiler*.** The code shown here is **nominal** — the language as designed, the shape the compiler is actively converging on. Some snippets may not compile clean against any given commit. See [`docs/known-gaps.md`](./docs/known-gaps.md) for per-feature spec-vs-impl drift and [`docs/changelog.md`](./docs/changelog.md) for what landed recently. The spec is in [`compiler/SPEC.md`](compiler/SPEC.md); the surface lives in [`compiler/SPEC-INDEX.md`](compiler/SPEC-INDEX.md).
 
 ## A note from the developer
 
@@ -31,243 +32,292 @@ AI code is still what it is. 100% mid. But its still all human mid that it is re
 
 are the ideas any good?
 
-## A Full App in One File
+## Today's Tasks — a full app in three stages
 
-A contact book — a real database, server functions, list rendering — with no
-API layer, no ORM, and no route files. This is the shape of a scrml app:
+Here is one app — list, add, complete, filter, save — built from a 40-line prototype into a multi-device, server-backed, state-machine-driven thing **without rewriting the markup tree.** Each stage is the previous one plus a few lines.
 
-```scrml
-// gate: skip
-// a full-stack app needs a database file beside it; shown for shape
-<program>
+### Stage 1 — the prototype
 
-<db src="contacts.db" tables="contacts">
-
-  ${
-    <name>  = ""
-    <email> = ""
-
-    // persistContact runs the INSERT — the compiler runs it server-side.
-    function persistContact(name, email) {
-      ?{`INSERT INTO contacts (name, email) VALUES (${name}, ${email})`}.run()
-    }
-
-    function addContact() {
-      persistContact(@name, @email)
-      reset(@name)
-      reset(@email)
-    }
-
-    function loadContacts() {
-      return ?{`SELECT name, email FROM contacts ORDER BY name`}.all()
-    }
-  }
-
-  <h1>Contacts</h1>
-
-  <form onsubmit=addContact()>
-    <input bind:value=@name  placeholder="Name"  required/>
-    <input bind:value=@email placeholder="Email" type="email" required/>
-    <button type="submit">Add Contact</button>
-  </form>
-
-  <ul>
-    <each in=loadContacts()>
-      <li>${@.name} — ${@.email}</li>
-      <empty>No contacts yet.</>
-    </each>
-  </ul>
-
-</>
-
-</program>
-```
-
-Here is what the compiler does that you do *not* write:
-
-- **`<db>` connects the database.** Inside it, `?{…}` blocks are SQL — the
-  compiler parameterizes and serializes them. `bind:value=@name` keeps each
-  input and its reactive cell in sync.
-- **The server boundary is inferred.** `persistContact` and `loadContacts`
-  touch SQL, so the compiler classifies them server-side — and generates the
-  route, the `fetch` call, CSRF tokens, parameterized queries, and
-  serialization. You call them like local functions, because in your source
-  they *are*.
-- **`reset(@name)`** returns a reactive cell to its declared initial value.
-
-Declare the app; the compiler wires server, client, and data. The sections
-below go deeper — starting with the one idea the entire language is built on.
-
-## Built around state machines
-
-Here is that idea: **an app should be an exhaustive state machine.** The
-structural shape of a shipped UI is the structural shape of its state — every
-reachable state has UI, every transition is intentional, every effect fires at
-the right moment. Provability falls out of the language's natural shape, not
-from a separate proof ceremony — and you should barely notice it happening.
-
-Apps don't start at that north star; they evolve toward it. The **Tier ladder**
-lets you start as a rough prototype and add structure as the design hardens —
-without rewriting the markup tree. State-children carry forward verbatim
-between tiers; the wrapper swap is the commitment moment.
-
-| Tier  | Form                                       | What you get                                                           |
-|-------|--------------------------------------------|------------------------------------------------------------------------|
-| **0** | `if=` chains / `${ if (...) lift ... }`    | prototype; no exhaustiveness check                                     |
-| **1** | `<match for=Type [on=expr]>`               | structural exhaustiveness check at compile time; `rule=` is accepted + compiler-checked but inert at runtime (`W-MATCH-RULE-INERT` lint nudges promotion to Tier 2) |
-| **2** | `<engine for=Type initial=.Variant>`       | full deal — exhaustiveness + active transition rules (`rule=`) + per-state effect handlers (`<onTransition>`, `<onTimeout>`, `<onIdle>`) + composite hierarchy + `history` restore |
-
-Adding a new variant to the discriminating type later forces the compiler to
-remind you where every transition into it should fire from. The state machine
-evolves; the compiler enforces.
-
-## Quick Example — a Counter (Tier 0)
+You have an idea. Get something on screen.
 
 ```scrml
 <program>
 
-<count> = 0
-<step>  = 1
-
-<div class="counter">
-    <span class="value">${@count}</>
-
-    <select bind:value=@step>
-        <option value="1">1</>
-        <option value="5">5</>
-        <option value="10">10</>
-    </select>
-
-    <button onclick=decrement() disabled=atMinimum()>-</>
-    <button onclick=${reset(@count)}>Reset</>
-    <button onclick=increment()>+</>
-</div>
+<tasks> = [
+    { id: 1, text: "Buy milk",      done: false },
+    { id: 2, text: "Walk the dog",  done: true  },
+    { id: 3, text: "Write README",  done: false }
+]
+<newTask> = ""
 
 ${
-    function increment() { @count = @count + @step }
-    function decrement() {
-        if (@count - @step >= 0) { @count = @count - @step }
+    function addTask() {
+        if (@newTask.length == 0) return
+        @tasks = [...@tasks, { id: @tasks.length + 1, text: @newTask, done: false }]
+        reset(@newTask)
     }
-    fn atMinimum() { return @count - @step < 0 }
+
+    function toggle(id) {
+        @tasks = @tasks.map(t => t.id == id ? { ...t, done: !t.done } : t)
+    }
 }
 
-#{
-    .counter { text-align: center; font-family: system-ui; }
-    .value   { font-size: 4rem; font-weight: 700; }
-}
+<h1>Today's Tasks</h1>
+
+<form onsubmit=addTask()>
+    <input bind:value=@newTask placeholder="What needs doing?"/>
+    <button>Add</button>
+</form>
+
+<ul>
+    ${ for (let t of @tasks) {
+         lift <li>
+             <input type="checkbox" checked=t.done onchange=${toggle(t.id)}/>
+             ${t.text}
+         </li>
+       }
+    }
+</ul>
 
 </>
 ```
 
-State is declared with `<name> = init` (V5-strict). Access is `@name`. `<count>`
-and `<step>` are plain reactive cells. `bind:value=@step` keeps the select and
-the cell in sync. `fn atMinimum` is a pure predicate — the compiler verifies it
-has no side effects (no SQL, no DOM mutation, no reactive writes, no `fetch`,
-no `<request>` boundary). `reset(@count)` returns the cell to its declared
-initial value. The compiler generates direct DOM manipulation; no virtual DOM,
-no signals library.
+- `<tasks> = [...]` declares a reactive cell. Mutating it (assignment, `.map`, push-then-assign) re-renders the list with no virtual DOM.
+- `@newTask` is how you read or write a reactive cell from inside an expression. Bare names (`t`, `id`) are plain locals.
+- `reset(@newTask)` returns the cell to its declared init value (the empty string).
+- `${ for (t of @tasks) { lift <li>...</li> } }` is the prototype iteration form — every `lift` puts the resulting markup back into the surrounding `<ul>`.
 
-This is **Tier 0** — booleans-as-lifecycle, no exhaustiveness check. Fine for
-prototyping. The compiler nudges via lints (`W-LIFECYCLE-CANDIDATE`,
-`W-MATCH-TRANSITIONS-ACCRUING`) when the shape suggests promotion.
+The compiler will lint that loop: *"You're iterating reactive state — try `<each>`."* That's the path to Stage 2.
 
-## Engine Example — a Loader as a State Machine (Tier 2)
+### Stage 2 — the exhaustive filter
 
-The same loader pattern that almost every UI needs — expressed as an exhaustive
-state machine instead of boolean flags:
+Now filter (All / Active / Done). You could add `<activeOnly> = false`, but the moment you add a fourth mode the flag-per-mode shape breaks. Use an enum — the compiler refuses if you forget a variant.
 
 ```scrml
-<program db="items.db">
+<program>
 
-type LoadError:enum = {
-    Network(msg: string)
-    Empty
+${
+    type Filter:enum = { All, Active, Done }
 }
 
-type Phase:enum = {
-    Idle
-    Loading
-    Error(msg: string)
-    Empty
-    Success(count: int)
+<tasks> = [
+    { id: 1, text: "Buy milk",      done: false },
+    { id: 2, text: "Walk the dog",  done: true  },
+    { id: 3, text: "Write README",  done: false }
+]
+<newTask req length(>=1)> = <input placeholder="What needs doing?"/>
+<filter>: Filter = .All
+
+const <visible> = match @filter {
+    .All    => @tasks
+    .Active => @tasks.filter(t => !t.done)
+    .Done   => @tasks.filter(t => t.done)
 }
 
-function fetchItems()! -> LoadError {
-    const result = ?{select * from items}
-    if (result.length == 0) fail LoadError::Empty
-    return result
-}
-
-function load() {
-    @phase = .Loading
-    const result = fetchItems() !{
-        | ::Network msg -> { @phase = .Error(msg); return }
-        | ::Empty       -> { @phase = .Empty;       return }
+${
+    function addTask() {
+        @tasks = [...@tasks, { id: @tasks.length + 1, text: @newTask, done: false }]
+        reset(@newTask)
     }
-    @phase = .Success(result.length)
+
+    function toggle(id) {
+        @tasks = @tasks.map(t => t.id == id ? { ...t, done: !t.done } : t)
+    }
 }
 
-<engine for=Phase initial=.Idle>
+<h1>Today's Tasks</h1>
 
-    <Idle rule=.Loading>
-        <button onclick=load()>Load</button>
+<form onsubmit=addTask()>
+    <newTask/>
+    <errors of=@newTask/>
+    <button>Add</button>
+</form>
+
+<nav>
+    <button onclick=${@filter = .All}    class:active=${@filter == .All}>All</button>
+    <button onclick=${@filter = .Active} class:active=${@filter == .Active}>Active</button>
+    <button onclick=${@filter = .Done}   class:active=${@filter == .Done}>Done</button>
+</nav>
+
+<each in=@visible key=@.id>
+    <li class:done=@.done>
+        <input type="checkbox" checked=@.done onchange=${toggle(@.id)}/>
+        ${@.text}
+    </li>
+    <empty>Nothing left.</>
+</each>
+
+</>
+```
+
+What just landed:
+
+- **`<newTask req length(>=1)> = <input/>`** declares the cell, its render spec, and its validators in one line. `<newTask/>` in the markup expands to the bound input element — no `bind:value=@newTask` needed; the cell *is* the input. `@newTask.isValid` / `.errors` / `.touched` are auto-synthesized read-only cells. `<errors of=@newTask/>` renders them at the right time.
+- **`const <visible> = match @filter {...}`** is a derived cell. The compiler recomputes it when `@filter` or `@tasks` changes. It's exhaustive: leaving out `.Done` is `E-MATCH-NOT-EXHAUSTIVE`. Add a fourth filter variant later and the compiler tells you every site that needs updating.
+- **`<each in=@visible key=@.id>`** is the structural iteration form — keyed DOM reconciliation, `@.` is the current item, `<empty>` is the zero-items state. The Stage 1 `${for / lift}` form still compiles fine; `<each>` is the structural commitment.
+
+### Stage 3 — the whole stack
+
+Now it's real: SQLite, server-backed, auth-gated, multi-device sync, with a load-state state machine.
+
+```scrml
+<program>
+
+<db src="tasks.db">
+
+<schema>
+    users {
+        id:           integer primary key
+        email:        text req email
+        passwordHash: (not to string)
+    }
+    tasks {
+        id:           integer primary key
+        user_id:      integer not null references(users.id)
+        text:         text req length(>=1)
+        completed_at: (not to timestamp)
+    }
+</>
+
+${
+    type Filter:enum = { All, Active, Done }
+    type Phase:enum  = { Loading, Empty, Editing, Saving, Saved, ErrorState(msg: string) }
+    type LoadError:enum = { Network(msg: string), Unauthorized }
+
+    function loadTasks()! -> LoadError {
+        const me = @session.userId is not ? fail LoadError::Unauthorized : @session.userId
+        return ?{`SELECT id, text, completed_at FROM tasks WHERE user_id = ${me} ORDER BY id`}.all()
+    }
+
+    function createTask(text: string(.length >= 1))! -> LoadError {
+        const me = @session.userId is not ? fail LoadError::Unauthorized : @session.userId
+        return ?{`INSERT INTO tasks (user_id, text, completed_at) VALUES (${me}, ${text}, ${not}) RETURNING *`}.get()
+    }
+
+    function toggle(id) {
+        ?{`UPDATE tasks SET completed_at =
+            CASE WHEN completed_at IS NULL THEN ${Date.now()} ELSE NULL END
+            WHERE id = ${id}`}.run()
+    }
+
+    function submit() {
+        @phase = .Saving
+        createTask(@newTask) !{
+            | ::Network msg  -> { @phase = .ErrorState(msg); return }
+            | ::Unauthorized -> { navigate("/login");        return }
+        }
+        reset(@newTask)
+        @phase = .Saved
+    }
+}
+
+<channel name="tasks" topic="user-${@session.userId}">
+    <tasks> = []
+</>
+
+<filter>: Filter = .All
+<newTask req length(>=1)> = <input placeholder="What needs doing?"/>
+
+const <visible> = match @filter {
+    .All    => @tasks
+    .Active => @tasks.filter(t => t.completed_at is not)
+    .Done   => @tasks.filter(t => t.completed_at is some)
+}
+
+<auth role="User">
+
+<engine for=Phase initial=.Loading>
+
+    <Loading rule=(.Empty | .Editing | .ErrorState)>
+        Loading your tasks…
+        <onTransition to=.Loading>${
+            @tasks = loadTasks() !{
+                | ::Network msg  -> { @phase = .ErrorState(msg); return }
+                | ::Unauthorized -> { navigate("/login");        return }
+            }
+            @phase = @tasks.length == 0 ? .Empty : .Editing
+        }</>
     </>
 
-    <Loading rule=(.Success | .Error | .Empty)>
-        Loading…
+    <Empty rule=.Saving>
+        <p>No tasks yet. Add your first.</p>
+        <form onsubmit=submit()>
+            <newTask/>
+            <errors of=@newTask/>
+            <button>Add</button>
+        </form>
     </>
 
-    <Error msg rule=.Loading>
+    <Editing rule=.Saving>
+        <form onsubmit=submit()>
+            <newTask/>
+            <errors of=@newTask/>
+            <button>Add</button>
+        </form>
+
+        <nav>
+            <button onclick=${@filter = .All}    class:active=${@filter == .All}>All</button>
+            <button onclick=${@filter = .Active} class:active=${@filter == .Active}>Active</button>
+            <button onclick=${@filter = .Done}   class:active=${@filter == .Done}>Done</button>
+        </nav>
+
+        <each in=@visible key=@.id>
+            <li class:done=${@.completed_at is some}>
+                <input type="checkbox"
+                       checked=${@.completed_at is some}
+                       onchange=${toggle(@.id)}/>
+                ${@.text}
+            </li>
+            <empty>Nothing left.</>
+        </each>
+    </>
+
+    <Saving rule=(.Saved | .ErrorState)>
+        Saving…
+    </>
+
+    <Saved rule=.Editing>
+        Saved.
+        <onTimeout after=1.5s to=.Editing/>
+    </>
+
+    <ErrorState msg rule=.Loading>
         <div class="err">${msg}</div>
         <button onclick=${@phase = .Loading}>Retry</button>
     </>
 
-    <Empty>
-        No rows yet.
-    </>
-
-    <Success count>
-        Got it: ${count} rows
-    </>
-
-    <onTransition from=.Loading to=.Success>
-        ${ analytics.track("load.success") }
-    </>
-
 </>
+
+</auth>
 
 </>
 ```
 
-Five behaviorally-distinct UI states — Idle / Loading / Error / Empty / Success —
-declared as variants of one enum. **Every variant has a UI block; the compiler
-enforces this exhaustively.** Cross-state effects live next to the engine they
-describe.
+What the compiler did that you did NOT write:
 
-- **`rule=`** declares legal transitions FROM each state. `<Idle rule=.Loading>`
-  means: from `Idle`, the only legal transition is to `Loading`. A typo like
-  `@phase = .Loaded` is a compile-time error (variant doesn't exist). Writing
-  `@phase = .Success(0)` from `Idle`'s body fires `E-ENGINE-INVALID-TRANSITION`
-  — Idle's `rule=` doesn't include `.Success`. Use `rule=*` as the explicit
-  wildcard escape hatch.
-- **`<onTransition from= to=>`** runs effects on specific transitions —
-  analytics, cleanup, side effects — co-located with the engine they describe,
-  not scattered across `useEffect` hooks.
-- **Errors are states, not booleans.** Instead of `<isError>` + `<errorMsg>`
-  cells, the failure mode is a variant of `Phase`. The `!{}` handler at the
-  call site routes each error variant into the right Phase variant. Missing
-  handler arm: compile-time error.
-- **Adding a sixth variant** later forces the compiler to remind you where
-  every transition into it should fire from. State machine evolves; compiler
-  enforces.
+- **Route handlers** for `loadTasks` / `createTask` / `toggle`. They touch SQL, so the compiler classified them server-side — and generated the routes, the client-side `fetch` calls, the CSRF tokens, parameterized queries, and serialization. You call them like local functions because in your source they ARE.
+- **The schema → DDL pipeline.** The `<schema>` block becomes both the `CREATE TABLE` statement on first run AND a diff on every subsequent compile. New columns? Migration emitted. Removed columns? Surfaced for review.
+- **The WebSocket plumbing.** `<channel name="tasks" topic="user-${...}">` emits the Bun upgrade route, a client-side reconnect manager, and pub/sub routing. State declared inside the channel body (`<tasks> = []`) auto-syncs across every connected device of the same user.
+- **Per-role chunk splitting.** `<auth role="User">` tells the compiler that anonymous visitors will never reach this subtree. They get a strictly smaller initial bundle — the components and server functions inside the gate aren't downloaded for them.
+- **The validity surface.** `<newTask req length(>=1)> = <input/>` produces `@newTask.isValid` / `.errors` / `.touched` as reactive read-only cells. `<errors of=@newTask/>` renders them at the right time. The SAME predicates fire on the server boundary, in the HTML form attributes the compiler emits (`required minlength="1"`), and in the database CHECK constraints.
+- **The lifecycle gate.** `completed_at: (not to timestamp)` means the column starts unset and transitions when a value is written. Reads of `t.completed_at` are checked per-access — before the row has been completed, the read is `not`, and the compiler refuses to treat it as a timestamp. The compiler tracks the transition state symbolically. Zero runtime cost.
+- **The engine's exhaustiveness check.** Adding a seventh variant to `Phase` forces the compiler to demand a UI block + a transition source for it. You cannot ship a state with no UI.
 
-For the surface beyond the basic shape — composite state-children with nested
-engines (sub-machines), the `history` attribute that restores prior inner state
-on re-entry, `<onTimeout after=2s to=.Variant>` for per-state timeouts (with
-named timers and `cancelTimer("name")` builtin), `<onIdle>` for engine-wide
-event-timeout watchdogs, `internal:rule=` for transitions that don't exit /
-re-enter the composite — see SPEC.md §51 and example
-[`examples/14-mario-state-machine.scrml`](examples/14-mario-state-machine.scrml).
+That's the centerpiece. The rest of this README is the surface around it.
+
+---
+
+## The tier ladder
+
+The Stage-1 → Stage-2 → Stage-3 progression above maps onto a three-tier ladder. You start as a rough prototype and add structure as the design hardens — without rewriting the markup tree. State-children carry forward verbatim between tiers; the wrapper swap is the commitment moment.
+
+| Tier  | Form                                       | What you get                                                           |
+|-------|--------------------------------------------|------------------------------------------------------------------------|
+| **0** | `if=` chains / `${ if (...) lift ... }`    | prototype — no exhaustiveness check                                    |
+| **1** | `<match for=Type [on=expr]>` + `<each>`    | structural exhaustiveness check at compile time; `rule=` is accepted + compiler-checked but inert at runtime (the lint nudges promotion to Tier 2) |
+| **2** | `<engine for=Type initial=.Variant>`       | full deal — exhaustiveness + active transition rules (`rule=`) + per-state effect handlers (`<onTransition>`, `<onTimeout>`, `<onIdle>`) + composite hierarchy + `history` restore |
+
+The Engine surface beyond Stage 3 — composite state-children with nested engines, the `history` attribute that restores prior inner state on re-entry, `<onTimeout after=2s to=.Variant>` for per-state timeouts (with named timers + `cancelTimer("name")` builtin), `<onIdle>` for engine-wide event-timeout watchdogs, `internal:rule=` for transitions that don't exit/re-enter the composite — lives at [`examples/14-mario-state-machine.scrml`](examples/14-mario-state-machine.scrml) and [SPEC §51](compiler/SPEC.md).
 
 ## Why scrml
 
@@ -319,64 +369,13 @@ typical app reaches for. No package manager, no dependency trees, no
 
 ## Benchmarks
 
-Measured against React 19, Svelte 5, and Vue 3 on an identical TodoMVC implementation. Bundle row re-measured 2026-05-15 against HEAD `1f73732` (v0.3.0 + v0.3.x Phase B SPA tree-shake). Runtime row re-measured 2026-05-19 against v0.3.3 HEAD (post-Phase 3 Candidate A select-row recovery) via real Chrome (Playwright headless). Build row carries forward from the 2026-05-14 v0.3.0 STABLE refresh. See [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for full details + historical baselines.
-
-**Bundle size (gzip):**
-
-| Framework | JS | Total | Dependencies | node_modules |
-|-----------|---:|------:|---:|---:|
-| **scrml** | **13.9 KB** | **15.8 KB** | **0** | **0 bytes** |
-| Svelte 5  | 15.7 KB | 16.8 KB | 3 | ~30 MB |
-| Vue 3     | 26.5 KB | 27.6 KB | 3 | ~25 MB |
-| React 19  | 61.5 KB | 62.6 KB | 4 | ~46 MB |
-
-> **Bundle history, honestly accounted (2026-05-15):**
-> - Same-source TodoMVC at v0.2.6 (pre-Approach-A) measured 36.5 KB total gzip.
-> - At v0.3.0 STABLE (post-Approach-A) the same source measured 40.8 KB — a **+4.3 KB** delta from per-route chunk loading, FNV-1a content addressing, role-detection bootstrap, prefetch helpers, and dual-decoder wire format.
-> - At HEAD (post-Phase-B SPA tree-shake) the same source measures **15.8 KB total / 13.9 KB JS-only**. The v0.3.x Phase B patch consults per-file `usedRuntimeChunks` when assembling the shared `scrml-runtime.js` (the legacy path shipped the unsplit template regardless of which chunks the compile unit used) and gates the §57 dual-decoder behind a new `wire` chunk.
-> - The recovery exceeds the v0.3.0 regression because Phase B also closed a **pre-existing** shared-runtime tree-shake gap that Approach A made visible. The historical "14.8 KB v0.2.x" baseline cited in earlier framings traces to a pre-v0.2.0 measurement era and is not reproducible against any v0.2.x release tag.
->
-> Zero dependencies preserved throughout. The per-route per-role chunking benefit on multi-route multi-role apps is unchanged — see the [per-route per-role chunk variance section](benchmarks/RESULTS.md#per-route-per-role-chunk-variance-v030-new) for that v0.3 narrative.
->
-> Runtime filename note: `scrml-runtime.<hash>.js` (content-addressed via FNV-1a) — deterministic cache-busting for adopters serving the runtime from a stable URL.
-
-**Runtime performance (headless Chrome via Playwright, medians in ms, lower is better) — 2026-05-19 v0.3.3 HEAD:**
-
-| Operation | scrml | React 19 | Svelte 5 | Vue 3 | Vanilla JS |
-|---|---:|---:|---:|---:|---:|
-| create-1000 | 25.95 | 26.50 | 38.05 | 30.00 | **22.10** |
-| replace-1000 | 26.35 | 25.10 | 38.50 | 28.30 | **22.90** |
-| partial-update | **1.00** | 4.65 | 4.10 | 11.20 | 2.60 |
-| delete-every-10th | 2.55 | 4.95 | 3.45 | 7.90 | **1.50** |
-| clear-all | 3.65 | 3.65 | **3.25** | 3.80 | 3.45 |
-| select-row | 0.30 | 0.60 | 0.00¹ | 0.00¹ | 0.10 |
-| swap-rows | 2.20 | 20.30 | 3.55 | 7.80 | **1.00** |
-| remove-row | 2.25 | 4.25 | 3.35 | 7.80 | **0.90** |
-| create-10000 | 279.20 | 251.00 | 466.00 | 296.10 | **229.60** |
-| append-1000 | 27.55 | 26.35 | 45.65 | 35.20 | **21.05** |
-
-scrml wins outright on **partial-update** (4.65× faster than React, 4.10× faster than Svelte, 11.2× faster than Vue, **better than Vanilla**); within 5-25% of Vanilla on every bulk-DOM op; beats React on 5/10 + Svelte on 4/10 + Vue on 9/10. **select-row 0.30 ms** is the load-bearing recovery from v0.3.0 STABLE's 168.2 ms — **561× faster** (S103 Phase 3 Candidate A value-indexed subscriber dispatch + the `!=` detector follow-on). swap-rows 2.20 ms beats React by 9.2× and is within ~2× of Vanilla.
-
-¹ Svelte/Vue `selectRow()` is a no-op in their bench API (inherited from the prior Puppeteer harness; not a real measurement). The load-bearing scrml number stands on its own at **0.30 ms** (vs 168.2 ms at v0.3.0 STABLE).
-
-See [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for full per-op breakdown, v0.3.0 → v0.3.3 recovery narrative, Chrome-vs-happy-dom cross-validation, and historical baselines.
-
-**Build time (TodoMVC, median of 10):**
-
-| Framework | Build Time |
-|-----------|---:|
-| **scrml** | **65.6 ms** |
-| Svelte 5  | 668 ms |
-| Vue 3     | 706 ms |
-| React 19  | 944 ms |
-
-scrml is ~10-14x faster to build than Vite at v0.3.0 (was 8-12x at v0.2.x).
+scrml runs TodoMVC at **15.8 KB total gzip / 0 dependencies** against React 19 / Svelte 5 / Vue 3; partial-update is faster than Vanilla; build time is ~10-14× faster than Vite. Full numbers, methodology, and historical baselines live at [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
 
 ## Features
 
 ### State and Reactivity
 
-- **Reactive state — V5-strict.** `<count> = 0` declares a reactive cell; `@count` reads or writes it. The decl form is structural; the access form is canonical. The two forms are visually distinguishable, so a reader can scan a function body and count "how many state cells does this read or mutate." Bare names in expressions are LOCAL identifiers only — they do NOT resolve to reactive state (locals cannot shadow registered state names; `E-NAME-COLLIDES-STATE`). The declaration/write distinction is enforced — bare `@x = expr` at default-logic body-top (a `<program>` / `<page>` / `<channel>` body) fires `E-WRITE-NOT-IN-LOGIC-CONTEXT`: declarations use structural `<x>`, writes go inside `${...}` functions.
+- **Reactive state.** `<count> = 0` declares a reactive cell; `@count` reads or writes it. Declarations use the structural `<x>` form; reads and writes use the `@x` form. The two are visually distinguishable so a reader can scan any function body and count how many state cells it touches. Bare names in expressions are plain locals — they don't resolve to reactive state (locals cannot shadow registered state names; `E-NAME-COLLIDES-STATE`). The declaration/write distinction is enforced — bare `@x = expr` at body-top of a `<program>` / `<page>` / `<channel>` fires `E-WRITE-NOT-IN-LOGIC-CONTEXT`: declarations use structural `<x>`, writes go inside `${...}` functions.
 - **Three RHS shapes for state decls.** Shape 1 plain (`<count> = 0`), Shape 2 decl-coupled-with-render-spec (`<userName req length(>=2)> = <input/>` — `<userName/>` in markup expands to the bound input with `bind:value` wired), Shape 3 derived (`const <doubled> = @count * 2` — read-only; recomputes on dep change; markup-typed derived cells legal per L1).
 - **Compound state (Variant C).** `<formRes> <name> = "" <email> = "" </>` — ad-hoc compound via structural children. Read `@formRes.name`; write `@formRes.email = "alice"`. Tier 3 predefined-shape compound supports positional sugar against a known type.
 - **Two-way binding (`bind:value`)** — compiler dispatches binding by render-spec (`<input type="checkbox">` → `bind:checked`; `<select>` → `bind:value`; etc.). Per L17.
@@ -480,7 +479,7 @@ This isn't bundler-style single-letter renaming — the names are longer than `a
 ### Realtime and Workers
 
 - **WebSocket channels (`<channel>`)** — a lifecycle element that declares a WebSocket endpoint. The compiler emits the Bun upgrade route, a client-side connection manager with exponential-backoff reconnect, and pub/sub topic routing. `onserver:open`, `onserver:message`, `onserver:close` run server-side; `onclient:open`, `onclient:close`, `onclient:error` run in the browser. `protect=` gates the upgrade with a session cookie check. No WebSocket or Bun-specific API appears in your source.
-- **Shared reactive state — V5-strict inside channels.** State declared inside a `<channel>` block (`<messages> = []`) auto-syncs across every connected client. The `@shared` modifier was retired in v0.2.0 — auto-sync comes from being inside the channel body, not from a modifier. Writing in one browser tab updates every other tab subscribed to the same topic; sync wire format is compiler-generated.
+- **Shared reactive state inside channels.** State declared inside a `<channel>` block (`<messages> = []`) auto-syncs across every connected client. No `@shared` modifier — being inside the channel body is the signal. Writing in one tab updates every other tab subscribed to the same topic; the sync wire format is compiler-generated.
 - **`broadcast()` and `disconnect()`** — available inside any server handler declared in a channel's lexical scope. `broadcast(data)` fans out to every client on the active topic; `disconnect()` closes the connection. Dynamic topics via `topic=@room` — when `@room` changes, the channel re-subscribes; when `@room` is `not`, the connection stays open but subscribes to nothing.
 - **Nested `<program>` = Web Worker.** Put a `<program name="compute">` inside your main program and the compiler spawns a Web Worker. Shared-nothing by construction — no accidental scope leaks. Call worker exports as typed RPC: `const result = await <#compute>.add(1, 2)`. The compiler enforces that cross-program calls are awaited.
 - **Message passing with `when`.** `<#worker>.send(data)` posts to the worker; inside, `when message(data) { ... }` handles it and `send(data)` replies. The parent observes lifecycle with `when message from <#worker> (data)`, `when error from <#worker> (e)`, and `when terminate from <#worker>`. No manual `addEventListener('message', ...)` scaffolding.
@@ -535,7 +534,7 @@ scrml ships a Model Context Protocol surface so an LLM agent can read your runni
 | `list_channels` / `get_channel_state` | active WebSocket channels + shared state |
 | `get_reachable_server_fns` | per-route reachable server-fn closure |
 
-The strategic frame: the same structural exhaustiveness that makes a scrml app provable to a compiler — engines as exhaustive state machines, typed enums, V5-strict access, explicit `rule=` contracts, whole-program inference — makes it introspectable to an agent. Other frameworks reach for LLM-friendliness at the tools layer; scrml gets it at the language layer.
+The strategic frame: the same structural exhaustiveness that makes a scrml app provable to a compiler — engines as exhaustive state machines, typed enums, structural state access, explicit `rule=` contracts, whole-program inference — makes it introspectable to an agent. Other frameworks reach for LLM-friendliness at the tools layer; scrml gets it at the language layer.
 
 V0 is read-only metadata. A future V1 would add server-fn dispatch behind a capability gate.
 
@@ -607,7 +606,7 @@ The [`examples/`](examples/) directory contains curated examples that show what 
 | [12-snippets-slots](examples/12-snippets-slots.scrml) | Named content slots in components |
 | [13-worker](examples/13-worker.scrml) | Web workers as nested programs with typed messaging |
 | [14-mario-state-machine](examples/14-mario-state-machine.scrml) | Enum states + `<engine>` Tier 2 transition enforcement |
-| [15-channel-chat](examples/15-channel-chat.scrml) | `<channel>` realtime, V5-strict channel state, auto-sync |
+| [15-channel-chat](examples/15-channel-chat.scrml) | `<channel>` realtime, auto-sync channel state |
 | [16-remote-data](examples/16-remote-data.scrml) | Enum loading-state, server boundary, async classification |
 | [17-schema-migrations](examples/17-schema-migrations.scrml) | `<schema>` declarative migrations, diff-on-reload |
 | [18-state-authority](examples/18-state-authority.scrml) | `<x server>` Tier 2 cell authority (§52) |
@@ -628,14 +627,6 @@ The [`examples/`](examples/) directory contains curated examples that show what 
 - [Language Specification](compiler/SPEC.md) — full formal spec (~29,000 lines)
 - [Spec Quick-Lookup](compiler/SPEC-INDEX.md) — find any section fast
 - [Pipeline Contracts](compiler/PIPELINE.md) — stage-by-stage compiler pipeline
-
-> **Note on code snippets.** All `scrml` fenced examples in this README are
-> ***nominal*** — they show the language as designed, not necessarily what
-> the compiler accepts at this exact commit. The compiler is actively
-> catching up to the nominal state (see the [dev's note](#a-note-from-the-developer)
-> above); some snippets may not compile clean against any given commit.
-> Treat them as the canonical shape of what the language is meant to be.
-> For per-feature spec-vs-impl drift see [`docs/known-gaps.md`](./docs/known-gaps.md).
 
 ## scrmlTS
 
@@ -689,6 +680,21 @@ scrml build <dir>         # production build
 # Run the test suite
 bun test compiler/tests/
 ```
+
+## Terms
+
+A short glossary of scrml-specific terms used throughout the README.
+
+- **reactive cell** — state declared with `<name> = init`. Read or written via `@name`; mutating it re-renders the parts of the UI that depend on it. Three RHS shapes — plain (`<x> = 0`), decl-coupled-with-render-spec (`<userName req> = <input/>` — `<userName/>` in the markup IS the bound input), and derived (`const <x> = expr` — read-only, recomputes from dependencies).
+- **engine** — Tier-2 state machine declaration: `<engine for=Type initial=.Variant>`. Auto-declares a singleton cell whose value is one of the enum variants; each state-child is one variant's UI block; `rule=` declares legal transitions; `<onTransition>` / `<onTimeout>` / `<onIdle>` attach effects. Centerpiece of the language. Singleton-by-design; components are the multi-instance vehicle. See [SPEC §51](compiler/SPEC.md).
+- **match block** — Tier-1 structural form `<match for=Type>` over an enum-typed value. The compiler checks exhaustiveness at compile time: every variant of the discriminating type must have a UI block. `rule=` attributes parse and are checked but are inert at runtime; a lint nudges promotion to Tier 2.
+- **lifecycle annotation** — type-position annotation `(A to B)` declaring that a location starts holding type `A` and transitions to type `B`. Reads before transition fire `E-TYPE-001`. Zero runtime cost — the compiler tracks per-access transition state symbolically. Permitted anywhere a type goes except on engine cells (engines already own variant-graph progression via `rule=`). See [SPEC §14.12](compiler/SPEC.md).
+- **`<channel>`** — file-level real-time element declaring a WebSocket endpoint. State declared inside the channel body (`<messages> = []`) auto-syncs across every connected client subscribed to the same topic. Compiler emits the Bun upgrade route, a client-side reconnect manager, and pub/sub routing.
+- **validity surface** — auto-synthesized read-only cells (`@form.isValid` / `.errors` / `.touched` plus per-field equivalents) produced by declaring a compound cell whose children carry validator attributes (`req`, `length`, `email`, etc.). `<errors of=@field/>` renders them at the right time.
+- **per-role chunk** — `<auth role="X">` tells the compiler that only role-`X` visitors will reach the gated subtree. Other roles get a strictly smaller initial bundle. Cross-route prefetching is tiered (idle / hover / on-demand); every chunk filename embeds a content hash so adopter caches stay valid across builds when source bytes don't change.
+- **`fn` vs `function`** — `fn` is a compiler-enforced pure function — no SQL, no DOM mutation, no reactive writes, no `fetch`, no `<request>` boundaries. `function` is a general-purpose callable. Use `fn` for predicates, transformations, and deterministic computations.
+- **contexts** (`${}` / `?{}` / `#{}` / `!{}` / `~{}` / `^{}` / `_{}`) — sigil-delimited contexts within a `.scrml` file: logic / SQL / scoped CSS / typed error handling / inline tests / compile-time or runtime meta / foreign code. See [Language Contexts](#language-contexts) above for the full table.
+- **`not`** — scrml's unified absence value. `null` and `undefined` do not exist in scrml — neither parses, neither runs. Check absence with `is not`; check presence with `is some`. `not` replaces both null and undefined across the language.
 
 ## License
 
