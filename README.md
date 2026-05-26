@@ -37,6 +37,7 @@ A contact book — a real database, server functions, list rendering — with no
 API layer, no ORM, and no route files. This is the shape of a scrml app:
 
 ```scrml
+// gate: skip
 // a full-stack app needs a database file beside it; shown for shape
 <program>
 
@@ -58,7 +59,7 @@ API layer, no ORM, and no route files. This is the shape of a scrml app:
     }
 
     function loadContacts() {
-      lift ?{`SELECT name, email FROM contacts ORDER BY name`}.all()
+      return ?{`SELECT name, email FROM contacts ORDER BY name`}.all()
     }
   }
 
@@ -396,6 +397,7 @@ scrml is ~10-14x faster to build than Vite at v0.3.0 (was 8-12x at v0.2.x).
 scrml has built-in runtime type validation. The type annotation IS the validation schema — no separate schema library, no `z.object()` wrappers, no `z.infer<typeof>` indirection.
 
 ```scrml
+// gate: skip
 // illustrative fragments (no <program> wrapper; not standalone-runnable)
 <price: number(>0 && <10000)>      = userInput
 <email: string(email)>             = formValue
