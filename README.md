@@ -575,16 +575,35 @@ scrml uses sigil-delimited contexts to separate concerns within a single file:
 | Test    | `~{}` | Inline tests + `test-bind` server-fn mocks (stripped from production) |
 | Foreign | `_{}` | Inline foreign code *(specced, not yet implemented)* |
 
-## Specced but Not Yet Implemented
+## Known limitations and gaps
 
-These features are fully designed in the [language spec](compiler/SPEC.md) but not yet available in the compiler. They are listed here so you know what's coming and don't try to use them yet.
+scrml is actively converging on its spec. A few features are designed but not yet implemented; a few are implemented with known issues; the rest is live. Full per-feature drift list (with reproducers + workarounds) lives at [`docs/known-gaps.md`](./docs/known-gaps.md). The headlines:
 
-| Feature | Spec Section | Description |
-|---------|-------------|-------------|
-| **Foreign code contexts (`_{}`)**  | S23 | Embed non-JS code inline with level-marked braces (`_{}`/`_={...}=`). Enables inline Rust, Python, SQL extensions, or any language with a registered compiler. The foreign block is opaque to scrml — it passes through to an external toolchain. |
-| **WASM call-char sigils** | S23.3 | Single-character sigils (`r{}`, `c{}`, `z{}`) for invoking compiled WASM functions from Rust, C, Zig, etc. Paired with `extern` declarations for type-safe FFI. |
-| **Sidecar process declarations** | S23.4 | `use foreign:name { fn }` for declaring server-side sidecar processes (HTTP/socket services) that scrml routes to automatically. |
-| **`RemoteData` enum** | S13.5 | Built-in `Loading / Loaded(T) / Failed(Error)` enum for modeling async fetch state. Pattern-matchable with exhaustive checking. |
+### Specced but not yet implemented
+
+| Feature | Spec | What it is |
+|---------|---|---|
+| **Foreign code contexts (`_{}`)** | §23 | Inline non-JS code with level-marked braces (`_{}` / `_={...}=`) — Rust, Python, SQL extensions, etc., passed through to an external toolchain. |
+| **WASM call-char sigils** | §23.3 | Single-char sigils (`r{}`, `c{}`, `z{}`) for invoking compiled WASM functions, paired with `extern` declarations. |
+| **Sidecar process declarations** | §23.4 | `use foreign:name { fn }` — server-side HTTP/socket sidecar services routed by scrml. |
+| **`RemoteData` enum** | §13.5 | Built-in `Loading / Loaded(T) / Failed(Error)` for async fetch state. |
+| **Build Story (`<program story=...>`)** | §58 | Content-addressed Merkle closure over the four compiler components + per-`<program>` build identity. |
+| **`import:host` self-host bridge** | §21.3.1 | Bounded, manifest-gated import form for self-host bootstrap. |
+| **Quoted-text body model compiler fire** | §4.18 | The spec ratifies the code-default body model + `"..."` display-text literal; the compiler fire is queued. |
+
+### Known bugs and partial implementations
+
+| Severity | What | Workaround |
+|---|---|---|
+| HIGH | **Transitive auto-`await`** — a client function calling a server function isn't always auto-awaited across transitive call chains | Add `async` / `await` explicitly in the client function. Deferred to the A9-class compiler-managed-async work. |
+| HIGH | **`<each>` reactive `class:NAME` on reused DOM** — the lift/reconcile path reuses DOM nodes; the reactive class binding doesn't re-evaluate against the new iteration item | Use a static class string inside the loop, or push the reactive class onto a per-item wrapper component. Filed 6nz-V. |
+| MED | **Tailwind utility residuals** — a small number of Tailwind utility classes don't fully resolve through the built-in engine | Write the equivalent class explicitly or use the `#{}` scoped CSS form. |
+| MED | **MCP V0 partial impl** — V0.A+B+C+D shipped; V0.E (`<program mcp="dev-only">` adopter opt-in + end-to-end docs) lands next release | The compiled MCP surface runs; the adopter opt-in attribute is the last piece. |
+| MED | **L19 multi-statement inline event handlers** — inline `onclick={ doA(); doB() }` is rejected (`E-MULTI-STATEMENT-HANDLER`); the relaxation lives behind an open design decision | Name the function: `function startOver() { doA(); doB() }` then `onclick=startOver()`. |
+| LOW | **`<each>` `key=` inference fires `W-EACH-KEY-001` even when the iter-var has `.id`** — the type-introspection in the common pipeline path is conservative | Explicit `key=@.id` silences the lint and is the recommended form anyway. |
+| LOW | **`bun scrml promote --engine` Tier-1 → 2 deferred** — `--match` works; `--each` is in flight; `--engine` is queued | Manual lift from `<match>` to `<engine>` — the inert `rule=` attributes at Tier 1 are the structural staging, so the lift is mechanical. |
+
+Everything else in this README is implemented and shipping. See [`docs/changelog.md`](./docs/changelog.md) for what landed when.
 
 ## Examples
 
