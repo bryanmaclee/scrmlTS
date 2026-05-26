@@ -3,8 +3,8 @@ status: in-progress
 started: 2026-05-26
 session: S134
 phase: HU resolutions per question
-dd-source: (none — HU-originated; DD may follow if scope warrants per HU-Q1 outcome)
-findings-total: 5 (PA-drafted)
+dd-source: scrml-support/docs/deep-dives/const-deep-freeze-2026-05-26.md (dispatched S134, agent `a22280161ec52b7fd`, BG)
+findings-total: 6 (PA-drafted; Q6 added S134 after the running DD launched)
 findings-closed: 0
 ---
 
@@ -147,9 +147,75 @@ Surface separately; document the composition in §14.x as a footnote.
 
 ---
 
+---
+
+## HU-Q6 — `reset(@cell)` on a lifecycle-annotated cell
+
+**Frame.** Added S134 (after the running DD launched; pa.md Rule 4 spec spot-check turned up the gap).
+
+A state cell `<state>: (not to User) = not` carries a lifecycle annotation `(not to User)` (§14.12). At runtime:
+1. Init: `@state` is `not`; per-access transition state is `pre`.
+2. Write: `@state = <someUser>` triggers the lifecycle transition; per-access state goes `pre → post`. Reads of `@state.field` now pass.
+3. **Now**: someone calls `reset(@state)`.
+
+§6.8 normatively says `reset(@cell)` re-evaluates the init expression (here: `not`) and writes the result. **The interaction with the lifecycle annotation's per-access transition state is NOT specified.** Three plausible behaviors:
+
+| Option | Behavior | Implication |
+|---|---|---|
+| **(a) Symmetric reset** | `reset(@state)` writes `not` AND reverts per-access transition state to `pre` | Lifecycle contract holds; reads of `@state.field` post-reset fire `E-TYPE-001` again. Form-clearing flows work naturally. |
+| **(b) Asymmetric reset** | `reset(@state)` writes the value but leaves transition state `post` | Breaks the lifecycle contract — value is `not` but the type-system says it's transitioned. Reads of `.field` would return `not` without firing. Footgun class. |
+| **(c) Forbid the combination** | `reset(@cell)` on a lifecycle-annotated cell is a compile error | Cleanest semantic but rejects a legitimate use case (form-clearing). Heavy. |
+
+**PA lean: (a)** — the lifecycle contract should hold under reset. If you reset the value to the pre-type (`not`), the per-access transition state should also revert. The §6.8 reset path is conceptually "set the cell to its init state" — the transition state IS part of the cell's state for a lifecycle-annotated cell.
+
+**Cross-cutting implication.** Same question for the other lifecycle shape — `<state>: (.Draft to .Published)` with `default=.Draft`. `reset(@state)` writes `.Draft`. Does the per-access state revert? Per option (a) yes, symmetric.
+
+**SPEC amendment needed regardless of Q1-Q5 outcomes.** This is orthogonal to the freeze design space — it's a `reset` × `lifecycle annotation` composition gap in the existing surfaces. Should land as a §6.8 + §14.12 amendment in any case.
+
+**Estimated cost:** ~2-4h spec amendment + ~3-5h impl (type-system tracker needs to listen to `_scrml_reset_*` writes and revert per-access state when the written value matches the pre-type) + ~5-8 regression tests. ~10-20h total. Small + bounded.
+
+---
+
+## "Is `freeze=` extra weight?" — framing redirect (S134 user signal)
+
+**Added S134 after agent dispatched** — user-flagged framing:
+
+> "the type system already has the predicates and contracts, maybe its extra weight. unless the dd reveals inference channels we havent explored yet."
+
+The intuition: scrml already has FOUR type-system surfaces that enforce value invariants:
+
+| Surface | What it enforces | Where |
+|---|---|---|
+| **Refinement-type predicates** | Value satisfies a predicate (`string(.length > 7)`, `number(>0 && <100)`) | §53; three-zone enforcement |
+| **L21 / E-DERIVED-VALUE-MUTATE** | No in-place mutation of derived-cell values | §6.6.18 |
+| **Lifecycle annotation `(A to B)`** | Per-access transition state on value-shape progression | §14.12 |
+| **`E-DERIVED-WRITE`** | Reference-immutability of derived cells | §6.6.8 |
+
+Adding `freeze=` as a runtime modifier potentially duplicates the work the type system is supposed to do at compile-time. The right design move may be:
+- Extend L21 (HU-Q4) to track alias chains — closes the gap at compile-time, zero runtime cost, scrml-shaped
+- Possibly add a refinement-type-style annotation (`Frozen<T>` or `T frozen` or similar) that the type-system enforces at boundary, instead of a runtime modifier
+- Leave runtime `Object.freeze` as an internal compiler tool, not user-facing
+
+The DD's `simplicity-defender` expert consultation explicitly carries this question. Phase 3 §5 also asks "Per-question PA-recommendation re-check: does the DD's evidence shift any of the HU PA leans?" — so the framing redirect IS within the agent's scope.
+
+**The right-answer-is-no-knobs argument** (PA lean to test):
+- HU-Q4 (extend L21 alias tracking) is the right move — compile-time, type-system-shaped.
+- HU-Q2 (runtime `freeze=` modifier) is potentially extra weight that the type-system extension subsumes.
+- HU-Q3 / Q5 dissolve if `freeze=` doesn't ship.
+- HU-Q1 (alias-escape gap real?) is still the empirical question — answer comes from the DD's type-system.ts walk-through.
+
+**Open: does the DD reveal an inference channel we haven't explored?** Specifically — can the existing refinement-type three-zone enforcement model be extended to express "this value graph is frozen past depth N" as a TYPE predicate, with the compiler emitting Object.freeze only at boundary sites (the JS-host crossing point) and nowhere else? That would be:
+- Type-level immutability invariant (compile-time check at boundary)
+- Runtime O(value-size) freeze ONLY at the JS-host boundary, not on every cell update
+- No new modifier syntax — uses the existing refinement-type surface
+
+If the DD confirms this path, HU-Q2 / Q3 / Q5 collapse into HU-Q4 + a refinement-type extension. Single coherent type-system surface, no `freeze=` modifier needed.
+
+---
+
 ## Carry-forward
 
-Open until the user resolves the Q1-Q5 above. After ratifications, the right next step is:
+Open until the user resolves the Q1-Q6 above. After ratifications, the right next step is:
 
 - **If Q1 = (a) status quo** — close this HU; document the alias-escape gap in §6.6.18; revisit on adopter friction.
 - **If Q1 = (b) close the gap** — spin up a DD for the implementation strategy (Q2/Q3/Q4 ratifications shape the scope). Estimate ~30-60h compiler-source work for alias-tracking; ~10-20h for the `freeze=` modifier surface; ~5-10h for SPEC amendments + tests; ~5h for PRIMER + kickstarter catch-up.
