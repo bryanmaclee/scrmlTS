@@ -21188,6 +21188,50 @@ There is no identity comparison operator in scrml. The reactive runtime handles 
 - `x == not` SHALL be a compile error (E-EQ-002); use `x is not`.
 - `==` on types containing function fields SHALL be a compile error (E-EQ-003).
 
+### 45.9 Word-form boolean operators — `or` / `and`
+
+**Added 2026-05-27 (S136 — R24-BUG-1 ratification, option (i)).** Closes a SPEC-silence gap surfaced by the R24 gauntlet (`scrml-support/docs/gauntlets/gauntlet-r24-report.md`): 2 of 4 dev personas instinctively reached for word-form `or` / `and` boolean operators in derived-cell filter expressions; SPEC was silent on whether these were valid scrml. The fix-direction the R24-BUG-1 dispatch landed (compiler lowering: `or` → `||`, `and` → `&&`) is hereby ratified into normative SPEC text.
+
+**Surface.** scrml accepts **two equivalent word-form aliases** for the JS boolean operators:
+
+| Word form | Symbol form | Semantics |
+|---|---|---|
+| `or` | `\|\|` | Logical OR (short-circuit; JS `\|\|` semantics) |
+| `and` | `&&` | Logical AND (short-circuit; JS `&&` semantics) |
+
+Either form is canonical; the compiler lowers word-form to symbol-form at the JS-host boundary. Adopters MAY use whichever reads better in context; mixed-form expressions (`a or b && c`) are legal but stylistically discouraged.
+
+```scrml
+const <visible> = @items.filter(t =>
+    (@filter is .All or t.kind == @filter)
+    and (@search == "" or t.name.includes(@search))
+)
+```
+
+**Codegen.** Two lowering sites in the compiler ensure end-to-end coverage:
+
+- The pre-Acorn rewrite pass (`compiler/src/expression-parser.ts:preprocessForAcorn`) lowers word-form so the AST emission path produces proper `BinaryExpr {op: "\|\|" \| "&&"}` nodes. The `BinaryExpr.op` AST union (`compiler/src/types/ast.ts`) lists `\|\|` / `&&` only; word-form is normalized at parse time, NEVER reaches the AST.
+- The string-rewrite fallback pass (`compiler/src/codegen/rewrite.ts:rewriteBooleanKeywords`, Pass 2.5 in both `clientPasses` and `serverPasses`) covers expressions that bail from the AST-emit path (e.g., expressions containing `is` / `match` / `?{` / `::`).
+
+Both sites use lookbehind `(?<![A-Za-z0-9_$@.])` + lookahead `(?![A-Za-z0-9_$])` to exclude identifier-substring matches (`orange`/`xor`/`vendor`/`andrew`), member-access (`obj.or`), and sigil-prefixed (`@or`) — mirroring the existing `not` rewrite precedent.
+
+**Trade-offs (accepted; mirror the `not` precedent).** Two narrow edge cases break under word-form aliasing:
+
+- `obj . or` (whitespace-separated property access) would rewrite to `obj . ||`. Not commonly written; not in current corpus.
+- `let and = 5` / `let or = 5` (valid JS identifier shadowing operator-keyword) breaks. Zero usages in current test / sample / stdlib corpus.
+
+If adopters report friction on either trade-off, harden via extended lookbehind / keyword-context-exclusion list. Not warranted preemptively.
+
+**Normative statements:**
+
+- `or` and `and` SHALL be valid word-form aliases for `\|\|` and `&&` respectively in all expression positions (logic context `${...}`, derived cells, attribute values, function bodies, predicate arguments).
+- The compiler SHALL lower word-form to symbol-form at the JS-host boundary; both forms SHALL produce bit-identical emitted JS.
+- Either form is canonical; the compiler SHALL NOT emit a warning or lint for either choice. Adopters MAY use whichever reads better.
+- Mixed-form expressions (`a or b && c`) SHALL be legal; precedence follows JS standard (`&&` binds tighter than `\|\|`).
+- The two lowering sites (AST-path rewrite + string-rewrite fallback) SHALL produce equivalent output for any expression that flows through either path; semantic divergence between the two sites is a compiler bug.
+
+**Cross-refs:** §7 (Logic Contexts) · §42.2 (`not` keyword + the parallel word-form / not-symbol-form distinction — note that `not` is the absence VALUE, not a logical-NOT operator alias; word-form boolean operators are aliases, `not` is not).
+
 ---
 
 ## 46. Worker Lifecycle — Parent-Side Observation

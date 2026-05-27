@@ -877,6 +877,20 @@ Both predicates exist; both are needed; they coexist in the validator vocabulary
 
 (Move 11 — pinned-style modifier on imports / decls for opt-out semantics. Existing §42 content retained.)
 
+### §9.5.1 Word-form boolean operators — `or` / `and` (S136 R24-BUG-1 ratification)
+
+**Added 2026-05-27 (S136).** scrml accepts BOTH word-form (`or` / `and`) AND symbol-form (`||` / `&&`) for logical OR / AND. Both forms produce bit-identical emitted JS at codegen; the compiler lowers word-form to symbol-form at the JS-host boundary. Either is canonical; the compiler emits no warning or lint on either choice. Mixed-form expressions (`a or b && c`) are legal — precedence follows JS standard (`&&` / `and` bind tighter than `||` / `or`).
+
+**Adopter signal:** R24 gauntlet showed 2 of 4 dev personas instinctively reached for word-form in derived-cell filter expressions; SPEC was silent on whether it was valid. User ratified word-form as canonical per option (i) — adopter signal + zero-friction fix (the rewrite pass mirrors the `not` precedent). SPEC §45.9 carries the normative text.
+
+**NOT a parallel to `not`:** `not` is the absence VALUE, not a logical-NOT operator. `not` ≠ `!`. The word-form aliases here are for boolean OR / AND specifically; logical negation stays `!` (JS-host) — there is NO word-form alias for `!`.
+
+**Accepted trade-offs** (mirror the `not` rewrite precedent):
+- `obj . or` (whitespace-separated property access) breaks.
+- `let and = 5` / `let or = 5` (valid JS identifier shadowing operator-keyword) breaks.
+
+Both are zero in current corpus. If adopters report friction, extend lookbehind / keyword-context-exclusion list; not warranted preemptively.
+
 ### §9.6 D4 — small-edit threading + cross-file imports + structural elements registry
 
 D4 (S58 close) threaded the locks/moves across the smaller spec sections. Highlights worth knowing:

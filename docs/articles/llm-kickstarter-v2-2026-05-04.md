@@ -1089,6 +1089,31 @@ If your instinct from another framework fires, stop and use the scrml form. Thes
 
 **If you don't see your case in the table, default to the canonical shape from §2.** Do not invent syntax.
 
+### 7.1 Word-form ↔ symbol-form parallels — both work (S136 R24 ratification)
+
+A small set of operator-position forms accept BOTH the JS-style symbol form AND a word-form alias. Neither is "more canonical" — adopters use whichever reads better in context:
+
+| Word form | Symbol form | Semantics | SPEC |
+|---|---|---|---|
+| `or` | `\|\|` | Logical OR (short-circuit) | §45.9 |
+| `and` | `&&` | Logical AND (short-circuit) | §45.9 |
+
+```scrml
+// All four are bit-identical at codegen:
+const <a> = @x is .Active or @y == 1
+const <b> = @x is .Active || @y == 1
+const <c> = @x is .Active and @y == 1 and @z is some
+const <d> = @x is .Active && @y == 1 && @z is some
+```
+
+The compiler lowers word-form to symbol-form at the JS-host boundary; both paths produce bit-identical emitted JS. Mixed-form expressions (`a or b && c`) are legal but stylistically discouraged. Precedence follows JS standard (`&&` / `and` bind tighter than `\|\|` / `or`).
+
+**NOT in this category** — these are word-form keywords that DO NOT have symbol-form aliases:
+
+- `not` — the ABSENCE value, NOT a logical-NOT operator. `not` ≠ `!`. Use `is not` / `is some` for absence predicates; use `!` for logical negation (still JS-host); see §42 (PRIMER §9.5).
+- `is` / `is not` / `is some` — presence + variant predicates with no JS-host equivalent.
+- `given X => {}` — narrow-AND-use form with no JS-host equivalent.
+
 ---
 
 ## 8. The 8 questions answered up front
