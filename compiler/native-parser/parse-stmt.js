@@ -1830,15 +1830,22 @@ export function parseScrmlFunctionDecl(ctx, allowAnonymous) {
         params = parseParamList(ctx);
     }
 
-    // --- the trailing `!` failable marker + optional `-> ErrorType` ---
+    // --- the trailing `!` failable marker + optional error-type annotation ---
+    // Two shapes recognized:
+    //   1. `! -> ErrorType { body }` — arrow form per SPEC §19.4.1 normative grammar.
+    //      `->` lexes as two tokens (`Minus` + `GreaterThan`); native lexer reserves
+    //      the single `Arrow` token for the fat arrow `=>`.
+    //   2. `! ErrorType { body }`    — bare form per SPEC §41.14 examples. Disambiguation
+    //      requires the IDENT NOT be a function-decl attribute keyword (`route` /
+    //      `method`) AND the following token be a well-formed function-decl-head
+    //      continuation (`{` body / `route` / `method` / `.idempotent` / `:` / `->`
+    //      return-type / `;` / EOF).
+    // R25-Bug-36: prior to S136 the bare form was unrecognized — body silently dropped.
     let canFail = false;
     let errorType = null;
     if (currentKind(cursor) === TokenKind.Bang) {
         advance(cursor);   // consume `!`
         canFail = true;
-        // `! -> ErrorType` — a named error type. `->` lexes as two tokens
-        // (`Minus` then `GreaterThan`) — the native lexer reserves the
-        // `Arrow` token for `=>`.
         if (arrowFollows(cursor)) {
             advance(cursor);   // consume `-`
             advance(cursor);   // consume `>`
@@ -1847,6 +1854,24 @@ export function parseScrmlFunctionDecl(ctx, allowAnonymous) {
             } else {
                 recordError(ctx, "E-STMT-FN-ERROR-TYPE",
                     "expected an error type name after '! ->'", spanHere(ctx));
+            }
+        } else if (currentKind(cursor) === TokenKind.Ident) {
+            // `! ErrorType ...` bare form (SPEC §41.14).
+            const tokName = peek(cursor).name;
+            const tokIsAttrKw = tokName === "route" || tokName === "method";
+            const k1 = peekKind(cursor, 1);
+            const k1Name = (peekKind(cursor, 1) === TokenKind.Ident) ? peek(cursor, 1).name : "";
+            const next1IsContinuation = (
+                k1 === TokenKind.LBrace ||
+                (k1 === TokenKind.Ident && (k1Name === "route" || k1Name === "method")) ||
+                (k1 === TokenKind.Dot && peekKind(cursor, 2) === TokenKind.Ident && peek(cursor, 2).name === "idempotent") ||
+                k1 === TokenKind.Colon ||
+                (k1 === TokenKind.Minus && peekKind(cursor, 2) === TokenKind.GreaterThan) ||
+                k1 === TokenKind.Semicolon ||
+                atEnd(cursor)
+            );
+            if (!tokIsAttrKw && next1IsContinuation) {
+                errorType = advance(cursor).name;
             }
         }
     }

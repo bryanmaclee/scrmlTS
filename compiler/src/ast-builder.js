@@ -8549,17 +8549,54 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
 
       const params = parseParamList();
 
-      // Parse optional `!` (canFail) and `-> ErrorType` after parameter list
+      // Parse optional `!` (canFail) and error-type annotation after parameter list.
+      // Two recognized shapes:
+      //   1. `! -> ErrorType { body }` — arrow form per SPEC §19.4.1 normative grammar.
+      //   2. `! ErrorType { body }`    — bare form per SPEC §41.14 examples (and the
+      //                                  shape 4/4 R25 adopters reach for; closes
+      //                                  R25-Bug-36 silent body-drop on this canonical
+      //                                  CRUD-server-fn shape).
+      // Disambiguation for the bare form: the IDENT/KEYWORD after `!` is the
+      // error-type name UNLESS it's `route`/`method` (the well-known function-decl
+      // attribute names — those would be followed by `=`), OR is followed by `(`
+      // (call expression — but `!` followed by an unbound call has no valid
+      // function-decl reading anyway), OR is the keyword `is` / `or` / `and`
+      // (binary-operator continuations from a misplaced earlier expression).
+      // We additionally require the IDENT's NEXT token to be `{` (body opener)
+      // / `route` / `method` / `.idempotent` / `:` / `->` / `;` / EOF — any of
+      // the well-formed continuations of a function-decl head.
       let canFail = false;
       let errorType = undefined;
       if (peek().text === "!") {
         consume(); // consume `!`
         canFail = true;
-        // Parse optional `-> ErrorType`
         if (peek().text === "-" && peek(1)?.text === ">") {
+          // `! -> ErrorType` arrow form (SPEC §19.4.1 normative grammar).
           consume(); // consume `-`
           consume(); // consume `>`
           if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+            errorType = consume().text;
+          }
+        } else if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+          // `! ErrorType` bare form (SPEC §41.14 examples; widely adopted).
+          // Skip if the IDENT itself is a function-decl attribute keyword
+          // (`route`/`method` are lowercase IDENT — enum-types convention is
+          // UpperCase). Also skip if the next token suggests a non-error-type
+          // continuation (`=` — `route="..."` attribute; `(` — call expression).
+          const tokText = peek().text;
+          const tokIsAttrKw = tokText === "route" || tokText === "method";
+          const next1 = peek(1);
+          const next1Text = next1?.text ?? "";
+          const next1IsContinuation = (
+            next1Text === "{" ||                                                // body opener
+            next1Text === "route" || next1Text === "method" ||                  // route/method= attr
+            (next1Text === "." && peek(2)?.text === "idempotent") ||            // .idempotent() modifier
+            next1Text === ":" ||                                                // : returnType
+            (next1Text === "-" && peek(2)?.text === ">") ||                     // -> returnType
+            next1Text === ";" ||                                                // bare statement end
+            !next1 || next1.kind === "EOF"
+          );
+          if (!tokIsAttrKw && next1IsContinuation) {
             errorType = consume().text;
           }
         }
@@ -8772,17 +8809,36 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         params = parseParamList();
       }
 
-      // Parse optional `!` (canFail) and `-> ErrorType` after parameter list
+      // Parse optional `!` (canFail) and error-type annotation after parameter list.
+      // Parallel to the `function`-decl site (~L8552); see that comment for the full
+      // shape rationale + disambiguation table. Both arrow form (`! -> ErrorType {`)
+      // and bare form (`! ErrorType {`, SPEC §41.14) are recognized.
       let canFail = false;
       let errorType = undefined;
       if (peek().text === "!") {
         consume(); // consume `!`
         canFail = true;
-        // Parse optional `-> ErrorType`
         if (peek().text === "-" && peek(1)?.text === ">") {
           consume(); // consume `-`
           consume(); // consume `>`
           if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+            errorType = consume().text;
+          }
+        } else if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+          const tokText = peek().text;
+          const tokIsAttrKw = tokText === "route" || tokText === "method";
+          const next1 = peek(1);
+          const next1Text = next1?.text ?? "";
+          const next1IsContinuation = (
+            next1Text === "{" ||
+            next1Text === "route" || next1Text === "method" ||
+            (next1Text === "." && peek(2)?.text === "idempotent") ||
+            next1Text === ":" ||
+            (next1Text === "-" && peek(2)?.text === ">") ||
+            next1Text === ";" ||
+            !next1 || next1.kind === "EOF"
+          );
+          if (!tokIsAttrKw && next1IsContinuation) {
             errorType = consume().text;
           }
         }
