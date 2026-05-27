@@ -14,9 +14,9 @@
 
 | Severity | Open | Closed-this-arc | Notes |
 |---|---|---|---|
-| HIGH | 2 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132) · **E-FN-003 (RESOLVED S133 `dbef4f4d`)** · **Bug 17 E-META-001 runtime-meta (RESOLVED S134 `6c6c0073`)** · **§6.6.18 alias-escape A4 LANDED S134 `b719a3d2`** · **Bug 19 Shape 1 lifecycle tracker LANDED S134 `fd58893e` (B-prereq)** · **§6.8.3 reset × lifecycle impl LANDED S135 `2ffe4f6a` (Q6-narrow; SPEC-ahead-of-impl bullet CLOSED)** | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) |
+| HIGH | 2 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132) · **E-FN-003 (RESOLVED S133 `dbef4f4d`)** · **Bug 17 E-META-001 runtime-meta (RESOLVED S134 `6c6c0073`)** · **§6.6.18 alias-escape A4 LANDED S134 `b719a3d2`** · **Bug 19 Shape 1 lifecycle tracker LANDED S134 `fd58893e` (B-prereq)** · **§6.8.3 reset × lifecycle impl LANDED S135 `2ffe4f6a` (Q6-narrow; SPEC-ahead-of-impl bullet CLOSED)** · **Structural-in-logic-body silent-swallow class CLOSED S135 `ab0d13a3` (E-STRUCTURAL-ELEMENT-MISPLACED fires for `<schema>`/`<engine>`/`<channel>`/`<page>`/`<auth>`/`<errors>`/`<onTransition>`/`<onTimeout>`/`<onIdle>` in `${...}` bodies; +19 tests)** | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) |
 | MED | 6 | Bug 15 `~snapshot` codegen leak (S131 SHIPPED) · E-SCHEMA-003 enforcement (S133 SHIPPED `afbcb47a`) | Bug 1 Tailwind residuals · V-kill READ-side fire · MCP V0 partial-impl deferrals · Generator policy · L19 multi-statement-handler · **A5 refinement-type freeze extension (DEFERRED with adoption-watch trigger, S134)** |
-| LOW | 9 | (rotate out below) | Bug 4 bare-`/` · GITI-015 · §11-folded-citation sweep · `bun scrml promote --engine` Tier-1→2 deferred · **Bug 21 Q6-narrow deep multi-level reset heuristic (S135)** · **Bug 22 Q6-narrow cross-cell `default=` classification heuristic (S135)** · **Bug 23 W-LIFECYCLE-LEGACY-ARROW Shape 1 emission gap (S135)** · **Bug 24 qualified-form discrim regex tolerance (S135)** · **Bug 25 transition() deeper-expression regex tolerance (S135)** |
+| LOW | 11 | (rotate out below) | Bug 4 bare-`/` · GITI-015 · §11-folded-citation sweep · `bun scrml promote --engine` Tier-1→2 deferred · **Bug 21 Q6-narrow deep multi-level reset heuristic (S135)** · **Bug 22 Q6-narrow cross-cell `default=` classification heuristic (S135)** · **Bug 23 W-LIFECYCLE-LEGACY-ARROW Shape 1 emission gap (S135)** · **Bug 24 qualified-form discrim regex tolerance (S135)** · **Bug 25 transition() deeper-expression regex tolerance (S135)** · **Bug 26 `${...}` inside `function` body E-SCOPE-001 (S135)** · **Bug 27 tryParseStructuralDecl extra lookahead cleanup (S135)** |
 | Nominal (spec-ahead-of-impl) | 7 | — | Build Story §58 · `import:host` §21.3.1 · Quoted-text §4.18 compiler fire · `_{}` foreign code · WASM call-char sigils · Sidecar process decls · RemoteData enum |
 
 ---
@@ -286,6 +286,26 @@ The discrimination walker (`checkLifecycleBindingAccess`) recognizes bare-dot va
 - **Workaround:** factor the target into a local binding first: `let p = @u.field; transition(p)` (caveat: this changes semantics depending on the surrounding scope; works in many cases but not all).
 - **Status:** filed S135 in lifecycle-source-form-followups progress.md; extend on real adopter friction. Canonical scrml usage today is single-identifier transition targets.
 - **Cross-refs:** SPEC §14.12.6 (transition forms); `docs/changes/lifecycle-source-form-followups-2026-05-26/progress.md`.
+
+---
+
+### Bug 26 — `${...}` inside `function probe() { ... }` body emits E-SCOPE-001 for `$` — `LOW` (S135)
+
+A `${...}` block placed inside a bare `function name() { ... }` body emits an unexpected `E-SCOPE-001` diagnostic for the leading `$` character. The `${` token gets preprocessed differently inside function bodies vs at structural positions. Unrelated to the silent-swallow class that S135 structural-in-logic landing closed — surfaced as a Phase 0 probe side-finding.
+
+- **Workaround:** don't nest `${...}` inside a bare `function` body — use `${...}` at structural positions (inside `<program>`, `<page>`, etc.), or use bare statements inside the function body (no `${...}` wrapper needed since the function body is already in code-context).
+- **Status:** filed S135 in structural-in-logic progress.md; orthogonal to silent-swallow class. Extend on real adopter friction.
+- **Cross-refs:** `docs/changes/structural-in-logic-body-2026-05-26/progress.md`.
+
+---
+
+### Bug 27 — `tryParseStructuralDecl` extra lookahead on structural-element compound forms — `cleanup` (S135)
+
+`tryParseStructuralDecl` enters the compound-state-decl branch when it sees `<schema><users>...` (treating it as a potential compound state-decl with field `users`), then rewinds when the child `<users>` doesn't have an `=` RHS. Works correctly (the rewind handles it; the parent eventually emits `E-STRUCTURAL-ELEMENT-MISPLACED` per the S135 structural-in-logic fix) but does extra lookahead work that could be short-circuited by checking the leading-tag name against the structural-element registry FIRST.
+
+- **Workaround:** none needed — current behavior is correct; only the lookahead cost is wasted.
+- **Status:** filed S135 in structural-in-logic progress.md as a cleanup opportunity. Not a bug. Extend on parser-performance signal.
+- **Cross-refs:** `docs/changes/structural-in-logic-body-2026-05-26/progress.md`.
 
 ---
 
