@@ -53,13 +53,15 @@ Run these checks (one Bash batch). If anything fails, STOP and report to user:
 ```bash
 cd /home/bryan-maclee/scrmlMaster/scrmlTS
 pwd
-ls -la .claude/agents/scrml-dev-{react,go,svelte,pascal}.md
+ls -la .claude/agents/scrml-dev-{react,elixir,svelte,pascal}.md
 ls /home/bryan-maclee/scrmlMaster/scrml-support/docs/gauntlets/gauntlet-r25/BRIEF.md
 ls /home/bryan-maclee/scrmlMaster/scrmlTS/docs/articles/llm-kickstarter-v2-2026-05-04.md
 ls /home/bryan-maclee/scrmlMaster/scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md
 bun --version
 mkdir -p /home/bryan-maclee/scrmlMaster/scrml-support/docs/gauntlets/gauntlet-r25/dist
 ```
+
+**Persona swap from R24:** Go → Elixir. The new persona is `scrml-dev-elixir` (Phoenix / OTP / channels-native mental model — the right foil for testing the channel + SSE + multi-user surface R25 introduces).
 
 All persona files for the round must exist (check whatever personas the BRIEF.md
 names). BRIEF.md must exist. Both required-read files must exist. `bun` must
