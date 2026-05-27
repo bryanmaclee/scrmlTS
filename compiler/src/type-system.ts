@@ -2271,17 +2271,30 @@ function findTopLevelArrow(
       continue;
     }
 
-    // Canonical keyword form: standalone `to` bounded by whitespace.
+    // Canonical keyword form: standalone `to` bounded by non-identifier chars.
     // `t` at index i + `o` at index i+1 + boundary before and after.
     if (c === "t" && s[i + 1] === "o") {
       const prev = i === 0 ? " " : s[i - 1];
       const nextIdx = i + 2;
       const next = nextIdx < s.length ? s[nextIdx] : " ";
-      // Boundary characters: whitespace or string-bounds. `to` must not be a
-      // prefix of a longer identifier (`tomorrow`, `top`) and must not be the
-      // suffix of one (`autoFlush`).
-      const prevIsBoundary = prev === " " || prev === "\t" || prev === "\n";
-      const nextIsBoundary = next === " " || next === "\t" || next === "\n";
+      // `to` must not be a prefix of a longer identifier (`tomorrow`, `top`)
+      // and must not be the suffix of one (`autoFlush`). The standard
+      // word-boundary rule: prev/next must be non-identifier characters
+      // (anything that is NOT [A-Za-z0-9_$]). This is more permissive than
+      // the whitespace-only check because the legacy `->` glyph already
+      // tolerates an immediately-adjacent `>` after `-`; symmetry argues
+      // the `to` keyword should be at least as tolerant of adjacent
+      // structural punctuation (`.`, `(`, `)`, etc.) so that a parser
+      // whitespace-collapse around `.` (e.g., `(.Draft to.Published)`)
+      // still surfaces the lifecycle annotation rather than silently
+      // failing detection. (S135 — Fix #1: source-form bare-dot variant
+      // lifecycle annotation on Shape 1 cells; orthogonal #1 follow-up to
+      // S134 B-prereq.)
+      const isIdentChar = (ch: string): boolean =>
+        (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z") ||
+        (ch >= "0" && ch <= "9") || ch === "_" || ch === "$";
+      const prevIsBoundary = !isIdentChar(prev);
+      const nextIsBoundary = !isIdentChar(next);
       if (prevIsBoundary && nextIsBoundary) {
         return { idx: i, len: 2, glyph: "to" };
       }
