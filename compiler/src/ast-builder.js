@@ -161,6 +161,63 @@ function isHtmlFragment(expr) {
 }
 
 /**
+ * §4.15 — Scrml-defined structural-DECLARATION elements registry. These 9
+ * elements are declaration-shapes (NOT markup-as-value): a state-machine
+ * definition (<engine>), channel/page/schema/auth declarations, an errors
+ * template, lifecycle handlers (<onTransition>/<onTimeout>/<onIdle>). They
+ * are grammatical ONLY in their owning loci; appearance inside a `${...}`
+ * logic body (parseLogicBody) is a misplacement — without this gate they
+ * were silently swallowed as `kind: "html-fragment"` raw text and produced
+ * empty output.
+ *
+ * <match> (the 10th §4.15 entry) is intentionally NOT in this table — block-
+ * form <match> IS markup-as-value (§18.0.1 + §1.4) and is canonical inside
+ * `${...}` markup-emit contexts. See the inline NOTE at the table's tail.
+ *
+ * The registry name-match is case-sensitive (§4.15). PascalCase user
+ * components (`<MyComponent>`) and HTML elements (`<div>`) are not in the
+ * table, so the diagnostic does not fire on them. Each entry pairs the
+ * element name with the canonical-placement story cited in the diagnostic
+ * message. The §-references mirror SPEC §4.15 Cross-references.
+ */
+const STRUCTURAL_ELEMENT_PLACEMENT = {
+  schema:       "a `<schema>` element belongs as an immediate child of `<program>` (§39.2 / §39.12)",
+  engine:       "an `<engine>` element belongs at file top-level or as a typed-state-cell init (§51.0 / §51)",
+  channel:      "a `<channel>` element belongs inside `<program>` as a sibling of `<page>` (§38.1 / §38.3)",
+  page:         "a `<page>` element belongs inside `<program>` in multi-page apps (§40 / §40.8)",
+  auth:         "an `<auth>` element belongs as a child of `<program>` / `<page>` / `<channel>` (§40.9.5 / §40.1.1)",
+  errors:       "an `<errors>` element belongs in a parent context that supports it (§55.8)",
+  onTransition: "an `<onTransition>` element belongs as a child of `<engine>` (§51.0.H)",
+  onTimeout:    "an `<onTimeout>` element belongs inside an engine state-child (§51.0.M)",
+  onIdle:       "an `<onIdle>` element belongs at engine root, sibling of state-children (§51.0.R)",
+  // NOTE: <match> is intentionally NOT in this table. Block-form <match> is
+  // markup-as-value (§18.0.1 + §1.4 L1 pillar) — it is grammatical wherever a
+  // value-yielding expression sits, including `${...}` markup-emit contexts
+  // (the canonical output of `bun scrml promote --match`, S66 SHIPPED). The
+  // brief's PA-lean kill-list conflated <match> with the 9 declarations; the
+  // promote-safety-harness regression confirmed the false-positive empirically
+  // (3 tests in compiler/tests/unit/promote-safety-harness.test.js failed
+  // before this scope correction).
+};
+
+/**
+ * Extract the leading tag-opener name from a collected expression string, e.g.
+ * `"<schema>\n  <users>..."` → `"schema"`. Returns null if the expression
+ * does not start with a tag opener `<NAME` (case-sensitive on the name; the
+ * tokenizer may insert a single space between `<` and the IDENT, hence `\s*`).
+ *
+ * Used by parseLogicBody to gate E-STRUCTURAL-ELEMENT-MISPLACED — the diagnostic
+ * fires only when the leading tag-name is in STRUCTURAL_ELEMENT_PLACEMENT.
+ * HTML elements (`<div>`, `<p>`, …) and PascalCase components (`<MyComponent>`)
+ * do NOT appear in the placement table so the diagnostic does not fire on them.
+ */
+function leadingTagName(expr) {
+  if (!expr || typeof expr !== "string") return null;
+  const m = expr.match(/^\s*<\s*([A-Za-z][A-Za-z0-9_-]*)\b/);
+  return m ? m[1] : null;
+}
+
+/**
  * Module-level safe expression parser — wraps parseExprToNode in try/catch.
  * Returns undefined on failure. Used by parseAttributes (module-level scope)
  * and other module-level helpers that need ExprNode but lack access to the
@@ -6460,6 +6517,24 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           };
         }
         if (isHtmlFragment(expr)) {
+          // §4.15 — Structural-element misplacement in `${...}` logic-body context.
+          // The leading tag opener is a scrml-defined structural element (one of
+          // schema/engine/channel/page/auth/errors/onTransition/onTimeout/onIdle/match).
+          // Without this gate the entire run is silently swallowed as html-fragment
+          // raw text and the structural intent disappears from the output. Fire
+          // E-STRUCTURAL-ELEMENT-MISPLACED (§34 reuse — "used outside its owning
+          // locus"). The html-fragment node is still returned so the AST shape
+          // stays stable; the error carries the diagnostic.
+          const _seName = leadingTagName(expr);
+          if (_seName && Object.prototype.hasOwnProperty.call(STRUCTURAL_ELEMENT_PLACEMENT, _seName)) {
+            errors.push(new TABError(
+              "E-STRUCTURAL-ELEMENT-MISPLACED",
+              `E-STRUCTURAL-ELEMENT-MISPLACED: \`<${_seName}>\` cannot appear inside a \`\${ }\` logic body — ${STRUCTURAL_ELEMENT_PLACEMENT[_seName]}. ` +
+              `(§4.15 — scrml-defined structural elements are grammatical only in their owning loci; ` +
+              `use outside the owning locus is E-STRUCTURAL-ELEMENT-MISPLACED.)`,
+              span,
+            ));
+          }
           return { id: ++counter.next, kind: "html-fragment", content: expr, span };
         }
         return { id: ++counter.next, kind: "bare-expr", expr, exprNode: safeParseExprToNode(expr, 0), span };
@@ -9660,6 +9735,21 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             span,
           });
         } else if (isHtmlFragment(expr)) {
+          // §4.15 — Structural-element misplacement in `${...}` logic-body context
+          // (top-level loop). See parseOneStatement html-fragment fallback for the
+          // full rationale. Fires E-STRUCTURAL-ELEMENT-MISPLACED when the leading
+          // tag is in the structural-element registry; the html-fragment node is
+          // still pushed so downstream stage shapes stay stable.
+          const _seName = leadingTagName(expr);
+          if (_seName && Object.prototype.hasOwnProperty.call(STRUCTURAL_ELEMENT_PLACEMENT, _seName)) {
+            errors.push(new TABError(
+              "E-STRUCTURAL-ELEMENT-MISPLACED",
+              `E-STRUCTURAL-ELEMENT-MISPLACED: \`<${_seName}>\` cannot appear inside a \`\${ }\` logic body — ${STRUCTURAL_ELEMENT_PLACEMENT[_seName]}. ` +
+              `(§4.15 — scrml-defined structural elements are grammatical only in their owning loci; ` +
+              `use outside the owning locus is E-STRUCTURAL-ELEMENT-MISPLACED.)`,
+              span,
+            ));
+          }
           nodes.push({ id: ++counter.next, kind: "html-fragment", content: expr, span });
         } else {
           nodes.push({ id: ++counter.next, kind: "bare-expr", expr, exprNode: safeParseExprToNode(expr, 0), span });
