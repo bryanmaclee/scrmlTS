@@ -6,7 +6,7 @@
 >
 > **Per-gap status:** `spec'd` = SPEC normative + compiler does nothing · `partial-impl` = some sub-units shipped, others pending · `scoping` = SCOPING.md authored, OQs open · `in-impl` = implementation arc actively in flight · `deferred` = ratified to defer pending a precondition · `blocked` = waiting on something else · `nominal` = SPEC-only Nominal section (deliberately spec-ahead-of-implementation per author)
 >
-> Updated 2026-05-27 (S136 — R25 gauntlet bug intake; net +6 new HIGH (Bugs 36-41) + +3 new MED (Bugs 42-44; Bug 43 duplicate-cross-ref of Bug 30) + +2 new LOW (Bugs 45-46) + Bug 29 status revised HIGH→PARTIALLY-RESOLVED (narrow `{return}` fix landed `c7e81962`; broader case Bug 38 still OPEN) + Bug 28 R24-BUG-1 RESOLVED held under R25 4/4 verification + R25 dispatch-shape S136 dev-returns-content VALIDATED 0-dispatch-failures.
+> Updated 2026-05-27 (S136 — R25-Bug-36 RESOLVED `e1269844` + Bug 39 RESOLVED-AS-SIDE-EFFECT + Bug 38 root-cause CONFIRMED-DISTINCT from Bug 36 via agent's dispatch investigation. Bug 36 was actually a `! ErrorType` bare-form (SPEC §41.14) parse-gap, NOT `?{}`-related as PA brief hypothesized — SQL correlation was incidental (all R25-affected functions just contained SQL). Brief-hypothesis-correction banked. Net HIGH count 9 → 7. Pending followups: SPEC §19.4.1 grammar amendment for bare-form ratification; new deferred-item triage for `?{}` non-lowering at default-logic top-level (may overlap Bug 42 OR be separate).
 
 ---
 
@@ -14,7 +14,7 @@
 
 | Severity | Open | Closed-this-arc | Notes |
 |---|---|---|---|
-| HIGH | 9 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132) · **E-FN-003 (RESOLVED S133 `dbef4f4d`)** · **Bug 17 E-META-001 runtime-meta (RESOLVED S134 `6c6c0073`)** · **§6.6.18 alias-escape A4 LANDED S134 `b719a3d2`** · **Bug 19 Shape 1 lifecycle tracker LANDED S134 `fd58893e` (B-prereq)** · **§6.8.3 reset × lifecycle impl LANDED S135 `2ffe4f6a` (Q6-narrow; SPEC-ahead-of-impl bullet CLOSED)** · **Structural-in-logic-body silent-swallow class CLOSED S135 `ab0d13a3` (E-STRUCTURAL-ELEMENT-MISPLACED fires for `<schema>`/`<engine>`/`<channel>`/`<page>`/`<auth>`/`<errors>`/`<onTransition>`/`<onTimeout>`/`<onIdle>` in `${...}` bodies; +19 tests)** · **Bug 28 `or`/`and` codegen lowering RESOLVED S136 `89008e97` (R24-BUG-1; 2-site fix + 42-test regression; HELD 4/4 R25)** · **Bug 29 narrow `{ return }` arm RESOLVED S136 `c7e81962` (R24-BUG-2; +18 regression tests; broader case Bug 38 deferred)** | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) · R24-BUG-4 `<match>` `</>` Phase 5 (cross-ref escalation, SCOPING-tracked) · **Bug 36 CRITICAL server-fn body silent drop (NEW S136 R25, BLOCKER for SQL servfns)** · **Bug 37 `<each in=@x.filter(c => ...)>` arrow truncation (NEW S136 R25, minimally reproduced)** · **Bug 38 `!{}` arm body codegen failure broader case (NEW S136 R25, 4/4; deeper than Bug 29 narrow)** · **Bug 39 phantom enum-object → el.textContent wiring (NEW S136 R25, 2/4 independent)** · **Bug 40 `:`-shorthand inside `<each>` item body empty (NEW S136 R25)** · **Bug 41 `<schema>` block content leaks into HTML body (NEW S136 R25)** |
+| HIGH | 7 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132) · **E-FN-003 (RESOLVED S133 `dbef4f4d`)** · **Bug 17 E-META-001 runtime-meta (RESOLVED S134 `6c6c0073`)** · **§6.6.18 alias-escape A4 LANDED S134 `b719a3d2`** · **Bug 19 Shape 1 lifecycle tracker LANDED S134 `fd58893e` (B-prereq)** · **§6.8.3 reset × lifecycle impl LANDED S135 `2ffe4f6a` (Q6-narrow; SPEC-ahead-of-impl bullet CLOSED)** · **Structural-in-logic-body silent-swallow class CLOSED S135 `ab0d13a3` (E-STRUCTURAL-ELEMENT-MISPLACED fires for `<schema>`/`<engine>`/`<channel>`/`<page>`/`<auth>`/`<errors>`/`<onTransition>`/`<onTimeout>`/`<onIdle>` in `${...}` bodies; +19 tests)** · **Bug 28 `or`/`and` codegen lowering RESOLVED S136 `89008e97` (R24-BUG-1; 2-site fix + 42-test regression; HELD 4/4 R25)** · **Bug 29 narrow `{ return }` arm RESOLVED S136 `c7e81962` (R24-BUG-2; +18 regression tests; broader case Bug 38 deferred)** · **Bug 36 `! ErrorType` bare-form parse-gap RESOLVED S136 `e1269844` (was CRITICAL R25; 3-site fix ast-builder + native-parser + 12-test regression; spec §41.14 bare-form ratification)** · **Bug 39 phantom enum→textContent wiring RESOLVED-AS-SIDE-EFFECT-OF-BUG-36 S136 `e1269844` (was HIGH R25; was a symptom of Bug 36's orphan-IDENT)** | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) · R24-BUG-4 `<match>` `</>` Phase 5 (cross-ref escalation, SCOPING-tracked) · **Bug 37 `<each in=@x.filter(c => ...)>` arrow truncation (NEW S136 R25, minimally reproduced)** · **Bug 38 `!{}` arm body codegen failure broader case (NEW S136 R25, 4/4; deeper than Bug 29 narrow; confirmed DISTINCT root from Bug 36 — codegen `emit-logic.ts` case "guarded-expr")** · **Bug 40 `:`-shorthand inside `<each>` item body empty (NEW S136 R25)** · **Bug 41 `<schema>` block content leaks into HTML body (NEW S136 R25)** |
 | MED | 13 | Bug 15 `~snapshot` codegen leak (S131 SHIPPED) · E-SCHEMA-003 enforcement (S133 SHIPPED `afbcb47a`) | Bug 1 Tailwind residuals · V-kill READ-side fire · MCP V0 partial-impl deferrals · Generator policy · L19 multi-statement-handler · **A5 refinement-type freeze extension (DEFERRED with adoption-watch trigger, S134)** · **Bug 30 linter scans HTML comments (NEW S136 R24; R25 confirmed via Bug 43 cross-ref)** · **Bug 31 if-as-expression in !{} result binding (NEW S136 R24)** · **Bug 32 `@.` not lowered inside tableFor column slot (NEW S136 R24)** · **Bug 35 rewriteIsPredicates space-padded-dot AST-path gap (NEW S136 R24-BUG-1 triage)** · **Bug 42 `?{}` SQL in `server function*` not lowered (NEW S136 R25; E-CG-006 misclassified for server-context)** · **Bug 44 W-LINT-007 false-positive on `fallback={<markup/>}` SPEC §19.6 canonical errorBoundary shape (NEW S136 R25; composes with R24 step-3b)** |
 | LOW | 15 | (rotate out below) | Bug 4 bare-`/` · GITI-015 · §11-folded-citation sweep · `bun scrml promote --engine` Tier-1→2 deferred · **Bug 21 Q6-narrow deep multi-level reset heuristic (S135)** · **Bug 22 Q6-narrow cross-cell `default=` classification heuristic (S135)** · **Bug 23 W-LIFECYCLE-LEGACY-ARROW Shape 1 emission gap (S135)** · **Bug 24 qualified-form discrim regex tolerance (S135)** · **Bug 25 transition() deeper-expression regex tolerance (S135)** · **Bug 26 `${...}` inside `function` body E-SCOPE-001 (S135)** · **Bug 27 tryParseStructuralDecl extra lookahead cleanup (S135)** · **Bug 33 W-LINT-011 false positive on `:let=` (NEW S136 R24)** · **Bug 34 Shape-2 compound markup-init missing 2nd arg (NEW S136 R24)** · **Bug 45 `int` ghost type → asIs fallthrough → confusing E-SCHEMAFOR-NO-SQL-MAPPING (NEW S136 R25; 4/4 devs reached from canon)** · **Bug 46 tableFor `sortable=`/`selectable=` not implemented (NEW S136 R25; W-ATTR-001 forwarded as plain HTML)** |
 | Nominal (spec-ahead-of-impl) | 7 | — | Build Story §58 · `import:host` §21.3.1 · Quoted-text §4.18 compiler fire · `_{}` foreign code · WASM call-char sigils · Sidecar process decls · RemoteData enum |
@@ -165,20 +165,32 @@ These can be hardened later with extended lookbehind if adopters report; not war
 
 ---
 
-### Bug 36 — server-fn body silently dropped on `?{}` + `if (x is some/not) fail` pattern — `CRITICAL` (S136 R25; 3/4 devs)
+### Bug 36 — `! ErrorType` bare-form parse-gap (SPEC §41.14) caused server-fn body silent drop — `RESOLVED S136 (commit e1269844)` (was CRITICAL; R25; 3/4 devs)
 
-**The worst-of-both-worlds bug.** When a `server function` body contains `?{}` SQL + a presence-check `if` + a `fail` statement (the canonical CRUD-server-fn shape), the compiler emits 3× "statement boundary not detected — trailing content would be silently dropped" warnings per file at function-body offsets, exits 0, and `node --check` PASSES — because the emitted server-fn body is EMPTY (just auth boilerplate + parameter extraction). The `?{}` SQL queries, presence-check `if`s, `fail` statements, and `?{...}.run()` calls are ALL absent from the emitted JS. Adopters deploy silently broken code.
+**Fix (S136 `e1269844`):** three-site parser fix. Root cause was NOT `?{}` SQL as the brief hypothesized — the SQL correlation was incidental (all R25-affected functions just happened to contain SQL). Actual root: the parser only recognized `! -> ErrorType` arrow form (SPEC §19.4.1 normative grammar); the bare `! ErrorType` form (SPEC §41.14 normative examples; 4/4 R25 dev instinct from canon) was unrecognized → parser fall-through → body-collection failure → BS "statement boundary not detected" warning → silent body drop → empty server-fn handlers.
 
-Surfaced INDEPENDENTLY by dev-1-react (`createCard`/`moveCard`/`archiveCard`), dev-2-elixir (same names — also dropped), dev-4-pascal (same names — also dropped) in R25.
+THREE-SITE FIX:
+- `compiler/src/ast-builder.js` function-decl handler (~L8552, +37/-4): post-`!`, accept bare `IDENT/KEYWORD` + function-decl-head continuation (`{` body / `route` / `method` / `.idempotent` / `:` / `->` / `;` / EOF) as errorType
+- `compiler/src/ast-builder.js` fn-shorthand handler (~L8775): same fix mirrored
+- `compiler/native-parser/parse-stmt.js` `parseScrmlFunctionDecl` (~L1842, +24/-2): parity fix
 
-- **Reproducer shape:** `server function foo(x) ! Err { const r = ?{...}.get(); if (r is not) fail .X; ?{...}.run() }` — body collapses to empty in emitted JS.
-- **Root cause hypothesis:** statement-boundary parser drops content after first `?{...}` token inside `server function` body. The 3× BS warning is the smoking gun.
-- **Spec reference:** SPEC §19 (server function bodies) + SPEC §13 (`?{}` query expressions).
-- **Current behavior:** exits 0; node --check passes (empty fn body is valid JS); emitted server-fn body returns `undefined`.
-- **Expected behavior:** server-fn body emits the full SQL + control-flow + fail/run sequence; compile-time signal if body would be empty.
-- **Suggested fix scope:** statement-boundary parser in `server function` context. Likely involves either `compiler/src/codegen/emit-server.ts` or the upstream statement-boundary detection that fires the BS warning. Confirm via independent reproducer first.
-- **Severity:** **BLOCKER** for any `?{}` SQL surface — affects every real-world CRUD-server-fn pattern.
-- **Cross-refs:** Bug 36 in `scrml-support/docs/gauntlets/gauntlet-r25-report.md` § "Compiler bugs surfaced".
+Disambiguation guard refined from "IDENT then LBrace only" (too strict — broke `! ErrorType route="/api" {body}`) to the broader continuation-set check.
+
+REGRESSION TEST — `compiler/tests/unit/r25-bug-36-bare-error-type.test.js` +358L (NEW; 12 tests across 8 §-sections): bare `! ErrorType` server-fn / fn-shorthand / with route= / with method= / with .idempotent / arrow-form regression-guard / mixed bare-and-arrow / disambiguation cases.
+
+REPRODUCER VERIFICATION:
+- dev-1-react server-fn handlers (createCard/moveCard/archiveCard): empty BEFORE → populated AFTER (SQL queries + if + fail + run + broadcast + return all present)
+- R25 statement-boundary warnings: dev-1 7→4, dev-2 ?→3 (residual = Bug 38 distinct), dev-3 4→0 FULLY CLOSED, dev-4 ?→0 FULLY CLOSED
+
+Tests: 14,746 pass / 9 fail (pre-fix; 9 = my new regression test's pre-fix expects) → 14,755 pass / 0 fail (post-fix). 0 regressions in broader suite.
+
+**SIDE EFFECT — Bug 39 also RESOLVED.** The orphan `CreateError` / `MoveError` / `ArchiveError` IDENTs from the failed parse were being treated as reactive-display expressions on a `_scrml_logic_N` slot (the phantom `el.textContent = CreateError` wiring). With Bug 36 fixed, the IDENTs are properly absorbed as errorType annotations and the phantom wiring vanishes. All 4 R25 devs: 0 phantom wirings post-fix.
+
+**SPEC self-inconsistency surfaced (DEFERRED follow-up):** §19.4.1 grammar `'!' ('-> error-type)? block` is incomplete vs §41.14 normative `! ErrorType` examples. Recommend §19.4.1 grammar amendment: `'!' ('-> error-type | error-type)? block` to ratify the bare form. Spec-only follow-up.
+
+**PA brief hypothesis correction:** the brief named `?{}` as suspected root cause and `emit-server.ts` / `emit-logic.ts` as suspect files. Agent's grep-driven triage ("statement boundary not detected" string → expression-parser.ts:1975 emit site → debug trace through safeParseExprToNode → parseLogicBody → orphan IDENT as bare-expr) found the bug in the PARSER, not codegen. Same shape as R24-BUG-2 dispatch's correction — brief heuristics drift; grep on smoking-gun strings is the load-bearing tool. Banking.
+
+- **Cross-refs:** Bug 36 in `scrml-support/docs/gauntlets/gauntlet-r25-report.md`; agent dispatch BRIEF.md at `docs/changes/r25-bug-36-server-fn-body-drop-2026-05-27/BRIEF.md`; SPEC §41.14 bare-form examples; SPEC §19.4.1 grammar (needs amendment).
 
 ---
 
@@ -194,32 +206,34 @@ Inline arrow-function predicate inside an `<each>` `in=` attribute is severed at
 
 ---
 
-### Bug 38 — `!{}` arm body codegen failure (R24 Bug 29 family, DEEPER) — `HIGH` (S136 R25; 4/4 devs)
+### Bug 38 — `!{}` arm body codegen failure (R24 Bug 29 family, DEEPER; distinct from Bug 36) — `HIGH; STILL OPEN` (S136 R25; 4/4 devs)
 
-Bug 29's narrow `{ return }` case was RESOLVED in S136 commit `c7e81962`. R25 confirms the broader `!{}` arm-body codegen failure remains: multi-line arm bodies, single-line collapsed arm bodies, and the `const r = call() !{...}` "workaround" all FAIL to produce arm codegen per overseer verification in 4/4 devs. The `const r = ...` workaround suppresses E-ERROR-002 but does NOT cause the arm code to be emitted — runtime has zero error handling for the affected calls.
+Bug 29's narrow `{ return }` case was RESOLVED in S136 commit `c7e81962`. **Bug 36 (RESOLVED S136 `e1269844`) was investigated for shared root by the R25-Bug-36 dispatch agent and CONFIRMED DISTINCT** — Bug 36 was a function-decl-head parse-gap (bare `! ErrorType` form unrecognized); Bug 38 is a call-site `!{}` handler emission gap in codegen (likely `compiler/src/codegen/emit-logic.ts` case `"guarded-expr"`). Different code path; not closed as side-effect.
 
-- **Reproducer (multi-line):** `someCall() !{ | .Variant arg -> { @x = "value"; @y = 0 } | .Other -> { ... } }` — arm bodies do not appear in emitted JS. BS warnings fire ("statement boundary not detected") but compile exits 0.
-- **Reproducer (single-line):** `someCall() !{ | .Variant -> @x = 1 }` — same BS warning + missing arm code per overseer-3.
-- **Reproducer (const-workaround):** `const r = someCall() !{ | .X -> {...} | .Y -> {...} }` — suppresses E-ERROR-002 + emits resultVar binding but per overseer-2 + overseer-3 the arm bodies STILL do not emit.
-- **Root cause hypothesis:** parser-vs-codegen split — `!{` token kicks parser into "statement boundary not detected" mode regardless of arm-body shape. The S136 narrow fix patched the symptom for bare-`return` but not the underlying parser pathology.
+R25 confirms via 4/4 dev exposure + overseer verification: multi-line arm bodies, single-line collapsed arm bodies, and the `const r = call() !{...}` "workaround" all FAIL to produce arm codegen.
+
+Post-Bug-36-fix residual statement-boundary warnings: dev-1 7→4 (residual 4 = Bug 38 `!{}` handlers); dev-2 ?→3 (residual = Bug 38); dev-3 4→0 (dev-3 didn't trip Bug 38); dev-4 ?→0 (dev-4 didn't trip Bug 38). Isolates the residual to call-site `!{}` form.
+
+- **Reproducer (multi-line):** `someCall() !{ | .Variant arg -> { @x = "value"; @y = 0 } | .Other -> { ... } }` — arm bodies do not appear in emitted JS.
+- **Reproducer (single-line):** `someCall() !{ | .Variant -> @x = 1 }` — same.
+- **Reproducer (const-workaround):** `const r = someCall() !{ | .X -> {...} | .Y -> {...} }` — suppresses E-ERROR-002 + emits resultVar binding but arm bodies STILL do not emit.
+- **Root cause hypothesis (refined post-Bug-36):** call-site `!{}` handler emitter in `compiler/src/codegen/emit-logic.ts` case `"guarded-expr"`. Distinct from Bug 36's function-decl-head parser. R24-BUG-2 fix `c7e81962` (commit on same file) added terminating-statement detection to `emitArmAssign` for the narrow Bug 29 case but didn't address the broader multi-line / single-line / value-producing arm-body cases.
 - **Spec reference:** SPEC §19.5 call-site `!{}`; PRIMER §6 canonical multi-line shape.
-- **Suggested fix scope:** investigate the parser path for `!{` token; possibly the same statement-boundary parser implicated in Bug 36. May share root with Bug 36 — investigate as a cluster.
-- **Composition:** Bug 29 (narrow) is RESOLVED; this entry is the broader case still open.
-- **Cross-refs:** Bug 38 in `gauntlet-r25-report.md`; R24 Bug 29 (narrow, RESOLVED `c7e81962`); R24-BUG-2 dispatch BRIEF.md at `docs/changes/r24-bug-2-handler-arm-return-codegen-2026-05-27/BRIEF.md`.
+- **Suggested fix scope:** extend `emitArmAssign` (compiler/src/codegen/emit-logic.ts) to handle the full arm-body emission space — not just bare-terminator early-exits.
+- **Cross-refs:** Bug 38 in `gauntlet-r25-report.md`; R24 Bug 29 narrow RESOLVED `c7e81962`; Bug 36 RESOLVED `e1269844` (distinct root, confirmed); R24-BUG-2 dispatch BRIEF.md.
 
 ---
 
-### Bug 39 — phantom enum-object → `el.textContent` wiring (no source backing) — `HIGH` (S136 R25; 2/4 devs independent)
+### Bug 39 — phantom enum-object → `el.textContent` wiring (no source backing) — `RESOLVED-AS-SIDE-EFFECT-OF-BUG-36 S136 (commit e1269844)` (was HIGH; R25; 2/4 devs independent)
 
-Emitted client.js contains `el.textContent = CreateError; el.textContent = MoveError; el.textContent = ArchiveError;` (or whatever enum-types are declared) on a single `[data-scrml-logic="_scrml_logic_N"]` span. No source expression backs this wiring. The compiler is generating display-update calls that reference the ENUM CONSTRUCTOR OBJECT (not a variant instance) as the textContent value.
+**RESOLVED via Bug 36 fix.** The phantom `el.textContent = CreateError; el.textContent = MoveError; el.textContent = ArchiveError;` wiring was a SIDE EFFECT of Bug 36's parse failure — when the `! ErrorType` bare form failed to parse, the IDENT (`CreateError` etc.) was orphaned and collected as a bare-expr by `parseRecursiveBody`. The bare-expr was then auto-wired as a reactive-display expression on a `_scrml_logic_N` slot. With Bug 36 fixed, the IDENTs are properly absorbed as errorType annotations and the phantom wiring vanishes by construction.
 
-Reproduced INDEPENDENTLY by dev-1 (React) and dev-2 (Elixir). Same enum names appear in both because both devs declared `CreateError`/`MoveError`/`ArchiveError`; the pattern is "first 3 declared error-enum types get wired to phantom slot".
+**Reproducer-verification:** all 4 R25 devs: 0 phantom `el.textContent = <EnumType>` wirings in post-fix compiled output. Confirmed via grep on /tmp/r25-bug-36-verify/*.client.js.
 
-- **DOM impact:** last-write-wins → DOM shows `[object Object]` text node where the phantom slot landed.
-- **Spec reference:** SPEC §6.2 reactive display + SPEC §18 enum codegen.
-- **Root cause hypothesis:** some auto-wiring pass is treating top-level enum type DECLARATIONS as if they were values to display. Possibly related to validity-surface auto-synth or to the `<errors of=>` element wiring.
-- **Suggested fix scope:** identify the auto-wiring pass; gate on "is the referenced symbol a value, not a type/enum-constructor."
-- **Cross-refs:** Bug 39 in `gauntlet-r25-report.md`.
+- **Original symptom:** emitted client.js contained `el.textContent = CreateError; el.textContent = MoveError; el.textContent = ArchiveError;` on a `_scrml_logic_N` slot. Last-write-wins → DOM showed `[object Object]`.
+- **Original cross-dev evidence:** dev-1-react + dev-2-elixir, independent sources, same compiler pattern (first 3 declared error-enum types).
+- **Fix path:** Bug 36 RESOLVED → orphan-IDENT-as-bare-expr no longer occurs → phantom wiring no longer emitted.
+- **Cross-refs:** Bug 39 in `gauntlet-r25-report.md`; resolution commit `e1269844` (Bug 36 fix); resolution surfaced in the R25-Bug-36 dispatch agent's final report (sister-finding to Bug 36 root-cause analysis).
 
 ---
 
