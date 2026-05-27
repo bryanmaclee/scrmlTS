@@ -803,6 +803,12 @@ D3 landed S58 — `compiler/SPEC.md` §38 / §39 / §42 / §53 / §34 are now au
 
 Both predicates exist; both are needed; they coexist in the validator vocabulary. **Three native loci** of "exists/required" semantic across scrml: schema SQL-mirror (`not null`), state validator (`req` and/or `is some`), refinement type (predicate form). Each fires in its layer's enforcement context — not redundancy.
 
+**Advanced `not` forms** (§42.2.3 / §42 union form / §42.1.1 — S135 cluster N catch-up, F-045):
+
+- **`given x => …` presence-guard** — the canonical narrow-to-present form. `given x => @x.name` is type-equivalent to `if (@x is some) @x.name` but the bound `x` is narrowed to the non-`not` type within the body. Reach for `given` when you need to USE the value; reach for `if (x is some)` when you only need to BRANCH.
+- **`T | not` union form** — the canonical type for absence-possible values. A server fn returning `User | not` cleanly composes with the §6.8.3 reset × lifecycle semantic. The compiler wire-format envelope (§57) round-trips `not` losslessly.
+- **`""` / `0` / `false` / `[]` / `{}` are DEFINED values, NOT absence** (§42.1.1, S89 ratification). `is some "" → TRUE`; `req "" → FALSE`. Don't conflate "empty" with "absent" — they're distinct concepts in scrml.
+
 ### §9.5 `not` keyword
 
 (Move 11 — pinned-style modifier on imports / decls for opt-out semantics. Existing §42 content retained.)

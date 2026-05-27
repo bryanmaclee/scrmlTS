@@ -791,6 +791,7 @@ If your instinct from another framework fires, stop and use the scrml form. Thes
 | `<phase>: (Idle to Done) = .Idle` next to `<engine for=Phase initial=.Idle>` over the same cell | (extrapolation) | **Engine cells reject lifecycle annotation** (`E-TYPE-LIFECYCLE-ON-ENGINE-CELL`). Engines own variant-graph progression via `rule=`. For lifecycle on a NON-engine cell, declare as plain Shape 1. For variant-graph state, use the engine — don't put a lifecycle annotation on its auto-declared variable (§3.2). |
 | `(A -> B)` lifecycle annotation in new code | legacy glyph | Use `to`: `(A to B)`. The `->` glyph is accepted during the deprecation window and surfaces `W-LIFECYCLE-LEGACY-ARROW`. `to` is the canonical (§3.2). |
 | `transition(u)` on every assignment defensively | over-application | `transition()` is for **variant-progression** `(.A to .B)` returns after discrimination. **Presence-progression** `(not to T)` discriminates via `given` / `if-is-not` / `match` — the act of discriminating IS the transition; an additional `transition()` is redundant (§3.2). |
+| `if (@u is some) { use(@u.name) }` to narrow + use | habit from `if (x !== null)` patterns | **`given x => use(x.name)`** is the canonical narrow-AND-use form (§42.2.3). The bound `x` is type-narrowed to non-`not` inside the body. `if (x is some)` only BRANCHES; `given` BINDS the narrowed value. (Also: `T \| not` is the canonical absence-possible union; `""` / `0` / `false` are defined values, NOT absence — §42.1.1.) |
 
 **If you don't see your case in the table, default to the canonical shape from §2.** Do not invent syntax.
 
@@ -997,6 +998,15 @@ Notes:
 - **State mismatch is a typed error** — `OAuthStateMismatch` (CSRF). Catch by `name`. Same for `OAuthVerifierMissing`, `OAuthTokenError`, `OAuthUserInfoError`, `OAuthRevocationError`.
 - **Refresh tokens:** call `refreshToken(cfg, savedRefreshToken)` to renew. Some providers rotate the refresh token — re-persist `tokens.refreshToken` if non-null in the response.
 - **No npm `passport`, `simple-oauth2`, `next-auth`, or `googleapis`.** The four presets cover the most common cases; for an unlisted provider, build the config object inline (every preset is just an `authorizeUrl`/`tokenUrl`/`userInfoUrl`/`scopes` bag).
+
+**Route-level auth via `<program auth=…>` and `<auth role=…>` (§52.13 / §40 — S135 cluster N catch-up, F-052).** `<program>` accepts an `auth=` attribute with four values:
+
+- `auth="none"` — public route (default for `<program>` without auth=); no login required
+- `auth="optional"` — login optional; `@currentUser` populated if signed in, `not` otherwise
+- `auth="required"` — login required; unauthenticated requests get the `<errors>` fallback (or redirect via middleware)
+- `auth="role:Admin"` — login required + the role check (W-ATTR-002 fires if the role is not declared by an `<auth role="Admin">` element in scope; the requirement still gates the route)
+
+For per-role markup variance — show this UI to admins, that UI to regular users — use the `<auth role="X">` first-class element (S91, A-3 AuthGraph). The compiler builds a per-route per-role chunk closure; only the matching role's content ships to each user. Cross-ref the auth recipe above for the JWT pattern + state declarations.
 
 ### 11.3 Real-time recipe — file-level `<channel>`
 
@@ -1392,6 +1402,11 @@ ${
 - **Cross-field validation is not a special vocabulary.** Use any universal-core predicate with a cross-cell expression arg: `<confirm req eq(@signup.password)>`.
 - **Compound state field access uses `@compound.field`** (canonical), not `<compound><field/></>` (structural). Same V5-strict asymmetry as Tier 1, one level deeper.
 - **`const <derived>` is the in-compound derived form.** `<displayName/>` in markup requires a render-spec; cells without one only display via `${@x}` interpolation.
+- **`#{}` is scoped CSS** (§9). At a structural position (inside `<program>` / `<page>` / a structural element body) the styles scope to that element's subtree. File-top `#{}` is NOT a canonical idiom in scrml examples (S86 styling rule); when authoring examples, prefer the structurally-scoped form.
+- **`if`-as-expression is idiomatic** (§17.6). For value-returning conditionals, `let x = if (cond) a else b` works and reads cleaner than the ternary `cond ? a : b` form. Both compile; the if-as-expr form is the in-house preference for state-machine-shaped conditionals.
+- **`navigate(path, .Hard)` is the 302 server-redirect mode** (§20). Default mode `.Soft` is client-side route swap; `.Hard` forces a server redirect (useful post-login, post-logout, etc.).
+- **Tailwind utility classes work** (§26), including variant prefixes (`hover:`, `md:`, `dark:`) and arbitrary values (`grid-cols-[1fr_2fr]`, `bg-[#1a1a1a]`). Unrecognized classes fire `W-TAILWIND-UNRECOGNIZED-CLASS` lint — typos surface at compile time, not silent.
+- **`I-MATCH-PROMOTABLE` info-lint nudges Tier-0 lift** (§56). When you write `if (@phase == .X) … else if (@phase == .Y) …` chains, the lint suggests a `<match for=Phase on=@phase>` block. The `bun scrml promote --match <file>[:line]` CLI does the mechanical rewrite for you — state-children body content carries forward verbatim; the wrapper swap is the commitment moment.
 
 ---
 
