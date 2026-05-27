@@ -2,9 +2,7 @@
 
 */ˈskrɪmɛl/*
 
-Write a whole app in **one `.scrml` file**. The
-compiler reads it and does the wiring. No virtual DOM, no JSX, no `node_modules`, no
-API layer to drift out of sync.
+**A complete compiler for the web.** Markup, reactive state, scoped CSS, SQL, server functions, realtime, and tests in one `.scrml` file — the compiler reads it and does the wiring. No virtual DOM, no JSX, no `node_modules`, no API layer to drift out of sync.
 
 ```bash
 scrml compile app.scrml -o dist/
