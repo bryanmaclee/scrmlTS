@@ -16,7 +16,7 @@
 |---|---|---|---|
 | HIGH | 2 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132) · **E-FN-003 (RESOLVED S133 `dbef4f4d`)** · **Bug 17 E-META-001 runtime-meta (RESOLVED S134 `6c6c0073`)** · **§6.6.18 alias-escape A4 LANDED S134 `b719a3d2`** · **Bug 19 Shape 1 lifecycle tracker LANDED S134 `fd58893e` (B-prereq)** · **§6.8.3 reset × lifecycle impl LANDED S135 `2ffe4f6a` (Q6-narrow; SPEC-ahead-of-impl bullet CLOSED)** | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) |
 | MED | 6 | Bug 15 `~snapshot` codegen leak (S131 SHIPPED) · E-SCHEMA-003 enforcement (S133 SHIPPED `afbcb47a`) | Bug 1 Tailwind residuals · V-kill READ-side fire · MCP V0 partial-impl deferrals · Generator policy · L19 multi-statement-handler · **A5 refinement-type freeze extension (DEFERRED with adoption-watch trigger, S134)** |
-| LOW | 6 | (rotate out below) | Bug 4 bare-`/` · GITI-015 · §11-folded-citation sweep · `bun scrml promote --engine` Tier-1→2 deferred · **Bug 21 Q6-narrow deep multi-level reset heuristic (S135)** · **Bug 22 Q6-narrow cross-cell `default=` classification heuristic (S135)** |
+| LOW | 9 | (rotate out below) | Bug 4 bare-`/` · GITI-015 · §11-folded-citation sweep · `bun scrml promote --engine` Tier-1→2 deferred · **Bug 21 Q6-narrow deep multi-level reset heuristic (S135)** · **Bug 22 Q6-narrow cross-cell `default=` classification heuristic (S135)** · **Bug 23 W-LIFECYCLE-LEGACY-ARROW Shape 1 emission gap (S135)** · **Bug 24 qualified-form discrim regex tolerance (S135)** · **Bug 25 transition() deeper-expression regex tolerance (S135)** |
 | Nominal (spec-ahead-of-impl) | 7 | — | Build Story §58 · `import:host` §21.3.1 · Quoted-text §4.18 compiler fire · `_{}` foreign code · WASM call-char sigils · Sidecar process decls · RemoteData enum |
 
 ---
@@ -259,6 +259,36 @@ The `bun scrml promote --match` CLI shipped S66 (Tier-0→1 lift mechanical). Th
 
 ---
 
+### Bug 23 — Lifecycle source-form follow-up: W-LIFECYCLE-LEGACY-ARROW not emitted for Shape 1 cells — `heuristic` (S135)
+
+The legacy-arrow lint (`W-LIFECYCLE-LEGACY-ARROW`, advising migration from `->` to `to` glyph in lifecycle annotations) fires today only on struct-field positions where the legacy glyph appears in struct-body lifecycle declarations. Shape 1 cell-typed lifecycle annotations (`<phase>: (.Draft -> .Published) = ...`) parse via `findTopLevelArrow` but do not emit the lint when the legacy glyph is used. The S135 source-form follow-ups landing (`a7167b6b` Fix #1) added whitespace tolerance to `findTopLevelArrow` but didn't extend lint-emission to the Shape 1 site.
+
+- **Workaround:** prefer the canonical `to` glyph from the start; if you have a legacy `->` in a Shape 1 lifecycle annotation, the tracker still recognizes it (per `findTopLevelArrow`) but you won't get the migration nudge.
+- **Status:** filed S135 in lifecycle-source-form-followups progress.md; extend on real adopter friction.
+- **Cross-refs:** SPEC §14.12.4 (`(A to B)` glyph; `->` is legacy with W-LIFECYCLE-LEGACY-ARROW); `docs/changes/lifecycle-source-form-followups-2026-05-26/progress.md`.
+
+---
+
+### Bug 24 — Lifecycle source-form follow-up: qualified-form discrim regex tolerance — `heuristic` (S135)
+
+The discrimination walker (`checkLifecycleBindingAccess`) recognizes bare-dot variant form `if (X is .Variant)` for advancing per-access state to "post." It does NOT recognize the qualified form `if (X is Article.Draft)` — the regex matches only `.Variant` patterns. Adopters using the qualified form for discrimination won't get the tracker's "post" advance and will see spurious E-TYPE-001 fires after the discrimination branch.
+
+- **Workaround:** use bare-dot form in discrimination expressions (`if (@phase is .Draft)`) — equivalent to qualified per §14.10 bare-variant inference (M9).
+- **Status:** filed S135 in lifecycle-source-form-followups progress.md; close on real adopter friction.
+- **Cross-refs:** SPEC §14.10 (bare-variant inference); SPEC §14.12.6 (discrimination forms); `docs/changes/lifecycle-source-form-followups-2026-05-26/progress.md`.
+
+---
+
+### Bug 25 — Lifecycle source-form follow-up: `transition()` with deeper expressions — `heuristic` (S135)
+
+`TRANSITION_CALL_RE` matches single-identifier arguments only — `transition(phase)`, `transition(@phase)` (S135 fix). It does NOT match deeper expressions like `transition(@u.field)` or `transition(items[0])`. Adopters using compound-nav target expressions in transition calls won't get the tracker's state advance.
+
+- **Workaround:** factor the target into a local binding first: `let p = @u.field; transition(p)` (caveat: this changes semantics depending on the surrounding scope; works in many cases but not all).
+- **Status:** filed S135 in lifecycle-source-form-followups progress.md; extend on real adopter friction. Canonical scrml usage today is single-identifier transition targets.
+- **Cross-refs:** SPEC §14.12.6 (transition forms); `docs/changes/lifecycle-source-form-followups-2026-05-26/progress.md`.
+
+---
+
 ## §4 Nominal — SPEC sections deliberately spec-ahead-of-implementation
 
 These are SPEC-only surfaces — designed, normatively documented, NOT yet implemented in the compiler. The author has explicitly ratified them as "spec-ahead-of-implementation" (Nominal sections). Adopters should treat as roadmap, not present capability.
@@ -312,6 +342,7 @@ S130 lifecycle DD + HU-1 ratified `(A to B)` extension scope to non-engine cells
 | 4 (S134 const-deep-freeze Q6 ratification) | SPEC §6.8.3 — `reset(@cell)` × lifecycle interaction (symmetric reset reverts per-access transition state per pre-type membership) + §14.12.10 cross-ref bullet | **SPEC SHIPPED S134** · **Impl SHIPPED S135 `2ffe4f6a`** via Q6-narrow (see below). |
 | **B-prereq (S134)** | Shape 1 per-access lifecycle tracker — covers `state-decl` AST nodes (both struct-typed Shape 1 with lifecycle in struct-field, and cell-value-typed Shape 1 with lifecycle in cell type) | **SHIPPED S134** (`fd58893e`) — Option α architecture; `collectStructBindings` extension + NEW cell-value-typed tracker via reused `checkLifecycleBindingAccess` with additive params. +25 tests. Closes Bug 19 HIGH. Unblocks Q6-narrow. |
 | **Q6-narrow (S135)** | `reset(@cell)` × lifecycle interaction impl — type-system tracker observes reset-path writes + routes through `classifyWriteAgainstSpec` to revert per-access state per §6.8.3 SPEC. Tracker 1 (cell-value Shape 1) + Tracker 2 (struct-typed Shape 1 field lifecycle) | **SHIPPED S135** (`2ffe4f6a`) — Option α additive: `RESET_CALL_RE` regex + new Pass in `processStatementText` mirroring transition handling; +355/-10 type-system.ts; NEW `lifecycle-shape1-reset.test.js` 25 tests. Baseline 21,701 → 21,726; zero regressions. Closes §6.8.3 SPEC-ahead-of-impl bullet. Two heuristic limitations filed as LOW. |
+| **Source-form follow-ups (S135)** | `findTopLevelArrow` whitespace tolerance + `parseLifecycleReturnAnnotation` qualified-enum stripping + diagnostic preLabel + `TRANSITION_CALL_RE` `@` prefix tolerance — closes the source-form gap for Shape 1 variant-progression lifecycle annotations (`(.Draft to .Published)` + `(Article.Draft to Article.Published)` forms both work end-to-end from source now) | **SHIPPED S135** (`a7167b6b` + `fefecb1b` + `a5feca4b` + `1f6cc614`) — three surgical fixes + 17 new source-form tests in `compiler/tests/unit/lifecycle-shape1-source-form.test.js`. Baseline 21,726 → 21,743; zero regressions. Three new heuristic limitations filed as LOW (Bug 23/24/25). |
 
 Authority: lifecycle DD at `scrml-support/docs/deep-dives/lifecycle-annotation-extension-and-flagship-scope-2026-05-25.md`; HU-1 at `docs/heads-up/lifecycle-annotation-extension-2026-05-25.md`; const-deep-freeze HU at `docs/heads-up/const-deep-freeze-2026-05-26.md` (Q6 ratification + Bug 19 surfacing); SPEC §14.12 + §6.8.3 normative spec.
 
