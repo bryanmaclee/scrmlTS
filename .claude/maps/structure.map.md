@@ -1,16 +1,20 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-05-26T00:00:00Z  commit: 3a660c7c
+# updated: 2026-05-27T04:14:32Z  commit: f6c98ed8
 
 ## Entry Points
 
 `compiler/bin/scrml.js` — CLI executable shim; re-exports src/cli.js.
 `compiler/src/cli.js` — subcommand router; dispatches compile/dev/build/migrate/promote/generate/init/serve; falls through to compile when arg 0 is a .scrml file or directory.
 `compiler/src/api.js` — programmatic compiler API; `compileScrml(options)` runs the full BS→TAB→PRECG→GCP1/3→MOD→NR→SYM→CE→VP→PA→RI→MC→TS→META→DG→BP→AG→RS→CG pipeline; the M5 native-parser swap seam (`--parser=scrml-native` routes per-file TAB through `nativeParseFile`). MCP-V0.A: emits four descriptor sidecars unconditionally during the output write loop (`buildMcpDescriptors(tabResults)` writes engines/forms/channels/serverfns .json). MCP-V0.D (S130-S131): `<program mcp>` opt-in auto-flips `emitPerRoute:true` + surfaces `mcpAutoActivated`/`mcpMode` on the result (api.js:622). GITI-018 (S127): `rewriteStdlibImports` rewrites ALL `scrml:` import specifiers in `--mode library`.
-`compiler/native-parser/parse-file.js` — `nativeParseFile(filePath, source)` — the C1 FileAST assembler; GROWN to 1280 LOC (was 1037; +243 S127-S129 M6.5/M6.7 D-class); per-BlockKind synth* builders + native→live FileAST translation; imported by meta-eval.ts, codegen/emit-match.ts, component-expander.ts.
+`compiler/native-parser/parse-file.js` — `nativeParseFile(filePath, source)` — the C1 FileAST assembler; 1280 LOC (+243 S127-S129 M6.5/M6.7 D-class); per-BlockKind synth* builders + native→live FileAST translation; imported by meta-eval.ts, codegen/emit-match.ts, component-expander.ts.
 `lsp/server.js` — Language Server Protocol entry.
 `docs/build.ts` — docs-site builder.
 `compiler/runtime/stdlib/mcp.js` (~860L) — secondary runtime entry: `startMcpServer(config)` boots a long-lived stdio MCP server (MCP-V0.C). Not invoked by the compile pipeline; called by the compiler-generated `<program mcp>` boot code (MCP-V0.D LANDED — auto-injected into `_server.js` by commands/build.js when the attribute is present).
+
+## README Positioning (S135)
+
+`README.md` (741L) — L5 positioning: **"A complete compiler for the web."** (updated S135; was a more qualified formulation). Demonstrates the language; confirms the README shows nominal language, not necessarily compiler-current (see known-gaps.md + changelog.md for spec-vs-impl drift).
 
 ## Directory Ownership
 
@@ -28,7 +32,7 @@
 `compiler/runtime/stdlib/` — Per-module runtime shims: 18 top-level + oauth/ providers + compiler/ 13-shim family + `mcp.js` (MCP-V0.B/C/D, ~860L) — `scrml:mcp` runtime READ helpers + full 11-tool surface + `startMcpServer`/`shutdownMcpServer` stdio boot.
 `compiler/self-host/` — From-scratch scrml self-host compiler prototype (`.scrml` sources); separate post-v1.0 effort.
 `compiler/self-host/cg-parts/` — CG sub-unit scrml sources.
-`compiler/tests/unit/` — Unit tests (545 files at HEAD); `bun:test` framework.
+`compiler/tests/unit/` — Unit tests (566 files at HEAD); `bun:test` framework. +3 files S135: `lifecycle-shape1-reset.test.js` (25 tests, Q6-narrow §6.8.3) + `lifecycle-shape1-source-form.test.js` (17 tests, source-form follow-ups) + `structural-in-logic-body.test.js` (19 tests, E-STRUCTURAL-ELEMENT-MISPLACED `${...}` class).
 `compiler/tests/integration/` — Integration tests (88 files).
 `compiler/tests/conformance/` — Conformance tests (105 files): block-grammar suite + S32 fn-state-machine suite + tab.
 `compiler/tests/browser/` — Browser runtime tests (12 files); happy-dom sandbox.
@@ -37,7 +41,8 @@
 `compiler/tests/parser-conformance/` — Parser conformance canary tests; plus top-level `parser-conformance-*.test.js` files (10 at compiler/tests root) including `parser-conformance-within-node.test.js`.
 `compiler/tests/self-host/` — Self-host compiler smoke tests (4 files).
 `compiler/tests/helpers/` — Test helper utilities: `expr.ts`, `extract-user-fns.js`, `mcp-sidecar-compile.js` (`makeSidecarTmpRoot`/`cleanupSidecarTmpRoot`/`compileAndReadSidecars` for MCP-V0.A tests).
-`compiler/tests/fixtures/` — Test fixtures: promote-match-canonical, promote-multi-file-app, MCP-V0.E multi-page app fixture (S131).
+`compiler/tests/fixtures/` — Test fixtures: promote-match-canonical.scrml, promote-multi-file-app, MCP-V0.E multi-page app fixture (S131).
+`compiler/tests/unit/__fixtures__/structural-in-logic-body/` — S135 fixture dir for structural-in-logic-body tests.
 `samples/compilation-tests/` — ~318 compilation test sample directories (counted only, not enumerated).
 `samples/gauntlet-r*/` — Gauntlet round samples (r11, r13–r15, r18–r19); regression anchors.
 `stdlib/` — scrml stdlib module SOURCE stubs (auth, compiler, cron, crypto, data, format, fs, host, http, oauth, path, process, redis, regex, router, store, test, time) + `mcp/index.scrml` (`scrml:mcp` source stub exporting `startMcpServer`/`shutdownMcpServer`; compiler-internal, adopters opt in via `<program mcp>`).
@@ -47,9 +52,9 @@
 `editors/neovim/` — Neovim editor plugin.
 `e2e/` — Playwright end-to-end test suite.
 `scripts/` — Utility scripts + git-hooks (pre-commit runs unit+integration+conformance; pre-push runs full suite).
-`docs/` — PA-SCRML-PRIMER, tutorial, known-gaps, lin, changelog, changes/, audits/, heads-up/, adopter/, articles/, website/.
+`docs/` — PA-SCRML-PRIMER (**S135: Phase-1c catch-up — all 26 F-XXX audit gaps CLOSED**), tutorial, known-gaps (**S135: Bugs 21–27 filed**), lin, changelog, changes/, audits/, heads-up/, adopter/, articles/ (**S135: kickstarter-v2 Phase-1c catch-up**), website/.
 `docs/changes/` — Per-change SCOPING, BRIEF, and progress tracking documents (133+ subdirs).
-`docs/heads-up/` — Running heads-up logs (iteration-design, lifecycle-annotation-extension, spec-consolidation, const-deep-freeze-2026-05-26 — S130-S134).
+`docs/heads-up/` — Running heads-up logs (iteration-design, lifecycle-annotation-extension, spec-consolidation, const-deep-freeze-2026-05-26 — S130-S135).
 
 ## Native-Parser Layout
 
@@ -97,11 +102,11 @@ Iteration source surface (per SPEC §17.7 + §3.4 + §56.10):
 | `rewriteOneIteration(source, site, opts)` | Rewrites one Tier-0 `${ for (let x of @items) { lift <markup/> } }` → `<each in=@items>...</each>`; `opts.shorthand` applies `:`-shorthand for single-expression templates |
 | `promoteEachOnFile(filePath, targetLine, opts, cwd)` | File-level driver: parse promotable sites via `findPromotableChains`, call `applyEachRewrite`, write in-place or print diff |
 
-`--shorthand` flag: auto-applies §4.14 `:`-shorthand when the per-item template is a single-expression-shaped element opener (e.g. `<li>${item.name}</>` → `<li : @.name>`). `--dry-run` prints unified diff without writing. `--check` exits non-zero if any promotion would occur (CI-friendly). `--exclude=<glob>` excludes files by substring match.
+`--shorthand` flag: auto-applies §4.14 `:`-shorthand when the per-item template is a single-expression-shaped element opener. `--dry-run` prints unified diff without writing. `--check` exits non-zero if any promotion would occur (CI-friendly). `--exclude=<glob>` excludes files by substring match.
 
-## Key Module — Lifecycle Annotation (LANDED S130-S134)
+## Key Module — Lifecycle Annotation (LANDED S130-S135)
 
-`compiler/src/type-system.ts` (GROWN to **15205 LOC**; was 14556; +649 S134 B-prereq Bug 19) — Stage 6 TS; §14.3 lifecycle-annotation registry + access-before-transition scan.
+`compiler/src/type-system.ts` (GROWN to **15601 LOC**; was 15205; +396 S135 Q6-narrow + source-form fixes) — Stage 6 TS; §14.3 lifecycle-annotation registry + access-before-transition scan.
 
 | Mechanism | Detail |
 |---|---|
@@ -112,6 +117,19 @@ Iteration source surface (per SPEC §17.7 + §3.4 + §56.10):
 | `E-TYPE-LIFECYCLE-VARIANT-NOT-TRANSITIONED` | variant-progression missing `transition()` (type-system.ts) |
 | `W-LIFECYCLE-LEGACY-ARROW` | legacy `(A -> B)` glyph detected (§14.12.5); migrate to `(A to B)` |
 | `runCellValueLifecycleAccessCheck` | **NEW S134 (B-prereq Bug 19)** — extends E-TYPE-001 coverage to Shape 1 plain reactive cells (`<state>: (A to B) = init`) per §14.12.10; type-system.ts:15088 |
+| Q6-narrow — §6.8.3 reset × lifecycle | **LANDED S135** — `RESET_CALL_RE` + reset-aware Pass recognizes `reset(@cell)` calls; routes through `classifyWriteAgainstSpec`; reverts per-access state per §6.8.3; Tracker 1 (cell-value) + Tracker 2 (struct-typed). Closes SPEC-ahead bullet. |
+| Source-form Fix #1 | **LANDED S135** — `findTopLevelArrow` word-boundary rule; bare-dot variant annotation `(.Draft to.Published)` now detects lifecycle glyph after parser whitespace-collapse |
+| Source-form Fix #3 | **LANDED S135** — `parseLifecycleReturnAnnotation` `extractBareVariant` strips both `.Variant` and `Enum.Variant`; diagnostic text shows correctly-stripped names |
+| Fix #3 companion | **LANDED S135** — `TRANSITION_CALL_RE` accepts `@` prefix: `transition(@phase)` recognized in V5-strict source form |
+
+## Key Module — ast-builder.js structural-placement guard (LANDED S135)
+
+`compiler/src/ast-builder.js` (**13103 LOC**) — Stage 3 TAB. S135 addition: `STRUCTURAL_ELEMENT_PLACEMENT` table (ast-builder.js:183) + `leadingTagName()` helper (ast-builder.js:214) + two fire sites in `parseLogicBody` (ast-builder.js:6529 + 9744).
+
+- Fires `E-STRUCTURAL-ELEMENT-MISPLACED` when the html-fragment fallback collects an expression whose leading tag-name matches a structural-declaration element.
+- 9 structural elements in the table: `schema`, `engine`, `channel`, `page`, `auth`, `errors`, `onTransition`, `onTimeout`, `onIdle`.
+- `<match>` intentionally excluded (markup-as-value; canonical in `${...}` promote-match output).
+- html-fragment node is still emitted so downstream shapes stay stable; diagnostic rides alongside.
 
 ## Key Module — Symbol Table (S134 A4 extension)
 
@@ -152,12 +170,14 @@ The 11 LOCKED tool names (public API — adopter agent configs depend on these):
 
 ## Compiler Spec / Pipeline References
 
-`compiler/SPEC.md` — normative scrml language spec; **30552 lines** (was 30477; +75 S133-S134: §6.8.3 NEW + §14.12.10 normative statements + §22.12 JS_HOST_FORBIDDEN scope note); last modified 2026-05-26 (commit 3a660c7c). §58 Build Story is the highest-numbered section (spec-ahead). §34 catalog STABLE (81 native-parser codes). §6.8.3 `reset × lifecycle` NEW (SPEC-ahead-of-impl).
+`compiler/SPEC.md` — normative scrml language spec; **30552 lines** (was 30477; +75 S133-S134: §6.8.3 NEW + §14.12.10 normative statements + §22.12 JS_HOST_FORBIDDEN scope note; §6.8.3 + §34 E-STRUCTURAL-ELEMENT-MISPLACED row updated S135 with `${...}` silent-swallow class); last modified 2026-05-26 (commit 3a660c7c). §58 Build Story is the highest-numbered section (spec-ahead). §34 catalog STABLE at 81 native-parser codes. §6.8.3 `reset × lifecycle` IMPL LANDED S135.
 `compiler/SPEC-INDEX.md` — navigation map into SPEC.md (380L; regenerated S131).
 `compiler/PIPELINE.md` — pipeline-stage reference (+24 S129-S131; last modified 2026-05-25).
-`docs/PA-SCRML-PRIMER.md` — adopter-side primer.
+`docs/PA-SCRML-PRIMER.md` — adopter-side primer; **S135: Phase-1c catch-up (clusters N/M/K/J/H/I/L; all 26 F-XXX audit gaps CLOSED)**.
+`docs/articles/llm-kickstarter-v2-2026-05-04.md` — LLM kickstarter v2 (1941L); **S135: Phase-1c catch-up**.
+`docs/known-gaps.md` — spec-vs-impl gap registry; **S135: Bugs 21–27 filed (7 new LOW/heuristic/cleanup)**.
 
-## Milestone Status at HEAD (3a660c7c — S134)
+## Milestone Status at HEAD (f6c98ed8 — S135)
 
 | Milestone | Status |
 |---|---|
@@ -182,15 +202,20 @@ The 11 LOCKED tool names (public API — adopter agent configs depend on these):
 | MCP V0 Sub-unit E (E2E + adopter docs + fixture) | LANDED (S131 — series complete) |
 | Iteration Landing 1 (`<each>` codegen + W-EACH lints) | LANDED (S131) |
 | Iteration Landing 2 (SPEC §17.7 + §3.4 + §56.10) | LANDED (S131 — SPEC catch-up) |
-| Iteration Landing 3 (`bun scrml promote --each` CLI) | **LANDED (S134)** |
+| Iteration Landing 3 (`bun scrml promote --each` CLI) | LANDED (S134) |
 | Lifecycle Landing 1 (E-TYPE-001 access-before-transition) | LANDED (S130) |
 | Lifecycle Landing 2 (Approach C ext + E-TYPE-LIFECYCLE-ON-ENGINE-CELL + `->`→`to` glyph) | LANDED (S131) |
 | Lifecycle Landing 2.5 (fn-return transition-marker) | LANDED (S131) |
-| B-prereq (Shape 1 per-access lifecycle tracker, Bug 19 HIGH) | **LANDED (S134)** |
-| A4 (§6.6.18 alias-escape gap, PASS 2.c AliasRecord) | **LANDED (S134)** |
-| Bug 17 (JS_HOST_FORBIDDEN categorical walker, §22.12) | **LANDED (S134)** |
-| META_BUILTINS narrow (bun.eval() retirement) | **LANDED (S133)** |
-| §6.8.3 `reset × lifecycle` SPEC | **SPEC LANDED (S134); impl deferred** |
+| B-prereq (Shape 1 per-access lifecycle tracker, Bug 19 HIGH) | LANDED (S134) |
+| A4 (§6.6.18 alias-escape gap, PASS 2.c AliasRecord) | LANDED (S134) |
+| Bug 17 (JS_HOST_FORBIDDEN categorical walker, §22.12) | LANDED (S134) |
+| META_BUILTINS narrow (bun.eval() retirement) | LANDED (S133) |
+| §6.8.3 `reset × lifecycle` SPEC | SPEC LANDED (S134) |
+| **Q6-narrow — §6.8.3 `reset × lifecycle` IMPL** | **LANDED (S135)** |
+| **Source-form lifecycle follow-ups (Fix #1 + Fix #3 + companion)** | **LANDED (S135)** |
+| **E-STRUCTURAL-ELEMENT-MISPLACED `${...}` silent-swallow class** | **LANDED (S135)** |
+| **Phase-1c PRIMER + kickstarter catch-up (all 26 F-XXX gaps CLOSED)** | **LANDED (S135)** |
+| **Bugs 21–27 filed (LOW/heuristic)** | **S135** |
 
 ## Ignored / Generated Paths
 
@@ -203,7 +228,7 @@ The 11 LOCKED tool names (public API — adopter agent configs depend on these):
 `package.json` declares a Bun workspace `["compiler"]`. `compiler/package.json` is the sub-package manifest (acorn + astring). Single map set covers the whole repo.
 
 ## Tags
-#scrmlts #map #structure #compiler #native-parser #pipeline #m5-swap #m6-wave1 #m6-7-dclass #stdlib-shims #native-walker #mcp-v0 #mcp-descriptors #mcp-server #code-segments #emit-each #iteration #each #lifecycle #to-glyph #lifecycle-shape1-tracker #alias-escape #js-host-forbidden #promote-each-landed #snapshot-fix #s131 #s133 #s134
+#scrmlts #map #structure #compiler #native-parser #pipeline #m5-swap #m6-wave1 #m6-7-dclass #stdlib-shims #native-walker #mcp-v0 #mcp-descriptors #mcp-server #code-segments #emit-each #iteration #each #lifecycle #to-glyph #lifecycle-shape1-tracker #lifecycle-reset-aware #alias-escape #js-host-forbidden #structural-in-logic-body #e-structural-element-misplaced #promote-each-landed #snapshot-fix #s131 #s133 #s134 #s135
 
 ## Links
 - [primary.map.md](./primary.map.md)

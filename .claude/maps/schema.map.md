@@ -1,6 +1,6 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-05-26T00:00:00Z  commit: 3a660c7c
+# updated: 2026-05-27T04:14:32Z  commit: f6c98ed8
 
 Authoritative AST type catalog: `compiler/src/types/ast.ts`. The M5 native-parser swap
 must produce output coercible to `FileAST` / `TABOutput`. As of C1/C2 (S119),
@@ -97,13 +97,15 @@ Replaces pre-S123 phantom state-decl synthesis for bare `@name = expr` inside fn
 
 §14.3 / §14.12 — per-struct-field pre/post-transition type pair. Lifecycle annotation form is `(A to B)` (legacy `(A -> B)` glyph resolves identically — `findTopLevelArrow` detects the glyph at the TOP LEVEL of the parenthesized inner expression; a nested arrow inside a sub-expression is NOT a lifecycle annotation).
 
+**S135 Fix #1**: `findTopLevelArrow` now uses word-boundary rule (non-identifier char before/after `to`) rather than whitespace-only — tolerates parser whitespace-collapse around `.` (e.g., `(.Draft to.Published)` still detects the lifecycle glyph). The legacy `->` form already used a single-space tolerance; Fix #1 makes `to` at least as tolerant.
+
 ### LifecycleFieldSpec  [type-system.ts:2089]
 `{ preType: ResolvedType; postType: ResolvedType }`  — `preType` = the `A` (pre-transition) type, `postType` = the `B` (post-transition) type.
 
 ### LifecycleRegistry  [type-system.ts:2094]
 `Map<string, Map<string, LifecycleFieldSpec>>`  — outer key = struct/type name; inner key = field name. Sparse: only lifecycle-annotated fields populate the inner map; a struct with no lifecycle fields gets an empty `Map<>` entry. Built by `buildLifecycleFieldRegistry` (type-system.ts:2097) via `extractLifecycleFields` (type-system.ts:2161 — struct-body extractor). `checkLifecycleFieldAccess` walks statement text (Pass 1: discover `transition()` calls → advance state; Pass 2: flag post-shape field access without `transition()`) and fires E-TYPE-001. `transition()` (§14.12.6.3) is a compile-time-only marker — required after discriminating to a post-variant before post-shape field access.
 
-### Shape 1 per-access lifecycle tracker  [type-system.ts:14916 — NEW S134, B-prereq Bug 19 HIGH]
+### Shape 1 per-access lifecycle tracker  [type-system.ts:14916 — NEW S134, B-prereq Bug 19 HIGH; Q6-narrow S135]
 
 `runCellValueLifecycleAccessCheck` (type-system.ts:15088) — pipeline-facing wrapper; called from the main TS pass at type-system.ts:12337. Closes Bug 19 HIGH: SPEC §14.12.10 promises per-access tracking on Shape 1 plain reactive cells (`<state>: (A to B) = init`); pre-S134 impl covered struct-field + fn-return loci only.
 
@@ -113,7 +115,11 @@ Key internals:
 - Source label in diagnostics: `"on a Shape 1 reactive cell"` (distinguishes from struct-field fires).
 - Engine-cell name set (Sub-Pass 2.a) — built to exclude engine-cell positions from Shape 1 tracking (engines own variant-graph via `rule=`; lifecycle annotation there is E-TYPE-LIFECYCLE-ON-ENGINE-CELL).
 
-§6.8.3 (`reset × lifecycle` interaction) lands as SPEC-ahead-of-impl: the normative contract (reset reverts per-access state based on written-value type membership) requires the Shape 1 tracker as a prerequisite. B-prereq is now in place; §6.8.3 impl is a subsequent dispatch.
+**S135 Q6-narrow (§6.8.3 impl):** `RESET_CALL_RE` regex + new Pass in `processStatementText` recognizes `reset(@cell)` and `reset(@cell.field.path)` calls; routes through `classifyWriteAgainstSpec` to revert per-access state per §6.8.3 (pre-type value → revert to "pre"; post-type value → maintain/advance "post"). Two trackers: Tracker 1 (cell-value Shape 1) + Tracker 2 (struct-typed Shape 1 with field lifecycle). Whitespace-tolerant regex. Heuristic limitations: Bug 21 (deep multi-level nested compound uses `fieldPath[0]`), Bug 22 (cross-cell `default=@otherCell` is heuristic).
+
+**S135 source-form fixes (Fix #3 + companion):** `parseLifecycleReturnAnnotation` — `extractBareVariant` strips both leading `.` (bare-dot) AND `EnumName.` prefix (qualified form) so the discrimination regex matches canonical bare-variant names regardless of annotation source-form. `TRANSITION_CALL_RE` accepts optional `@` prefix: matches `transition(@phase)` and `transition(phase)`, stripping `@` so binding-map keys align.
+
+§6.8.3 (`reset × lifecycle` interaction) status: **SPEC LANDED S134; IMPL LANDED S135** (Q6-narrow commit `2ffe4f6a`). Shape 1 B-prereq tracker is the foundation.
 
 ## Alias Types  [compiler/src/symbol-table.ts — NEW S134, A4]
 
@@ -137,6 +143,22 @@ Chain-break rules (init shapes that do NOT produce an AliasRecord): spread, obje
 - `binaryOperandNeedsParens(child, parentOp, isRightChild)` — wrap when `prec(child) < prec(parent)`, or equal-precedence wrong-side, or ES2020 `??`-mixed-with-`||`/`&&` SyntaxError class.
 
 S131 emit-expr.ts:277 — orphan-`~` defensive fallback in emitIdent (`name === "~"` → emits `null /* ~ orphaned — codegen-fallback */`); complements the emit-logic.ts:bare-expr orphan-skip (~snapshot Bug 15).
+
+## ast-builder.js structural placement table — NEW S135
+
+### STRUCTURAL_ELEMENT_PLACEMENT  [ast-builder.js:183]
+```
+schema:       string   — canonical placement message (§39.2/§39.12)
+engine:       string   — (§51.0/§51)
+channel:      string   — (§38.1/§38.3)
+page:         string   — (§40/§40.8)
+auth:         string   — (§40.9.5/§40.1.1)
+errors:       string   — (§55.8)
+onTransition: string   — (§51.0.H)
+onTimeout:    string   — (§51.0.M)
+onIdle:       string   — (§51.0.R)
+```
+9 entries. `<match>` intentionally absent (block-form `<match>` is markup-as-value, legal inside `${...}`). Used by `leadingTagName()` (ast-builder.js:214) to gate `E-STRUCTURAL-ELEMENT-MISPLACED` at both html-fragment fallback sites in `parseLogicBody` (ast-builder.js:6529 + 9744). Detection is case-sensitive; PascalCase components and bare HTML elements do NOT fire.
 
 ## Meta-Checker Types  [compiler/src/meta-checker.ts — CHANGED S133-S134]
 
@@ -283,7 +305,7 @@ BlockKinds: Markup, Text, Comment, Sql, Css, Meta, ErrorEffect, LogicEscape, Dis
 No application DB schema — scrml is a compiler. SQLite *.db files are throwaway test fixtures.
 
 ## Tags
-#scrmlts #map #schema #ast #fileast #native-parser #codegen #m5-swap #bridge #each-block #iteration #lifecycle #lifecycle-registry #lifecycle-shape1-tracker #alias-record #alias-escape #reactive-assign #symbol-table #mcp-v0 #mcp-descriptors #emit-binary #code-segments #snapshot-fix #js-host-forbidden #meta-builtins-narrow #s131 #s133 #s134
+#scrmlts #map #schema #ast #fileast #native-parser #codegen #m5-swap #bridge #each-block #iteration #lifecycle #lifecycle-registry #lifecycle-shape1-tracker #lifecycle-reset-aware #alias-record #alias-escape #reactive-assign #symbol-table #mcp-v0 #mcp-descriptors #emit-binary #code-segments #snapshot-fix #js-host-forbidden #meta-builtins-narrow #structural-element-placement #structural-in-logic-body #s131 #s133 #s134 #s135
 
 ## Links
 - [primary.map.md](./primary.map.md)
