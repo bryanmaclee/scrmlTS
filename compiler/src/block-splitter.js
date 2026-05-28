@@ -396,15 +396,38 @@ export function splitBlocks(filePath, source) {
    * After this call, pos is just past the '>'.
    * IMPORTANT: this uses LOCAL quote state so the global quote flags remain correct.
    *
-   * @returns {{ attrRaw: string, selfClosing: boolean }}
+   * SPEC §4.14 `:`-shorthand body recognition (R25-Bug-40, 2026-05-27): when
+   * the opener carries a top-level ` :` (whitespace-bounded colon NOT part of
+   * a namespace-prefixed attribute name like `bind:value` / `class:active` /
+   * `on:click` — those have NO whitespace before the `:`), the colon
+   * introduces a `:`-shorthand single-expression body that runs through to
+   * the opener's `>`. The opener has NO closer. Callers treat
+   * `shorthand: true` as a leaf-block emit (analogous to `selfClosing`).
+   * Bracket-depth tracking (brace/paren/bracket/quote) prevents premature
+   * `>` termination inside the body expression. Embedded markup-as-value
+   * inside the shorthand body (e.g. `<Loading : <p>...</>>`) is NOT handled
+   * by this BS-level recognition — angle-depth tracking lives in the
+   * tokenizer / native-parser. For the Bug-40 each-item-body cases
+   * (`<li : @.name>`, `<li class="card" : @.title>`, `<empty : "none">`),
+   * bracket-depth tracking is sufficient.
+   *
+   * @returns {{ attrRaw: string, selfClosing: boolean, shorthand: boolean }}
    */
   function scanAttributes() {
     let attrRaw = "";
     let localDouble = false;
     let localSingle = false;
     let selfClosing = false;
-    let braceDepth = 0; // track '{' nesting inside attribute values (sigil-prefixed or bare)
-    let parenDepth = 0; // §5.5.2: track '(' nesting so '>' in (expr) doesn't close the tag
+    let shorthand = false;
+    // shorthandColonAttrOff — offset of the `:` introducer WITHIN attrRaw
+    // (i.e., attrRaw.length at the moment we recognize the `:`-shorthand).
+    // Surfaced so callers / ast-builder can slice the opener at the
+    // introducer to separate attribute region from shorthand body. -1 when
+    // not in shorthand mode.
+    let shorthandColonAttrOff = -1;
+    let braceDepth = 0;   // track '{' nesting inside attribute values (sigil-prefixed or bare)
+    let parenDepth = 0;   // §5.5.2: track '(' nesting so '>' in (expr) doesn't close the tag
+    let bracketDepth = 0; // R25-Bug-40: track '[' nesting so '>' in [expr] (array-access etc.) doesn't close the tag
 
     while (pos < len) {
       const c = source[pos];
@@ -435,6 +458,23 @@ export function splitBlocks(filePath, source) {
         continue;
       }
 
+      // R25-Bug-40: inside bracketed expression: `[ ... ]` (array literal /
+      // member access / collection projection). `>` inside `[...]` is content
+      // (`items[@i > 0]`, `arr[arr.length > 1 ? 0 : 1]` etc.). Tracked
+      // independently from parenDepth because `[` / `(` may nest in either
+      // order and either-order tracking is sufficient (no cross-bracket
+      // mismatch is meaningful inside an opener).
+      if (bracketDepth > 0) {
+        if (c === "[") {
+          bracketDepth++;
+        } else if (c === "]") {
+          bracketDepth--;
+        }
+        attrRaw += c;
+        step();
+        continue;
+      }
+
       if (!localDouble && !localSingle) {
         if (c === ">") {
           attrRaw += c;
@@ -446,6 +486,49 @@ export function splitBlocks(filePath, source) {
           attrRaw += "/>";
           advance(2);
           break;
+        }
+        // R25-Bug-40 — SPEC §4.14 `:`-shorthand body recognition. At depth-0,
+        // a `:` whose PREVIOUS char in attrRaw is whitespace (or attrRaw is
+        // entirely whitespace — i.e., the colon is the first non-whitespace
+        // content after the tag name) AND whose NEXT char in source is NOT
+        // another `:` (avoid `::` Phase-3 syntax) introduces a single-
+        // expression shorthand body that runs to the next top-level `>`.
+        // The opener has no closer (closerForm: "shorthand" on the leaf).
+        //
+        // This is the BS-level recognition required by SPEC §4.14 ("The
+        // block splitter recognizes a `:`-shorthand body by the post-
+        // attribute `:` token inside an opener — a within-opener scan
+        // concern"). Pre-S136 BS did NOT implement this, so `:`-shorthand
+        // openers inside each-block bodies (re-split via splitBlocks) fired
+        // E-CTX-003 and the openers were silently dropped — Bug 40 root
+        // cause. Engine state-child `:`-shorthand was downstream re-parsed
+        // from rulesRaw, masking the same BS-level non-compliance.
+        //
+        // Mandatory whitespace BEFORE `:` distinguishes from namespace
+        // attribute prefixes (`bind:value`, `class:active`, `on:click`,
+        // `aria-foo:bar`) which have NO whitespace before `:`.
+        if (c === ":" && ch(1) !== ":") {
+          // Look back in attrRaw for previous char. SPEC §4.14: "opens with
+          // a single `:` token preceded by at least one whitespace
+          // character following the last attribute (or the tag name if
+          // there are no attributes)". Therefore the predecessor MUST
+          // be whitespace AND attrRaw must be non-empty (an empty attrRaw
+          // means the `:` is immediately adjacent to the tag name with NO
+          // whitespace — SPEC says that's E-PARSE-001 / namespace-prefix
+          // shape, NOT shorthand).
+          if (attrRaw.length > 0 && /\s/.test(attrRaw[attrRaw.length - 1])) {
+            shorthand = true;
+            shorthandColonAttrOff = attrRaw.length; // position of the `:` within attrRaw
+            // Mark the `:` introducer in attrRaw — caller does not branch
+            // on attrRaw structure, but downstream emit-each / detection
+            // helpers inspect the markup leaf's `raw` (which includes the
+            // entire opener slice — `<li : @.name>`).
+            attrRaw += c;
+            step();
+            // Continue the scanner — `>` at depth-0 still terminates the
+            // opener (now interpreted as the shorthand-body terminator).
+            continue;
+          }
         }
         // Sigil-prefixed brace openers: ${, ?{, #{, !{, ^{, ~{
         if ((c === "$" || c === "?" || c === "#" || c === "!" || c === "^" || c === "~") && ch(1) === "{") {
@@ -469,6 +552,15 @@ export function splitBlocks(filePath, source) {
         // Track paren depth so '>' inside the value is not treated as a tag-close.
         if (c === "(") {
           parenDepth++;
+          attrRaw += c;
+          step();
+          continue;
+        }
+        // R25-Bug-40: '[' opener for bracket expressions in shorthand bodies
+        // (`<li : @.items[0]>`, `<li : @.arr[@.i > 0]>`). Tracked so '>' inside
+        // doesn't close the tag.
+        if (c === "[") {
+          bracketDepth++;
           attrRaw += c;
           step();
           continue;
@@ -510,7 +602,7 @@ export function splitBlocks(filePath, source) {
       step();
     }
 
-    return { attrRaw, selfClosing };
+    return { attrRaw, selfClosing, shorthand, shorthandColonAttrOff };
   }
 
   // ---------------------------------------------------------------------------
@@ -1756,7 +1848,7 @@ export function splitBlocks(filePath, source) {
         }
 
         const isComp = isComponentName(tagName);
-        const { selfClosing } = scanAttributes();
+        const { selfClosing, shorthand, shorthandColonAttrOff } = scanAttributes();
         const lowerTagName = tagName.toLowerCase();
         if (selfClosing || VOID_ELEMENTS.has(lowerTagName)) {
           // Self-closing ('/>') or HTML void element - emit as leaf block, no context push
@@ -1770,6 +1862,37 @@ export function splitBlocks(filePath, source) {
             closerForm: "self-closing",
             isComponent: isComp,
             openerHadSpaceAfterLt: false,
+          });
+        } else if (shorthand) {
+          // R25-Bug-40 — SPEC §4.14 `:`-shorthand body: the opener carries
+          // its single-expression body inside the opener (between the `:`
+          // and `>`); there is NO closer. Emit as a leaf block (analogous
+          // to self-closing) with closerForm:"shorthand" so downstream
+          // consumers (ast-builder, emit-each, native-parser parity) can
+          // recognize the shape. The opener's full raw text — including
+          // the ` : <body-expr>` segment — is on `.raw`, which is what
+          // emit-each.ts's `detectShorthandOpener` / `extractShorthandExpr`
+          // inspect. The `shorthandColonOff` field records the offset of
+          // the `:` WITHIN block.raw — ast-builder uses this to slice the
+          // opener at the introducer (attribute region vs shorthand body)
+          // so tokenizeAttributes does not misparse `@.name` etc. as two
+          // bareword attributes.
+          // shorthandColonOff is the offset of `:` inside block.raw;
+          // attrRaw starts immediately after the tag name (length of
+          // `<` + tag name). Compute: `<` (1) + tagName.length + offset
+          // of `:` within attrRaw.
+          const shorthandColonOff = 1 + tagName.length + shorthandColonAttrOff;
+          targetChildren().push({
+            type: "markup",
+            raw: source.slice(curPos, pos),
+            span: { start: curPos, end: pos, line: curLine, col: curCol },
+            depth: depth(),
+            children: [],
+            name: tagName,
+            closerForm: "shorthand",
+            isComponent: isComp,
+            openerHadSpaceAfterLt: false,
+            shorthandColonOff,
           });
         } else if (!isComp && STRUCTURAL_RAW_BODY_ELEMENTS.has(lowerTagName)) {
           // S107 Phase 2 — SPEC §18.0.1 match block-form structural raw-body.
@@ -1986,7 +2109,7 @@ export function splitBlocks(filePath, source) {
         step(); // consume '<'
         while (pos < len && /\s/.test(source[pos])) step(); // skip whitespace
         const stateName = readIdent();
-        const { selfClosing: stateSelfClosing } = scanAttributes();
+        const { selfClosing: stateSelfClosing, shorthand: stateShorthand, shorthandColonAttrOff: stateShorthandColonAttrOff } = scanAttributes();
         if (stateSelfClosing) {
           // P1 (uniform opener, SPEC §15.15): permit `< name attr=...` /> ` self-closing
           // for state openers — required to make state types behave uniformly with the
@@ -2000,6 +2123,39 @@ export function splitBlocks(filePath, source) {
             children: [],
             name: stateName,
             closerForm: "self-closing",
+            isComponent: isComponentName(stateName),
+            openerHadSpaceAfterLt: true,
+          });
+        } else if (stateShorthand) {
+          // R25-Bug-40 — SPEC §4.14 `:`-shorthand body on state openers
+          // (engine state-children: `<Idle : startGame()>`, etc.). Same
+          // treatment as the markup path — leaf block, no context push,
+          // closerForm:"shorthand". The opener's `.raw` carries the
+          // entire opener including the body expression. Downstream
+          // engine-statechild-parser re-parses `rulesRaw` (which still
+          // includes this opener verbatim via the .raw concat in
+          // ast-builder), so engine semantics are unchanged. The BS-level
+          // recognition prevents the spurious E-CTX-003 "Unclosed"
+          // error class that pre-S136 fired silently and was discarded.
+          // shorthandColonOff: offset of `:` in block.raw. For state
+          // openers raw starts with `<` + maybe-whitespace + tagName, so
+          // we compute via the absolute position arithmetic instead — the
+          // offset within attrRaw is reliable, BUT the state opener's
+          // preamble can include arbitrary whitespace between `<` and the
+          // tag name (`< Idle ...>`). The simplest portable value is the
+          // offset of `:` within block.raw computed by scanning the raw —
+          // surfaced as raw.indexOf(" :") at consumer side. We don't
+          // surface shorthandColonOff for state openers in this landing
+          // because engine state-children are downstream re-parsed (the
+          // BS recognition is correctness-preserving, not codegen-feeding).
+          targetChildren().push({
+            type: "state",
+            raw: source.slice(curPos, pos),
+            span: { start: curPos, end: pos, line: curLine, col: curCol },
+            depth: depth(),
+            children: [],
+            name: stateName,
+            closerForm: "shorthand",
             isComponent: isComponentName(stateName),
             openerHadSpaceAfterLt: true,
           });

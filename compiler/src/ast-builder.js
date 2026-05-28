@@ -11362,8 +11362,39 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         };
       }
 
+      // R25-Bug-40 — SPEC §4.14 `:`-shorthand body handling. When BS
+      // recognized the opener as `:`-shorthand (closerForm:"shorthand"),
+      // block.raw includes the shorthand body expression (everything
+      // between the `:` introducer and the closing `>`). Tokenizing
+      // block.raw as-is would parse `@.name` (the body) as two bareword
+      // attributes (`@` and `name`) because the TAB tokenizer doesn't
+      // know about `:`-shorthand. To fix this:
+      //   (a) Slice block.raw at the introducer offset (block.shorthandColonOff)
+      //   (b) Replace the slice's tail with `>` so tokenizer terminates
+      //       cleanly after the actual attribute region.
+      //   (c) Capture the shorthand body expression text from the
+      //       remainder so codegen can consume it.
+      //
+      // The reconstructed slice keeps absolute offsets intact for the
+      // attribute region (offsets <= introducer); positions for the
+      // synthesized terminator `>` don't matter — no diagnostic fires
+      // from inside the synthetic byte.
+      let tokenizeSource = block.raw;
+      let shorthandBodyRaw = null;
+      if (block.closerForm === "shorthand" && typeof block.shorthandColonOff === "number" && block.shorthandColonOff > 0) {
+        // attribute region = block.raw[0..shorthandColonOff]; replace the
+        // remainder with `>` so the tokenizer terminates correctly.
+        const attrPart = block.raw.slice(0, block.shorthandColonOff);
+        tokenizeSource = attrPart.replace(/\s+$/, "") + ">";
+        // Shorthand body runs from after the `:` to the closing `>` of
+        // the opener. The block.raw ends at (just past) the closing `>`,
+        // so the body is block.raw[shorthandColonOff+1 .. raw.length-1].
+        // Trim leading/trailing whitespace per SPEC §4.14 (" : expr").
+        shorthandBodyRaw = block.raw.slice(block.shorthandColonOff + 1, block.raw.length - 1).trim();
+      }
+
       const attrTokens = tokenizeAttributes(
-        block.raw,
+        tokenizeSource,
         block.span.start,
         block.span.line,
         block.span.col,
@@ -11469,6 +11500,15 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         children,
         selfClosing: block.closerForm === "self-closing",
         closerForm: block.closerForm,
+        // R25-Bug-40: SPEC §4.14 `:`-shorthand body expression (when
+        // closerForm:"shorthand"). Otherwise null. Captured from
+        // block.raw at the introducer offset above; codegen
+        // (emit-each.ts) consumes this when rendering per-item factory
+        // bodies for `<each>` iteration. The existing
+        // detectShorthandOpener / extractShorthandExpr helpers in
+        // emit-each still work from raw scanning, but this field is the
+        // authoritative source.
+        shorthandBodyRaw: shorthandBodyRaw,
         isComponent: block.isComponent === true,
         openerHadSpaceAfterLt: block.openerHadSpaceAfterLt === true,
         // P3.A: propagate the channel-export markers from liftBareDeclarations

@@ -179,10 +179,28 @@ function renderTemplateChildToJs(
     const tagName = String((child as any).tag ?? (child as any).name ?? "div");
     const raw = String((child as any).raw ?? "");
 
-    // Detect `:`-shorthand opener — `<tag attrs : expr>` (no closer).
-    // Pattern: opener-line contains ` : ` (whitespace-bounded colon) before `>`.
-    const isShorthand = detectShorthandOpener(raw);
-    const shorthandExpr = isShorthand ? extractShorthandExpr(raw) : null;
+    // R25-Bug-40 — SPEC §4.14 `:`-shorthand body detection.
+    //
+    // Two recognition paths:
+    //   (a) Authoritative: BS+ast-builder sets `closerForm:"shorthand"`
+    //       and `shorthandBodyRaw` (the body expression text) on the
+    //       markup AST node. Prefer this when present — no regex re-scan.
+    //   (b) Fallback: regex scan over raw (`detectShorthandOpener` /
+    //       `extractShorthandExpr`). Maintained for any pre-S136 caller
+    //       path that may surface a markup node WITHOUT the explicit
+    //       fields (e.g., a future native-parser route that doesn't
+    //       populate shorthandBodyRaw on each-block templateChildren).
+    const closerForm = (child as any).closerForm;
+    const explicitBody = (child as any).shorthandBodyRaw;
+    let isShorthand: boolean;
+    let shorthandExpr: string | null;
+    if (closerForm === "shorthand" && typeof explicitBody === "string") {
+      isShorthand = true;
+      shorthandExpr = explicitBody;
+    } else {
+      isShorthand = detectShorthandOpener(raw);
+      shorthandExpr = isShorthand ? extractShorthandExpr(raw) : null;
+    }
 
     const elVar = `_scrml_el_${nextLocalId()}`;
     lines.push(`${indent}const ${elVar} = document.createElement(${JSON.stringify(tagName)});`);
@@ -398,6 +416,20 @@ function renderEmptyChildToJs(
   indent: string,
 ): void {
   if (!emptyChild || typeof emptyChild !== "object") return;
+  // R25-Bug-40 — SPEC §17.7.4 admits `<empty : "literal">` `:`-shorthand
+  // form (overseer-3 separate finding). The shorthand body lives on the
+  // <empty> AST node itself (closerForm:"shorthand" + shorthandBodyRaw),
+  // not in its .children. Render the shorthand body as a textNode directly
+  // into the empty fragment (no createElement for <empty> — it's a
+  // structural sub-element, not a DOM element).
+  if ((emptyChild as any).closerForm === "shorthand" && typeof (emptyChild as any).shorthandBodyRaw === "string") {
+    const expr = (emptyChild as any).shorthandBodyRaw;
+    // <empty> body is in outer (no-iter) scope; no `@.` substitution.
+    // Rewrite bare `@cell` references via rewriteAtCellAccess for V5-strict.
+    const rewritten = rewriteAtCellAccess(expr);
+    lines.push(`${indent}${fragmentVar}.appendChild(document.createTextNode(String(${rewritten})));`);
+    return;
+  }
   const children = (emptyChild as any).children ?? [];
   if (!Array.isArray(children) || children.length === 0) return;
   // <empty> body is plain-markup free-text; no `@.` substitution needed
