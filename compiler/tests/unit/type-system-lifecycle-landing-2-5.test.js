@@ -901,6 +901,75 @@ describe("§LL2-5_J Bug 24 — qualified-form discrim regex tolerance", () => {
     expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(0);
   });
 
+  test("Bug 25 — `transition(@u.field)` dotted-path advances root binding state", () => {
+    // S138 Bug 25 — TRANSITION_CALL_RE extended to support dotted-path
+    // arguments. The captured group binds the ROOT identifier (which keys
+    // into the bindings map); the optional trailing path is consumed but
+    // not captured.
+    const bindings = new Map([
+      ["u", {
+        kind: "presence",
+        preType: { kind: "not" },
+        postType: { kind: "ident", name: "User" },
+        preVariantName: "",
+        postVariantName: "",
+      }],
+    ]);
+
+    const body = [
+      bareExpr("transition(u.field)"),  // dotted-path arg
+      bareExpr("print(u.name)"),        // post-access; passes if root advanced
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, bindings, errors, span());
+
+    // Post-fix: dotted-path recognized; root binding "u" advanced to "post";
+    // subsequent .name access passes.
+    expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(0);
+  });
+
+  test("Bug 25 — `transition(@u)` bare form still works (regression)", () => {
+    const bindings = new Map([
+      ["u", {
+        kind: "presence",
+        preType: { kind: "not" },
+        postType: { kind: "ident", name: "User" },
+        preVariantName: "",
+        postVariantName: "",
+      }],
+    ]);
+
+    const body = [
+      bareExpr("transition(u)"),
+      bareExpr("print(u.name)"),
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, bindings, errors, span());
+
+    expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(0);
+  });
+
+  test("Bug 25 — `transition(@u.field.deeper)` deep dotted-path also advances root", () => {
+    const bindings = new Map([
+      ["u", {
+        kind: "presence",
+        preType: { kind: "not" },
+        postType: { kind: "ident", name: "User" },
+        preVariantName: "",
+        postVariantName: "",
+      }],
+    ]);
+
+    const body = [
+      bareExpr("transition(u.field.deeper)"),
+      bareExpr("print(u.email)"),
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, bindings, errors, span());
+
+    expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(0);
+  });
+
   test("post-discrim transition() with `is .Published` (the post-variant for completeness)", () => {
     // Variant-progression spec allows discrimination at the source variant
     // (Draft) followed by transition() + post-type field access. The walker

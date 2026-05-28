@@ -14574,7 +14574,19 @@ function checkLifecycleBindingAccess(
   // (`@` stripped) so it lines up with the bindings-map keys.
   // (S135 — Fix #3 companion: source-form transition() recognition for Shape 1
   // cells; orthogonal #3 follow-up to S134 B-prereq.)
-  const TRANSITION_CALL_RE = /\btransition\s*\(\s*@?([A-Za-z_$][A-Za-z0-9_$]*)\s*\)/g;
+  //
+  // S138 Bug 25 — extended to support dotted-path arguments like
+  // `transition(@u.field)` and `transition(@u.field.deeper)`. The captured
+  // group still binds the ROOT identifier (which keys into the bindings
+  // map); the optional `(?:\s*\.\s*<ident>)*` trailing path is consumed but
+  // not captured. Mirrors the RESET_CALL_RE pattern at line 14589 which
+  // already accepts the dotted-path form. SPEC §14.12.6 — transition()
+  // operates on the binding's lifecycle; whether the argument is the bare
+  // root or a dotted-path member, the binding-side state advance is the
+  // same. (Array-index form `transition(items[0])` per Bug 25's original
+  // filing is a SEPARATE shape; deferred — not covered by this regex.
+  // Adopters can factor into a local binding first.)
+  const TRANSITION_CALL_RE = /\btransition\s*\(\s*@?([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*\.\s*[A-Za-z_$][A-Za-z0-9_$]*)*\s*\)/g;
 
   // Q6-narrow (S134) — §6.8.3: detect `reset(@<cellName>)` and
   // `reset(@<cellName>.<field>.<field>...)` calls in statement text. The
