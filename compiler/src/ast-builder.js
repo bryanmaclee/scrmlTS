@@ -11115,9 +11115,22 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
       if (block.name === "each") {
         const eachRaw = (block.raw || "").trim();
 
-        // Brace-aware opener-end finder (mirrors match-block).
+        // Brace+paren+bracket-aware opener-end finder (mirrors match-block,
+        // plus R25-Bug-37 paren/bracket extensions).
+        //
+        // R25-Bug-37: the original finder tracked only braces, so the `>` of
+        // an inline arrow (`=>`) inside a parenthesized attribute value —
+        // e.g. `<each in=@items.filter(c => c.foo == 1)>` — was treated as
+        // the opener terminator and the header was truncated at `(c =`,
+        // silently miscompiling the iteration source. Paren + bracket depth
+        // tracking mirrors block-splitter `scanAttributes` (which already
+        // accepts the full opener at the BS layer) and brings ast-builder's
+        // opener-end recognition into agreement with what BS produced in
+        // `block.raw`.
         function _findEachOpenerEnd(s) {
           let depth = 0;
+          let parenDepth = 0;
+          let bracketDepth = 0;
           let inDQ = false;
           let inSQ = false;
           for (let i = 0; i < s.length; i++) {
@@ -11128,7 +11141,11 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
             if (c === "'") { inSQ = true; continue; }
             if (c === "{") { depth++; continue; }
             if (c === "}") { if (depth > 0) depth--; continue; }
-            if (c === ">" && depth === 0) return i;
+            if (c === "(") { parenDepth++; continue; }
+            if (c === ")") { if (parenDepth > 0) parenDepth--; continue; }
+            if (c === "[") { bracketDepth++; continue; }
+            if (c === "]") { if (bracketDepth > 0) bracketDepth--; continue; }
+            if (c === ">" && depth === 0 && parenDepth === 0 && bracketDepth === 0) return i;
           }
           return -1;
         }
