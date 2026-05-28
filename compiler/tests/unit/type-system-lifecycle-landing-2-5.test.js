@@ -800,3 +800,136 @@ describe("§LL2-5_I runLifecycleBindingAccessCheck end-to-end", () => {
     expect(errors.length).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §LL2-5_J Bug 24 — qualified-form discrim regex tolerance
+//
+// S138 fix in `checkLifecycleBindingAccess > isIsVariantCheckOf`. Pre-fix
+// regex required `bindingName is .VariantName` (bare-dot form only); the
+// qualified form `bindingName is EnumName.VariantName` was not recognized
+// → tracker stayed at "pre" after the discrimination branch → spurious
+// E-TYPE-001 fires on post-discrimination field access.
+//
+// SPEC §14.10 + §18.0.3 — bare-variant inference (M9) — says bare-dot and
+// qualified forms are equivalent. The tracker must treat them so.
+//
+// Fix: extended regex to optional EnumName prefix:
+//   `is\s+(?:[A-Z][A-Za-z0-9_$]*)?\s*\.\s*VariantName`
+// ---------------------------------------------------------------------------
+
+describe("§LL2-5_J Bug 24 — qualified-form discrim regex tolerance", () => {
+  test("qualified form `is Article.Draft` advances state same as bare `.Draft`", () => {
+    const bindings = new Map([
+      ["a", {
+        kind: "variant",
+        preType: { kind: "enum", name: "Article" },
+        postType: { kind: "enum", name: "Article" },
+        preVariantName: "Draft",
+        postVariantName: "Published",
+      }],
+    ]);
+
+    const body = [
+      makeIfStmt(
+        "a is Article.Draft",  // qualified form — pre-fix not recognized
+        [
+          bareExpr("transition(a)"),
+          bareExpr("print(a.publishedAt)"),  // would fire E-TYPE-001 pre-fix
+        ],
+      ),
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, bindings, errors, span());
+
+    // Post-fix: qualified form recognized; transition() advances state;
+    // subsequent .publishedAt read passes.
+    expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(0);
+    expect(errors.filter(e => e.code === "E-TYPE-LIFECYCLE-VARIANT-NOT-TRANSITIONED").length).toBe(0);
+  });
+
+  test("qualified form `is Article.Draft` without transition() still fires LIFECYCLE-VARIANT-NOT-TRANSITIONED", () => {
+    const bindings = new Map([
+      ["a", {
+        kind: "variant",
+        preType: { kind: "enum", name: "Article" },
+        postType: { kind: "enum", name: "Article" },
+        preVariantName: "Draft",
+        postVariantName: "Published",
+      }],
+    ]);
+
+    const body = [
+      makeIfStmt(
+        "a is Article.Draft",
+        [
+          bareExpr("print(a.publishedAt)"),  // No transition() — must fire
+        ],
+      ),
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, bindings, errors, span());
+
+    // Post-fix: qualified form recognized, so the not-transitioned
+    // diagnostic fires correctly (matches the bare-dot equivalent).
+    const fires = errors.filter(e => e.code === "E-TYPE-LIFECYCLE-VARIANT-NOT-TRANSITIONED");
+    expect(fires.length).toBe(1);
+  });
+
+  test("bare-dot `is .Draft` still works (regression)", () => {
+    const bindings = new Map([
+      ["a", {
+        kind: "variant",
+        preType: { kind: "enum", name: "Article" },
+        postType: { kind: "enum", name: "Article" },
+        preVariantName: "Draft",
+        postVariantName: "Published",
+      }],
+    ]);
+
+    const body = [
+      makeIfStmt(
+        "a is .Draft",  // bare-dot form — should still work
+        [
+          bareExpr("transition(a)"),
+          bareExpr("print(a.publishedAt)"),
+        ],
+      ),
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, bindings, errors, span());
+
+    expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(0);
+  });
+
+  test("post-discrim transition() with `is .Published` (the post-variant for completeness)", () => {
+    // Variant-progression spec allows discrimination at the source variant
+    // (Draft) followed by transition() + post-type field access. The walker
+    // doesn't generally distinguish "discriminating at source vs post" — both
+    // would route through isIsVariantCheckOf for state-advance. This test
+    // confirms the qualified-form recognition for the post-variant pattern.
+    const bindings = new Map([
+      ["a", {
+        kind: "variant",
+        preType: { kind: "enum", name: "Article" },
+        postType: { kind: "enum", name: "Article" },
+        preVariantName: "Draft",
+        postVariantName: "Published",
+      }],
+    ]);
+
+    const body = [
+      makeIfStmt(
+        "a is Article.Draft",  // qualified form for the source variant
+        [
+          bareExpr("transition(a)"),
+          bareExpr("print(a.publishedAt)"),
+        ],
+      ),
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, bindings, errors, span());
+
+    // Qualified-form recognized → transition() advances → post-access passes.
+    expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(0);
+  });
+});

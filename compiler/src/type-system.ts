@@ -14603,12 +14603,27 @@ function checkLifecycleBindingAccess(
     return re.test(condition);
   }
 
-  // Detect `<bindingName> is .<VariantName>` — used for variant-progression
-  // source discrimination in if-stmt conditions.
+  // Detect `<bindingName> is .<VariantName>` (bare-dot form) OR
+  // `<bindingName> is <EnumName>.<VariantName>` (qualified form) — both used
+  // for variant-progression source discrimination in if-stmt conditions.
+  //
+  // S138 Bug 24 fix — pre-fix regex required the bare leading-dot form only;
+  // adopters using the qualified form (`if (X is Article.Draft)`) didn't get
+  // the tracker's "post" advance and saw spurious E-TYPE-001 fires after the
+  // discrimination branch. SPEC §14.10 / §18.0.3 bare-variant inference (M9)
+  // says the two forms are equivalent. The tracker MUST treat them so.
+  // Mirrors the classifyWriteAgainstSpec parallel above (lines 14644-14655)
+  // which uses `(?:^|\\.)\\s*VariantName\\b` to accept either form.
   function isIsVariantCheckOf(condition: string, bindingName: string, variantName: string): boolean {
     if (!condition) return false;
+    // Bare-dot: `bindingName is .VariantName`
+    // Qualified: `bindingName is EnumName.VariantName`
+    // The (?:[A-Z][A-Za-z0-9_$]*)? optional group covers the EnumName prefix;
+    // the `\\.` requires a dot before VariantName (matches both bare `.V`
+    // form where the optional prefix is empty, and qualified `Enum.V` form
+    // where it's the enum name).
     const re = new RegExp(
-      `\\b${escapeRe(bindingName)}\\b\\s+is\\s+\\.\\s*${escapeRe(variantName)}\\b`,
+      `\\b${escapeRe(bindingName)}\\b\\s+is\\s+(?:[A-Z][A-Za-z0-9_$]*)?\\s*\\.\\s*${escapeRe(variantName)}\\b`,
     );
     return re.test(condition);
   }
