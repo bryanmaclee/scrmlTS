@@ -6,7 +6,7 @@
 >
 > **Per-gap status:** `spec'd` = SPEC normative + compiler does nothing · `partial-impl` = some sub-units shipped, others pending · `scoping` = SCOPING.md authored, OQs open · `in-impl` = implementation arc actively in flight · `deferred` = ratified to defer pending a precondition · `blocked` = waiting on something else · `nominal` = SPEC-only Nominal section (deliberately spec-ahead-of-implementation per author)
 >
-> Updated 2026-05-27 (S136 — R25-Bug-36 RESOLVED `e1269844` + Bug 39 RESOLVED-AS-SIDE-EFFECT + Bug 38 root-cause CONFIRMED-DISTINCT from Bug 36 via agent's dispatch investigation. Bug 36 was actually a `! ErrorType` bare-form (SPEC §41.14) parse-gap, NOT `?{}`-related as PA brief hypothesized — SQL correlation was incidental (all R25-affected functions just contained SQL). Brief-hypothesis-correction banked. Net HIGH count 9 → 7. Pending followups: SPEC §19.4.1 grammar amendment for bare-form ratification; new deferred-item triage for `?{}` non-lowering at default-logic top-level (may overlap Bug 42 OR be separate).
+> Updated 2026-05-27 (S137 — R25 HIGH cluster CLOSED end-to-end: **Bug 38** `!{}` arm-body codegen broader case RESOLVED `933d1ad3` (emit-logic.ts `emitArmAssign` extended with multi-stmt + single-stmt-side-effect branches; +18 tests); **Bug 41** `<schema>` HTML body-text leak RESOLVED `ebeba766` (emit-html.ts `SERVER_ONLY_STATE_TYPES` exclusion for `schema`+`seeds`; +18 tests); **Bug 40** `:`-shorthand inside `<each>` item body RESOLVED `50d38095` (BS-level SPEC §4.14 compliance gap; ast-builder + block-splitter + emit-each three-file fix; `<empty :>` sub-case closed same-root; +20 tests); **Bug 37** `<each in=@x.filter(c=>...)>` arrow truncation RESOLVED `1ce963d0` (ast-builder `_findEachOpenerEnd` paren/bracket-aware; +12 tests). Also S137: within-node allowlist rebump `050e20e8` (absorbed S136 parser-shape drift). Net HIGH count 7 → 3 (only compiler-managed-async + 6nz-V class:NAME + R24-BUG-4 `<match>` `</>` Phase 5 remain). Methodology lesson banked TWICE this session: brief-hypothesis-vs-grep — R25-Bug-38 hypothesis correct, R25-Bug-41 hypothesis over-broad (narrowed to 2 of 9 structural elements), R25-Bug-40 hypothesis upstream of actual root (BS, not codegen), R25-Bug-37 hypothesis downstream of actual root (ast-builder, not BS). Grep + AST-trace consistently beat brief speculation. Same-shape latent sibling-finder bug class surfaced by Bug 37 agent (D37a/b — `_findMatchOpenerEnd` x2 + `_findOpenerEnd`) filed as Bug 48 LOW. PRIOR S136 — R25-Bug-36 RESOLVED `e1269844` + Bug 39 RESOLVED-AS-SIDE-EFFECT + Bug 38 root-cause CONFIRMED-DISTINCT from Bug 36 via agent's dispatch investigation. Bug 36 was actually a `! ErrorType` bare-form (SPEC §41.14) parse-gap, NOT `?{}`-related as PA brief hypothesized — SQL correlation was incidental (all R25-affected functions just contained SQL). Brief-hypothesis-correction banked. Pending followups: SPEC §19.4.1 grammar amendment for bare-form ratification; new deferred-item triage for `?{}` non-lowering at default-logic top-level (may overlap Bug 42 OR be separate).
 
 ---
 
@@ -14,9 +14,9 @@
 
 | Severity | Open | Closed-this-arc | Notes |
 |---|---|---|---|
-| HIGH | 7 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132) · **E-FN-003 (RESOLVED S133 `dbef4f4d`)** · **Bug 17 E-META-001 runtime-meta (RESOLVED S134 `6c6c0073`)** · **§6.6.18 alias-escape A4 LANDED S134 `b719a3d2`** · **Bug 19 Shape 1 lifecycle tracker LANDED S134 `fd58893e` (B-prereq)** · **§6.8.3 reset × lifecycle impl LANDED S135 `2ffe4f6a` (Q6-narrow; SPEC-ahead-of-impl bullet CLOSED)** · **Structural-in-logic-body silent-swallow class CLOSED S135 `ab0d13a3` (E-STRUCTURAL-ELEMENT-MISPLACED fires for `<schema>`/`<engine>`/`<channel>`/`<page>`/`<auth>`/`<errors>`/`<onTransition>`/`<onTimeout>`/`<onIdle>` in `${...}` bodies; +19 tests)** · **Bug 28 `or`/`and` codegen lowering RESOLVED S136 `89008e97` (R24-BUG-1; 2-site fix + 42-test regression; HELD 4/4 R25)** · **Bug 29 narrow `{ return }` arm RESOLVED S136 `c7e81962` (R24-BUG-2; +18 regression tests; broader case Bug 38 deferred)** · **Bug 36 `! ErrorType` bare-form parse-gap RESOLVED S136 `e1269844` (was CRITICAL R25; 3-site fix ast-builder + native-parser + 12-test regression; spec §41.14 bare-form ratification)** · **Bug 39 phantom enum→textContent wiring RESOLVED-AS-SIDE-EFFECT-OF-BUG-36 S136 `e1269844` (was HIGH R25; was a symptom of Bug 36's orphan-IDENT)** | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) · R24-BUG-4 `<match>` `</>` Phase 5 (cross-ref escalation, SCOPING-tracked) · **Bug 37 `<each in=@x.filter(c => ...)>` arrow truncation (NEW S136 R25, minimally reproduced)** · **Bug 38 `!{}` arm body codegen failure broader case (NEW S136 R25, 4/4; deeper than Bug 29 narrow; confirmed DISTINCT root from Bug 36 — codegen `emit-logic.ts` case "guarded-expr")** · **Bug 40 `:`-shorthand inside `<each>` item body empty (NEW S136 R25)** · **Bug 41 `<schema>` block content leaks into HTML body (NEW S136 R25)** |
+| HIGH | 3 | E-TYPE-001 lifecycle fire (S130 Landing 1 SHIPPED) · §29 vanilla-interop framing-corrected (S132) · **E-FN-003 (RESOLVED S133 `dbef4f4d`)** · **Bug 17 E-META-001 runtime-meta (RESOLVED S134 `6c6c0073`)** · **§6.6.18 alias-escape A4 LANDED S134 `b719a3d2`** · **Bug 19 Shape 1 lifecycle tracker LANDED S134 `fd58893e` (B-prereq)** · **§6.8.3 reset × lifecycle impl LANDED S135 `2ffe4f6a` (Q6-narrow; SPEC-ahead-of-impl bullet CLOSED)** · **Structural-in-logic-body silent-swallow class CLOSED S135 `ab0d13a3` (E-STRUCTURAL-ELEMENT-MISPLACED fires for `<schema>`/`<engine>`/`<channel>`/`<page>`/`<auth>`/`<errors>`/`<onTransition>`/`<onTimeout>`/`<onIdle>` in `${...}` bodies; +19 tests)** · **Bug 28 `or`/`and` codegen lowering RESOLVED S136 `89008e97` (R24-BUG-1; 2-site fix + 42-test regression; HELD 4/4 R25)** · **Bug 29 narrow `{ return }` arm RESOLVED S136 `c7e81962` (R24-BUG-2; +18 regression tests; broader case Bug 38 RESOLVED S137 `933d1ad3`)** · **Bug 36 `! ErrorType` bare-form parse-gap RESOLVED S136 `e1269844` (was CRITICAL R25; 3-site fix ast-builder + native-parser + 12-test regression; spec §41.14 bare-form ratification)** · **Bug 39 phantom enum→textContent wiring RESOLVED-AS-SIDE-EFFECT-OF-BUG-36 S136 `e1269844` (was HIGH R25; was a symptom of Bug 36's orphan-IDENT)** · **Bug 37 `<each in=@x.filter(c=>...)>` arrow truncation RESOLVED S137 `1ce963d0` (R25; ast-builder `_findEachOpenerEnd` paren/bracket-aware; +12 tests; Shape A — accept inline arrow)** · **Bug 38 `!{}` arm body codegen broader case RESOLVED S137 `933d1ad3` (R25; emit-logic.ts `emitArmAssign` extended with multi-stmt + single-stmt-side-effect branches; +18 tests; closes R24-Bug-29-family deeper shapes 4/4 R25 devs)** · **Bug 40 `:`-shorthand inside `<each>` item body RESOLVED S137 `50d38095` (R25; SPEC §4.14 BS-level compliance gap; three-file fix block-splitter + ast-builder + emit-each; `<empty :>` sub-case closed same-root; +20 tests)** · **Bug 41 `<schema>` HTML body-text leak RESOLVED S137 `ebeba766` (R25; emit-html.ts `SERVER_ONLY_STATE_TYPES` exclusion for `schema`+`seeds`; +18 tests; sibling structural-elements verified clean upstream)** | compiler-managed-async (deferred A9-class) · 6nz-V class:NAME on for-lift (GENUINE) · R24-BUG-4 `<match>` `</>` Phase 5 (cross-ref escalation, SCOPING-tracked) |
 | MED | 13 | Bug 15 `~snapshot` codegen leak (S131 SHIPPED) · E-SCHEMA-003 enforcement (S133 SHIPPED `afbcb47a`) | Bug 1 Tailwind residuals · V-kill READ-side fire · MCP V0 partial-impl deferrals · Generator policy · L19 multi-statement-handler · **A5 refinement-type freeze extension (DEFERRED with adoption-watch trigger, S134)** · **Bug 30 linter scans HTML comments (NEW S136 R24; R25 confirmed via Bug 43 cross-ref)** · **Bug 31 if-as-expression in !{} result binding (NEW S136 R24)** · **Bug 32 `@.` not lowered inside tableFor column slot (NEW S136 R24)** · **Bug 35 rewriteIsPredicates space-padded-dot AST-path gap (NEW S136 R24-BUG-1 triage)** · **Bug 42 `?{}` SQL in `server function*` not lowered (NEW S136 R25; E-CG-006 misclassified for server-context)** · **Bug 44 W-LINT-007 false-positive on `fallback={<markup/>}` SPEC §19.6 canonical errorBoundary shape (NEW S136 R25; composes with R24 step-3b)** |
-| LOW | 15 | (rotate out below) | Bug 4 bare-`/` · GITI-015 · §11-folded-citation sweep · `bun scrml promote --engine` Tier-1→2 deferred · **Bug 21 Q6-narrow deep multi-level reset heuristic (S135)** · **Bug 22 Q6-narrow cross-cell `default=` classification heuristic (S135)** · **Bug 23 W-LIFECYCLE-LEGACY-ARROW Shape 1 emission gap (S135)** · **Bug 24 qualified-form discrim regex tolerance (S135)** · **Bug 25 transition() deeper-expression regex tolerance (S135)** · **Bug 26 `${...}` inside `function` body E-SCOPE-001 (S135)** · **Bug 27 tryParseStructuralDecl extra lookahead cleanup (S135)** · **Bug 33 W-LINT-011 false positive on `:let=` (NEW S136 R24)** · **Bug 34 Shape-2 compound markup-init missing 2nd arg (NEW S136 R24)** · **Bug 45 `int` ghost type → asIs fallthrough → confusing E-SCHEMAFOR-NO-SQL-MAPPING (NEW S136 R25; 4/4 devs reached from canon)** · **Bug 46 tableFor `sortable=`/`selectable=` not implemented (NEW S136 R25; W-ATTR-001 forwarded as plain HTML)** |
+| LOW | 16 | (rotate out below) | Bug 4 bare-`/` · GITI-015 · §11-folded-citation sweep · `bun scrml promote --engine` Tier-1→2 deferred · **Bug 21 Q6-narrow deep multi-level reset heuristic (S135)** · **Bug 22 Q6-narrow cross-cell `default=` classification heuristic (S135)** · **Bug 23 W-LIFECYCLE-LEGACY-ARROW Shape 1 emission gap (S135)** · **Bug 24 qualified-form discrim regex tolerance (S135)** · **Bug 25 transition() deeper-expression regex tolerance (S135)** · **Bug 26 `${...}` inside `function` body E-SCOPE-001 (S135)** · **Bug 27 tryParseStructuralDecl extra lookahead cleanup (S135)** · **Bug 33 W-LINT-011 false positive on `:let=` (NEW S136 R24)** · **Bug 34 Shape-2 compound markup-init missing 2nd arg (NEW S136 R24)** · **Bug 45 `int` ghost type → asIs fallthrough → confusing E-SCHEMAFOR-NO-SQL-MAPPING (NEW S136 R25; 4/4 devs reached from canon)** · **Bug 46 tableFor `sortable=`/`selectable=` not implemented (NEW S136 R25; W-ATTR-001 forwarded as plain HTML)** · **Bug 48 latent paren/bracket-depth gap in sibling `<match>`/`<machine>`/`<engine>` opener finders (NEW S137; surfaced by Bug 37 fix; not adopter-fired today)** |
 | Nominal (spec-ahead-of-impl) | 7 | — | Build Story §58 · `import:host` §21.3.1 · Quoted-text §4.18 compiler fire · `_{}` foreign code · WASM call-char sigils · Sidecar process decls · RemoteData enum |
 
 ---
@@ -150,7 +150,7 @@ These can be hardened later with extended lookbehind if adopters report; not war
 
 ---
 
-### Bug 29 — `!{}` handler `{ return }` arm codegen emits `_result = return;` (invalid JS) — `PARTIALLY-RESOLVED S136 (commit c7e81962); broader case Bug 38 still OPEN` (was HIGH; R24)
+### Bug 29 — `!{}` handler `{ return }` arm codegen emits `_result = return;` (invalid JS) — `RESOLVED S136 (commit c7e81962); broader case Bug 38 RESOLVED S137 (commit 933d1ad3)` (was HIGH; R24)
 
 **S136 partial fix (commit `c7e81962`):** terminating-statement detection added to `compiler/src/codegen/emit-logic.ts` `emitArmAssign` closure (case `"guarded-expr":`, lines 2479-2491). Two local helpers: `splitTopLevelStmts` (depth-tracked `;`-split mirroring `rewriteBlockBody`'s separator pass) + `isTerminatorStmt` (regex `/^(?:return|throw|break|continue)(?:[\s;]|$)/`). When arm body's last statement matches a terminator, emit each statement directly (no `_result = ...` wrap). Side-effect + terminator bodies (`{ @x = "y"; return }`) emit both as a sequence — reactive_set fires BEFORE return. +18 regression tests in `compiler/tests/unit/error-handler-terminator-arms.test.js`. Tests 21,762 → 21,780.
 
@@ -194,33 +194,48 @@ Tests: 14,746 pass / 9 fail (pre-fix; 9 = my new regression test's pre-fix expec
 
 ---
 
-### Bug 37 — arrow function in `<each in=...>` attribute truncates at codegen — `HIGH` (S136 R25; minimally reproduced)
+### Bug 37 — arrow function in `<each in=...>` attribute truncates at codegen — `RESOLVED S137 (commit 1ce963d0)` (was HIGH; R25; minimally reproduced)
 
-Inline arrow-function predicate inside an `<each>` `in=` attribute is severed at codegen. `<each in=@x.filter(c => c.foo == 1)>` emits `_scrml_reactive_get("x").filter(c =;` — the `=>` is severed, predicate body dropped, closing paren replaced with `;`. Compile exits 0; `node --check` FAILS with `SyntaxError: Unexpected token ';'`. Minimally reproduced by overseer-4 in R25.
+Inline arrow-function predicate inside an `<each>` `in=` attribute was severed at codegen. `<each in=@x.filter(c => c.foo == 1)>` emitted `_scrml_reactive_get("x").filter(c =;` — the `=>` was severed, predicate body dropped, closing paren replaced with `;`. Compile exited 0 (silent miscompile); `node --check` FAILED with `SyntaxError: Unexpected token ';'`. Minimally reproduced by overseer-4 in R25.
 
-- **Reproducer (minimal):** `<each in=@x.filter(c => c.foo == 1)>` in any .scrml file; `/tmp/r25-overseer-each-arrow-repro.scrml` per the R25 report has the working repro.
-- **Spec reference:** SPEC §17.7 `<each in=expr>` — attribute-position expression should parse + emit per ordinary expression rules.
-- **Workaround (confirmed canonical):** hoist filter to a derived cell: `const <filtered> = @x.filter(c => ...)` then `<each in=@filtered>`. This is the canonical scrml shape per kickstarter §3.1 + §11.4 — but the compiler should refuse the inline form OR emit a diagnostic instead of silently producing invalid JS.
-- **Suggested fix scope:** `<each in=expr>` attribute-value emission path. Either accept the inline arrow OR emit `E-EACH-INLINE-ARROW` at parse-time.
-- **Cross-refs:** Bug 37 in `gauntlet-r25-report.md`.
+**Fix (S137 `1ce963d0`):** Shape A (accept inline arrow). Root cause was NOT in block-splitter (PA brief hypothesized BS-level; BS `scanAttributes` already correctly tracked paren+bracket depth — pre-S136 parenDepth + S137 Bug 40 bracketDepth). Bug was downstream in `ast-builder.js` `_findEachOpenerEnd` (line 11119), which tracked ONLY brace+quote depth (NOT paren/bracket). The `>` inside `=>` sat at depth-0 (braces); the finder returned its index; opener was sliced at `<each in=@items.filter(c =`. Fix: extend `_findEachOpenerEnd` with `parenDepth` + `bracketDepth` tracking; opener `>` returned only when ALL FOUR depth counters are zero. +19/-2L single-file change.
+
+**Latent sibling-finder bug class** surfaced by agent (filed as Bug 48): `_findMatchOpenerEnd` x2 (lines 10953 + 11871) + `_findOpenerEnd` (line 11562, machine/engine) all have same braces+quotes-only tracking. Not currently fired by adopter patterns (canonical `<match>`/`<engine>` openers don't carry inline arrows today).
+
+**Regression test:** `compiler/tests/unit/each-in-arrow-r25-bug-37.test.js` +392L (NEW; 12 tests across 12 sections): minimal repro · multi-line arrow body · chained .filter().map() · `<each of=N.reduce(...)>` · workaround derived-cell still works · sibling `<button onclick={...}>` braced position works · composition with Bug 40 `:`-shorthand · array-index method-chain · nested parens. Tests: subset baseline 14,871 → 14,883 (+12, 0 fail).
+
+- **Reproducer verification:**
+  - BEFORE (HEAD `50d38095`): `const _items = _scrml_reactive_get("items").filter(c =;` — `node --check`: `SyntaxError`
+  - AFTER (HEAD `1ce963d0`): `const _items = _scrml_reactive_get("items").filter(c => c.foo == 1);` — `node --check`: PASS
+  - W-EACH-KEY-001 lint message also flipped from embedding the truncated opener to the full opener.
+- **Spec reference:** SPEC §17.7 `<each in=expr>` — attribute-position expression now parses + emits per ordinary expression rules.
+- **Cross-refs:** Bug 37 in `gauntlet-r25-report.md`; agent dispatch BRIEF.md at `docs/changes/r25-bug-37-each-arrow-truncation-2026-05-27/BRIEF.md`; Bug 40 `50d38095` (adjacent BS-level fix touching `scanAttributes` — DIFFERENT function); Bug 48 latent sibling-finder class.
 
 ---
 
-### Bug 38 — `!{}` arm body codegen failure (R24 Bug 29 family, DEEPER; distinct from Bug 36) — `HIGH; STILL OPEN` (S136 R25; 4/4 devs)
+### Bug 38 — `!{}` arm body codegen failure (R24 Bug 29 family, DEEPER; distinct from Bug 36) — `RESOLVED S137 (commit 933d1ad3)` (was HIGH; R25; 4/4 devs)
 
-Bug 29's narrow `{ return }` case was RESOLVED in S136 commit `c7e81962`. **Bug 36 (RESOLVED S136 `e1269844`) was investigated for shared root by the R25-Bug-36 dispatch agent and CONFIRMED DISTINCT** — Bug 36 was a function-decl-head parse-gap (bare `! ErrorType` form unrecognized); Bug 38 is a call-site `!{}` handler emission gap in codegen (likely `compiler/src/codegen/emit-logic.ts` case `"guarded-expr"`). Different code path; not closed as side-effect.
+Bug 29's narrow `{ return }` case was RESOLVED in S136 commit `c7e81962`. Bug 36 (RESOLVED S136 `e1269844`) was investigated for shared root by the R25-Bug-36 dispatch agent and CONFIRMED DISTINCT — Bug 36 was a function-decl-head parse-gap; Bug 38 was the call-site `!{}` handler emission gap in codegen. Different code path; not closed as Bug 36 side-effect.
 
-R25 confirms via 4/4 dev exposure + overseer verification: multi-line arm bodies, single-line collapsed arm bodies, and the `const r = call() !{...}` "workaround" all FAIL to produce arm codegen.
+R25 confirmed via 4/4 dev exposure + overseer verification: multi-line arm bodies, single-line collapsed arm bodies, and the `const r = call() !{...}` "workaround" all FAILED to produce arm codegen.
 
-Post-Bug-36-fix residual statement-boundary warnings: dev-1 7→4 (residual 4 = Bug 38 `!{}` handlers); dev-2 ?→3 (residual = Bug 38); dev-3 4→0 (dev-3 didn't trip Bug 38); dev-4 ?→0 (dev-4 didn't trip Bug 38). Isolates the residual to call-site `!{}` form.
+**Fix (S137 `933d1ad3`):** PA brief hypothesis confirmed correct (`emit-logic.ts` case `"guarded-expr"` `emitArmAssign` closure was the load-bearing site). The R24-BUG-2 (S136 `c7e81962`) extension closed the terminator-tail narrow case but didn't generalize — `emitArmAssign`'s "multi-line vs single-line" discriminator (`trimmed.includes("\n")`) was the right CONCEPT but wrong PROXY for "statement-shape vs value-shape" arm bodies. `rewriteBlockBody` joins multi-statement reactive-write bodies with `"; "` (no newline), so `{ @x = "v"; @y = 0 }` arm bodies arrived at `emitArmAssign` as a single-line string of two `;`-separated `_scrml_reactive_set(...)` calls and fell into the wrong wrap branch.
 
-- **Reproducer (multi-line):** `someCall() !{ | .Variant arg -> { @x = "value"; @y = 0 } | .Other -> { ... } }` — arm bodies do not appear in emitted JS.
-- **Reproducer (single-line):** `someCall() !{ | .Variant -> @x = 1 }` — same.
-- **Reproducer (const-workaround):** `const r = someCall() !{ | .X -> {...} | .Y -> {...} }` — suppresses E-ERROR-002 + emits resultVar binding but arm bodies STILL do not emit.
-- **Root cause hypothesis (refined post-Bug-36):** call-site `!{}` handler emitter in `compiler/src/codegen/emit-logic.ts` case `"guarded-expr"`. Distinct from Bug 36's function-decl-head parser. R24-BUG-2 fix `c7e81962` (commit on same file) added terminating-statement detection to `emitArmAssign` for the narrow Bug 29 case but didn't address the broader multi-line / single-line / value-producing arm-body cases.
+Two new branches added to `emitArmAssign`, ordered after R24-BUG-2's terminator-tail branch:
+1. `stmts.length > 1` (multi-statement body): emit each stmt as bare indented statement; no `_result =` wrap.
+2. `stmts.length === 1 && isStatementShapeStmt(stmts[0])` (single-stmt side-effect call): emit bare. NEW helper `isStatementShapeStmt` detects six known statement-emitting prefixes (`_scrml_reactive_set(`, `_scrml_engine_*(`, `_scrml_navigate(`, `_scrml_register_cleanup(`, `_scrml_effect(`, `_scrml_init_set(`).
+
+Negative-control (value-producing arm bodies like `| _ -> "fallback"` / `| _ -> computeFallback(e)`) STILL wraps via the existing final `${resultVar} = ${bare};` fallthrough — verified by existing R24-BUG-2 §8 negative-control tests.
+
+**Regression test:** `compiler/tests/unit/error-handler-arm-body-emission.test.js` +490L (NEW; 18 tests across §1-§12). R24-BUG-2 §7 expectations INVERTED — the pre-fix §7 tests were locking the BUG SHAPE (asserting the corrupt wrap); inverted to assert ABSENCE of corrupt wrap + PRESENCE of bare statements. Strictly stronger assertions. R24-BUG-2 §1-§6 + §8-§11 unchanged + still green.
+
+**Reproducer verification (3 shapes):**
+- Multi-line `{ @x = "missing"; @y = 0 }`: BEFORE `_scrml_result_5 = _scrml_reactive_set(...); _scrml_reactive_set(...);` → AFTER two clean indented stmts, no wrap. `node --check` EXIT=0; statement-boundary warning count = 0.
+- Single-line `| ::Variant -> @x = 1`: BEFORE `_scrml_result_N = _scrml_reactive_set("x", 1);` → AFTER `_scrml_reactive_set("x", 1);`.
+- `let r = ... !{...}` workaround: arm body emits clean bare stmts; trailing `var r = _result_N;` still emits + `r` binds to the original call's tagged-object.
+
 - **Spec reference:** SPEC §19.5 call-site `!{}`; PRIMER §6 canonical multi-line shape.
-- **Suggested fix scope:** extend `emitArmAssign` (compiler/src/codegen/emit-logic.ts) to handle the full arm-body emission space — not just bare-terminator early-exits.
-- **Cross-refs:** Bug 38 in `gauntlet-r25-report.md`; R24 Bug 29 narrow RESOLVED `c7e81962`; Bug 36 RESOLVED `e1269844` (distinct root, confirmed); R24-BUG-2 dispatch BRIEF.md.
+- **Cross-refs:** Bug 38 in `gauntlet-r25-report.md`; agent dispatch BRIEF.md at `docs/changes/r25-bug-38-guarded-expr-arm-body-2026-05-27/BRIEF.md`; R24 Bug 29 narrow RESOLVED `c7e81962`; Bug 36 RESOLVED `e1269844` (distinct root, confirmed); R24-BUG-2 dispatch BRIEF.md.
 
 ---
 
@@ -237,29 +252,65 @@ Post-Bug-36-fix residual statement-boundary warnings: dev-1 7→4 (residual 4 = 
 
 ---
 
-### Bug 40 — `:`-shorthand inside `<each>` item body silently emits empty fragment — `HIGH` (S136 R25)
+### Bug 40 — `:`-shorthand inside `<each>` item body silently emits empty fragment — `RESOLVED S137 (commit 50d38095)` (was HIGH; R25)
 
-`<each in=@list><span : @.field><empty>...</></each>` emits an item factory that returns an empty `documentFragment.firstChild` (always `null`). No `span` element, no text content. Confirmed for `<empty : "string literal">` (Svelte dev-3, overseer-3). LIKELY affects dev-1's "all 7 `<each>` item factory bodies are empty" finding (dev-1 also used `<li class="card" : @.title>` `:`-shorthand).
+`<each in=@list><span : @.field><empty>...</></each>` emitted an item factory that returned an empty `documentFragment.firstChild` (always `null`). No `span` element, no text content. Confirmed for `<empty : "string literal">` (Svelte dev-3, overseer-3). Affected dev-1's "all 7 `<each>` item factory bodies empty" finding (dev-1 also used `<li class="card" : @.title>` `:`-shorthand).
 
-- **Reproducer (confirmed minimal):** `<each in=@items><span : @.name></each>` — item factory is empty; renders nothing per item.
-- **Workaround:** use explicit element wrapping with `${...}` interpolation: `<li class="card">${@.title}</li>` (the non-shorthand form works correctly).
-- **Spec reference:** SPEC §4.14 / §4.18 `:`-shorthand body; SPEC §17.7 iteration.
-- **Root cause hypothesis:** `:`-shorthand body emission doesn't handle `<each>` item-factory context — the body is parsed but not wired into the item factory's return value. Free-text `<empty>...</>` body shape DOES emit correctly; isolates the bug to `:`-shorthand form inside `<each>`.
-- **Suggested fix scope:** `<each>` item-factory body emission + `:`-shorthand expansion composition.
-- **Cross-refs:** Bug 40 in `gauntlet-r25-report.md`.
+**Fix (S137 `50d38095`):** ROOT CAUSE WAS UPSTREAM OF EXPECTED. PA brief hypothesized a codegen bug in `emit-each.ts`; actual bug was a SPEC §4.14 BS-level compliance gap in `block-splitter.js` `scanAttributes` — the post-attribute `:` token was not recognized, so `<li : @.name>` was treated as an unclosed `<li>` opener; E-CTX-003 fired; opener was silently dropped per the existing `_subErrors`-discard convention in ast-builder.js:11307-11312. emit-each.ts then walked empty templateChildren and emitted an empty per-item factory body — the visible codegen failure was a downstream symptom, not the cause.
+
+Three-file fix coupled with regression tests:
+- `compiler/src/block-splitter.js` +168/-2L: NEW SPEC §4.14 BS-level `:`-shorthand body recognition in `scanAttributes`. Two emit-stamps (markup-shorthand + state-shorthand) + bracketDepth tracking + predecessor whitespace requirement (so `<Tag:expr>` no-space form correctly rejects). Caller paths (markup + state) emit leaf blocks with `closerForm:"shorthand"` + `shorthandBodyRaw` carrying the body text past the `:`.
+- `compiler/src/ast-builder.js` +42/-2L: markup dispatch slices `block.raw` at the introducer for `tokenizeAttributes`; captures `shorthandBodyRaw` on the AST node.
+- `compiler/src/codegen/emit-each.ts` +40/-3L: `renderTemplateChildToJs` prefers AST `shorthandBodyRaw` over the (now-empty) templateChildren walk. `renderEmptyChildToJs` handles `<empty : "literal">` shorthand by wiring the body as a textNode directly (no createElement — `<empty>` is a structural sub-element).
+- `compiler/tests/unit/p3-follow-no-isComponent-routing.test.js` +1/-1L: block-splitter.js code-budget rebump 23 → 26 (3 new write-side stamps; in-file comment updated).
+
+**`<empty : "literal">` sub-case** (overseer-3's separately-filed sub-finding) was the SAME root cause and SAME fix — BS-level recognition closes it by construction. 1 dedicated test (§8); existing each-block.test.js §5 empty-state coverage continues green.
+
+**Regression test:** `compiler/tests/unit/each-colon-shorthand-r25-bug-40.test.js` +551L (NEW; 20 tests across 14 sections): minimal repro · `:`-shorthand with attribute (dev-1 `<li class="card" : @.title>` shape) · `<each of=N>` count form · multi-element bodies · positive controls (bare-body `${...}` regression-guard, `<empty>` bare-body) · `<empty : "literal">` fix · `as name` alias compose · `key=` inference compose. Tests: subset baseline 14,851 → 14,871 (+20, 0 fail).
+
+**Reproducer verification:**
+- BEFORE (HEAD `ebeba766`): item factory `(_scrml_each_item, _scrml_each_idx) => { const _itemFrag = ...; return _itemFrag.firstChild; }` (returns null — empty fragment)
+- AFTER (HEAD `50d38095`): `... const _scrml_el_1 = document.createElement("li"); _scrml_el_1.textContent = String(_scrml_each_item.name); _itemFrag.appendChild(_scrml_el_1); return _itemFrag.firstChild;`
+- `node --check` on emitted JS: PARSE OK.
+
+**Pre-existing diagnostic-class drift (deferred):** `<Tag:expr>` (no whitespace before `:`) currently fires E-CTX-003 rather than the SPEC-prescribed E-PARSE-001 (§4.14). Out-of-scope; small-future ticket if friction surfaces.
+
+- **Spec reference:** SPEC §4.14 `:`-shorthand body grammar (BS-level recognition was the gap); SPEC §17.7 iteration; PRIMER §6.3 canonical `<each>` shapes.
+- **Cross-refs:** Bug 40 in `gauntlet-r25-report.md`; agent dispatch BRIEF.md at `docs/changes/r25-bug-40-each-colon-shorthand-2026-05-27/BRIEF.md`.
 
 ---
 
-### Bug 41 — `<schema>` block content leaks into HTML body as raw visible text — `HIGH` (S136 R25)
+### Bug 41 — `<schema>` block content leaks into HTML body as raw visible text — `RESOLVED S137 (commit ebeba766)` (was HIGH; R25)
 
-dev-2-elixir's HTML output contains the raw text content of the `<schema>` block (`cards { ... } activity_log { ... }`) as visible body content. Schema content should produce only server-side DDL/migration artifacts; never appear in HTML.
+dev-2-elixir's HTML output contained the raw text content of the `<schema>` block (`cards { ... } activity_log { ... }`) as visible body content. Schema content belongs to the DDL / migration artifact path (schemaFor walker, migration diff); NEVER the HTML render-tree.
 
-- **Reproducer:** dev-2-elixir.scrml + compile → HTML output (`gauntlet-r25/dist/dev-2-elixir.html`) contains the schema text.
-- **Spec reference:** SPEC §11 schema blocks; SPEC §39 schema + migrations.
-- **Current behavior:** `<schema>` block treated as render-tree content in some codegen path.
-- **Expected behavior:** `<schema>` content emits only to DDL/migration artifacts; HTML render-tree skips schema content entirely.
-- **Suggested fix scope:** HTML emitter — exclude `<schema>` (and probably `<channel>`, `<auth>`, etc. — full structural-element registry exclusion) from render-tree traversal.
-- **Cross-refs:** Bug 41 in `gauntlet-r25-report.md`.
+**Fix (S137 `ebeba766`):** Agent's grep-driven triage (S136 banked methodology) NARROWED the brief's hypothesis. Brief speculated "exclude <schema> (and probably <channel>, <auth>, etc. — full structural-element registry exclusion)"; actual fix is surgical TWO-element exclusion. Sibling structural-elements cross-verified:
+
+| Element | Status |
+|---|---|
+| `<schema>` | LEAKING — FIXED this dispatch |
+| `<seeds>` | same state-block path; pre-emptively excluded (defense-in-depth; no live repro) |
+| `<engine>` | CLEAN — routes to engine-decl AST kind upstream |
+| `<machine>` | CLEAN — normalized to engine before state-kind branch |
+| `<db>` | CLEAN — body is canonically `${...}` logic context |
+| `<channel>` | CLEAN — explicit tag handler at emit-html.ts:1078 |
+| `<auth>` | CLEAN — sub-page role-gate; composite emission |
+| `<errors>` | CLEAN — explicit tag handler at emit-html.ts:750 |
+| `<onTransition>`/`<onTimeout>`/`<onIdle>` | engine state-children — not document-root structural at HTML emit time |
+
+Brief's broader-list speculation would have been over-fix. Banked: trust grep over hypothesis (S136 lesson held).
+
+`compiler/src/codegen/emit-html.ts` +28L: NEW constant `SERVER_ONLY_STATE_TYPES = new Set(["schema", "seeds"])` + early-return guard in `node.kind === "state"` branch reading `node.stateType`. Without the guard, the state-kind branch unconditionally walked children → text-kind branch dumped raw DDL identifiers into rendered HTML. Comment block above the constant enumerates why `<db>`/`<engine>`/`<machine>` are NOT in the set (route through other AST kinds before this branch).
+
+**Regression test:** `compiler/tests/unit/schema-html-leak-r25-bug-41.test.js` +451L (NEW; 18 tests across §1-§8): minimal repro (DDL identifiers absent from emitted HTML) · multi-table schema · positional invariants (`<schema>` before vs after `<page>`) · multi-page exclusion · positive controls (`<page>` body text PRESENT — regression-guard against accidental over-exclusion) · sibling-element controls (`<engine>` / `<db>` still handled via their own paths) · `<seeds>` defense-in-depth.
+
+**Reproducer verification:**
+- BEFORE (HEAD `933d1ad3`): emitted HTML body contains `cards { id: integer primary key, title: text not null }` as visible prose alongside `<h1>Hello World</h1>`.
+- AFTER (HEAD `ebeba766`): emitted HTML body contains ONLY `<h1>Hello World</h1>`.
+- Grep on DDL identifiers (`primary key`, `text not null`, `cards {`) — ZERO matches in HTML AND zero in client.js. Schema DDL emission via schemaFor / migration path unaffected.
+
+- **Spec reference:** SPEC §11 schema declarations; SPEC §39 schema + migrations.
+- **Cross-refs:** Bug 41 in `gauntlet-r25-report.md`; agent dispatch BRIEF.md at `docs/changes/r25-bug-41-schema-html-leak-2026-05-27/BRIEF.md`.
 
 ---
 
@@ -598,6 +649,24 @@ The R25 BRIEF feature 8 references `<tableFor for=Card rows=@cards pick=[...] so
   - **(b)** Remove from BRIEF/SPEC examples until implemented.
   - **PA-lean:** (a) — these are SPEC-specified flagship features for the L22 family; not shipping them is a real gap. ~v1.0 priority.
 - **Cross-refs:** Bug 46 in `gauntlet-r25-report.md`; SPEC §41.16.7 (sort), §41.16.8 (selection).
+
+---
+
+### Bug 48 — Latent paren/bracket-depth gap in sibling `<match>` / `<machine>` / `<engine>` opener finders — `LOW; latent` (S137 — surfaced by Bug 37 agent investigation)
+
+Same-shape bug class surfaced by the R25-Bug-37 dispatch agent (`1ce963d0`). Bug 37 fixed `_findEachOpenerEnd` in `compiler/src/ast-builder.js` by adding `parenDepth` + `bracketDepth` tracking alongside the existing braces+quotes tracking. THREE sibling finders in the same file have the same braces+quotes-only shape and would fail the same way under an inline-arrow-in-attribute-value adopter pattern:
+
+- `_findMatchOpenerEnd` instance 1 (line 10953, `<match>` block-form opener)
+- `_findMatchOpenerEnd` instance 2 (line 11871, `<match>` other dispatch)
+- `_findOpenerEnd` (line 11562, `<machine>` / `<engine>` openers)
+
+**Not currently fired by adopter patterns.** Canonical `<match for=Type on=expr>` and `<engine for=Type initial=.Variant>` openers don't typically carry paren-wrapped inline arrows in their attribute values (the canonical shapes route arrows through brace-bodies — `derived=match @x { .V1 => .V2 }` keeps arrows INSIDE braces, depth > 0 via existing brace tracking, so braces-only suffices). Latent class, not adopter-visible today.
+
+- **Reproducer (hypothetical):** `<match for=Filter on=@items.filter(c => c.foo == 1)>` OR `<engine for=Phase initial=.Loading data=@items.filter(c => ...)>` — would trigger the same truncation as Bug 37 if exercised.
+- **Workaround:** hoist the inline-arrow expression to a derived cell first (same as Bug 37 workaround) — but the canonical scrml shapes don't require this for these structural openers.
+- **Suggested fix scope:** mechanical — extend each of the three sibling finders with the same `parenDepth`+`bracketDepth` tracking pattern Bug 37 applied to `_findEachOpenerEnd`. ~30L total across three sites + a few regression tests.
+- **Trigger to elevate:** ≥1 adopter friction report exercising inline-arrow attribute values on `<match>` / `<machine>` / `<engine>` openers OR any audit that demonstrates the shape is canonical (would re-elevate to MED).
+- **Cross-refs:** Bug 37 RESOLVED S137 `1ce963d0`; agent dispatch BRIEF.md + progress.md at `docs/changes/r25-bug-37-each-arrow-truncation-2026-05-27/`.
 
 ---
 
