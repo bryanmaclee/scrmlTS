@@ -2541,9 +2541,19 @@ function _scrml_effect(fn) {
     const ctx = { deps: new Map() };
     _scrml_effect_stack.push(ctx);
 
+    // S139 Bug 11 (6nz-V class-binding on for-lift) fix — each _scrml_effect
+    // owns its own tracking scope; un-pause around fn() so a paused outer
+    // caller (e.g. _scrml_reconcile_list setting _scrml_tracking_paused=true
+    // to suppress Proxy item.id reads from leaking onto the outer effect's
+    // deps) does NOT silently swallow the nested effect's own dependency
+    // tracking. Without this, per-item attribute-interpolation effects
+    // registered during reconcile never subscribe and never re-fire.
+    const wasPaused = _scrml_tracking_paused;
+    _scrml_tracking_paused = false;
     try {
       fn();
     } finally {
+      _scrml_tracking_paused = wasPaused;
       _scrml_effect_stack.pop();
     }
 
@@ -2599,7 +2609,15 @@ function _scrml_effect_static(fn) {
 
     const ctx = { deps: new Map() };
     _scrml_effect_stack.push(ctx);
-    try { fn(); } finally { _scrml_effect_stack.pop(); }
+    // S139 Bug 11 (6nz-V) fix — symmetric with _scrml_effect: each effect
+    // owns its own tracking scope; un-pause around fn() so a paused outer
+    // caller does NOT silently swallow this effect's first-run dep tracking.
+    const wasPaused = _scrml_tracking_paused;
+    _scrml_tracking_paused = false;
+    try { fn(); } finally {
+      _scrml_tracking_paused = wasPaused;
+      _scrml_effect_stack.pop();
+    }
 
     for (const [target, props] of ctx.deps) {
       if (!_scrml_prop_subscribers.has(target)) _scrml_prop_subscribers.set(target, new Map());
