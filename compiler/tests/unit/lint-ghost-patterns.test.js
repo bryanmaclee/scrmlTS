@@ -661,6 +661,28 @@ describe("W-LINT-011: Vue :attr= colon-prefixed attribute binding", () => {
     const diags = lint('${ const obj = { :key: 1 } }');
     expect(hasCode(diags, "W-LINT-011")).toBe(false);
   });
+
+  // S138 Bug 33 regression guard — scrml's reserved `:let={(row) => ...}`
+  // slot-binding form (SPEC §41.16.3 `<column>` slot grammar + §16.6
+  // parametric snippet) must NOT fire W-LINT-011. Pre-fix the regex
+  // `/\s:[a-z][a-zA-Z0-9-]*\s*=/g` greedily matched `:let=` as Vue-style;
+  // post-fix the negative-lookahead `(?!let\b)` excludes the reserved form.
+  test("Bug 33 — does NOT fire on :let={(row) => ...} (scrml-reserved §16.6 slot binding)", () => {
+    const diags = lint('<column field="name" :let={(row) => <span>${row.name}</span>}/>');
+    expect(hasCode(diags, "W-LINT-011")).toBe(false);
+  });
+
+  test("Bug 33 — :let= with bare arrow body still passes", () => {
+    const diags = lint('<column :let={(row) => row.title}/>');
+    expect(hasCode(diags, "W-LINT-011")).toBe(false);
+  });
+
+  test("Bug 33 — :letFoo= (ident starts with let but not reserved) STILL fires", () => {
+    // Negative lookahead is `\blet\b` — must end-of-word after `let`. A
+    // longer ident like `:letFoo=` should still be caught as Vue-shape.
+    const diags = lint('<div :letFoo="x">');
+    expect(hasCode(diags, "W-LINT-011")).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

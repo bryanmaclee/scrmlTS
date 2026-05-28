@@ -706,8 +706,19 @@ const PATTERNS = [
   // S121 Wave 11 Unit T fix — pre-fix the skipIf only checked logicRanges,
   // so `:attr=` text inside doc-comments and string-literal demonstrations
   // of Vue syntax (parse-stmt.scrml mirror class) fired falsely.
+  //
+  // S138 Bug 33 fix — exclude scrml-reserved `:let=` (canonical §16.6
+  // parametric-snippet slot-binding form per SPEC §41.16.3 `<column>`
+  // slot grammar). `:let={(row) => ...}` is NOT Vue-style; it's scrml's
+  // explicit row-binding mechanism for column slot bodies (per the
+  // OQ-TF-11 MEDIUM verdict, S105). The negative-lookahead `(?!let\b)`
+  // narrows the pattern to genuine Vue-shape `:attr=` while leaving
+  // scrml's reserved `:let=` alone. Other scrml `:`-prefixed slot
+  // shapes (none currently — `:let=` is the only canonical reserved
+  // shape) can be added to the negative-lookahead group as they
+  // ratify.
   {
-    regex: /\s:[a-z][a-zA-Z0-9-]*\s*=/g,
+    regex: /\s:(?!let\b)[a-z][a-zA-Z0-9-]*\s*=/g,
     ghost: ":attr=\"expr\"",
     correction: "attr=@var (or attr=\"literal\")",
     see: "§5",
