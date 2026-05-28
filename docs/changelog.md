@@ -2,7 +2,7 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-28 **v0.6.3 cut at S139**). Full suite **22,024 pass / 0 fail / 219 skip / 1 todo across 820 files** (unchanged from S138 CLOSE — v0.6.3 is a release-only cut, no test surface changes between v0.6.2 and v0.6.3). v0.6.3 = S138 post-v0.6.2 bug bundle: 5 HIGH (R24-BUG-4, Bug 9 L1+L2 paired with Bug 55, Bug 50 redux, Bug 52, Bug 53) + 4 LOW (33, 24, 23, 25) closed. pa.md S138 R26 doctrine extended bidirectional. Canon-clear health: **GREEN**. HIGH=1 remaining (6nz-V class:NAME on for-lift; GENUINE) · MED=7 (+ Bug 51 NEW) · LOW=12 · Nominal=7.
+Current baseline (2026-05-28 **v0.6.4 cut at S139**). Full suite **22,033 pass / 0 fail / 219 skip / 1 todo across 820 files** (+9 from v0.6.3 — the 9 new Bug 11 regression tests). v0.6.4 = sole-remaining-HIGH-bug close: **Bug 11 (6nz-V) `class:NAME` on for-lift RESOLVED** via runtime fix in `_scrml_effect` + `_scrml_effect_static` tracking-pause-restore (class-level — covers any nested `_scrml_effect` registered during reconcile). HIGH count reached **0** for the first time since R24 gauntlet opened the cluster. Canon-clear health: **GREEN**. HIGH=0 · MED=7 (+ Bug 51 NEW) · LOW=12 · Nominal=7.
 
 ### 2026-05-28 (S138 CLOSE — 10 bugs closed (5 HIGH + 4 LOW + 1 MED redux) + Bug 9 L1+L2 paired-fix close + v0.6.2 release + pa.md R26 doctrine bidirectional extension)
 
@@ -774,6 +774,26 @@ S115 ran the M5/M6 compressed-MD-ladder (DD #27) through its v0.5 cut and v0.6 b
 - **Living Compiler retraction (draft) + dev.to article truthfulness audit + fix pass.** All 12 articles classified; 11 corrected — 8-article retracted-link scrub, de-versioned banners, per-article correction notes.
 - **scrml-support corpus currency sweep.** 3 stale-and-cited docs marked; the doc-currency convention (`status:` enum + `last-reviewed:`/`superseded-by:` + same-landing discipline) ratified into `pa.md`.
 - **Two compiler-concept deep-dives** — the code-import story (incl. a content-addressed `vendor:` design) and the build-story compiler model.
+
+## v0.6.4 — 2026-05-28 (patch — Bug 11 (6nz-V) `class:NAME` on for-lift RESOLVED; HIGH count reaches 0)
+
+v0.6.4 cuts the sole-remaining-HIGH-bug close. **Bug 11 (6nz-V `class:NAME` on for-lift reused DOM nodes)** — filed S126 by 6nz playground-nine; confirmed GENUINE post-S136 Bug W fix — RESOLVED via runtime fix in `compiler/src/runtime-template.js`. CLASS-LEVEL fix: covers any nested `_scrml_effect` registered during `_scrml_reconcile_list` — class:, style:, attribute interpolation, textContent interpolation, bind:value on per-item inputs. HIGH bug count reaches **0** for the first time since the R24 gauntlet opened the HIGH cluster. Per S94 bump-on-tag. Per S136 patch landscape ratification: v0.6.4 = R25 HIGH deep-clean closer. Cut at S139.
+
+**Bug 11 RESOLVED (commit `f8a1f2ff`):**
+
+- **Root cause:** `_scrml_reconcile_list` (`runtime-template.js:1259-1260`) sets the GLOBAL flag `_scrml_tracking_paused = true` for its entire body — originally added to suppress Proxy `item.id` reads inside reconcile from leaking onto the OUTER `_scrml_effect_static`'s deps. But the body also calls `createFn(item, i)` (the per-item factory), which typically registers a per-item `_scrml_effect(() => { ..._scrml_reactive_get("sel")... })` closure. When those nested effects ran their initial `fn()` during creation, `_scrml_reactive_get("sel")` called `_scrml_track(_scrml_state, "sel")` — which short-circuits at line 2380 if `_scrml_tracking_paused` is true. The per-item effect's `ctx.deps` stayed EMPTY, registering ZERO subscribers. The effect never re-fired on `@sel` writes; create-time class state stayed frozen forever.
+- **6nz's diagnostic was on target:** their hypothesis-region (lift/reconcile interaction with per-item attribute effects) was the right axis; the precise mechanism was a global-tracking-flag bleed across nested effect scopes, not a clone-vs-move issue. `_scrml_lift` uses `appendChild` (move semantics), and the per-item `_scrml_lift_el_9` reference IS the live in-DOM node — the toggle would have worked, *if* the effect had subscribed. The credit-where-due lesson: domain-expert adopter triage points the right way even when the mechanism is adjacent.
+- **Fix:** in `_scrml_effect` and `_scrml_effect_static`, bracket the inner `fn()` call with save+null+restore of `_scrml_tracking_paused`. Each `_scrml_effect` owns its own tracking scope; outer pause should not bleed in. `_scrml_untracked` (the user-facing pause primitive) still works correctly — saves+restores around its own body, and nested effects inside still register their own subscribers (the correct semantic).
+- **Class-level scope:** the fix closes a class of bugs, not just `class:NAME`. Same shape would have broken `style:NAME` reactive style bindings, attribute interpolation (`<a href=@target>`) inside for-lift items, `textContent` from `${@cell}` interpolation, and `bind:value` reactive bindings on per-item inputs. All fire correctly post-fix.
+- **Regression test:** `compiler/tests/unit/bug-11-class-binding-in-for-lift-reconcile.test.js` (NEW; +252L; 9 tests across 3 §-sections — Bug 11 reproducer 4-step cycle; class-level coverage of textContent + attribute-interpolation in factories; tracking-pause-restore semantic preserved for `_scrml_untracked`).
+- **R26 empirical verification (per pa.md S138 doctrine forward direction):** compiled 6nz's exact reproducer (`handOffs/incoming/read/2026-05-24-0641-bug-v-class-binding-on-for-lift-not-reactive.scrml`) on the post-fix baseline; happy-dom drive of `@sel = 0 → 1 → 2 → 0` advances highlight `alpha → bravo → charlie → alpha` cleanly. Pre-fix the highlight stayed frozen on `alpha`; post-fix it advances on every step. PA-verified PASS.
+- **Outbound notice** dropped to `6NZ/handOffs/incoming/2026-05-28-1613-scrmlTS-to-6nz-bug-v-RESOLVED.md` confirming RESOLVED + class-level scope + adopter can drop the `${fn()}`-single-string workaround in p9.
+
+**Tests:** 22,024 (v0.6.3) → 22,033 (+9; matches the 9 new Bug 11 regression tests exactly). 0 fail, 219 skip, 1 todo, 820 files.
+
+**Net inventory delta:** HIGH 1 → 0 (Bug 11 closed; no NEW HIGH filed). MED unchanged. LOW unchanged.
+
+**2 commits since v0.6.3** (`fcfdf530..f8a1f2ff`; release commit will be the third).
 
 ## v0.6.3 — 2026-05-28 (patch — S138 post-v0.6.2 bug bundle: 5 HIGH + 4 LOW + Bug 9 L1+L2 paired-fix close + pa.md S138 R26 doctrine bidirectional extension)
 
