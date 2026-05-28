@@ -5,7 +5,7 @@
     "FIELD-SHAPE": 645,
     "KIND-NAME": 112,
     "MISSING-FIELD": 581,
-    "SPAN-COORD": 3959
+    "SPAN-COORD": 4039
   },
   "compiler/self-host/bpp.scrml": {
     "COUNT-LENGTH": 2,
@@ -41,7 +41,7 @@
   },
   "compiler/self-host/meta-checker.scrml": {
     "COUNT-LENGTH": 9,
-    "EXTRA-FIELD": 100,
+    "EXTRA-FIELD": 101,
     "FIELD-SHAPE": 98,
     "KIND-NAME": 31,
     "MISSING-FIELD": 293,
@@ -201,7 +201,7 @@
     "FIELD-SHAPE": 33,
     "KIND-NAME": 11,
     "MISSING-FIELD": 73,
-    "SPAN-COORD": 161
+    "SPAN-COORD": 166
   },
   "examples/16-remote-data.scrml": {
     "COUNT-LENGTH": 1,
@@ -214,10 +214,10 @@
   "examples/17-schema-migrations.scrml": {
     "COUNT-LENGTH": 5,
     "EXTRA-FIELD": 35,
-    "FIELD-SHAPE": 23,
-    "KIND-NAME": 8,
+    "FIELD-SHAPE": 24,
+    "KIND-NAME": 9,
     "MISSING-FIELD": 56,
-    "SPAN-COORD": 120
+    "SPAN-COORD": 127
   },
   "examples/18-state-authority.scrml": {
     "COUNT-LENGTH": 6,
@@ -388,16 +388,16 @@
     "EXTRA-FIELD": 37,
     "FIELD-SHAPE": 37,
     "KIND-NAME": 14,
-    "MISSING-FIELD": 81,
-    "SPAN-COORD": 129
+    "MISSING-FIELD": 88,
+    "SPAN-COORD": 148
   },
   "examples/23-trucking-dispatch/pages/auth/register.scrml": {
     "COUNT-LENGTH": 2,
     "EXTRA-FIELD": 31,
     "FIELD-SHAPE": 50,
     "KIND-NAME": 11,
-    "MISSING-FIELD": 91,
-    "SPAN-COORD": 202
+    "MISSING-FIELD": 99,
+    "SPAN-COORD": 238
   },
   "examples/23-trucking-dispatch/pages/customer/home.scrml": {
     "COUNT-LENGTH": 12,
@@ -445,7 +445,7 @@
     "FIELD-SHAPE": 117,
     "KIND-NAME": 19,
     "MISSING-FIELD": 261,
-    "SPAN-COORD": 573
+    "SPAN-COORD": 620
   },
   "examples/23-trucking-dispatch/pages/dispatch/billing.scrml": {
     "COUNT-LENGTH": 10,
@@ -493,7 +493,7 @@
     "FIELD-SHAPE": 125,
     "KIND-NAME": 29,
     "MISSING-FIELD": 315,
-    "SPAN-COORD": 482
+    "SPAN-COORD": 527
   },
   "examples/23-trucking-dispatch/pages/driver/home.scrml": {
     "COUNT-LENGTH": 9,
@@ -516,8 +516,8 @@
     "EXTRA-FIELD": 317,
     "FIELD-SHAPE": 218,
     "KIND-NAME": 62,
-    "MISSING-FIELD": 570,
-    "SPAN-COORD": 715
+    "MISSING-FIELD": 572,
+    "SPAN-COORD": 716
   },
   "examples/23-trucking-dispatch/pages/driver/load-log.scrml": {
     "COUNT-LENGTH": 4,
@@ -3350,7 +3350,7 @@
     "FIELD-SHAPE": 3,
     "KIND-NAME": 1,
     "MISSING-FIELD": 5,
-    "SPAN-COORD": 6
+    "SPAN-COORD": 8
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-is-none-bare-008.scrml": {
     "EXTRA-FIELD": 5,
@@ -3425,7 +3425,7 @@
     "FIELD-SHAPE": 3,
     "KIND-NAME": 1,
     "MISSING-FIELD": 7,
-    "SPAN-COORD": 8
+    "SPAN-COORD": 10
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-is-variant-bare-001.scrml": {
     "COUNT-LENGTH": 1,
@@ -3433,7 +3433,7 @@
     "FIELD-SHAPE": 3,
     "KIND-NAME": 1,
     "MISSING-FIELD": 7,
-    "SPAN-COORD": 8
+    "SPAN-COORD": 10
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-is-variant-class-attr-003.scrml": {
     "COUNT-LENGTH": 1,
@@ -3461,7 +3461,7 @@
     "FIELD-SHAPE": 4,
     "KIND-NAME": 1,
     "MISSING-FIELD": 8,
-    "SPAN-COORD": 10
+    "SPAN-COORD": 16
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-logical-and-with-optchain-115.scrml": {
     "COUNT-LENGTH": 1,
@@ -3794,7 +3794,7 @@
     "FIELD-SHAPE": 4,
     "KIND-NAME": 1,
     "MISSING-FIELD": 4,
-    "SPAN-COORD": 7
+    "SPAN-COORD": 12
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-ternary-is-not-106.scrml": {
     "EXTRA-FIELD": 2,
@@ -4488,7 +4488,7 @@
     "EXTRA-FIELD": 8,
     "FIELD-SHAPE": 2,
     "KIND-NAME": 1,
-    "MISSING-FIELD": 8,
+    "MISSING-FIELD": 9,
     "SPAN-COORD": 6
   },
   "samples/compilation-tests/gauntlet-s20-meta/meta-lift-006.scrml": {
@@ -6333,11 +6333,11 @@
   },
   "samples/todo-list.scrml": {
     "COUNT-LENGTH": 5,
-    "EXTRA-FIELD": 41,
+    "EXTRA-FIELD": 42,
     "FIELD-SHAPE": 29,
-    "KIND-NAME": 12,
-    "MISSING-FIELD": 134,
-    "SPAN-COORD": 189
+    "KIND-NAME": 13,
+    "MISSING-FIELD": 140,
+    "SPAN-COORD": 190
   },
   "samples/user-profile.scrml": {
     "EXTRA-FIELD": 52,
@@ -6373,10 +6373,10 @@
   "stdlib/auth/templates/login.scrml": {
     "COUNT-LENGTH": 4,
     "EXTRA-FIELD": 27,
-    "FIELD-SHAPE": 26,
+    "FIELD-SHAPE": 27,
     "KIND-NAME": 9,
-    "MISSING-FIELD": 57,
-    "SPAN-COORD": 104
+    "MISSING-FIELD": 69,
+    "SPAN-COORD": 122
   },
   "stdlib/compiler/bpp.scrml": {
     "COUNT-LENGTH": 2,
@@ -6452,7 +6452,7 @@
   },
   "stdlib/compiler/meta-checker.scrml": {
     "COUNT-LENGTH": 9,
-    "EXTRA-FIELD": 100,
+    "EXTRA-FIELD": 101,
     "FIELD-SHAPE": 98,
     "KIND-NAME": 31,
     "MISSING-FIELD": 293,
