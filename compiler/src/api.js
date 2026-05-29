@@ -33,6 +33,7 @@ import { runAuthGraph } from "./auth-graph.ts";
 import { serializeChunksManifest } from "./codegen/route-splitter.ts";
 import { buildMcpDescriptors } from "./codegen/mcp-descriptors.ts";
 import { runCG } from "./code-generator.js";
+import { validateEmittedArtifacts } from "./codegen/validate-emit.ts";
 import { runMetaEval } from "./meta-eval.ts";
 import { resolveModules, resolveModulePath } from "./module-resolver.js";
 import { runNRBatch } from "./name-resolver.ts";
@@ -604,6 +605,34 @@ export function compileScrml(options = {}) {
      * C2 swapped the no-op for real routing behind the same flag value.
      */
     parser = null,
+    /**
+     * Emitted-JS parse gate (Approach A — ratified S141; gate-emitted-js-parse-
+     * invariant-2026-05-29). When TRUE, every final JS artifact (.client.js /
+     * .server.js / library .js / per-route chunk / runtime chunk) is parsed by
+     * the in-process Acorn after the post-codegen import rewrites; any artifact
+     * that does not parse aborts the compile with E-CODEGEN-INVALID-JS and NO
+     * files are written (SPEC §2.2.1). Mirrors meta-eval.ts:reparseEmitted /
+     * E-META-EVAL-002 for the final artifacts.
+     *
+     * ALWAYS-ON vs DEV/CI-ONLY (the deep-dive's one open axis):
+     *   PERF says always-on. Measured ~24 ms median to parse all 64 artifacts
+     *   of the 8433-line trucking-dispatch reference app (>2x the SPEC §2.4
+     *   4000-line target) in-process — far inside the §2.4 "< 1s" budget. So
+     *   perf does NOT gate always-on.
+     *   A SECOND blocker the perf-only framing did not anticipate DOES: the
+     *   reference app + several examples emit ~16 genuinely-invalid-JS
+     *   artifacts TODAY (pre-existing codegen miscompiles — truncated `!==`
+     *   from compound `if=(m.f is some && m.f != "")` lowering, a leaked
+     *   `server {` block in seeds.server.js). Those are TRUE positives the gate
+     *   correctly catches, but fixing them is a SEPARATE codegen fix-wave
+     *   (out of scope for the gate build). Turning the gate always-on before
+     *   that fix-wave lands would flip green tests (trucking-dispatch-smoke)
+     *   red on pre-existing out-of-scope bugs. So the gate ships FLAG-GATED
+     *   (default OFF) now; the intended end state is always-on once the
+     *   pre-existing invalid-JS surface is closed. See progress.md + the final
+     *   dispatch report for the surfaced backlog.
+     */
+    validateEmit = false,
   } = options;
 
   let { outputDir } = options;
@@ -1855,13 +1884,98 @@ export function compileScrml(options = {}) {
   if (write && outputDir) {
     mkdirSync(outputDir, { recursive: true });
 
+    // `emitGateFailed` short-circuits ALL writes below (runtime chunk, per-file
+    // client/server/library, per-route chunks + manifest) when the emit gate
+    // rejects an artifact. Declared here so every sibling write block in this
+    // `if (write && outputDir)` scope can guard on it.
+    let emitGateFailed = false;
+
+    // -------------------------------------------------------------------------
+    // Emitted-JS parse gate (Approach A -- ratified S141, A+D;
+    // gate-emitted-js-parse-invariant-2026-05-29). Runs BEFORE any file write
+    // so a failure leaves the output dir untouched ("no files were written").
+    //
+    // Parses every FINAL JS artifact (runtime chunk + each .client.js /
+    // .server.js / library .js, after the stdlib-import rewrites that produce
+    // the exact bytes that would land on disk + per-route chunk payloads) with
+    // the in-process Acorn. Any artifact that does not parse pushes a hard
+    // E-CODEGEN-INVALID-JS error and ABORTS the write phase entirely (return
+    // before mkdir/writeFileSync). This makes SPEC SS 2.2.1 a compile-time
+    // invariant: a syntactically-invalid emit is a hard error, never a green
+    // build shipping broken JS. In-tree precedent: meta-eval reparseEmitted /
+    // E-META-EVAL-002 for ^{} meta output.
+    //
+    // Path note: the gate validates with `outputDir` as the bundle dir for the
+    // stdlib-import rewrites. The per-file dist subdir (pathFor) only changes
+    // WHICH relative import path is emitted, never JS syntax validity, so the
+    // simpler outputDir-rooted rewrite is faithful for a SYNTACTIC gate.
+    //
+    // FLAG-GATED, default OFF. Perf admits always-on (~24 ms over the 8433-line
+    // reference app, well inside SS 2.4), but the reference corpus ships
+    // pre-existing invalid-JS artifacts whose fix is a separate codegen
+    // fix-wave; always-on waits for that surface to close. See the
+    // `validateEmit` option doc + progress.md for the surfaced backlog.
+    // -------------------------------------------------------------------------
+    if (validateEmit && cgResult.outputs) {
+      const gateArtifacts = [];
+      const pushArtifact = (sourceFile, artifact, contents) => {
+        if (typeof contents === "string" && contents.length > 0) {
+          gateArtifacts.push({ sourceFile, artifact, contents });
+        }
+      };
+      for (const [filePath, output] of cgResult.outputs) {
+        const base = basename(filePath, ".scrml");
+        if (output.serverJs) {
+          let s = rewriteRelativeImportPaths(output.serverJs, filePath, outputDir);
+          s = rewriteStdlibImports(s, outputDir, outputDir, bundledStdlib);
+          pushArtifact(filePath, `${base}.server.js`, s);
+        }
+        if (mode === "library") {
+          if (output.libraryJs) {
+            let s = rewriteRelativeImportPaths(output.libraryJs, filePath, outputDir);
+            s = rewriteStdlibImports(s, outputDir, outputDir, bundledStdlib);
+            pushArtifact(filePath, `${base}.js`, s);
+          }
+        } else if (output.clientJs) {
+          const c = rewriteStdlibImports(output.clientJs, outputDir, outputDir, bundledStdlib);
+          pushArtifact(filePath, `${base}.client.js`, c);
+        }
+      }
+      if (mode !== "library" && cgResult.runtimeJs && cgResult.runtimeFilename) {
+        pushArtifact(cgResult.runtimeFilename, cgResult.runtimeFilename, cgResult.runtimeJs);
+      }
+      if (emitPerRoute && cgResult.chunks) {
+        for (const chunk of cgResult.chunks.values()) {
+          pushArtifact(chunk.filename, chunk.filename, chunk.payloadJs);
+        }
+      }
+      const gateErrors = validateEmittedArtifacts(gateArtifacts);
+      if (gateErrors.length > 0) {
+        for (const ge of gateErrors) {
+          allErrors.push({
+            stage: "CG",
+            code: ge.code,
+            message: ge.message,
+            file: ge.span?.file ?? "",
+            line: ge.span?.line ?? 1,
+            column: ge.span?.col ?? 1,
+            severity: "error",
+          });
+        }
+        emitGateFailed = true;
+        if (verbose) {
+          log(`  [CG] Emit gate FAILED -- ${gateErrors.length} invalid artifact(s); no files written.`);
+        }
+      }
+    }
+
     // In browser mode, write the shared runtime file (not needed in library mode)
-    if (mode !== 'library' && cgResult.runtimeJs && cgResult.runtimeFilename) {
+    if (!emitGateFailed && mode !== 'library' && cgResult.runtimeJs && cgResult.runtimeFilename) {
       writeFileSync(join(outputDir, cgResult.runtimeFilename), cgResult.runtimeJs);
       if (verbose) log(`  [CG] Wrote shared runtime: ${cgResult.runtimeFilename}`);
     }
 
-    if (cgResult.outputs) {
+    if (!emitGateFailed && cgResult.outputs) {
       // F-COMPILE-001 Option A: preserve source-tree structure in dist/.
       // Compute the longest common directory prefix across all input files;
       // each output is written at outputDir + (filePath relative to that base).
@@ -2031,7 +2145,7 @@ export function compileScrml(options = {}) {
     // references the chunk by hash so adopter tooling can replay the
     // deterministic-from-source contract end-to-end.
     // -------------------------------------------------------------------------
-    if (emitPerRoute && cgResult.chunks && cgResult.chunksManifest) {
+    if (!emitGateFailed && emitPerRoute && cgResult.chunks && cgResult.chunksManifest) {
       // S91 A-4.3 — surface per-tier byte totals in the verbose log so
       // adopters can sanity-check the tier-1 idle-prefetch payload
       // budget at a glance. S91 A-4.4 extends this to tier-2 chunks;

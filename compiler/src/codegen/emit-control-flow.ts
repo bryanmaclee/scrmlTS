@@ -6,6 +6,7 @@ import { emitTransitionGuard } from "./emit-machines.ts";
 import { emitStringFromTree } from "../expression-parser.ts";
 import { iterableHasReactiveRefs, type FunctionBodyRegistry } from "./reactive-deps.ts";
 import { isDestructurePattern, emitDestructurePatternText } from "./emit-destructure-pattern.ts";
+import { CGError } from "./errors.ts";
 
 // ---------------------------------------------------------------------------
 // Module-level Tier 2 hoist registry (§8.10)
@@ -1600,7 +1601,34 @@ export function emitMatchExpr(node: any, opts?: any): string {
   }
 
   if (arms.length === 0) {
-    return `/* match expression could not be compiled */ ${emitExprField(null, header, _matchCtx)};`;
+    // D (gate-emitted-js-parse-invariant-2026-05-29; ratified S141, A+D):
+    // codegen could not lower ANY arm of this match. Historically this site
+    // emitted `/* match expression could not be compiled */ <header>;` — a
+    // SILENT STUB that produced INVALID JS in expression position (e.g.
+    // `() => /* ... */ _scrml_reactive_get("phase"))` → "missing ) after
+    // argument list", the R27 C2 class). Instead, emit a HARD E-CG-003
+    // ("unsupported AST node kind in emission") naming the SOURCE construct so
+    // the compile FAILS with a source-anchored diagnostic, AND fall back to a
+    // SYNTACTICALLY-VALID placeholder so the never-meant-to-run emitted JS
+    // still parses (the A backstop must not double-report a known-unlowerable
+    // site as a generic invalid-JS defect). When no error channel is threaded
+    // (the emit-expr.ts expression-position bridge passes no `opts`), the hard
+    // error cannot be recorded here — the A parse gate is then the backstop.
+    const matchSrc = (node?.header ?? "").trim() || "<match>";
+    const errChannel: CGError[] | null | undefined = opts?.errors;
+    if (errChannel) {
+      errChannel.push(new CGError(
+        "E-CG-003",
+        `E-CG-003: match expression \`match ${matchSrc} { ... }\` has no arm the ` +
+        `code generator can lower — every arm failed to parse (unsupported arm ` +
+        `shape). Rewrite the arms using a documented form (\`.Variant => result\`, ` +
+        `\`.Variant(binding) => result\`, \`"string" => result\`, \`else => result\`; ` +
+        `the \`->\` / \`:>\` separators are accepted aliases per SPEC §18.2).`,
+        (node?.span ?? { file: "", start: 0, end: 0, line: 1, col: 1 }) as Parameters<typeof CGError>[2],
+      ));
+    }
+    // Valid-JS placeholder (parses in statement AND expression position).
+    return `(undefined) /* E-CG-003: match expression had no lowerable arms */`;
   }
 
   // S22 §1a slice 2: decide whether this match needs the tagged-object normalization.

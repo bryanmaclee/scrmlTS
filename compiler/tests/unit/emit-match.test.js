@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import { emitMatchExpr } from "../../src/codegen/emit-control-flow.js";
 import { rewriteMatchExpr, rewriteEnumVariantAccess, rewriteIsOperator } from "../../src/codegen/rewrite.js";
 import { resetVarCounter } from "../../src/codegen/var-counter.ts";
+import * as acorn from "acorn";
 
 // Reset the var counter before each test so generated variable names are predictable.
 // genVar("match") produces _scrml_match_N where N is the counter value after increment.
@@ -270,8 +271,13 @@ describe("emitMatchExpr — legacy ::Variant -> syntax (backward-compat fallback
   });
 });
 
-describe("emitMatchExpr — no arms fallback", () => {
-  it("emits a comment placeholder when no arms are recognized", () => {
+describe("emitMatchExpr — no-lowerable-arm fallback (D: gate-emitted-js-parse-invariant)", () => {
+  // D (ratified S141, A+D): when codegen cannot lower ANY arm of a match, it
+  // MUST emit a HARD E-CG-003 (not a silent stub) AND a SYNTACTICALLY-VALID
+  // placeholder. Historically this site emitted `/* match expression could not
+  // be compiled */ <header>;` which produced INVALID JS in expression position
+  // (the R27 C2 class). The fix replaces it with `(undefined) /* ... */`.
+  it("emits a valid-JS placeholder, NOT the old invalid stub", () => {
     const node = {
       header: "x",
       body: [
@@ -279,7 +285,41 @@ describe("emitMatchExpr — no arms fallback", () => {
       ],
     };
     const result = emitMatchExpr(node);
-    expect(result).toContain("/* match expression could not be compiled */");
+    // No longer the old invalid stub.
+    expect(result).not.toContain("/* match expression could not be compiled */");
+    // The placeholder is syntactically valid JS in expression position
+    // (the shape the emit-expr bridge produces): `() => <placeholder>`.
+    expect(() => acorn.parse(`() => ${result}`, { ecmaVersion: 2022, sourceType: "module" })).not.toThrow();
+    // And in statement position.
+    expect(() => acorn.parse(result.endsWith(";") ? result : result + ";", { ecmaVersion: 2022, sourceType: "module" })).not.toThrow();
+  });
+
+  it("pushes a hard E-CG-003 naming the source construct when an error channel is threaded", () => {
+    const errors = [];
+    const node = {
+      header: "phase",
+      span: { file: "x.scrml", start: 0, end: 0, line: 7, col: 3 },
+      body: [
+        { kind: "bare-expr", expr: "completely unparseable content" },
+      ],
+    };
+    emitMatchExpr(node, { errors });
+    const ecg = errors.filter((e) => e.code === "E-CG-003");
+    expect(ecg.length).toBe(1);
+    // Names the source construct (the match header).
+    expect(ecg[0].message).toContain("match phase");
+    // Carries the source span.
+    expect(ecg[0].span.line).toBe(7);
+  });
+
+  it("does not throw when no error channel is threaded (placeholder still valid)", () => {
+    const node = {
+      header: "y",
+      body: [{ kind: "bare-expr", expr: "completely unparseable content" }],
+    };
+    // No opts → no error channel; must still emit a parseable placeholder.
+    const result = emitMatchExpr(node);
+    expect(() => acorn.parse(`const z = ${result};`, { ecmaVersion: 2022, sourceType: "module" })).not.toThrow();
   });
 });
 

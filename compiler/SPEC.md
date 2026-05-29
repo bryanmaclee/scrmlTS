@@ -199,6 +199,12 @@ A `.scrml` source file compiles to three output categories:
 
 The compiler SHALL generate all output from a single `.scrml` source. The developer SHALL NOT manually decompose a `.scrml` file into its output parts.
 
+#### 2.2.1 Emitted-JS Parse Invariant
+
+The compiler SHALL NOT emit JavaScript that fails to parse. A successful compile (exit 0) guarantees that every emitted JavaScript artifact (`.client.js`, `.server.js`, library `.js`, per-route chunk, runtime chunk) is at least syntactically valid JavaScript. A codegen path that cannot lower a construct SHALL emit a hard diagnostic (e.g. `E-CG-003`) rather than a silent stub that yields malformed output.
+
+This invariant is enforced by an in-process parse gate: after codegen produces the final artifacts, the compiler parses each one and, on any parse failure, aborts the compile with `E-CODEGEN-INVALID-JS` (§34) and writes no codegen output artifacts. The gate is a syntactic backstop only — it catches malformed (unparseable) emission, not semantically-incorrect-but-parseable emission. (Ratified S141; implemented by `compiler/src/codegen/validate-emit.ts`, mirroring the `E-META-EVAL-002` reparse-emitted precedent of §22.4.)
+
 ### 2.3 Entry Point
 
 The compiler is invoked as:
@@ -16241,6 +16247,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-CG-002 | §47 | Codegen: server-boundary function has no generated route name (RI invariant violation) | Error |
 | E-CG-003 | §47 | Codegen: unsupported AST node kind in emission | Error |
 | E-CG-015 | §47.9 | Codegen: conflicting output paths — two distinct source files compute to the same dist path | Error |
+| E-CODEGEN-INVALID-JS | §2.2.1 | Codegen emit-validation gate: the compiler produced a JavaScript artifact (`.client.js` / `.server.js` / library `.js` / per-route chunk / runtime chunk) that it cannot itself parse. The diagnostic names the artifact + the byte/line/column the parser rejected + a short offending snippet, and frames the failure as a compiler defect (the adopter cannot fix emitted JS). No codegen output artifacts are written. Emitted by the in-process Acorn parse gate (`compiler/src/codegen/validate-emit.ts`, wired in `compiler/src/api.js`); mirrors the `E-META-EVAL-002` reparse-emitted precedent for the final artifacts. (Catalog addition: gate-emitted-js-parse-invariant-2026-05-29, ratified S141.) | Error |
 | E-COMPONENT-019 | §15.11 | Callback prop type mismatch | Error |
 | E-COMPONENT-030 | §15.12 | Component render syntax: missing required children | Error |
 | E-COMPONENT-031 | §15.12 | Component render syntax: unexpected extra content | Error |

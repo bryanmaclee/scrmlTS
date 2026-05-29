@@ -1409,7 +1409,12 @@ function emitMatchExpr(node: MatchExpr, ctx: EmitExprContext): string {
     headerExpr: node.subject,
     body: node.rawArms.map((arm) => ({ kind: "bare-expr", expr: arm })),
   };
-  return emitStructuredMatchExpr(bridgedNode);
+  // Forward the error channel so the structured emitter's D hard-error
+  // (E-CG-003 on a zero-lowerable-arm match — gate-emitted-js-parse-invariant-
+  // 2026-05-29) reaches CG diagnostics even from this expression-position
+  // bridge. Without this, an unlowerable match in expression position would
+  // emit the valid-JS placeholder silently and rely on the A parse gate alone.
+  return emitStructuredMatchExpr(bridgedNode, { errors: ctx.errors });
 }
 
 function emitSqlRef(node: SqlRefExpr, _ctx: EmitExprContext): string {
