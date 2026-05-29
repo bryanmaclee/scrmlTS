@@ -1,8 +1,8 @@
 # dependencies.map.md
 # project: scrmlts
-# updated: 2026-05-28T00:00:00Z  commit: 1fed5588
+# updated: 2026-05-29T07:47:36-06:00  commit: feab1207
 
-## Runtime Dependencies (root package.json — v0.6.6)
+## Runtime Dependencies (root package.json — v0.6.7)
 
 `@modelcontextprotocol/sdk@1.29.0` — MCP server SDK; used for the `scrml:compiler` MCP bridge (stdlib/compiler/)
 `vscode-languageserver@^9.0.1` — LSP server protocol library; used in lsp/server.js
@@ -24,8 +24,22 @@
 ## Internal Module Graph (key import relationships)
 
 `compiler/src/api.js` → all pipeline stages (BS, TAB, CE, NR, SYM, PA, RI, MC, ME, TS, DG, BP, AG, RS, CG) + all linters
+`compiler/src/codegen/index.ts` → `./reactive-deps.ts` (collectDerivedVarNames + collectSynthCellKeys), `./context.ts` (CompileContext), `./emit-html.ts`, `./emit-client.js`, `./emit-server.ts`, `./binding-registry.ts`, `./emit-control-flow.ts`
 `compiler/src/codegen/*.ts` → `compiler/src/types/ast.ts`, `./ir.ts`, `./context.ts`, `./errors.ts`, `./scheduling.ts`
-`compiler/src/type-system.ts` → `./codegen/context.ts`, `./types/ast.ts`, `./symbol-table.ts`
+`compiler/src/codegen/context.ts` → `./binding-registry.ts`, `./errors.ts`, `./type-encoding.ts`, `./analyze.ts`, `../types/reachability.ts`; exposes `CompileContext.synthCellKeys: Set<string>` (Bug 61, S140)
+`compiler/src/codegen/reactive-deps.ts` → `./collect.ts`, `../expression-parser.ts`; exports `collectDerivedVarNames`, `collectSynthCellKeys` (Bug 61 collector — dotted synth-cell keys for `@compound.<synthProp>` read routing), `extractReactiveDeps`, `extractReactiveDepsTransitive`, `iterableHasReactiveRefs`
+`compiler/src/codegen/emit-expr.ts` → reads `ctx.synthCellKeys` via `EmitExprContext.synthCellKeys` to gate `@<compound>.<synthProp>` member chains to `_scrml_reactive_get("<dotted>")` (Bug 61 over-fire guard)
+`compiler/src/codegen/emit-event-wiring.ts` → threads `synthCellKeys: ctx.synthCellKeys` into all `emitExprField` call sites (Bug 61 propagation); emits formFor submit handler setting compound cell + `submitted` flag (Bug 58)
+`compiler/src/codegen/emit-logic.ts` → threads `synthCellKeys` through logic-body and compound-parent emission paths (Bug 61)
+`compiler/src/codegen/emit-control-flow.ts` → carries `synthCellKeys` in `EmitControlFlowOpts`; threads into if-chain + nested emit paths (Bug 61)
+`compiler/src/codegen/emit-variant-guard.ts` → threads `synthCellKeys` into variant-guard expr emission (Bug 61)
+`compiler/src/codegen/emit-validators.ts` → carries `synthCellKeys` in validator emit opts (Bug 61)
+`compiler/src/codegen/emit-form-for.ts` → Bug 58: tags synthesized compound decl with `_cellKind:"compound-parent"`, sets `formForSubmitCell` on submit binding, converts validator args to structured ExprNode form; outputs `[compoundStateDecl, formElement]`
+`compiler/src/codegen/emit-html.ts` → Bug 58: propagates formFor compound cell name into `BindingEntry.formForSubmitCell` during HTML walk; routes compound state-decl context into validity-surface pass
+`compiler/src/codegen/emit-bindings.ts` → Bug 58: `_flatBindKey` forces flat dotted-key write on formFor synth bindings
+`compiler/src/codegen/emit-client.ts` → Bug 57: `case "each-block"` chunk-gate adds `reconciliation` + `deep_reactive` chunks (was missing, causing ReferenceError on `_scrml_reconcile_list`); threads `clientEmitTotals` (PGO P2.1)
+`compiler/src/codegen/emit-lift.js` → Bug 59: string-form + AST-form per-row event handlers emitted correctly for `<tableFor>` rows
+`compiler/src/type-system.ts` → Bug 58: collects compound state-decls synthesized during `<formFor>` expansion and routes them into the §55 validity-surface pass so `isValid`/`errors`/`touched`/`submitted` cells are declared; imports `./codegen/context.ts`, `./types/ast.ts`, `./symbol-table.ts`
 `compiler/src/route-inference.ts` → `./types/ast.ts`, `./codegen/scheduling.ts`
 `compiler/src/batch-planner.ts` → `./body-dg-builder.ts`, `./cps-batch-planner.ts`
 `compiler/src/cps-batch-planner.ts` → `./scheduling.ts` (Bug 55 fix: isStatementShapeStmt guard), `./body-dg-builder.ts` (Bug 56 fix: body-DG reads folded in)
@@ -35,7 +49,7 @@
 `compiler/self-host/*.scrml` → compiled by scrmlTS pipeline; not yet live in production path
 
 ## Tags
-#scrmlts #map #dependencies #bun #acorn #mcp #lsp
+#scrmlts #map #dependencies #bun #acorn #mcp #lsp #bug57 #bug58 #bug59 #bug61
 
 ## Links
 - [primary.map.md](./primary.map.md)

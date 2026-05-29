@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-05-28T00:00:00Z  commit: 1fed5588
+# updated: 2026-05-29T07:47:36-06:00  commit: feab1207
 
 scrml's own language error model is values-not-exceptions (SPEC §19.1 — no try/catch, no throw).
 The compiler tooling uses its own error taxonomy internally.
@@ -47,11 +47,15 @@ SPEC §34 is the authoritative error code source (~684 lines; 240+ codes). Key f
 | `W-*` | non-fatal warnings (route to `result.warnings`) |
 | `I-*` | info-level lints (route to `result.warnings`) |
 
-Notable codes added since S135 watermark:
+Notable codes and silent-miscompile closures since S135 watermark:
 - `E-CPS-MULTIBATCH-REORDER` / `E-CPS-MULTIBATCH-MACHINE-CROSSING` — §34.1 §19.9.9 (S114 Ext 1)
 - `E-STORY-UNKNOWN` / `W-STORY-ON-TOP-LEVEL` — §58 Build Story (S118, Nominal section)
 - Bug 9 L2 / Bug 55: `isStatementShapeStmt` guard in `scheduling.ts` prevents Promise.all shape errors (no new error code; silent miscompile class closed)
 - Bug 56: body-DG reads folded into scheduler dep sets (no new error code; TDZ silent miscompile class closed)
+- Bug 57 (S140): `case "each-block"` chunk-gate added to `emit-client.ts:detectRuntimeChunks` — `<each>` files shipped without `_scrml_reconcile_list` definition (ReferenceError on first render); no new error code; runtime crash class closed
+- Bug 58 (S140): `type-system.ts` routes formFor compound decls into §55 validity-surface pass; `emit-form-for.ts` tags `_cellKind:"compound-parent"`, wires `formForSubmitCell` on submit binding; `emit-event-wiring.ts` / `emit-bindings.ts` / `emit-html.ts` consume the tags — no new error code; formFor validity surface was silently dead
+- Bug 59 (S140): `emit-lift.js` per-row event emission corrected for `<tableFor>` (string-form + AST-form paths) — no new error code; per-row handlers were dropped
+- Bug 61 (S140): `collectSynthCellKeys` collector added to `reactive-deps.ts`; threaded into `CompileContext.synthCellKeys`; `emit-expr.ts:emitMember` gates `@compound.<synthProp>` reads on membership in this set to route to `_scrml_reactive_get("<dotted>")` — no new error code; `@compound.<synthProp>` reads collapsed to dotted synth cell correctly; over-fire guard prevents plain object fields from mis-routing
 
 ## Diagnostic-Stream Partition Rule (S93 fix, api.js:2200)
 

@@ -1,6 +1,6 @@
 # primary.map.md
 # project: scrmlts
-# updated: 2026-05-28T00:00:00Z  commit: 1fed5588
+# updated: 2026-05-29T07:47:36-06:00  commit: feab1207
 
 ## Project Fingerprint
 
@@ -9,19 +9,19 @@ Framework:  Custom compiler pipeline — no web framework (compiler is a CLI lib
 Runtime:    Bun >=1.3.13
 Type:       CLI + library — full-stack `.scrml` language compiler
 Size:       ~1,500+ source files (compiler/src/ + compiler/native-parser/ + compiler/self-host/ + compiler/tests/ + stdlib/)
-Version:    0.6.6 (released 2026-05-28, S139 close)
+Version:    0.6.7 (released 2026-05-29, S140 close)
 
 ## Map Index
 
 | Map                      | Status  | Contents                                                  |
 |--------------------------|---------|-----------------------------------------------------------|
 | structure.map.md         | present | directory layout, 4 entry points, 20 significant dirs    |
-| dependencies.map.md      | present | 8 packages, internal pipeline module graph                |
+| dependencies.map.md      | present | 8 packages, internal pipeline module graph (Bug 57–61 routing) |
 | schema.map.md            | present | ~80 AST types/interfaces; CGError; compileScrml() return |
 | config.map.md            | present | 4 env vars, bunfig.toml, compileScrml() options surface   |
 | build.map.md             | present | 10 npm scripts, 9 CLI subcommands, output artifact shapes |
-| error.map.md             | present | 12 error types, §34 code catalog, stream-partition rule   |
-| test.map.md              | present | bun:test, 823 test files, 8 notable new test files S138+  |
+| error.map.md             | present | 12 error types, §34 code catalog, Bug 57–61 silent-miscompile closures |
+| test.map.md              | present | bun:test, 828 test files, 8 notable new test files S138+  |
 | domain.map.md            | present | 22 compiler concepts, pipeline stage table, invariants    |
 | api.map.md               | absent  | no REST/GraphQL/gRPC API (compiler is a library, not server) |
 | state.map.md             | absent  | no Redux/Zustand/etc. (compiler has no client state)      |
@@ -52,14 +52,15 @@ pipeline stage flow / invariants      → domain.map.md
 - Diagnostic-stream partition: `result.errors` = fatal (E-* or severity:"error"); `result.warnings` = non-fatal (W-*/I-* or severity:"warning"/"info"); tests asserting W-*/I-* MUST check `result.warnings` — `result.errors.filter(e => e.code === "W-...")` always yields empty (S93 precedent)
 - `null` and `undefined` do NOT exist in scrml source; both map to `not`; `""` is a defined value (not absence); W-ABSENCE-IN-SCRML-SOURCE lint enforces
 - R26 doctrine (pa.md S138 addendum): empirical re-compile of real `.scrml` source on baseline is MANDATORY for any HIGH bug close; forward (verify before claim-CLOSED) AND reverse (verify before claim-OPEN/dispatching fix) directions both apply
-- Current health: HIGH=0 / MED=5 / LOW=12 / Nominal=7 (v0.6.6 close; canon-clear GREEN)
+- Current health: HIGH=0 / MED=1 / LOW≈8 / Nominal (v0.6.7 close; Bug 51-class corpus audit + 4-HIGH fix wave complete; Bug 57/58/59/61 CLOSED)
+- `collectSynthCellKeys` (reactive-deps.ts) is the authoritative registry of dotted synth-cell keys for `@compound.<synthProp>` read routing; threaded into `CompileContext.synthCellKeys`; any new validity-surface property MUST be added to this collector AND `emit-synth-surface.ts` in sync
 - Native parser (`compiler/native-parser/`) is behind `--parser=scrml-native` flag; M6.6 arc (replacing BS+Acorn entirely) is in progress; BS+Acorn remains the production pipeline path
 - CPS multi-batch planner (Bug 9 L2 + Bug 55 fix): `scheduling.ts:isStatementShapeStmt` forces statement-shape stmts to size-1 groups; `body-dg-builder.ts` edges folded into scheduler dep sets (Bug 56 fix) — both at `compiler/src/codegen/`
 - Self-host target (`compiler/self-host/*.scrml`) is post-v1.0; scrml-authored from scratch, not a mechanical TS port — these are future human-authored scrml files that showcase scrml's advantages
 - Pre-commit hook runs full test suite; never bypass with `--no-verify` without explicit user authorization
 
 ## Tags
-#scrmlts #map #primary #compiler #scrml-language #bun #v0.6.6
+#scrmlts #map #primary #compiler #scrml-language #bun #v0.6.7
 
 ## Links
 - [structure.map.md](./structure.map.md)

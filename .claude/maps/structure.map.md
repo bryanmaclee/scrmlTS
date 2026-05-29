@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-05-28T00:00:00Z  commit: 1fed5588
+# updated: 2026-05-29T07:47:36-06:00  commit: feab1207
 
 ## Entry Points
 
@@ -12,14 +12,14 @@
 ## Directory Ownership
 
 `compiler/src/` — TypeScript + JS source for every pipeline stage, linters, validators, and the code generator
-`compiler/src/codegen/` — emit-* modules (one per language feature), IR types, `CompileContext`, `scheduling.ts`, `cps-batch-planner.ts` (Bug 9 L2), `body-dg-builder.ts` (Bug 56), `source-map.ts`, `route-splitter.ts`, `type-encoding.ts`, `mcp-descriptors.ts`
+`compiler/src/codegen/` — emit-* modules (one per language feature), IR types, `CompileContext`, `scheduling.ts`, `cps-batch-planner.ts` (Bug 9 L2), `body-dg-builder.ts` (Bug 56), `source-map.ts`, `route-splitter.ts`, `type-encoding.ts`, `mcp-descriptors.ts`, `reactive-deps.ts` (collectDerivedVarNames + collectSynthCellKeys)
 `compiler/src/commands/` — CLI subcommand handlers: compile.js, dev.js, build.js, serve.js, generate.js, migrate.js, promote.js, init.js
 `compiler/src/validators/` — post-CE validation passes: attribute-allowlist, attribute-interpolation, post-ce-invariant, lint-try-catch, lint-async-user-source, ast-walk
 `compiler/src/types/` — canonical TypeScript type definitions: `ast.ts` (complete AST node discriminated union), `reachability.ts`, `auth-graph.ts`
 `compiler/native-parser/` — scrml-native composed-engines front-end parser (M5 arc); `.scrml` + `.js` side-by-side per module; shipped behind `--parser=scrml-native`; M5 M6.6 arc in progress
 `compiler/self-host/` — scrml-authored `.scrml` mirrors of compiler stages (bs, tab, ast, bpp, pa, ri, ts, dg, cg, module-resolver, meta-checker, cg-parts); post-v1.0 self-host target
 `compiler/runtime/` — hand-written stdlib shims (`runtime/stdlib/*.js`) copied into `<outputDir>/_scrml/` at compile time; `idempotency.js` for server idempotency
-`compiler/tests/` — 823 test files across unit (588), conformance (105), integration (88), browser (12), self-host (4), lsp (10), commands (6); root-level parser-conformance tests
+`compiler/tests/` — 828 test files across unit (588+), conformance (105), integration (88), browser (12), self-host (4), lsp (10), commands (6); root-level parser-conformance tests
 `compiler/tests/fixtures/` — shared `.scrml` test fixture source files
 `compiler/tests/helpers/` — test utility modules (compileScrml wrappers, happy-dom setup, cross-stream diagnostic helpers)
 `stdlib/` — scrml standard library source by namespace: auth, compiler, cron, crypto, data, format, fs, host, http, mcp, oauth, path, process, redis, regex, router, store, test, time
