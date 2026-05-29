@@ -40,6 +40,7 @@ import type {
 import { rewriteExpr, rewriteServerExpr, rewriteExprArrowBody, rewriteServerExprArrowBody, rewriteExprWithDerived } from "./rewrite.js";
 import { emitParseVariantCall, isParseVariantCall } from "./emit-parse-variant.ts";
 import { emitMatchExpr as emitStructuredMatchExpr } from "./emit-control-flow.ts";
+import { SYNTH_PROPERTY_NAMES } from "../symbol-table.ts";
 
 // ---------------------------------------------------------------------------
 // EmitExprContext — threaded through every emit call
@@ -50,6 +51,19 @@ export interface EmitExprContext {
   mode: "client" | "server";
   /** Derived reactive names — emits _scrml_derived_get instead of _scrml_reactive_get. */
   derivedNames?: Set<string> | null;
+  /**
+   * Bug 61 (§55.5 / §55.6 / §55.7) — the set of DOTTED synth-cell keys declared
+   * by emit-synth-surface.ts for this file's compound parents (e.g.
+   * `"form.isValid"`, `"form.name.touched"`, `"form.submitted"`). Populated by
+   * `collectSynthCellKeys(fileAST)`. When `emitMember` sees a member chain
+   * `@<compound>[.<field>].<synthProp>` whose dotted key IS in this set, it
+   * collapses to `_scrml_reactive_get(<dotted>)` (the universal accessor) rather
+   * than emitting member access on the compound's VALUE object. The membership
+   * test is the precise over-fire guard: a plain cell whose value carries a
+   * field named like a synth prop (`<config> = { errors: [] }` → `@config.errors`)
+   * is NOT in the set, so it falls through to ordinary member access.
+   */
+  synthCellKeys?: Set<string> | null;
   /** Tilde pipeline accumulator variable name (§32). */
   tildeVar?: string | null;
   /** Database variable for server SQL emission. */
@@ -924,9 +938,84 @@ function emitTernary(node: TernaryExpr, ctx: EmitExprContext): string {
 // ---------------------------------------------------------------------------
 
 function emitMember(node: MemberExpr, ctx: EmitExprContext): string {
+  // Bug 61 (§55.5 / §55.6 / §55.7) — auto-synthesized validity-surface read.
+  //
+  // A member chain rooted at `@<compound>` whose LEAF property is a synthesized
+  // validity-surface property (isValid / errors / touched / submitted) AND whose
+  // dotted runtime key IS a REGISTERED synth cell must resolve to that cell — a
+  // dotted-key read — NOT member access on the compound's VALUE object.
+  //
+  //   @form.isValid        → _scrml_reactive_get("form.isValid")
+  //   @form.name.isValid   → _scrml_reactive_get("form.name.isValid")
+  //   @form.submitted      → _scrml_reactive_get("form.submitted")
+  //
+  // emit-synth-surface.ts declares those cells under dotted keys
+  // (`_scrml_derived_declare("form.isValid", ...)` for the derived rollups;
+  // `_scrml_reactive_set("form.submitted", false)` for the reactive ones). The
+  // pre-Bug-61 emit produced `_scrml_reactive_get("form").isValid` — member
+  // access on the compound VALUE (which carries `{name, email, ...}` and has NO
+  // `isValid` key → `undefined` → `disabled=!@form.isValid` stuck `true`).
+  //
+  // `_scrml_reactive_get(dotted)` is the universal accessor: it auto-delegates
+  // to `_scrml_derived_get` when a derived fn is registered for the key
+  // (isValid/errors/touched compound-level + isValid/errors per-field) AND reads
+  // `_scrml_state` directly for the reactive cells (submitted compound-level +
+  // touched per-field). A blanket route to `_scrml_derived_get` would return
+  // `undefined` for the reactive synth cells (NOT in the derived cache).
+  //
+  // OVER-FIRE GUARD (`ctx.synthCellKeys?.has(dotted)`): the membership test is
+  // load-bearing. A naive leaf-name-only guard over-fires on a PLAIN cell whose
+  // value carries a field named like a synth prop — e.g.
+  // `<config> = { errors: ["x"] }` then `@config.errors` would wrongly route to
+  // `_scrml_reactive_get("config.errors")` (an unregistered key → undefined at
+  // runtime → REGRESSION). Only keys present in `synthCellKeys` (i.e. cells
+  // emit-synth-surface actually declared) route; everything else falls through
+  // to member access on the value object (correct — `@config.errors` reads the
+  // plain field; `@form.name` reads the compound proxy's `name` field).
+  if (
+    ctx.mode === "client" &&
+    !node.optional &&
+    SYNTH_PROPERTY_NAMES.has(node.property as any)
+  ) {
+    const dotted = synthDottedKey(node);
+    if (dotted !== null && ctx.synthCellKeys?.has(dotted)) {
+      return `_scrml_reactive_get(${JSON.stringify(dotted)})`;
+    }
+  }
+
   const obj = emitExpr(node.object, ctx);
   const dot = node.optional ? "?." : ".";
   return `${obj}${dot}${node.property}`;
+}
+
+/**
+ * Bug 61 helper — walk a `@<compound>[.field].<synthProp>` member chain to its
+ * dotted runtime key. Returns the dotted string (without the `@`) when the chain
+ * is a non-optional path of static property segments rooted at an `@`-prefixed
+ * ident; returns null for any other shape (computed/optional segments, non-`@`
+ * root, etc.) so the caller falls through to standard member access.
+ *
+ * Pure AST walk — no symbol-table annotations, no getResolvedStateCell (both
+ * empirically dead at codegen, which re-parses exprs from raw strings). The
+ * caller's `ctx.synthCellKeys?.has(dotted)` test supplies the registration
+ * check; this helper only constructs the candidate key.
+ *
+ * `node` is the OUTER MemberExpr whose `.property` is already known to be a
+ * synth-property name; this walks its `.object` down to the `@`-root.
+ */
+function synthDottedKey(node: MemberExpr): string | null {
+  const segments: string[] = [node.property];
+  let cursor: ExprNode = node.object;
+  while (cursor.kind === "member") {
+    const m = cursor as MemberExpr;
+    if (m.optional) return null;
+    segments.unshift(m.property);
+    cursor = m.object;
+  }
+  if (cursor.kind !== "ident") return null;
+  const rootName = (cursor as IdentExpr).name;
+  if (typeof rootName !== "string" || !rootName.startsWith("@")) return null;
+  return [rootName.slice(1), ...segments].join(".");
 }
 
 function emitIndex(node: IndexExpr, ctx: EmitExprContext): string {

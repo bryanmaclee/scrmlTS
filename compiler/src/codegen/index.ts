@@ -64,7 +64,7 @@ import { generateMachineTestJs } from "./emit-machine-property-tests.ts";
 import { generateWorkerJs } from "./emit-worker.ts";
 import { SourceMapBuilder, appendSourceMappingUrl } from "./source-map.ts";
 import { EncodingContext } from "./type-encoding.ts";
-import { collectDerivedVarNames } from "./reactive-deps.ts";
+import { collectDerivedVarNames, collectSynthCellKeys } from "./reactive-deps.ts";
 import { collectTopLevelLogicStatements } from "./collect.ts";
 import type { CompileContext } from "./context.ts";
 import type { ReachabilityRecord } from "../types/reachability.ts";
@@ -629,6 +629,7 @@ export function runCG(input: CgInput): CgOutput {
         errors,
         registry: new BindingRegistry(),
         derivedNames: collectDerivedVarNames(fileAST),
+        synthCellKeys: collectSynthCellKeys(fileAST),
         analysis: analysis ?? null,
         reachabilityRecord: reachabilityRecordInput,
       };
@@ -701,6 +702,7 @@ export function runCG(input: CgInput): CgOutput {
       errors,
       registry,
       derivedNames: collectDerivedVarNames(fileAST),
+      synthCellKeys: collectSynthCellKeys(fileAST),
       analysis: analysis ?? null,
       usedRuntimeChunks: new Set(['core', 'scope', 'errors', 'transitions']),
       // C15 — propagate MOD exportRegistry per-file so emit-engine.ts can

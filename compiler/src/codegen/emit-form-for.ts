@@ -383,9 +383,31 @@ function flatBindRefAttr(name: string, ref: string, span: unknown): unknown {
  * Build an expression attribute value (used for `disabled=!@signup.isValid`).
  */
 function exprAttr(name: string, raw: string, refs: string[], span: unknown): unknown {
+  // Bug 61 — attach a STRUCTURED exprNode (parsed from `raw`) so the reactive
+  // bool-attr emitter routes through emit-expr.ts:emitMember rather than the
+  // string-rewrite fallback. Without exprNode, `disabled=!@signup.isValid`
+  // falls through to rewriteReactiveRefs (string path), which does NOT collapse
+  // `@signup.isValid` to the dotted synth cell — leaving the §41.14.3 submit
+  // button stuck disabled. The structured path is what hand-authored
+  // `disabled=!@form.isValid` already takes; this brings the SYNTHESIZED submit
+  // gate into parity. (Mirrors logicInterpolationNode's parseExprToNode usage.)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { parseExprToNode } = require("../expression-parser.ts") as {
+    parseExprToNode: (raw: string, filePath: string, offset: number) => unknown;
+  };
+  const filePath = (span as { file?: string } | undefined)?.file ?? "<formFor-synth>";
+  const offset = (span as { start?: number } | undefined)?.start ?? 0;
+  let exprNode: unknown;
+  try {
+    exprNode = parseExprToNode(raw, filePath, offset);
+  } catch {
+    // Defensive: if the synthesized expression can't be parsed, leave exprNode
+    // undefined and fall back to the string-rewrite path (pre-Bug-61 behavior).
+    exprNode = undefined;
+  }
   return {
     name,
-    value: { kind: "expr", raw, refs, span },
+    value: { kind: "expr", raw, refs, span, ...(exprNode ? { exprNode } : {}) },
     span,
   };
 }

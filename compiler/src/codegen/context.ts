@@ -39,6 +39,13 @@ export interface CompileContext {
   registry: BindingRegistry;
   derivedNames: Set<string>;
   /**
+   * Bug 61 — dotted synth-cell keys (`collectSynthCellKeys(fileAST)`) for this
+   * file's compound parents. Threaded into the EmitExprContext built by the
+   * onclick/event-wiring + variant-guard emitters so `@<compound>.<synthProp>`
+   * reads route to the dotted synth cell. Sibling to `derivedNames`.
+   */
+  synthCellKeys: Set<string>;
+  /**
    * Pre-computed analysis for this file from the CG analysis layer.
    *
    * Populated by analyzeAll() in analyze.ts and threaded through CompileContext
@@ -200,6 +207,7 @@ export function makeCompileContext(partial: Partial<CompileContext> & { fileAST:
     errors: partial.errors ?? [],
     registry: partial.registry ?? new BindingRegistry(),
     derivedNames: partial.derivedNames ?? new Set(),
+    synthCellKeys: partial.synthCellKeys ?? new Set(),
     analysis: partial.analysis ?? null,
     // Always-included runtime chunks. Additional chunks are added by
     // detectRuntimeChunks() in emit-client.ts based on feature usage.

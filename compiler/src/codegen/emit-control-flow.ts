@@ -104,6 +104,13 @@ export function getVariantFieldSchema(variantName: string): string[] | null {
 interface IfOpts {
   derivedNames?: Set<string>;
   /**
+   * Bug 61 — dotted synth-cell keys, threaded into the if-condition's
+   * EmitExprContext + the body opts so `@<compound>.<synthProp>` reads inside
+   * if/else conditions + bodies route to the dotted synth cell. Sibling to
+   * `derivedNames`.
+   */
+  synthCellKeys?: Set<string>;
+  /**
    * Names declared in an outer scope (let/const/lin). Threaded through
    * control-flow constructs so bare `x = expr` reassignments inside an
    * if/else/for/while body are recognized as reassignments rather than
@@ -221,7 +228,7 @@ function detectHistoryFormFromString(rhs: string): { isHistoryForm: boolean; str
  */
 export function emitIfStmt(node: any, opts: IfOpts = {}): string {
   const lines: string[] = [];
-  const _ifExprCtx: EmitExprContext = { mode: "client", derivedNames: opts.derivedNames ?? null };
+  const _ifExprCtx: EmitExprContext = { mode: "client", derivedNames: opts.derivedNames ?? null, synthCellKeys: opts.synthCellKeys ?? null };
   const _ifCond = emitExprField(node.condExpr, node.condition ?? node.test ?? "true", _ifExprCtx);
   lines.push(`if (${_ifCond}) {`);
 
@@ -233,6 +240,7 @@ export function emitIfStmt(node: any, opts: IfOpts = {}): string {
   // state-decl reassignments don't leak _scrml_init_set sidecars.
   const bodyOpts = {
     derivedNames: opts.derivedNames,
+    synthCellKeys: opts.synthCellKeys,
     declaredNames: opts.declaredNames,
     insideFunctionBody: opts.insideFunctionBody,
   };

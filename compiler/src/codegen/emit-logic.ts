@@ -88,6 +88,13 @@ function _wrapDeepReactive(rewrittenExpr: string, rawExpr: string, initExpr?: an
 
 interface EmitLogicOpts {
   derivedNames?: Set<string> | null;
+  /**
+   * Bug 61 — dotted synth-cell keys (`collectSynthCellKeys(fileAST)`). Threaded
+   * into EmitExprContext via `_makeExprCtx` so `emitMember` can route
+   * `@<compound>.<synthProp>` reads to the dotted synth cell. Sibling to
+   * `derivedNames`; mirror its propagation chain.
+   */
+  synthCellKeys?: Set<string> | null;
   encodingCtx?: EncodingContext | null;
   /** §4.12.6: Override DB variable for nested <program db="..."> scopes. */
   dbVar?: string;
@@ -496,6 +503,9 @@ function _makeExprCtx(opts: EmitLogicOpts): EmitExprContext {
     // scanning of client.js when the same fn is also visible there.
     mode: opts.boundary === "server" ? "server" : "client",
     derivedNames: opts.derivedNames ?? null,
+    // Bug 61 — forward synth-cell keys so `emitMember` routes
+    // `@<compound>.<synthProp>` reads to the dotted synth cell.
+    synthCellKeys: opts.synthCellKeys ?? null,
     tildeVar: opts.tildeContext?.var ?? null,
     dbVar: opts.dbVar,
     // C13 (§51.0.G) — engine variable name set so emit-expr can detect
@@ -1600,6 +1610,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         compoundPathPrefix: opts.compoundPathPrefix ?? null,
         encodingCtx: opts.encodingCtx ?? null,
         derivedNames: opts.derivedNames ?? null,
+        // Bug 61 — validator args may cross-read `@<compound>.<synthProp>`.
+        synthCellKeys: opts.synthCellKeys ?? null,
       });
       // C10 (§55.10 L12): Level-1 inline-message-override registration. For
       // each validator with a non-null `inlineOverride` (B13-extracted), emit
@@ -2186,7 +2198,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       // inside if/else body sees outer lets (Bug B + F).
       // C5: thread insideFunctionBody too so nested state-decls don't leak
       // _scrml_init_set sidecars when we're inside a function body.
-      return emitIfStmt(node, { derivedNames: opts.derivedNames, declaredNames: opts.declaredNames, insideFunctionBody: opts.insideFunctionBody });
+      return emitIfStmt(node, { derivedNames: opts.derivedNames, synthCellKeys: opts.synthCellKeys, declaredNames: opts.declaredNames, insideFunctionBody: opts.insideFunctionBody });
 
     case "for-stmt":
       // §32 array accumulator: when tilde context is active, switch to array-mode before

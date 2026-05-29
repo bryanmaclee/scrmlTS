@@ -856,7 +856,13 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
         lines.push(`    const el = document.querySelector('[${dataAttr}="${placeholderId}"]');`);
         lines.push(`    if (el) {`);
         if (binding.condExpr) {
-          const compiled = emitExprField(binding.condExprNode, binding.condExpr, { mode: "client" });
+          // Bug 61 — thread synthCellKeys so `disabled=!@form.isValid` (the
+          // §41.14 default submit-button gate) routes `@form.isValid` to the
+          // dotted synth cell instead of member access on the compound value
+          // (`undefined` → `!undefined` → `true` → button stuck disabled).
+          // derivedNames threaded alongside for parity (a derived cell read in
+          // the same condition resolves via _scrml_derived_get).
+          const compiled = emitExprField(binding.condExprNode, binding.condExpr, { mode: "client", derivedNames: ctx.derivedNames, synthCellKeys: ctx.synthCellKeys });
           const conditionCode = `(${compiled})`;
           lines.push(`      if (${conditionCode}) { el.setAttribute(${JSON.stringify(attrName)}, ""); } else { el.removeAttribute(${JSON.stringify(attrName)}); }`);
           lines.push(`      _scrml_effect(function() { if (${conditionCode}) { el.setAttribute(${JSON.stringify(attrName)}, ""); } else { el.removeAttribute(${JSON.stringify(attrName)}); } });`);
@@ -888,7 +894,9 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
         // no @-prefixed reactive refs) to silently fall through, producing no output.
         // condExpr is valid even when refs is empty — emit the condition unconditionally.
         if (binding.condExpr) {
-          const compiled = emitExprField(binding.condExprNode, binding.condExpr, { mode: "client" });
+          // Bug 61 — thread synthCellKeys + derivedNames so `if=@form.isValid`
+          // conditional-display reads route to the dotted synth cell.
+          const compiled = emitExprField(binding.condExprNode, binding.condExpr, { mode: "client", derivedNames: ctx.derivedNames, synthCellKeys: ctx.synthCellKeys });
           conditionCode = `(${compiled})`;
           subscribeVars = binding.refs ?? [];
         } else if (binding.varName) {
@@ -973,7 +981,7 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       // reactivity on the fetch result); a future arc will add fine-grained
       // reactivity for server-fn returns.
       if (varRefs.length === 0 && exprUsesServerFn(expr, serverFnNames)) {
-        const rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client", derivedNames: ctx.derivedNames });
+        const rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client", derivedNames: ctx.derivedNames, synthCellKeys: ctx.synthCellKeys });
 
         lines.push(`  {`);
         lines.push(`    const el = document.querySelector('[data-scrml-logic="${placeholderId}"]');`);
@@ -985,7 +993,7 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       }
 
       if (varRefs.length > 0) {
-        let rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client", derivedNames: ctx.derivedNames });
+        let rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client", derivedNames: ctx.derivedNames, synthCellKeys: ctx.synthCellKeys });
 
         // When encoding is active, replace _scrml_reactive_get("name") with encoded names
         if (encodingCtx && encodingCtx.enabled) {
@@ -1052,7 +1060,7 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
         const standaloneTildeRegex = /(^|[\s,(;{=])~(?=\s|$|[,;)}\]])/;
         if (standaloneTildeRegex.test(expr)) continue;
 
-        const rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client", derivedNames: ctx.derivedNames });
+        const rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client", derivedNames: ctx.derivedNames, synthCellKeys: ctx.synthCellKeys });
         lines.push(`  {`);
         lines.push(`    const el = document.querySelector('[data-scrml-logic="${placeholderId}"]');`);
         lines.push(`    if (el) {`);

@@ -343,7 +343,7 @@ function emitArmWireFunction(
     emitExprField: (
       exprNode: any,
       fallbackStr: string,
-      ctx: { mode: string; derivedNames?: Set<string> },
+      ctx: { mode: string; derivedNames?: Set<string>; synthCellKeys?: Set<string> },
     ) => string;
   };
 
@@ -399,7 +399,7 @@ function emitArmWireFunction(
   for (const binding of wireableLogic) {
     const placeholderId = binding.placeholderId as string;
     const expr = binding.expr as string;
-    let rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client", derivedNames: ctx.derivedNames });
+    let rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client", derivedNames: ctx.derivedNames, synthCellKeys: ctx.synthCellKeys });
     // Apply encoded names when encoding is active — same pattern as
     // emit-event-wiring.ts:670-680.
     let varRefs: string[];

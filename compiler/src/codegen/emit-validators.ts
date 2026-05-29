@@ -103,6 +103,9 @@ interface EmitValidatorOpts {
   /** Derived names — passed to emitExpr so cross-field reads to derived cells
    *  use _scrml_derived_get. */
   derivedNames?: Set<string> | null;
+  /** Bug 61 — dotted synth-cell keys; passed to emitExpr so validator args that
+   *  cross-read `@<compound>.<synthProp>` route to the dotted synth cell. */
+  synthCellKeys?: Set<string> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +168,7 @@ export function emitValidatorRunnerSidecar(
   const exprCtx: EmitExprContext = {
     mode: "client",
     derivedNames: opts.derivedNames ?? null,
+    synthCellKeys: opts.synthCellKeys ?? null,
     tildeVar: null,
     dbVar: undefined,
   };

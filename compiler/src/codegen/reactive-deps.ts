@@ -294,6 +294,137 @@ export function collectDerivedVarNames(fileAST: Record<string, unknown>): Set<st
 }
 
 // ---------------------------------------------------------------------------
+// collectSynthCellKeys (Bug 61)
+// ---------------------------------------------------------------------------
+
+/**
+ * Collect every DOTTED synth-cell key declared by emit-synth-surface.ts for the
+ * compound parents in a fileAST (§55.5 / §55.6 / §55.7 validity surface).
+ *
+ * This set is the precise OVER-FIRE guard for emit-expr.ts:emitMember's Bug 61
+ * branch: a member chain `@<compound>[.<field>].<synthProp>` collapses to
+ * `_scrml_reactive_get("<dotted>")` ONLY when `<dotted>` is in this set. A plain
+ * cell whose value happens to carry a field named `errors`/`submitted`/etc.
+ * (`<config> = { errors: [] }` → `@config.errors`) is NOT in the set, so it
+ * falls through to ordinary member access on the value object.
+ *
+ * KEY GENERATION mirrors `emit-synth-surface.ts:emitCompoundSynthSurface`
+ * (line 115) EXACTLY so there is zero drift between the keys emit-synth-surface
+ * DECLARES and the keys this collector authorizes for routing:
+ *   - Compound parent at qualified name `q`: `q.errors`, `q.isValid`,
+ *     `q.touched`, `q.submitted`.
+ *   - Each FIELD CHILD passing the same fieldChildren filter as
+ *     emit-synth-surface.ts:135: `q.<field>.errors`, `q.<field>.isValid`,
+ *     `q.<field>.touched` (no `submitted` — per-field has no submitted, §55.7).
+ *   - Nested compound-typed children recurse with `q = q + "." + childName`
+ *     (matches the emit-logic.ts:1652 `compoundPathPrefix` recursion).
+ *
+ * The fileAST WALK mirrors `collectDerivedVarNames` above (logic bodies,
+ * children, control-flow bodies) so compounds declared inside `${...}` logic
+ * blocks / control flow are discovered.
+ *
+ * Keys are PLAIN (un-encoded) — they match the within-file synth declares + the
+ * read sites (emit-synth-surface only encodes when a chunk encodingCtx is set;
+ * the client.js declares + reads are plain). This collector runs at the
+ * top-level (non-chunked) read-path, so plain keys are correct.
+ *
+ * @param fileAST
+ * @returns set of dotted synth-cell keys (without @ prefix)
+ */
+export function collectSynthCellKeys(fileAST: Record<string, unknown>): Set<string> {
+  const keys = new Set<string>();
+  const nodes = getNodes(fileAST);
+
+  // True iff `node` is a compound parent — same predicate as
+  // emit-synth-surface.ts:122 + emit-logic.ts:1647.
+  const isCompoundParent = (node: any): boolean =>
+    node?._cellKind === "compound-parent" || Array.isArray(node?.children);
+
+  // Mirror of emit-synth-surface.ts:135 fieldChildren filter — the children
+  // that get a per-field synth surface (errors/isValid/touched). Compound-typed
+  // children are EXCLUDED here (they get their own recursive surface) and
+  // handled by the recursion in addCompoundKeys.
+  const isFieldChild = (c: any): boolean => {
+    if (!c || typeof c !== "object") return false;
+    if (c.kind !== "state-decl") return false;
+    if (c._cellKind === "compound-parent" || Array.isArray(c.children)) return false;
+    if (c._cellKind === "markup-typed") return false;
+    if (c.shape === "derived" && c.isConst === true) return false;
+    return true;
+  };
+
+  // Generate keys for a compound parent at qualified name `q`, then recurse
+  // into compound-typed children. Mirrors the emit-logic.ts compound-parent
+  // recursion (compoundPathPrefix threading) + emit-synth-surface key-gen.
+  const addCompoundKeys = (node: any, q: string): void => {
+    // Compound-level surface (4 properties, §55.5).
+    keys.add(`${q}.errors`);
+    keys.add(`${q}.isValid`);
+    keys.add(`${q}.touched`);
+    keys.add(`${q}.submitted`);
+
+    const children: any[] = Array.isArray(node?.children) ? node.children : [];
+    for (const child of children) {
+      if (!child || typeof child !== "object") continue;
+      const childName: string = child.name;
+      if (!childName) continue;
+      if (isCompoundParent(child)) {
+        // Nested compound — recurse with extended qualified name. Its own
+        // compound-level surface + (recursively) its field surface are added
+        // by the recursive call; it has NO per-field surface from the parent.
+        addCompoundKeys(child, `${q}.${childName}`);
+      } else if (isFieldChild(child)) {
+        // Per-field surface (3 properties, §55.6 — no submitted).
+        keys.add(`${q}.${childName}.errors`);
+        keys.add(`${q}.${childName}.isValid`);
+        keys.add(`${q}.${childName}.touched`);
+      }
+    }
+  };
+
+  function visit(nodeList: unknown[]): void {
+    if (!Array.isArray(nodeList)) return;
+    for (const node of nodeList) {
+      if (!node || typeof node !== "object") continue;
+      const n = node as ASTNode;
+      if (n.kind === "state-decl" && isCompoundParent(n) && n.name) {
+        addCompoundKeys(n, n.name as string);
+        // Do NOT also recurse `visit` into this compound's children —
+        // addCompoundKeys already walked them (incl. nested compounds). A
+        // compound's children are state-decls scoped to the compound, not
+        // independent top-level declarations.
+        continue;
+      }
+      if (n.kind === "logic" && Array.isArray(n.body)) {
+        visit(n.body as unknown[]);
+      }
+      if (Array.isArray(n.children)) {
+        visit(n.children as unknown[]);
+      }
+      // Recurse into control flow bodies (match arms, if/else, for/while, try)
+      if (n.kind === "match-stmt" && Array.isArray((n as any).body)) {
+        visit((n as any).body as unknown[]);
+      }
+      if (n.kind === "if-stmt") {
+        if (Array.isArray((n as any).consequent)) visit((n as any).consequent as unknown[]);
+        if (Array.isArray((n as any).alternate)) visit((n as any).alternate as unknown[]);
+      }
+      if ((n.kind === "for-stmt" || n.kind === "while-stmt") && Array.isArray((n as any).body)) {
+        visit((n as any).body as unknown[]);
+      }
+      if (n.kind === "try-stmt") {
+        if (Array.isArray((n as any).body)) visit((n as any).body as unknown[]);
+        if ((n as any).catchNode && Array.isArray((n as any).catchNode.body)) visit((n as any).catchNode.body as unknown[]);
+        if (Array.isArray((n as any).finallyBody)) visit((n as any).finallyBody as unknown[]);
+      }
+    }
+  }
+
+  visit(nodes as unknown[]);
+  return keys;
+}
+
+// ---------------------------------------------------------------------------
 // ExprNode-aware reactive ref detection (Phase 4d)
 // ---------------------------------------------------------------------------
 

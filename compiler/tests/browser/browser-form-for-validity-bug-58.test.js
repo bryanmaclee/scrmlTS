@@ -187,22 +187,44 @@ describe("Bug 58 — formFor validity surface drives at runtime (happy-dom)", ()
   test("submit button carries the disabled bool-attr gate (initially disabled)", () => {
     // §41.14.3: default submit button is `disabled=!@signup.isValid`. The gate
     // attribute IS wired (data-scrml-bind-bool-disabled) and the button starts
-    // disabled (isValid false). NOTE: the gate's READ path emits
-    // `_scrml_reactive_get("signup").isValid` (member access on the compound
-    // proxy) rather than `_scrml_derived_get("signup.isValid")` (the dotted
-    // synthesized cell) — a PRE-EXISTING general defect in `@compound.isValid`
-    // synthesized-property reads that affects hand-authored compounds
-    // IDENTICALLY (verified on a hand-written §55.8 compound). It is OUT OF
-    // SCOPE for Bug 58 (the validity surface itself is now correctly emitted +
-    // reactive); surfaced to PA as a deferred follow-up. This test asserts the
-    // gate is present + initially disabled (the part Bug 58's fix enables); it
-    // does NOT assert the enable-on-valid flip (blocked by the read-path bug).
+    // disabled (isValid false). Bug 61 (RESOLVED) fixed the gate's READ path so
+    // `@signup.isValid` collapses to `_scrml_reactive_get("signup.isValid")`
+    // (the dotted synthesized cell) instead of member access on the compound
+    // proxy value (`_scrml_reactive_get("signup").isValid` → undefined). The
+    // enable-on-valid flip is asserted in the next test.
     const api = mount();
     const submit = document.querySelector("[data-scrml-formfor-submit]");
     expect(submit).not.toBeNull();
     expect(submit.hasAttribute("data-scrml-bind-bool-disabled")).toBe(true);
     expect(submit.hasAttribute("disabled")).toBe(true);
     expect(api.dget("signup.isValid")).toBe(false);
+  });
+
+  test("Bug 61 — filling ALL valid values ENABLES the submit button (disabled gate flips)", () => {
+    // The §41.14.3 acceptance gate: `disabled=!@signup.isValid` must ENABLE the
+    // submit button when the form becomes valid. Pre-Bug-61, the gate read
+    // `_scrml_reactive_get("signup").isValid` (member access on the compound
+    // VALUE object {name,email,agree}, which has NO `isValid` key → undefined →
+    // `!undefined` → true → button STUCK disabled forever). Post-fix the gate
+    // reads the dotted synth cell `_scrml_reactive_get("signup.isValid")`, so
+    // when validity flips true the `_scrml_effect` re-runs and removes the
+    // `disabled` attribute.
+    const api = mount();
+    const submit = document.querySelector("[data-scrml-formfor-submit]");
+    expect(submit.hasAttribute("disabled")).toBe(true); // initially disabled
+
+    const nameInput = document.querySelector('[data-scrml-formfor-input="name"]');
+    const emailInput = document.querySelector('[data-scrml-formfor-input="email"]');
+    const agreeInput = document.querySelector('[data-scrml-formfor-input="agree"]');
+    nameInput.value = "Alice"; nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    emailInput.value = "alice@example.com"; emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+    agreeInput.checked = true; agreeInput.dispatchEvent(new Event("change", { bubbles: true }));
+
+    // Validity surface is now true...
+    expect(api.dget("signup.isValid")).toBe(true);
+    // ...and the disabled gate's reactive effect removed the attribute → the
+    // submit button is ENABLED. This is the end-to-end Bug 61 fix payoff.
+    expect(submit.hasAttribute("disabled")).toBe(false);
   });
 
   test("submitted is false before any submit attempt", () => {
