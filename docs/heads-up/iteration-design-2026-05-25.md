@@ -1,11 +1,12 @@
 ---
-status: in-progress
+status: historical
+last-reviewed: 2026-05-29 (S141 doc-currency cleanup)
 started: 2026-05-25
 session: S130
 phase: HU resolutions per finding
 dd-source: scrml-support/docs/deep-dives/iteration-design-surface-2026-05-25.md
 findings-total: 8 (per DD)
-findings-closed: 0
+findings-closed: arc-complete (iteration sec 17.7 / PRIMER sec 6.3 Landings 1-3 shipped S131; this HU log is a historical record)
 ---
 
 # Iteration design surface — Heads-Up Resolutions

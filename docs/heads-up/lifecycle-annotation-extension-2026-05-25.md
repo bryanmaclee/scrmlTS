@@ -1,11 +1,12 @@
 ---
-status: in-progress
+status: historical
+last-reviewed: 2026-05-29 (S141 doc-currency cleanup)
 started: 2026-05-25
 session: S130
 phase: HU resolutions per finding
 dd-source: scrml-support/docs/deep-dives/lifecycle-annotation-extension-and-flagship-scope-2026-05-25.md
 findings-total: 7 (per DD)
-findings-closed: 0
+findings-closed: arc-complete (sec 14.12 / PRIMER sec 6.5 Landings 1-3 + S131 HU-2 hybrid shipped; historical record. NB impl-gap C4 object-literal-construction E-TYPE-001 found R27/S141 — tracked in known-gaps R27 cluster)
 ---
 
 # Lifecycle Annotation — Heads-Up Resolutions
