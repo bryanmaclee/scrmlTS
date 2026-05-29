@@ -614,23 +614,32 @@ export function compileScrml(options = {}) {
      * files are written (SPEC §2.2.1). Mirrors meta-eval.ts:reparseEmitted /
      * E-META-EVAL-002 for the final artifacts.
      *
-     * ALWAYS-ON vs DEV/CI-ONLY (the deep-dive's one open axis):
-     *   PERF says always-on. Measured ~24 ms median to parse all 64 artifacts
+     * DEFAULT STILL OFF — flip HELD (S142 gate-found-fix-wave-tail-and-flip-2026-05-29):
+     *   PERF admits always-on. Measured ~24 ms median to parse all 64 artifacts
      *   of the 8433-line trucking-dispatch reference app (>2x the SPEC §2.4
-     *   4000-line target) in-process — far inside the §2.4 "< 1s" budget. So
-     *   perf does NOT gate always-on.
-     *   A SECOND blocker the perf-only framing did not anticipate DOES: the
-     *   reference app + several examples emit ~16 genuinely-invalid-JS
-     *   artifacts TODAY (pre-existing codegen miscompiles — truncated `!==`
-     *   from compound `if=(m.f is some && m.f != "")` lowering, a leaked
-     *   `server {` block in seeds.server.js). Those are TRUE positives the gate
-     *   correctly catches, but fixing them is a SEPARATE codegen fix-wave
-     *   (out of scope for the gate build). Turning the gate always-on before
-     *   that fix-wave lands would flip green tests (trucking-dispatch-smoke)
-     *   red on pre-existing out-of-scope bugs. So the gate ships FLAG-GATED
-     *   (default OFF) now; the intended end state is always-on once the
-     *   pre-existing invalid-JS surface is closed. See progress.md + the final
-     *   dispatch report for the surfaced backlog.
+     *   4000-line target) in-process — far inside the §2.4 "< 1s" budget. Perf
+     *   does NOT gate the flip.
+     *   The S141 ship was FLAG-GATED (default OFF) because the reference app +
+     *   examples emitted ~16 genuinely-invalid-JS artifacts the gate correctly
+     *   caught (the C10 compound-`if=(X is some && X != "")` lowering class +
+     *   the C11 leaked `server {` block in seeds.server.js). The S142 tail
+     *   fix-wave CLOSED the adopter-corpus surface — C10a (lift markup attr-
+     *   value STRING re-quote, ast-builder.js), C10b (is-predicate dotted-LHS
+     *   whitespace tolerance, codegen/rewrite.ts), C11 (seeds.scrml migrated to
+     *   canonical body-content-inferred server fn). The full examples + R27
+     *   adopter corpus now emits 0 invalid artifacts under the gate.
+     *   BUT the flip is NOT done: 3 INTERNAL residuals still fail under the gate
+     *   (self-host stdlib meta-checker multi-line-ternary-in-const-init; self-
+     *   host module-resolver escaped-backtick + `not`-in-template-string; the
+     *   nested `!{}` R25-Bug-49 §5 structural case). Flipping the default to
+     *   `true` now would turn those 3 red in the full suite. So the default
+     *   STAYS `false` until that residual surface closes (see known-gaps §GATE-
+     *   FOUND); the flip is then a one-line change (`false` → `true`).
+     *   The `--validate-emit` CLI flag (compile/build/dev) opts INTO the gate
+     *   today (default-off); `--no-validate-emit` is the reserved explicit-off
+     *   for when the default eventually flips on. The opt-out is an OPERATIONAL
+     *   escape, not a relaxation of the §2.2.1 "SHALL NOT emit JS that fails to
+     *   parse" invariant.
      */
     validateEmit = false,
   } = options;

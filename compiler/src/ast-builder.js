@@ -3331,6 +3331,22 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
 
   /** Parse one attribute value after `=` into a structured value object. */
   function _parseLiftAttrValue(attrSpan) {
+    // C10 fix (gate-found-tail) — when collecting the tokens of a lift markup
+    // attribute value into a `parts` array, STRING tokens carry their content
+    // WITHOUT delimiters (the tokenizer strips quotes — see readString). A
+    // naive `parts.push(ct.text)` therefore drops the quotes, so
+    // `if=(x != "")` reassembles to `(x !=)` (dangling `!=`, invalid JS) and
+    // `if=(x == "active")` reassembles to `(x == active)` (bare ident — a
+    // ReferenceError at runtime). Re-quote STRING tokens via the established
+    // `reemitJsStringLiteral` helper (and re-wrap backtick template strings),
+    // mirroring the collectExpr re-quote at the top-level expression path.
+    const _pushAttrToken = (parts, ct) => {
+      if (ct.kind === "STRING") {
+        parts.push(ct.isTemplate ? "`" + ct.text + "`" : reemitJsStringLiteral(ct.text));
+      } else {
+        parts.push(ct.text);
+      }
+    };
     const t = peek();
     // String literal: "foo" or 'foo'
     if (t.kind === "STRING") {
@@ -3396,7 +3412,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             if (lastPart !== ".") break;
           }
         }
-        parts.push(ct.text);
+        _pushAttrToken(parts, ct);
         consume();
       }
       // v0.2.4 bug-1-a1 — preserve token-boundary whitespace when joining lift
@@ -3467,13 +3483,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         if (ct.kind === "PUNCT" && ct.text === "(") {
           depth++;
         } else if (ct.kind === "PUNCT" && ct.text === ")") {
-          parts.push(ct.text);
+          _pushAttrToken(parts, ct);
           consume();
           depth--;
           if (depth === 0) break;
           continue;
         }
-        parts.push(ct.text);
+        _pushAttrToken(parts, ct);
         consume();
       }
       const raw = _joinPreservingWordBoundary(parts);
@@ -4870,8 +4886,16 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         }
         return { id: ++counter.next, kind: "let-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
       } else {
-        const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "let-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
+        // S142 gate-tail: `let NAME` with NO `=` is a bare (uninitialized)
+        // declaration — `let m` followed by a `while` on the next line. The
+        // old `collectExpr()` here ran with an empty `parts` buffer, so its
+        // BUG-ASI-NEWLINE statement-boundary heuristic (which only fires once
+        // `parts.length > 0`) did not stop it from greedily consuming the
+        // following statement as the initializer, emitting `let m = while (...)`
+        // (invalid JS the emit gate catches — surfaced via stdlib/compiler/
+        // meta-checker.scrml). A declaration with no `=` has no init; emit the
+        // bare `let NAME;` directly (no expression collection).
+        return { id: ++counter.next, kind: "let-decl", name, init: "", ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
       }
     }
 

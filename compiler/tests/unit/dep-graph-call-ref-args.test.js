@@ -109,13 +109,19 @@ describe("Bug 4.5 — DG sweepNodeForAtRefs handles call-ref attrVal", () => {
   });
 
   test("T3: nested member access — fn(@compound.field) credits parent compound", () => {
+    // S142 gate-tail: ad-hoc compound state uses the canonical structural-
+    // children form (PRIMER §5 / SPEC §6.3) — `<user> <name>=.. <age>=.. </>`.
+    // The pre-S142 brace form `<user> = { <name> = .. }` is NOT a recognized
+    // compound shape; it parsed as a plain cell whose init was the raw markup
+    // string, leaking `_scrml_reactive_set("user", { < name > = .. })` (invalid
+    // JS the emit gate now catches).
     const source = [
       "<program>",
       "  ${",
-      "    <user> = {",
+      "    <user>",
       "      <name> = \"alice\"",
       "      <age> = 30",
-      "    }",
+      "    </>",
       "    function greet(label) { console.log(label) }",
       "  }",
       "  <button onclick=greet(@user.name)>Greet</>",

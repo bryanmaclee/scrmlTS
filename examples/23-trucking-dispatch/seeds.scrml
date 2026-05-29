@@ -273,12 +273,14 @@ ${
     // accounts, and driver accounts all share password "demo".
     // -----------------------------------------------------------------------
 
+    // The whole body is server-side: every `?{}` inside is a server-only
+    // resource, so body-content inference auto-escalates runSeeds() to a
+    // server function (Insight 26 — the explicit `server` keyword is
+    // deprecated; structural inference owns server classification). The
+    // client gets a fetch shim it never calls (runSeeds is invoked from
+    // app.scrml's server-side `on mount`).
     export function runSeeds() {
-        // server { } block — runs only on the server. The whole body
-        // is server-side because every ?{} inside requires a server
-        // execution context.
-        server {
-            const demoHash = hashPassword("demo")
+        const demoHash = hashPassword("demo")
 
         // -------- dispatcher --------
         ?{`
@@ -365,6 +367,5 @@ ${
                 `}.run()
             }
         }
-        }  // server { }
     }
 }

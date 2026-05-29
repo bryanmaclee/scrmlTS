@@ -778,18 +778,30 @@ function _rewriteNotSegment(segment: string, errors?: any[]): string {
   // Must run BEFORE identifier-only patterns — those patterns start with an
   // identifier character class and will never match a leading `)`.
   segment = _rewriteParenthesizedIsOp(segment);
+  // C10b fix (gate-found-tail) — the dotted-path LHS capture must tolerate the
+  // BS tokenizer's space-padded dots. A source `load.weight_lbs is some` reaches
+  // this regex-fallback path (taken when no exprNode parses, e.g. a for-lift
+  // markup `if=` over a component prop) as `load . weight_lbs is some`. The old
+  // char class `[A-Za-z0-9_$.]*` stops at the first space, capturing only the
+  // trailing `weight_lbs` and stranding `load .` outside the parens →
+  // `load . (weight_lbs !== null && ...)` (invalid JS). The path below admits a
+  // base ident followed by zero+ whitespace-tolerant `. member` tails, so the
+  // whole `load . weight_lbs` is captured and substituted verbatim (space-padded
+  // member access is legal JS). Mirrors the R24-BUG-35 (S137) `\s*`-tolerance
+  // already added to the variant-suffix patterns for the same BS reason.
+  const DOTTED_LHS = "@?[A-Za-z_$][A-Za-z0-9_$]*(?:\\s*\\.\\s*[A-Za-z_$][A-Za-z0-9_$]*)*";
   // Match `@varName is not not` or `identifier is not not` (presence check, §42).
   // MUST run before the `is not` replacement — otherwise the first `is not` consumes
   // the token and the trailing `not` becomes a stray `null`.
-  segment = segment.replace(/(@?[A-Za-z_$][A-Za-z0-9_$.]*) is not not(?![A-Za-z0-9_$])/g,
+  segment = segment.replace(new RegExp(`(${DOTTED_LHS}) is not not(?![A-Za-z0-9_$])`, "g"),
     '($1 !== null && $1 !== undefined)');
   // Match `x is some` — positive presence check (§42.2.2a).
-  segment = segment.replace(/(@?[A-Za-z_$][A-Za-z0-9_$.]*) is some(?![A-Za-z0-9_$])/g,
+  segment = segment.replace(new RegExp(`(${DOTTED_LHS}) is some(?![A-Za-z0-9_$])`, "g"),
     '($1 !== null && $1 !== undefined)');
   // Match `@varName is not` or `identifier is not` or `dotted.path is not` (absence check).
   // The @-prefix is included in the capture so it is preserved in the output
   // (the @-to-reactive_get() rewrite runs after this pass).
-  segment = segment.replace(/(@?[A-Za-z_$][A-Za-z0-9_$.]*) is not(?![A-Za-z0-9_$])/g,
+  segment = segment.replace(new RegExp(`(${DOTTED_LHS}) is not(?![A-Za-z0-9_$])`, "g"),
     '($1 === null || $1 === undefined)');
   // `not (expr)` — logical negation before a parenthesized expression → `!(expr)`.
   // 6nz-s (S127): `[ \t]*` not `\s*` — never bridge a statement boundary; a real
@@ -1681,10 +1693,25 @@ function _rewritePayloadVariantConstructorCalls(expr: string): string {
     // Split at top-level commas (respecting nested parens/brackets/braces +
     // string literals).
     const argList: string[] = _splitTopLevelArgs(argsText);
-    const pairCount = Math.min(argList.length, fieldNames.length);
+    // S142 gate-tail (surface): named-field construction `.X(field: value)`
+    // (§18.7 named form, symmetric to named destructuring). When an arg is
+    // already in `name: value` form, the field name is on the arg — DON'T
+    // re-prefix with the positional fieldNames[p] (that produced the malformed
+    // `field: field: value`). Detect named vs positional per arg; for named
+    // args emit the `name: value` pair verbatim (validated upstream by the
+    // typer), for positional args keep the field-name-by-position mapping.
+    const NAMED_ARG_RE = /^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*:(?!:)\s*([\s\S]+)$/;
     const pairs: string[] = [];
-    for (let p = 0; p < pairCount; p++) {
-      pairs.push(`${fieldNames[p]}: ${argList[p].trim()}`);
+    const pairCount = Math.min(argList.length, fieldNames.length);
+    for (let p = 0; p < argList.length; p++) {
+      const named = argList[p].match(NAMED_ARG_RE);
+      if (named) {
+        // Already `name: value` — emit verbatim (canonical-spaced).
+        pairs.push(`${named[1]}: ${named[2].trim()}`);
+      } else if (p < pairCount) {
+        // Positional — pair with the declared field name by position.
+        pairs.push(`${fieldNames[p]}: ${argList[p].trim()}`);
+      }
     }
     const dataLiteral = pairs.length === 0 ? "{}" : `{ ${pairs.join(", ")} }`;
     out.push(`{ variant: ${JSON.stringify(variantName)}, data: ${dataLiteral} }`);

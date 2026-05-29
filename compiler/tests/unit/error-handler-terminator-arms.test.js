@@ -73,7 +73,9 @@ describe("R24-BUG-2 §1: single-arm handler with `{ return }` body", () => {
       makeBareExpr("createTicket(values)"),
       [makeArm("::Validation", "msg", "{ return }")]
     );
-    const result = resetAndRun(() => emitLogicNode(node));
+    // S142 gate-tail: the early-return-on-error arm idiom is in-function-only
+    // (a top-level `return` is invalid JS — the emit gate catches it).
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
     // No `_scrml_result_N = return;` SyntaxError shape
     expect(result).not.toMatch(/_scrml_\w+\s*=\s*return\s*;/);
     // The terminator IS emitted
@@ -95,7 +97,8 @@ describe("R24-BUG-2 §1: single-arm handler with `{ return }` body", () => {
       makeBareExpr("riskyOp()"),
       [makeArm("_", "e", "{ return }")]
     );
-    const result = resetAndRun(() => emitLogicNode(node));
+    // S142 gate-tail: in-function early-return idiom — insideFunctionBody:true.
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
     expect(result).not.toMatch(/_scrml_\w+\s*=\s*return\s*;/);
     expect(result).toMatch(/\breturn\s*;/);
   });
@@ -115,7 +118,8 @@ describe("R24-BUG-2 §2: multi-arm handler — all arms `{ return }`", () => {
         makeArm("::DbWrite", "msg", "{ return }"),
       ]
     );
-    const result = resetAndRun(() => emitLogicNode(node));
+    // S142 gate-tail: in-function early-return idiom — insideFunctionBody:true.
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
     expect(result).not.toMatch(/_scrml_\w+\s*=\s*return\s*;/);
     // All three `return;` statements present
     const returnCount = (result.match(/^\s*return\s*;/gm) || []).length;
@@ -152,7 +156,8 @@ describe("R24-BUG-2 §3: mixed handler — terminating + value-producing arms", 
         makeArm("::ValidationError", "e", '{ "fallback" }'),
       ]
     );
-    const result = resetAndRun(() => emitLogicNode(node));
+    // S142 gate-tail: in-function (arm 1's bare `return`) — insideFunctionBody:true.
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
     // No `_result = return;`
     expect(result).not.toMatch(/_scrml_\w+\s*=\s*return\s*;/);
     // Value-producing arm DOES get the wrap
@@ -305,7 +310,8 @@ describe("R24-BUG-2 §9: side-effect + terminal `return` — both emit as stmts"
       makeBareExpr("fetchItems()"),
       [makeArm("::Network", "msg", "{ @phase = .Error(msg); return }")]
     );
-    const result = resetAndRun(() => emitLogicNode(node));
+    // S142 gate-tail: in-function (terminal `return`) — insideFunctionBody:true.
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
     // No `_result = ...` wrap on the terminator
     expect(result).not.toMatch(/_scrml_\w+\s*=\s*[^;]*return\s*;/);
     // The reactive set IS emitted

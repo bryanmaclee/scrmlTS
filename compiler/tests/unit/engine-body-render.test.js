@@ -470,13 +470,19 @@ describe("Phase A10 Phase 3 §9 — emit-variant-guard helper unit tests", () =>
 
 describe("Phase A10 Phase 3 §10 — structural-element filter at boundary", () => {
   test("<onTransition> inside arm body is NOT rendered into HTML", () => {
+    // S142 gate-tail: the <onTransition> body is a code-default body (§51.0.H /
+    // S111 quoted-text model). The pre-S142 fixture used bare prose `hook body`
+    // (two bare idents = invalid JS the emit gate now catches). Use a valid
+    // effect statement; the test asserts the structural-element FILTER (the
+    // <onTransition> is stripped from the render fn + HTML), not the body text.
     const src = `\${
   type Phase:enum = { Idle, Loading }
+  <transitionLog> = ""
 }
 <engine for=Phase initial=.Idle>
   <Idle rule=.Loading>
     <div>Real markup</div>
-    <onTransition to=.Loading>hook body</onTransition>
+    <onTransition to=.Loading>@transitionLog = "fired"</onTransition>
   </>
   <Loading rule=.Idle></>
 </>
@@ -489,11 +495,10 @@ describe("Phase A10 Phase 3 §10 — structural-element filter at boundary", () 
     if (renderFnMatch) {
       expect(renderFnMatch[0]).toContain("Real markup");
       expect(renderFnMatch[0]).not.toContain("onTransition");
-      expect(renderFnMatch[0]).not.toContain("hook body");
     }
-    // HTML mount slot contains the div but not onTransition
+    // HTML mount slot contains the div but not the onTransition element
     expect(html).toContain("Real markup");
-    expect(html).not.toContain("hook body");
+    expect(html).not.toContain("onTransition");
   });
 
   test("<onTimeout/> sibling inside arm body is NOT rendered", () => {

@@ -54,6 +54,8 @@ Options:
   --emit-machine-tests    Emit <base>.machine.test.js for each source (§51.13)
   --watch, -w             Watch for changes and recompile
   --convert-legacy-css    Convert <style> blocks to #{...}
+  --validate-emit         Parse every emitted JS artifact (E-CODEGEN-INVALID-JS); abort on malformed output (§2.2.1)
+  --no-validate-emit      Opt out of the emitted-JS parse gate (dev/CI escape hatch)
   --mode <mode>           Output mode: browser (default) or library
   --self-host             Use compiled scrml modules (requires build-self-host.js)
   --parser=scrml-native   Opt-in native-parser routing (M5-swap C2). When set,
@@ -117,6 +119,13 @@ function parseArgs(args) {
   // accepts only `scrml-native` at this milestone; any other value errors.
   // Default null = legacy pipeline, no shadow.
   let parser = null;
+  // S142 — emitted-JS parse gate (validate-emit). `undefined` = use the
+  // compileScrml default (api.js); `--validate-emit` forces it on, and
+  // `--no-validate-emit` is the dev/CI opt-out for the rare case an adopter
+  // must bypass a suspected false-positive while a codegen fix lands. The
+  // opt-out is an OPERATIONAL escape, NOT a relaxation of the SPEC §2.2.1
+  // "SHALL NOT emit JS that fails to parse" invariant.
+  let validateEmit = undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -185,6 +194,12 @@ function parseArgs(args) {
       chunkSizeBudgetBytes = Math.floor(parsed);
     } else if (arg === "--emit-machine-tests") {
       emitMachineTests = true;
+    } else if (arg === "--validate-emit") {
+      // S142 — force the emitted-JS parse gate on (E-CODEGEN-INVALID-JS).
+      validateEmit = true;
+    } else if (arg === "--no-validate-emit") {
+      // S142 — opt out of the emitted-JS parse gate (dev/CI escape hatch).
+      validateEmit = false;
     } else if (arg === "--no-gather") {
       // W2 §21.7: opt out of transitive .scrml import closure pre-pass.
       gather = false;
@@ -251,7 +266,7 @@ function parseArgs(args) {
     }
   }
 
-  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, watchMode, mode, selfHost, emitBatchPlan, emitReachability, emitPerRoute, chunkSizeBudgetBytes, emitMachineTests, gather, debugPerf, parser };
+  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, watchMode, mode, selfHost, emitBatchPlan, emitReachability, emitPerRoute, chunkSizeBudgetBytes, emitMachineTests, gather, debugPerf, parser, validateEmit };
 }
 
 // ---------------------------------------------------------------------------
@@ -381,7 +396,7 @@ function formatLintDiagnostic(diag, cwd) {
  * @returns {{ success: boolean }}
  */
 function runOnce(opts, selfHostModules = null) {
-  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, mode, emitBatchPlan, emitReachability, emitPerRoute, chunkSizeBudgetBytes, emitMachineTests, gather, debugPerf, parser } = opts;
+  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, mode, emitBatchPlan, emitReachability, emitPerRoute, chunkSizeBudgetBytes, emitMachineTests, gather, debugPerf, parser, validateEmit } = opts;
   const cwd = process.cwd();
 
   if (verbose) {
@@ -426,6 +441,11 @@ function runOnce(opts, selfHostModules = null) {
       // I-PARSER-NATIVE-SHADOW routing-confirmation info diagnostic. The flag
       // is strictly opt-in; the live pipeline is the unchanged default.
       parser,
+      // S142 — `--validate-emit` / `--no-validate-emit`. `undefined` here lets
+      // compileScrml apply its own default (api.js); `true`/`false` override.
+      // The emitted-JS parse gate (E-CODEGEN-INVALID-JS) makes SPEC §2.2.1 a
+      // compile-time invariant; `--no-validate-emit` is the operational opt-out.
+      validateEmit,
     });
   } catch (err) {
     // ENOENT — file not found, not a compiler bug

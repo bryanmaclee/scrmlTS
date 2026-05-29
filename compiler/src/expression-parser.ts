@@ -1032,6 +1032,22 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
   // placeholder path below.
   s = s.replace(/::(?=\s*[A-Z])/g, ".");
 
+  // S142 gate-tail: collapse the BS tokenizer's space-padded optional-chaining
+  // operator `? .` back to `?.` so acorn parses `file.ast?.filePath` as an
+  // optional chain rather than a malformed ternary. The block-splitter spaces
+  // operators (`file . ast ? . filePath`), and without this collapse the
+  // space-padded form fails to parse (escape-hatch ParseError), forcing the
+  // string-rewrite fallback that leaves `? .` uncollapsed → invalid JS
+  // (surfaced via stdlib/compiler/module-resolver.scrml).
+  //
+  // Disambiguation from a ternary: optional-chaining `?.` is followed by a
+  // PROPERTY access (lowercase/`_`/`$` ident start), an index `[`, or a call
+  // `(`. A ternary consequent can begin with a bare-dot variant `.Active`
+  // (`cond ? .Active : .Idle`) — its leading char after `.` is UPPERCASE — so
+  // gating the collapse on a non-uppercase following char preserves ternaries
+  // with bare-variant arms.
+  s = s.replace(/\?\s*\.\s*(?=[a-z_$[(])/g, "?.");
+
   // Replace `match expr { arms }` with placeholder
   // This is processed first because match may contain `is` operators inside arms.
   s = preprocessMatchExprs(s);

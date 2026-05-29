@@ -205,6 +205,8 @@ The compiler SHALL NOT emit JavaScript that fails to parse. A successful compile
 
 This invariant is enforced by an in-process parse gate: after codegen produces the final artifacts, the compiler parses each one and, on any parse failure, aborts the compile with `E-CODEGEN-INVALID-JS` (§34) and writes no codegen output artifacts. The gate is a syntactic backstop only — it catches malformed (unparseable) emission, not semantically-incorrect-but-parseable emission. (Ratified S141; implemented by `compiler/src/codegen/validate-emit.ts`, mirroring the `E-META-EVAL-002` reparse-emitted precedent of §22.4.)
 
+**Operational opt-out — `--no-validate-emit` (S142).** The `compile` / `build` / `dev` commands accept a `--no-validate-emit` flag (and the explicit `--validate-emit`) that toggles the gate for a single invocation. `--no-validate-emit` is an OPERATIONAL escape — a way for an adopter to keep building while a suspected gate false-positive (or a known codegen defect) is investigated and fixed. It SHALL NOT be read as a relaxation of the invariant above: even with the gate disabled, the compiler emitting unparseable JavaScript is a compiler defect, and the invariant ("the compiler SHALL NOT emit JavaScript that fails to parse") continues to hold normatively. The flag suppresses the gate's enforcement, not the requirement it enforces.
+
 ### 2.3 Entry Point
 
 The compiler is invoked as:

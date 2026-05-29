@@ -1192,11 +1192,22 @@ function emitCall(node: CallExpr, ctx: EmitExprContext): string {
         // §57) both produce valid JS. The type-checker's earlier passes
         // catch arity mismatches as E-TYPE-* — by codegen, the call is
         // arity-aligned in well-typed programs.
+        // S142 gate-tail (parity with rewrite.ts:_rewritePayloadVariantConstructorCalls):
+        // named-field construction `.X(field: value)` (§18.7 named form). When
+        // an emitted arg is already in `name: value` form, the field name is on
+        // the arg — emit it verbatim instead of re-prefixing with the positional
+        // fieldNames[i] (which produced the malformed `field: field: value`).
+        const NAMED_ARG_RE = /^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*:(?!:)\s*([\s\S]+)$/;
         const argExprs = node.args.map(a => emitExpr(a, ctx));
         const pairCount = Math.min(argExprs.length, fieldNames.length);
         const pairs: string[] = [];
-        for (let i = 0; i < pairCount; i++) {
-          pairs.push(`${fieldNames[i]}: ${argExprs[i]}`);
+        for (let i = 0; i < argExprs.length; i++) {
+          const named = argExprs[i].match(NAMED_ARG_RE);
+          if (named) {
+            pairs.push(`${named[1]}: ${named[2].trim()}`);
+          } else if (i < pairCount) {
+            pairs.push(`${fieldNames[i]}: ${argExprs[i]}`);
+          }
         }
         const dataLiteral = pairs.length === 0 ? "{}" : `{ ${pairs.join(", ")} }`;
         return `{ variant: ${JSON.stringify(variantName)}, data: ${dataLiteral} }`;
@@ -1307,6 +1318,9 @@ export function arrowBodyNeedsParens(value: ExprNode): boolean {
  * fearing double-wrap.
  */
 export function arrowBodyStringNeedsParens(body: string): boolean {
+  // Defensive: a non-string body (some emit paths can hand `undefined` when an
+  // upstream emit returned nothing) needs no wrap — and must not throw.
+  if (typeof body !== "string") return false;
   // Skip leading whitespace; bail on empty.
   let i = 0;
   while (i < body.length && (body[i] === " " || body[i] === "\t" || body[i] === "\n" || body[i] === "\r")) i++;

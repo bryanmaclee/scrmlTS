@@ -347,23 +347,41 @@ describe("emit-logic §19 §11: guarded-expr named type arm binds .data", () => 
 // ---------------------------------------------------------------------------
 
 describe("emit-logic §19 §12: guarded-expr no wildcard propagates", () => {
-  test("when no wildcard arm, unmatched errors return up to the enclosing !", () => {
+  // S142 gate-tail: the `return resultVar` error-propagation is only valid
+  // INSIDE a function body (a top-level `${...}` !{} has no enclosing function,
+  // so a bare `return` is `'return' outside of function` — invalid JS the emit
+  // gate catches). These two tests exercise the in-function shape and so MUST
+  // pass insideFunctionBody:true (a `!{}` that propagates via `return` only
+  // makes sense inside a function). The top-level no-return shape is covered by
+  // the companion test below.
+  test("when no wildcard arm, unmatched errors return up to the enclosing ! (in fn)", () => {
     const node = makeGuardedExpr(
       makeBareExpr("parse(text)"),
       [makeArm("::ParseError", "e", "handleParse(e)")]
     );
-    const result = resetAndRun(() => emitLogicNode(node));
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
     expect(result).toMatch(/else \{ return _scrml_\w+; \}/);
   });
 
-  test("propagate uses the result variable holding the error", () => {
+  test("propagate uses the result variable holding the error (in fn)", () => {
     const node = makeGuardedExpr(
       makeBareExpr("parse(text)"),
       [makeArm("::ParseError", "e", "handleParse(e)")]
     );
-    const result = resetAndRun(() => emitLogicNode(node));
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
     const m = result.match(/else \{ return (_scrml_\w+); \}/);
     expect(m).not.toBeNull();
+  });
+
+  test("at TOP-LEVEL ${...} (no enclosing fn) the no-wildcard case emits NO return", () => {
+    const node = makeGuardedExpr(
+      makeBareExpr("parse(text)"),
+      [makeArm("::ParseError", "e", "handleParse(e)")]
+    );
+    // Default opts — no insideFunctionBody. A bare `return` here would be
+    // invalid JS; the unhandled error stays in resultVar instead.
+    const result = resetAndRun(() => emitLogicNode(node));
+    expect(result).not.toMatch(/\breturn\b/);
   });
 });
 
@@ -422,14 +440,26 @@ describe("emit-logic §19 §14: guarded-expr arm binding reads .data", () => {
 // ---------------------------------------------------------------------------
 
 describe("emit-logic §19 §15: guarded-expr empty arms propagate", () => {
-  test("empty arms array emits a bare propagate (return resultVar) inside the check", () => {
+  test("empty arms array emits a bare propagate (return resultVar) inside the check (in fn)", () => {
+    const node = makeGuardedExpr(
+      makeBareExpr("risky()"),
+      []
+    );
+    // S142 gate-tail: the bare-propagate `return resultVar` is in-function-only
+    // (top-level would be invalid JS); pass insideFunctionBody:true.
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
+    expect(result).toContain("__scrml_error");
+    expect(result).toMatch(/return _scrml_\w+;/);
+  });
+
+  test("empty arms array at TOP-LEVEL emits the __scrml_error check with NO return", () => {
     const node = makeGuardedExpr(
       makeBareExpr("risky()"),
       []
     );
     const result = resetAndRun(() => emitLogicNode(node));
     expect(result).toContain("__scrml_error");
-    expect(result).toMatch(/return _scrml_\w+;/);
+    expect(result).not.toMatch(/\breturn\b/);
   });
 });
 

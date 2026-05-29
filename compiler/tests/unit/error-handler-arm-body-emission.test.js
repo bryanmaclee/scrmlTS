@@ -189,7 +189,10 @@ describe("R25-Bug-38 §4: R24-BUG-2 regression — terminator-tail still works",
       makeBareExpr("loadThing()"),
       [makeArm("::Network", "msg", '{ @phase = .Error(msg); return }')]
     );
-    const result = resetAndRun(() => emitLogicNode(node));
+    // S142 gate-tail: the early-return-on-error arm idiom is in-function-only
+    // (a top-level `return` is invalid JS — the emit gate catches it). Pass
+    // insideFunctionBody:true to exercise the canonical in-function shape.
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
     // No wrap of any kind on the arm body
     expect(result).not.toMatch(/_scrml_\w+_\d+\s*=\s*_scrml_reactive_set/);
     expect(result).not.toMatch(/_scrml_\w+\s*=\s*return\s*;/);
@@ -204,14 +207,27 @@ describe("R25-Bug-38 §4: R24-BUG-2 regression — terminator-tail still works",
     expect(retIdx).toBeGreaterThan(setIdx);
   });
 
-  test("plain `{ return }` body still emits bare `return;`", () => {
+  test("plain `{ return }` body still emits bare `return;` (in fn)", () => {
     const node = makeGuardedExpr(
       makeBareExpr("riskyOp()"),
       [makeArm("::Bad", null, "{ return }")]
     );
-    const result = resetAndRun(() => emitLogicNode(node));
+    // S142 gate-tail: in-function early-return idiom — insideFunctionBody:true.
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
     expect(result).not.toMatch(/_scrml_\w+\s*=\s*return\s*;/);
     expect(result).toMatch(/\breturn\s*;/);
+  });
+
+  test("at TOP-LEVEL a `{ return X }` arm rewrites to a resultVar assignment (no bare return)", () => {
+    const node = makeGuardedExpr(
+      makeBareExpr("riskyOp()"),
+      [makeArm("::Bad", null, '{ return "fallback" }')]
+    );
+    // No insideFunctionBody — top-level. The terminal `return "fallback"`
+    // becomes `resultVar = "fallback"` (the arm value); no bare top-level return.
+    const result = resetAndRun(() => emitLogicNode(node));
+    expect(result).not.toMatch(/\breturn\b/);
+    expect(result).toMatch(/_scrml_\w+\s*=\s*"fallback"\s*;/);
   });
 });
 
@@ -232,7 +248,8 @@ describe("R25-Bug-38 §5: mixed multi-arm — terminator + value + side-effect",
         makeArm("_", "e", '{ @phase = "error" }'),
       ]
     );
-    const result = resetAndRun(() => emitLogicNode(node));
+    // S142 gate-tail: arm 1's bare `return` is in-function-only.
+    const result = resetAndRun(() => emitLogicNode(node, { boundary: "client", insideFunctionBody: true }));
     // Arm 1: bare return
     expect(result).toMatch(/\breturn\s*;/);
     expect(result).not.toMatch(/_scrml_\w+\s*=\s*return\s*;/);

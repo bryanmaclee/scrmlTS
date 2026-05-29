@@ -39,6 +39,8 @@ Options:
   --verbose, -v           Show per-stage timing and counts
   --embed-runtime         Embed runtime inline instead of writing a separate file
   --convert-legacy-css    Convert <style> blocks to #{...}
+  --validate-emit         Parse every emitted JS artifact (E-CODEGEN-INVALID-JS); abort on malformed output
+  --no-validate-emit      Opt out of the emitted-JS parse gate (dev/CI escape hatch)
   --help, -h              Show this message
 
 Examples:
@@ -63,6 +65,9 @@ function parseArgs(args) {
   let port = 3000;
   // W2 §21.7: auto-gather defaults ON. `--no-gather` opts out.
   let gather = true;
+  // S142 — emitted-JS parse gate. undefined = compileScrml default; `true`
+  // forces on; `false` (--no-validate-emit) is the dev opt-out.
+  let validateEmit = undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -74,6 +79,10 @@ function parseArgs(args) {
       convertLegacyCss = true;
     } else if (arg === "--embed-runtime") {
       embedRuntime = true;
+    } else if (arg === "--validate-emit") {
+      validateEmit = true;
+    } else if (arg === "--no-validate-emit") {
+      validateEmit = false;
     } else if (arg === "--no-gather") {
       // W2 §21.7: opt out of transitive .scrml import closure pre-pass.
       gather = false;
@@ -103,7 +112,7 @@ function parseArgs(args) {
     }
   }
 
-  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, port, gather };
+  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, port, gather, validateEmit };
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +237,7 @@ async function loadServerRoutes(outputDir) {
  * @returns {{ success: boolean, outputDir: string }}
  */
 function runOnce(opts, gatheredOut) {
-  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, gather } = opts;
+  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, gather, validateEmit } = opts;
 
   const result = compileScrml({
     inputFiles,
@@ -239,6 +248,8 @@ function runOnce(opts, gatheredOut) {
     gather,
     write: true,
     log: console.log,
+    // S142 — `--validate-emit` / `--no-validate-emit`. undefined = compileScrml default.
+    validateEmit,
   });
 
   // W2 B5: surface the gathered .scrml file set so the watcher can extend

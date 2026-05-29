@@ -288,8 +288,19 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
   // rather than inverting it into a member-call. Net E-SCOPE-001 movement:
   // 2 → 0. With both fires gone, the no-fatal-error compile-completion
   // invariant holds end-to-end (test §1 above is now active).
+  //
+  // S142 gate-found-tail (C11): seeds.scrml migrated off the non-canonical
+  // `function f() { server { ... } }` block-statement shape (SPEC has no
+  // `server {` block-statement form) to a plain `export function runSeeds()`
+  // whose `?{}` body auto-escalates to server via body-content inference
+  // (Insight 26). Removing the malformed `server { ... }` bare-expr stub
+  // eliminates the E-ROUTE-001 fire it caused:
+  //   - E-ROUTE-001 1 → 0 (the RI computed-member-access warning on the
+  //     `_customers[i]`-style accesses inside the malformed stub — see the
+  //     S99 RI note above; the stub no longer exists so the trigger is gone).
+  // The two W-CG-CHUNK-* warnings are UNAFFECTED (still 1 each) — they are
+  // about the empty seeds route chunk under emitPerRoute, not the stub.
   const EXPECTED_BASELINE = {
-    "E-ROUTE-001": 1,
     "I-AUTH-REDIRECT-UNRESOLVED": 1,
     "W-ATTR-001": 20,
     "W-AUTH-001": 20,

@@ -39,6 +39,8 @@ Options:
   --embed-runtime           Embed runtime inline instead of writing a separate file
   --minify                  Accepted flag (minification is a Phase 2 feature)
   --verbose, -v             Per-stage timing and counts
+  --validate-emit           Parse every emitted JS artifact (E-CODEGEN-INVALID-JS); abort on malformed output
+  --no-validate-emit        Opt out of the emitted-JS parse gate (dev/CI escape hatch)
   --target <platform>       Deploy adapter: fly|railway|render|static|docker
   --help, -h                Show this message
 
@@ -62,11 +64,18 @@ export function parseArgs(args) {
   let minify = false;
   let verbose = false;
   let target = null;
+  // S142 — emitted-JS parse gate. undefined = compileScrml default; `true`
+  // forces on; `false` (--no-validate-emit) is the dev/CI opt-out.
+  let validateEmit = undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--output" || arg === "-o") {
       outputDir = args[++i];
+    } else if (arg === "--validate-emit") {
+      validateEmit = true;
+    } else if (arg === "--no-validate-emit") {
+      validateEmit = false;
     } else if (arg === "--embed-runtime") {
       embedRuntime = true;
     } else if (arg === "--minify") {
@@ -102,7 +111,7 @@ export function parseArgs(args) {
     }
   }
 
-  return { inputDir, outputDir, embedRuntime, minify, verbose, target };
+  return { inputDir, outputDir, embedRuntime, minify, verbose, target, validateEmit };
 }
 
 /**
@@ -607,6 +616,10 @@ export async function runBuild(args) {
     embedRuntime: opts.embedRuntime,
     write: true,
     log: console.log,
+    // S142 — `--validate-emit` / `--no-validate-emit`. undefined = compileScrml
+    // default; the emitted-JS parse gate (E-CODEGEN-INVALID-JS) is especially
+    // valuable for `build` (catches malformed output before deploy).
+    validateEmit: opts.validateEmit,
   });
 
   if (result.errors.length > 0) {

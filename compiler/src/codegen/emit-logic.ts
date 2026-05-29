@@ -617,7 +617,13 @@ function _emitDefaultSidecar(node: any, qualifiedName: string, opts: EmitLogicOp
   const defaultBody = emitExpr(defaultExpr, _makeExprCtx(opts));
   // GITI-014: paren-wrap object-literal bodies — `() => {a: 1}` mis-parses
   // as a block statement; `() => ({a: 1})` parses as the expression we want.
-  const wrappedDefault = arrowBodyNeedsParens(defaultExpr) ? `(${defaultBody})` : defaultBody;
+  // S142 gate-tail: also use the emitted-string predicate so a payload-variant
+  // constructor `.Circle(5)` (a `call` node emitting an object literal) is
+  // paren-wrapped (the AST kind-check alone misses it).
+  const wrappedDefault =
+    arrowBodyNeedsParens(defaultExpr) || arrowBodyStringNeedsParens(defaultBody)
+      ? `(${defaultBody})`
+      : defaultBody;
   return `_scrml_default_set(${JSON.stringify(encodedName)}, () => ${wrappedDefault});`;
 }
 
@@ -694,7 +700,15 @@ function _emitInitThunkSidecar(node: any, qualifiedName: string, opts: EmitLogic
     const initBody = emitExpr(node.initExpr, _makeExprCtx(opts));
     // GITI-014: paren-wrap object-literal bodies — `() => {a: 1}` mis-parses
     // as a block statement; `() => ({a: 1})` parses as the expression we want.
-    const wrappedInit = arrowBodyNeedsParens(node.initExpr) ? `(${initBody})` : initBody;
+    // S142 gate-tail: the AST predicate (kind === "object") misses a payload-
+    // variant constructor call `.Circle(5)` — a `call` AST node that EMITS to
+    // an object literal `{ variant: "Circle", data: {...} }`. Use the
+    // emitted-string predicate too (leading `{` is the definitive signal), so
+    // `() => { variant: ... }` (which mis-parses as a block) gets paren-wrapped.
+    const wrappedInit =
+      arrowBodyNeedsParens(node.initExpr) || arrowBodyStringNeedsParens(initBody)
+        ? `(${initBody})`
+        : initBody;
     return `_scrml_init_set(${JSON.stringify(encodedName)}, () => ${wrappedInit});`;
   }
   const initStr: string = node.init ?? "";
@@ -2658,6 +2672,22 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       const isStatementShapeStmt = (stmt: string): boolean =>
         /^(?:_scrml_reactive_set\s*\(|_scrml_engine_[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(|_scrml_navigate\s*\(|_scrml_register_cleanup\s*\(|_scrml_effect\s*\(|_scrml_init_set\s*\()/.test(stmt);
 
+      // S142 gate-tail (surface 8): at TOP-LEVEL `${...}` there is no enclosing
+      // function, so a terminal `return X` written in an arm body is invalid JS
+      // (`'return' outside of function` — caught by the emit gate). Inside a
+      // function `return X` is the canonical early-return-on-error idiom (PRIMER
+      // §6) and stays as-is. At top level, rewrite the terminal `return X` to
+      // `resultVar = X` so the arm's value becomes the guarded expression's
+      // result (the binding takes it) instead of an illegal return. A bare
+      // `return;` (no value) becomes `resultVar = null` (canonical absence).
+      const rewriteTopLevelReturn = (stmt: string): string => {
+        if (opts.insideFunctionBody) return stmt;
+        const m = stmt.match(/^return\b\s*([\s\S]*?)\s*;?$/);
+        if (!m) return stmt;
+        const val = (m[1] ?? "").trim();
+        return val ? `${resultVar} = ${val}` : `${resultVar} = null`;
+      };
+
       const emitArmAssign = (armBody: string): string[] => {
         const trimmed = armBody.trim();
         // M-7C-D-12 Track 3: empty-body arm produces `resultVar = null;` (was `= undefined;`)
@@ -2665,8 +2695,12 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         if (!trimmed) return [`    ${resultVar} = null;`];
         if (trimmed.includes("\n")) {
           // Multi-statement handler: emit body as-is (authors should assign to
-          // resultVar themselves for non-trivial bodies).
-          return trimmed.split("\n").map((l) => `    ${l}`);
+          // resultVar themselves for non-trivial bodies). A terminal top-level
+          // `return` is rewritten to a resultVar assignment (see helper).
+          const ls = trimmed.split("\n");
+          return ls.map((l, idx) =>
+            idx === ls.length - 1 ? `    ${rewriteTopLevelReturn(l.trim())}` : `    ${l}`,
+          );
         }
         // R24-BUG-2: when the LAST top-level statement of the arm body is a
         // JS terminator (`return`/`throw`/`break`/`continue`), the body is
@@ -2680,7 +2714,11 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         // execute before the terminator fires.
         const stmts = splitTopLevelStmts(trimmed);
         if (stmts.length > 0 && isTerminatorStmt(stmts[stmts.length - 1])) {
-          return stmts.map((s) => `    ${s};`);
+          // A terminal top-level `return` rewrites to a resultVar assignment
+          // (no enclosing fn at top level); inside a fn it stays a `return`.
+          return stmts.map((s, idx) =>
+            idx === stmts.length - 1 ? `    ${rewriteTopLevelReturn(s)};` : `    ${s};`,
+          );
         }
         // R25-Bug-38 (known-gaps Bug 38): when the arm body is multi-statement
         // (more than one top-level `;`-separated stmt), it MUST be statement-
@@ -2736,9 +2774,18 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         }
         if (!hasWildcard) {
           // No wildcard — propagate the unhandled error variant up.
-          lines.push(`  else { return ${resultVar}; }`);
+          // Inside a function body this is `return resultVar` (escalate the
+          // error to the caller). At TOP-LEVEL `${...}` there is no enclosing
+          // function, so a bare `return` would be `'return' outside of
+          // function` (invalid JS — caught by the emit gate). At top level the
+          // unhandled error simply remains the value of resultVar (and of any
+          // `var binding = resultVar` emitted below), which is the correct
+          // top-level semantics — no statement is needed.
+          if (opts.insideFunctionBody) {
+            lines.push(`  else { return ${resultVar}; }`);
+          }
         }
-      } else {
+      } else if (opts.insideFunctionBody) {
         lines.push(`  return ${resultVar};`);
       }
 
