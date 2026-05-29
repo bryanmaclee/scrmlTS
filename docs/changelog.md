@@ -2,7 +2,7 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-28 **v0.6.5 cut at S139**). Full suite **22,043 pass / 0 fail / 219 skip / 1 todo across ~822 files** (+10 from v0.6.4 — 5 Bug 56 regression tests + 6 Bug 51 regression tests minus pre-existing variations). v0.6.5 = **two silent-miscompile classes closed**: Bug 56 (CPS scheduler TDZ + non-decl-in-Promise.all — adopter code shaped `const x = serverFn(); @y = x.field;` ran broken at runtime) + Bug 51-A/B (Shape 2 + render-by-tag — EVERY adopter file with a Shape 2 use-site silently emitted the literal tag in HTML; cells got empty-arg init). Both bug classes produced `node --check`-clean emit while being runtime-broken — exactly the kind of fix patch releases exist to flag. Plus dashboard restructured (refresh / verify race-free) demonstrating the Bug 56 fix. Canon-clear health: **GREEN**. HIGH=0 · MED=6 (Bug 51 reduced to one open sub-bug C with workaround) · LOW=12 · Nominal=7.
+Current baseline (2026-05-28 **v0.6.6 cut at S139**). Full suite **~22,055 pass / 0 fail / 219 skip / 1 todo across ~783 files** (+12 from v0.6.5 — Bug 51-C scanner regression-guard tests + flipped test). v0.6.6 = **Bug 51 FULLY RESOLVED** via Bug 51-C BS-layer gobble (new scanner `scanShape12DeclEnd()` scans whole Shape 2 decl span including markup RHS as single text block; mirrors compound-state-decl path). Shape 2 + render-by-tag now works end-to-end at every declaration position: file-top, inside `<program>` auto-lifted, and inside explicit `${...}` wrap. Canon-clear health: **GREEN**. HIGH=0 · MED=5 · LOW=12 · Nominal=7.
 
 ### 2026-05-28 (S138 CLOSE — 10 bugs closed (5 HIGH + 4 LOW + 1 MED redux) + Bug 9 L1+L2 paired-fix close + v0.6.2 release + pa.md R26 doctrine bidirectional extension)
 
@@ -774,6 +774,29 @@ S115 ran the M5/M6 compressed-MD-ladder (DD #27) through its v0.5 cut and v0.6 b
 - **Living Compiler retraction (draft) + dev.to article truthfulness audit + fix pass.** All 12 articles classified; 11 corrected — 8-article retracted-link scrub, de-versioned banners, per-article correction notes.
 - **scrml-support corpus currency sweep.** 3 stale-and-cited docs marked; the doc-currency convention (`status:` enum + `last-reviewed:`/`superseded-by:` + same-landing discipline) ratified into `pa.md`.
 - **Two compiler-concept deep-dives** — the code-import story (incl. a content-addressed `vendor:` design) and the build-story compiler model.
+
+## v0.6.6 — 2026-05-28 (patch — Bug 51-C (auto-lift BS-gobble) RESOLVED; Bug 51 FULLY closed end-to-end)
+
+v0.6.6 cuts the closure of Bug 51-C, the third and final sub-bug of the Bug 51 cluster surfaced and fixed in S139. With this cut Shape 2 + render-by-tag works end-to-end at every declaration position: file-top, inside `<program>` auto-lifted, and inside explicit `${...}` wrap. Per S94 bump-on-tag. Cut at S139.
+
+**Bug 51-C RESOLVED (commit `da4ffd1a`):**
+
+- **Root cause:** at top-level of `<program>` / `<page>` / `<channel>` body, BS recognized the state-decl signal but the post-detection flow let per-char text accumulation continue. That works for Shape 1 expression-RHS (no `<` in RHS) but breaks for Shape 2 markup-RHS (`<userName req> = <input/>`) — the `<input>` opener triggered the markup-opener path on the next loop iteration and became a SIBLING block. The auto-lift wrapped LHS-only text, parser produced shape:"plain" cell with no renderSpec, SYM fired `E-CELL-NO-RENDER-SPEC` on the use-site.
+- **Fix:** new BS scanner `scanShape12DeclEnd()` (`block-splitter.js`) scans the WHOLE Shape 2 decl span (LHS opener + `=`/`:` + markup RHS) with balanced markup handling (self-closing `/>`, nested tags, balanced `<X>...</X>`) and emits the entire span as a single text block, mirroring the compound-state-decl path at `scanCompoundBlockEnd`. For Shape 1 expression-RHS and Shape 3 multi-line `match {...}` derived, the scanner returns -1 and legacy per-char accumulation handles them (regression-guarded across 2 added tests). Text-block gobble anchors at `textStart` when set, preserving `const ` / `export const ` prefix in the same block (required by ast-builder.js's TOPLEVEL_STATE_DECL_RE lift regex).
+- **Two iteration failures caught + fixed during the change:**
+  - Initial draft split `const ` from `<NAME>` (broke R25-Bug-37 §7 `const <filtered> = @items.filter(...)`); fix: anchor at `textStart`.
+  - Initial draft scanned expression-RHS to end-of-line (truncated multi-line `match {...}`; broke match-arm-rhs-bare-variant-unmask §2.1); fix: scanner returns -1 for non-markup RHS.
+  Both surfaced via the broader test corpus — strong validation that adjacent shapes were well-covered even if Shape 2 wasn't.
+- **isComponent routing budget** for block-splitter.js bumped 26 → 27 to account for the new write-side `isComponent: false` stamp (mirror of S101 Bug-3 compound pattern).
+- **3 new regression tests** in `compiler/tests/unit/bug-51-shape-2-render-by-tag-end-to-end.test.js` §3.2 (auto-lift case flipped from open-gap-fails to closed-gap-passes) + §3.3 (Shape 1 regression guard) + §3.4 (Shape 3 multi-line guard).
+
+**Tests:** 22,043 (v0.6.5) → ~22,055 (+12). 0 fail.
+
+**Net inventory delta:** Bug 51 fully closed (MED 6 → 5).
+
+**Methodology bank:** Bug 51-C was the third confirmation of the "shipped feature with no adopter test coverage" pattern (after Bug 11, Bug 51-A/B). The corpus-coverage gap matters as much as the code fix; closing it via the 8-test regression suite prevents silent re-regression.
+
+**3 commits since v0.6.5** (`fc10cccb..24eecdac`; release commit will be the fourth).
 
 ## v0.6.5 — 2026-05-28 (patch — Bug 56 (CPS scheduler) + Bug 51-A/B (Shape 2 + render-by-tag end-to-end) — TWO silent-miscompile classes closed)
 
