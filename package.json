@@ -1,6 +1,6 @@
 {
   "name": "scrmlts",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "description": "A complete compiler for the web.",
   "type": "module",
   "private": true,
