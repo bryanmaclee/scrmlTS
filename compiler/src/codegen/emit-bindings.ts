@@ -360,8 +360,17 @@ export function emitBindings(ctx: CompileContext): string[] {
           : `[${bindDataAttr}]`;
 
         // Decompose dotted path: "form.email.field" → rootKey="form", pathSegs=["email","field"]
+        //
+        // Bug 58 (S140): `_flatBindKey` (set by formFor's synth bind) forces the
+        // ENTIRE dotted name to be treated as a single flat storage key. The §55
+        // validity surface stores per-field state under the dotted key
+        // ("signup.name") with the compound parent ("signup") as a DERIVED proxy
+        // reading those flat cells. A deep-set on the derived parent is a no-op,
+        // so the write MUST target "signup.name" directly. With the flag,
+        // isPath=false and rootKey is the full name → direct read/write.
+        const _flatBindKey = (bAttr.value as { _flatBindKey?: boolean })._flatBindKey === true;
         const dotIndex = bVarRaw.indexOf(".");
-        const isPath = dotIndex !== -1;
+        const isPath = _flatBindKey ? false : dotIndex !== -1;
         const rootKey = isPath ? bVarRaw.slice(0, dotIndex) : bVarRaw;
         const pathSegs = isPath ? bVarRaw.slice(dotIndex + 1).split(".") : [];
 

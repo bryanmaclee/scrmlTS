@@ -56,8 +56,20 @@ export interface EventBinding {
   eventName: string;
   handlerName: string;
   handlerArgs: unknown[];
+  /** Phase 4: structured ExprNode for each handler arg. */
+  handlerArgExprNodes?: import("../types/ast.ts").ExprNode[];
   /** Raw expression handler from ${...} attribute values (e.g. "() => fn(arg)"). */
   handlerExpr?: string;
+  /**
+   * Bug 58 (S140) — formFor synthesized submit binding.
+   *
+   * Set on the onsubmit `call-ref` binding synthesized by `<formFor>` to the
+   * compound cell name (e.g. `"signup"`). When present, the emitted submit
+   * handler sets `@<cell>.submitted = true` BEFORE invoking the handler and
+   * invokes the handler with the collected `values` (the compound cell value),
+   * both per SPEC §41.14.3. Absent on hand-authored onsubmit bindings.
+   */
+  formForSubmitCell?: string;
   /**
    * Phase A10 (S78, 2026-05-10) — engine arm context tag.
    *

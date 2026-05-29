@@ -41,6 +41,13 @@ interface EventBinding {
    * mechanism.
    */
   engineArm?: string;
+  /**
+   * Bug 58 (S140) — formFor synthesized submit binding. When set (to the
+   * compound cell name, e.g. `"signup"`), the emitted submit handler sets
+   * `@<cell>.submitted = true` before invoking the handler and passes the
+   * collected `values` (the compound cell value) into it, per §41.14.3.
+   */
+  formForSubmitCell?: string;
 }
 
 /** A logic binding recorded by HTML gen and consumed by client JS gen. */
@@ -471,6 +478,37 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       // call-ref path: resolve handler name and serialize arguments
       // Resolve the handler: check fnNameMap first, fall back to original name
       const resolvedHandler = fnNameMap.get(handlerName) || handlerName;
+
+      // Bug 58 (S140) — formFor synthesized submit handler (§41.14.3).
+      //
+      // When the onsubmit binding was synthesized by `<formFor>` (carries the
+      // compound cell name in `binding.formForSubmitCell`), the emitted handler
+      // SHALL:
+      //   1. preventDefault (submit is a delegable form event);
+      //   2. set `@<cell>.submitted = true` BEFORE invoking the handler — this
+      //      drives the §55 validity surface's `submitted` flag (the "show
+      //      errors after first submit attempt" UX gate);
+      //   3. invoke the handler with the collected `values` — the compound cell
+      //      value `_scrml_reactive_get("<cell>")` — so the server/client fn
+      //      receives `values: StructType` per its declared signature.
+      // `resolvedHandler` already routes server fns through their `_scrml_fetch_*`
+      // wrapper (fnNameMap), which itself takes `(values)`. Emitted shape:
+      //   function(event) { event.preventDefault();
+      //     _scrml_reactive_set("signup.submitted", true);
+      //     _scrml_fetch_persistSignup_14(_scrml_reactive_get("signup")); }
+      if (binding.formForSubmitCell) {
+        const ffCell = binding.formForSubmitCell;
+        const encodedCell = encodingCtx && encodingCtx.enabled ? encodingCtx.encode(ffCell) : ffCell;
+        const submittedKey = `${encodedCell}.submitted`;
+        const valuesArg = `_scrml_reactive_get(${JSON.stringify(encodedCell)})`;
+        handlerExpr =
+          `function(event) { event.preventDefault(); ` +
+          `_scrml_reactive_set(${JSON.stringify(submittedKey)}, true); ` +
+          `${resolvedHandler}(${valuesArg}); }`;
+        if (!byEventType.has(eventName)) byEventType.set(eventName, []);
+        byEventType.get(eventName)!.push({ placeholderId, handlerExpr });
+        continue;
+      }
 
       // S97 — reactive-method-call shape detection.
       //

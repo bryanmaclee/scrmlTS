@@ -4378,12 +4378,20 @@ function annotateNodes(
   //   3. Validate per §41.14.1-§41.14.8 (the 8 normative error codes).
   //   4. Build a FormForExpansion plan + invoke the emit-form-for expander to
   //      synthesize the equivalent compound state-decl + <form> markup tree.
-  //   5. Splice the synthesized nodes in place of the original <formFor>
-  //      node in the parent's children array.
+  //   5. Splice the synthesized <form> markup node in place of the original
+  //      <formFor> node in the parent's children array, AND route the
+  //      synthesized compound state-decl into a synthetic top-level `logic`
+  //      node (Bug 58, S140). The compound decl MUST NOT live among markup
+  //      children — collectTopLevelLogicStatements (collect.ts) only yields
+  //      state-decls from `kind:"logic"` nodes, so a markup-positioned decl
+  //      never reaches emit-logic / the §55 validity-surface pass (the entire
+  //      validity surface would be silently dead: isValid / per-field errors /
+  //      touched / submitted / validators never emitted).
   //
   // The rewrite makes the downstream stages (DG / VSS / CG) see a tree that
-  // is identical in shape to hand-authored Shape 2 + <form> + <errors>. Per
-  // §41.14.10 the emitted output is standard scrml — Pillar 5 invariant.
+  // is identical in shape to hand-authored Shape 2 (in `${...}`) + <form> +
+  // <errors>. Per §41.14.10 the emitted output is standard scrml — Pillar 5
+  // invariant — and rides the existing §6.2 + §55 emission pipelines.
   // ---------------------------------------------------------------------------
   const formForLocals = new Set<string>();
   function collectFormForImports(nodes: ASTNodeLike[]): void {
@@ -11103,20 +11111,32 @@ function walkAndExpandFormForNodes(
     return { compoundDecl, formElement };
   }
 
+  // Bug 58 (S140): synthesized compound state-decls collected during the walk.
+  // They are NOT spliced into the markup-children array (that is the bug — a
+  // state-decl sitting among markup children is seen only by the HTML/binding
+  // emitter, never by collectTopLevelLogicStatements → emit-logic → the §55
+  // validity-surface pass). Instead they are routed into a synthetic top-level
+  // `logic` node after the walk, exactly mirroring how a hand-authored
+  // `${ <signup>...</> }` compound reaches the state-declaration pipeline.
+  const synthCompoundDecls: ASTNodeLike[] = [];
+
   /**
-   * Splice the synthesized [compoundDecl, formElement] in place of the
-   * formFor child at index `i` of `arr`. The original formFor node is
-   * removed; the two synth nodes are inserted in order so the compound
-   * state-decl precedes the markup that uses it via render-by-tag.
+   * Splice ONLY the synthesized `formElement` in place of the formFor child at
+   * index `i` of `arr` (the markup-children array). The compound state-decl is
+   * collected separately (see `synthCompoundDecls`) and routed to the logic
+   * pass after the walk — it MUST NOT live among markup children or it never
+   * reaches the §55 validity-surface emission (Bug 58 root cause).
    */
   function spliceFormFor(arr: ASTNodeLike[], i: number, synth: { compoundDecl: unknown; formElement: unknown }): void {
-    arr.splice(i, 1, synth.compoundDecl as ASTNodeLike, synth.formElement as ASTNodeLike);
+    if (synth.compoundDecl) synthCompoundDecls.push(synth.compoundDecl as ASTNodeLike);
+    arr.splice(i, 1, synth.formElement as ASTNodeLike);
   }
 
   function walkAndSplice(arr: ASTNodeLike[] | undefined): void {
     if (!Array.isArray(arr)) return;
     // Walk in reverse so splice insertions don't disturb forward indices for
-    // siblings we haven't visited. Each formFor child expands to 2 nodes.
+    // siblings we haven't visited. Each formFor child now expands to 1 markup
+    // node (formElement); the compound decl is hoisted to a logic node.
     for (let i = arr.length - 1; i >= 0; i--) {
       const child = arr[i];
       if (!child || typeof child !== "object") continue;
@@ -11138,6 +11158,31 @@ function walkAndExpandFormForNodes(
   }
 
   walkAndSplice(nodes);
+
+  // Bug 58 (S140): route the collected compound state-decls into a synthetic
+  // top-level `logic` node so collectTopLevelLogicStatements (collect.ts) yields
+  // them to emit-logic, which emits `_scrml_reactive_set` / `_scrml_derived_declare`
+  // / the validator runners / the auto-synthesized §55 validity surface
+  // (isValid / per-field errors / touched / submitted). Without this, the decl
+  // sat among markup children and was processed ONLY by the binding emitter, so
+  // the markup half rendered but the entire validity surface was dead.
+  //
+  // The synthetic node is inserted immediately before the first markup node in
+  // the top-level array (the `<program>` / `<page>` host) so the compound is
+  // declared ahead of the markup that consumes it via `_scrml_reactive_get`,
+  // matching the source order of a hand-authored `${...}` block preceding the
+  // markup. If no markup node exists (defensive), it is appended.
+  if (synthCompoundDecls.length > 0) {
+    const synthLogicNode = {
+      kind: "logic",
+      body: synthCompoundDecls,
+      span: defaultSpan,
+      _formForSynth: true,
+    } as unknown as ASTNodeLike;
+    let insertIdx = nodes.findIndex((n) => n && typeof n === "object" && n.kind === "markup");
+    if (insertIdx < 0) insertIdx = nodes.length;
+    nodes.splice(insertIdx, 0, synthLogicNode);
+  }
 }
 
 // ---------------------------------------------------------------------------

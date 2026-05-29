@@ -359,6 +359,27 @@ function refAttr(name: string, ref: string, span: unknown): unknown {
 }
 
 /**
+ * Bug 58 (S140): a bind attribute whose target is a Variant-C compound FIELD
+ * stored as a FLAT dotted reactive cell (`signup.name`). The §55 validity
+ * surface stores per-field state under the dotted key and the compound parent
+ * `signup` is a DERIVED proxy that READS those dotted cells — so a write must
+ * target `signup.name` DIRECTLY (`_scrml_reactive_set("signup.name", v)`), NOT
+ * deep-set the derived parent (`_scrml_reactive_set("signup", deep_set(...))`,
+ * which is a no-op on a derived cell and leaves the validity surface dead).
+ *
+ * The `_flatBindKey` marker tells emit-bindings.ts to treat the whole dotted
+ * name as a single flat storage key for the read/write projection. Without it,
+ * the generic compound-child bind lowering deep-sets the parent.
+ */
+function flatBindRefAttr(name: string, ref: string, span: unknown): unknown {
+  return {
+    name,
+    value: { kind: "variable-ref", name: ref, span, _flatBindKey: true },
+    span,
+  };
+}
+
+/**
  * Build an expression attribute value (used for `disabled=!@signup.isValid`).
  */
 function exprAttr(name: string, raw: string, refs: string[], span: unknown): unknown {
@@ -371,8 +392,15 @@ function exprAttr(name: string, raw: string, refs: string[], span: unknown): unk
 
 /**
  * Build a call-ref attribute value: `attr=fn()` or `attr=fn`.
+ *
+ * Bug 58 (S140): `formForSubmitCell`, when set, tags the onsubmit binding with
+ * the synthesized compound cell name so emit-event-wiring can (a) set
+ * `@<cell>.submitted = true` before invoking the handler and (b) invoke the
+ * handler with the collected `values` (the compound cell's value), both per
+ * §41.14.3. Without this the handler is invoked with no `values` and the
+ * `submitted` validity-surface flag never flips.
  */
-function callRefAttr(name: string, fnName: string, args: string[], span: unknown): unknown {
+function callRefAttr(name: string, fnName: string, args: string[], span: unknown, formForSubmitCell?: string): unknown {
   return {
     name,
     value: {
@@ -380,6 +408,7 @@ function callRefAttr(name: string, fnName: string, args: string[], span: unknown
       name: fnName,
       args,
       span,
+      ...(formForSubmitCell ? { formForSubmitCell } : {}),
     },
     span,
   };
@@ -479,6 +508,36 @@ function logicInterpolationNode(exprRaw: string, span: unknown): unknown {
  * fall back to the raw-text path (which is what conformance ships today for
  * un-decorated validators).
  */
+/**
+ * Bug 58 (S140): convert the expander's `FormForValidator[]` (`{name, argsRaw}`)
+ * into the canonical `ValidatorEntry[]` shape (`{name, args: string[]|null, span}`)
+ * and run the SAME structured-arg decoration that hand-authored Shape 2 cells
+ * get in ast-builder.js (`decorateValidatorsWithExprNodes`). Without this the
+ * synth validators reach emit-validators.ts with `args === undefined`, so
+ * `length(>=2)` / `pattern(/.../)` emit `_scrml_validator_fire("length", value)`
+ * with NO args — the runtime predicate then throws on `relPred.value`. The
+ * `req` (arg-less) validator works without decoration, which is why only the
+ * argument-bearing validators were silently broken.
+ *
+ * Mirrors the ast-builder ValidatorEntry shape: `argsRaw === null` → bareword
+ * (`args: null`); otherwise the single raw-text slot becomes `args: [argsRaw]`
+ * which decorate parses into a RelationalPredicateNode (length) / ExprNode.
+ */
+function toDecoratedValidatorEntries(validators: FormForValidator[], span: unknown): unknown[] {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { decorateValidatorsWithExprNodes } = require("../validator-arg-parser.ts") as {
+    decorateValidatorsWithExprNodes: (validators: unknown[], filePath: string) => unknown[];
+  };
+  const filePath = (span as { file?: string } | undefined)?.file ?? "<formFor-synth>";
+  const entries = validators.map((v) => ({
+    name: v.name,
+    args: v.argsRaw === null || v.argsRaw === undefined ? null : [v.argsRaw],
+    span,
+  }));
+  decorateValidatorsWithExprNodes(entries, filePath);
+  return entries;
+}
+
 function buildShape2StateDecl(
   fieldName: string,
   inputShape: InputShape,
@@ -505,7 +564,10 @@ function buildShape2StateDecl(
     init: "",
     initExpr: null,
     renderSpec,
-    validators,
+    // Bug 58: decorate validators with structured ExprNode args so
+    // emit-validators.ts emits `_scrml_validator_fire("length", value, {op,value})`
+    // (matching hand-authored Shape 2) instead of an arg-less call that throws.
+    validators: toDecoratedValidatorEntries(validators, span),
     defaultExpr: null,
     pinned: false,
     structuralForm: true,
@@ -537,6 +599,15 @@ function buildCompoundStateDecl(
     defaultExpr: null,
     pinned: false,
     children: fieldDecls,
+    // Bug 58 (S140): tag the synthesized compound so the §55 validity-surface
+    // walker recognizes it unconditionally. Most consumers (emit-synth-surface,
+    // emit-validators, mcp-descriptors) ALSO accept the `Array.isArray(children)`
+    // fallback, but usage-analyzer.ts keys strictly on `_cellKind ===
+    // "compound-parent"` when deciding whether to activate the synth surface +
+    // per-field B12 surface (§55.5-§55.6). Hand-authored `${ <signup>... }`
+    // compounds carry this tag via symbol-table.classifyCellKind; the formFor
+    // synth path must match so it rides the identical emission pipeline (§41.14.10).
+    _cellKind: "compound-parent",
     span,
     _formForSynth: true,
   };
@@ -639,8 +710,12 @@ function buildFieldGroup(
     const inputAttrs: unknown[] = [];
     if (inputShape.type) inputAttrs.push(strAttr("type", inputShape.type, span));
     if (inputShape.step) inputAttrs.push(strAttr("step", inputShape.step, span));
-    // bind:value=@cellName.fieldName (or bind:checked for checkbox, etc.)
-    inputAttrs.push(refAttr(bindAttrName, `@${cellName}.${field.name}`, span));
+    // bind:value=@cellName.fieldName (or bind:checked for checkbox, etc.).
+    // Bug 58 (S140): use the FLAT-key bind so the write targets the dotted
+    // reactive cell `signup.name` directly (matching the §55 surface storage),
+    // not a deep-set on the derived `signup` parent (a no-op that left the
+    // validity surface dead — typed input never reached the validators).
+    inputAttrs.push(flatBindRefAttr(bindAttrName, `@${cellName}.${field.name}`, span));
     // data-attr for source-mapping back to formFor + the field.
     inputAttrs.push(strAttr("data-scrml-formfor-input", field.name, span));
     const inputElement = markupNode(inputShape.tag, inputAttrs, [], span, true);
@@ -751,8 +826,14 @@ function buildFormElement(
   formAttrs.push(strAttr("data-scrml-formfor", exp.structName, span));
 
   // onsubmit=fn — bare-form event handler per §5.2.3.
+  //
+  // Bug 58 (S140): tag the onsubmit binding with the compound cell name so the
+  // emitted submit handler (a) sets `@<cell>.submitted = true` before invoking
+  // and (b) passes the collected `values` (the compound cell value) into the
+  // handler — both per §41.14.3. The cell name flows through emit-html's
+  // call-ref recording into the emit-event-wiring submit-handler emission.
   if (exp.onsubmitFnName) {
-    formAttrs.push(callRefAttr("onsubmit", exp.onsubmitFnName, [], span));
+    formAttrs.push(callRefAttr("onsubmit", exp.onsubmitFnName, [], span, exp.cellName));
   }
 
   // Progressive-enhancement structural default for server-fn handlers (§41.14.3).

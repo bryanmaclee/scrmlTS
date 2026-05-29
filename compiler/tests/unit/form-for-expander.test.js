@@ -181,7 +181,14 @@ describe("expandFormFor — synthesized AST shape", () => {
     expect(nameField.shape).toBe("decl-with-spec");
     expect(nameField.renderSpec).toBeDefined();
     expect(nameField.renderSpec.element.tag).toBe("input");
-    expect(nameField.validators).toEqual([{ name: "req", argsRaw: null }]);
+    // Bug 58 (S140): the expander now emits the canonical ValidatorEntry shape
+    // (`{name, args, span}`) decorated with structured ExprNode args — the SAME
+    // shape hand-authored Shape 2 cells get via decorateValidatorsWithExprNodes —
+    // so emit-validators.ts wires `length`/`pattern` args correctly. `req` is
+    // arg-less, so `args` is null (vs the pre-fix `{name, argsRaw: null}`).
+    expect(nameField.validators).toBeArrayOfSize(1);
+    expect(nameField.validators[0].name).toBe("req");
+    expect(nameField.validators[0].args).toBeNull();
 
     const agreeField = compoundDecl.children[2];
     expect(agreeField.renderSpec.element.tag).toBe("input");
@@ -368,8 +375,15 @@ describe("expandFormFor — synthesized AST shape", () => {
     };
     const [compoundDecl] = expandFormFor(exp);
     const nameField = compoundDecl.children[0];
-    // req filtered out; length retained.
-    expect(nameField.validators).toEqual([{ name: "length", argsRaw: ">=2" }]);
+    // req filtered out; length retained. Bug 58 (S140): validators are now
+    // emitted in the canonical decorated ValidatorEntry shape — `length(>=2)`
+    // decorates into a RelationalPredicateNode arg so emit-validators.ts wires
+    // `_scrml_validator_fire("length", value, {op:">=", value:2})`.
+    expect(nameField.validators).toBeArrayOfSize(1);
+    expect(nameField.validators[0].name).toBe("length");
+    expect(Array.isArray(nameField.validators[0].args)).toBe(true);
+    expect(nameField.validators[0].args[0].kind).toBe("relational-predicate");
+    expect(nameField.validators[0].args[0].op).toBe(">=");
   });
 
   test("submit slot override replaces default submit button", () => {
