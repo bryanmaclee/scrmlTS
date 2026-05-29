@@ -2,7 +2,7 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-28 **v0.6.4 cut at S139**). Full suite **22,033 pass / 0 fail / 219 skip / 1 todo across 820 files** (+9 from v0.6.3 — the 9 new Bug 11 regression tests). v0.6.4 = sole-remaining-HIGH-bug close: **Bug 11 (6nz-V) `class:NAME` on for-lift RESOLVED** via runtime fix in `_scrml_effect` + `_scrml_effect_static` tracking-pause-restore (class-level — covers any nested `_scrml_effect` registered during reconcile). HIGH count reached **0** for the first time since R24 gauntlet opened the cluster. Canon-clear health: **GREEN**. HIGH=0 · MED=7 (+ Bug 51 NEW) · LOW=12 · Nominal=7.
+Current baseline (2026-05-28 **v0.6.5 cut at S139**). Full suite **22,043 pass / 0 fail / 219 skip / 1 todo across ~822 files** (+10 from v0.6.4 — 5 Bug 56 regression tests + 6 Bug 51 regression tests minus pre-existing variations). v0.6.5 = **two silent-miscompile classes closed**: Bug 56 (CPS scheduler TDZ + non-decl-in-Promise.all — adopter code shaped `const x = serverFn(); @y = x.field;` ran broken at runtime) + Bug 51-A/B (Shape 2 + render-by-tag — EVERY adopter file with a Shape 2 use-site silently emitted the literal tag in HTML; cells got empty-arg init). Both bug classes produced `node --check`-clean emit while being runtime-broken — exactly the kind of fix patch releases exist to flag. Plus dashboard restructured (refresh / verify race-free) demonstrating the Bug 56 fix. Canon-clear health: **GREEN**. HIGH=0 · MED=6 (Bug 51 reduced to one open sub-bug C with workaround) · LOW=12 · Nominal=7.
 
 ### 2026-05-28 (S138 CLOSE — 10 bugs closed (5 HIGH + 4 LOW + 1 MED redux) + Bug 9 L1+L2 paired-fix close + v0.6.2 release + pa.md R26 doctrine bidirectional extension)
 
@@ -774,6 +774,34 @@ S115 ran the M5/M6 compressed-MD-ladder (DD #27) through its v0.5 cut and v0.6 b
 - **Living Compiler retraction (draft) + dev.to article truthfulness audit + fix pass.** All 12 articles classified; 11 corrected — 8-article retracted-link scrub, de-versioned banners, per-article correction notes.
 - **scrml-support corpus currency sweep.** 3 stale-and-cited docs marked; the doc-currency convention (`status:` enum + `last-reviewed:`/`superseded-by:` + same-landing discipline) ratified into `pa.md`.
 - **Two compiler-concept deep-dives** — the code-import story (incl. a content-addressed `vendor:` design) and the build-story compiler model.
+
+## v0.6.5 — 2026-05-28 (patch — Bug 56 (CPS scheduler) + Bug 51-A/B (Shape 2 + render-by-tag end-to-end) — TWO silent-miscompile classes closed)
+
+v0.6.5 cuts two substantive silent-miscompile fixes surfaced and closed at S139. Both produced `node --check`-clean emit while being runtime-broken — the most adopter-pernicious bug class. Per S94 bump-on-tag. Per S136 patch landscape ratification: v0.6.5 = continuation of the v0.6.x patch arc; bug-quality-driven. Cut at S139.
+
+**Bug 56 RESOLVED (commit `3450f984`) — TWO distinct CPS scheduler bugs:**
+
+- **Bug 56-A — TDZ on body-DG reads not respected.** `compiler/src/codegen/scheduling.ts:scheduleStatements` computed inter-statement dep sets from ONLY module-level `awaits` edges. Local-scope reads (`const x = serverFn(); @y = x.field;` — stmt 2 reads `x` declared in stmt 1) were invisible. The scheduler grouped both statements into one `Promise.all` batch where stmt 2's `x.field` evaluated BEFORE the await destructure bound `x` — ReferenceError TDZ at runtime. Fix: fold in body-DG edges (`reads` / `writes` / `awaits` / `invalidates`) per SPEC §19.9.9.1.
+- **Bug 56-B — Non-decl statements shoved into Promise.all entries.** The scheduler's else-branch pushed the WHOLE emit string of non-decl statements (e.g. `_scrml_reactive_set("a", asyncFn())`) into Promise.all entries. The async call evaluated synchronously when the array literal was built, passing a Promise (not the resolved value) to `_scrml_reactive_set` — reactive cells held Promise objects. Fix: restrict multi-stmt Promise.all groups to let-decl/const-decl shapes only; non-decl statements always emit sequentially.
+- **Dashboard restructured** (`dashboard/app.scrml`) to demonstrate the fix end-to-end: const-decl pattern for `refresh()`; factored pure `statusesFrom(state, sha)` helper so `verify()` rebuilds from in-memory post-mark state without re-fetch (avoiding the cross-call filesystem-side-effect race that body-DG can't see).
+- **5 regression tests** in `compiler/tests/unit/bug-56-cps-scheduler-tdz-and-non-decl.test.js`.
+
+**Bug 51-A + 51-B RESOLVED (commit `5640148e`) — Shape 2 + render-by-tag end-to-end:**
+
+Bug 51 was originally filed as a MED auto-lift gap. S139 empirical investigation surfaced it's THREE distinct sub-bugs, none with adopter test coverage. The corpus has **zero Shape 2 examples** in `samples/` or `examples/` — explained how this stayed silently broken for an extended period.
+
+- **Bug 51-A — CE drops `_scope` from new FileAST.** `component-expander.ts:runCEFile` constructs `const updatedAst = {...ast, ...}`. The spread only copies ENUMERABLE properties. SYM attaches `_scope` to the FileAST non-enumerably. Post-CE the new AST had no `_scope`. emit-html.ts:576 read `fileAST?._scope` → null → render-by-tag expansion at line 1300 was short-circuited. **Every adopter file with a Shape 2 use-site silently emitted the literal `<userName/>` tag in HTML** instead of expanding to the bound `<input>`. Fix: CE re-attaches `_scope` via `defineProperty`; emit-html.ts extended to shape-agnostic `fileAST?._scope ?? fileAST?.ast?._scope`.
+- **Bug 51-B — Shape 2 empty-string init produces empty-arg `_scrml_reactive_set`.** `ast-builder.js:4169` sets `init: ""` for Shape 2 markup-RHS decls. emit-logic.ts:1971 `node.init ?? "null"` didn't fire on empty string. Result: `_scrml_reactive_set("userName", )` with empty arg (legal JS per ES2017 trailing-comma; runtime cell undefined). Fix: treat `initStr === "" && !initExpr` as missing-init sentinel → `null`.
+- **Bug 51-C — Auto-lift drops markup RHS at BS-layer — STILL OPEN.** Substantive BS-gobble fix; workaround is explicit `${...}` wrap (now produces correct emit end-to-end thanks to A+B fixes).
+- **6 regression tests** in `compiler/tests/unit/bug-51-shape-2-render-by-tag-end-to-end.test.js` — covers A canonical + multi-use; B valid-arg emit; C workaround-passes + open-gap regression-guard. Closes the corpus-coverage gap.
+
+**Methodology bank — `node --check`-clean ≠ correct.** Both bug classes shared this pattern: emitted JS parses fine, but adopter cells get wrong values at runtime. Existing AST-shape unit tests missed it entirely because they never asserted on the emitted JS string. The S139 investigation closed both via empirical reproducer-driven debugging (per pa.md S138 R26 doctrine forward direction) + added end-to-end test surfaces.
+
+**Tests:** 22,033 (v0.6.4) → 22,043 (+10; matches the new regression test additions minus pre-existing test variations). 0 fail, 219 skip, 1 todo.
+
+**Net inventory delta:** HIGH unchanged (0). MED 7 → 6 (Bug 51 reduced to a single open sub-bug C with workaround; Bug 56 was NEW + closed same session). LOW unchanged. Nominal unchanged.
+
+**4 commits since v0.6.4** (`69fb4bcb..90f42e56`; release commit will be the fifth).
 
 ## v0.6.4 — 2026-05-28 (patch — Bug 11 (6nz-V) `class:NAME` on for-lift RESOLVED; HIGH count reaches 0)
 
