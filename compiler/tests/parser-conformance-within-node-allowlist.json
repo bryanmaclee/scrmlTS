@@ -5,7 +5,7 @@
     "FIELD-SHAPE": 650,
     "KIND-NAME": 112,
     "MISSING-FIELD": 581,
-    "SPAN-COORD": 4044
+    "SPAN-COORD": 4051
   },
   "compiler/self-host/bpp.scrml": {
     "COUNT-LENGTH": 2,
@@ -2356,7 +2356,7 @@
     "EXTRA-FIELD": 7,
     "FIELD-SHAPE": 8,
     "KIND-NAME": 1,
-    "MISSING-FIELD": 10,
+    "MISSING-FIELD": 11,
     "SPAN-COORD": 23
   },
   "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-for-cstyle-047.scrml": {
