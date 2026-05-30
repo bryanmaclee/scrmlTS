@@ -1,45 +1,62 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-05-29T00:00:00-06:00  commit: 9ab7aa38
+# updated: 2026-05-30T00:00:00Z  commit: 948d3f2f
 
 ## Entry Points
-
-`compiler/src/cli.js` — primary CLI; routes compile / dev / build / serve / generate / migrate / promote / init subcommands; falls through to `compileScrml` for `.scrml` file args directly.
-`compiler/src/index.js` — legacy thin wrapper; parses args, calls `compileScrml()` from `api.js`; preserved for `bun run compiler/src/index.js` backward compat.
-`compiler/src/api.js` — programmatic API module; exports `compileScrml(options)` — the full pipeline orchestrator (BS→TAB→CE→NR→SYM→PA→RI→MC→TS→META→DG→BP→AG→RS→CG); also exports `scanDirectory`, `computeOutputBaseDir`, `bundleStdlibForRun`, `rewriteRelativeImportPaths`, `rewriteStdlibImports`. Imports `validateEmittedArtifacts` from `./codegen/validate-emit.ts` (line 36); calls it at line 1919 when `validateEmit` option is true.
-`compiler/bin/scrml.js` — npm bin entry; delegates to `cli.js`.
+compiler/bin/scrml.js — CLI binary registered as `scrml`; thin Bun launcher
+compiler/src/cli.js — subcommand router: compile / dev / build / migrate / promote / --help / --version
+compiler/src/index.js — legacy thin wrapper; delegates pipeline to api.js; kept for backward compat
+compiler/src/api.js — public compiler API: compileScrml(), scanDirectory(), bundleStdlibForRun()
+compiler/src/codegen/index.ts — codegen subsystem entry; re-exports all emit-* modules
 
 ## Directory Ownership
 
-`compiler/src/` — TypeScript + JS source for every pipeline stage, linters, validators, and the code generator
-`compiler/src/codegen/` — emit-* modules (one per language feature), IR types, `CompileContext`, `scheduling.ts`, `cps-batch-planner.ts` (Bug 9 L2), `body-dg-builder.ts` (Bug 56), `source-map.ts`, `route-splitter.ts`, `type-encoding.ts`, `mcp-descriptors.ts`, `reactive-deps.ts` (collectDerivedVarNames + collectSynthCellKeys), `validate-emit.ts` (NEW S141 — emitted-JS in-process Acorn parse gate; emits E-CODEGEN-INVALID-JS)
-`compiler/src/commands/` — CLI subcommand handlers: compile.js, dev.js, build.js, serve.js, generate.js, migrate.js, promote.js, init.js
-`compiler/src/validators/` — post-CE validation passes: attribute-allowlist, attribute-interpolation, post-ce-invariant, lint-try-catch, lint-async-user-source, ast-walk
-`compiler/src/types/` — canonical TypeScript type definitions: `ast.ts` (complete AST node discriminated union), `reachability.ts`, `auth-graph.ts`
-`compiler/native-parser/` — scrml-native composed-engines front-end parser (M5 arc); `.scrml` + `.js` side-by-side per module; shipped behind `--parser=scrml-native`; M5 M6.6 arc in progress
-`compiler/self-host/` — scrml-authored `.scrml` mirrors of compiler stages (bs, tab, ast, bpp, pa, ri, ts, dg, cg, module-resolver, meta-checker, cg-parts); post-v1.0 self-host target
-`compiler/runtime/` — hand-written stdlib shims (`runtime/stdlib/*.js`) copied into `<outputDir>/_scrml/` at compile time; `idempotency.js` for server idempotency
-`compiler/tests/` — 828 test files across unit (588+), conformance (105), integration (88), browser (12), self-host (4), lsp (10), commands (6); root-level parser-conformance tests
-`compiler/tests/fixtures/` — shared `.scrml` test fixture source files
-`compiler/tests/helpers/` — test utility modules (compileScrml wrappers, happy-dom setup, cross-stream diagnostic helpers)
-`stdlib/` — scrml standard library source by namespace: auth, compiler, cron, crypto, data, format, fs, host, http, mcp, oauth, path, process, redis, regex, router, store, test, time
-`dashboard/` — `app.scrml` + `app.db`; the project's own scrml dashboard (demonstrates Bug 56 CPS fix; uses const-decl CPS pattern + pure `statusesFrom` helper)
-`samples/` — 804 `.scrml` compilation-test inputs under `compilation-tests/`; gauntlet suites under `gauntlet-r11/r13/r14/r15/r18/r19/` and `gauntlet-s19-phase4/`
-`examples/` — named example apps: `22-multifile/`, `23-trucking-dispatch/`
-`lsp/` — Language Server Protocol implementation: `server.js`, `handlers.js`, `workspace.js`, `l4.js`
-`editors/` — editor integrations: `vscode/` (grammar + extension), `neovim/` (highlights.scm)
-`docs/` — changelog.md, known-gaps.md, PA-SCRML-PRIMER.md, tutorial.md; `articles/`, `heads-up/`, `curation/`, `audits/`, `changes/`, `adopter/`, `website/` subdirs
-`e2e/` — Playwright end-to-end tests (`tests/`, `fixtures/`); `playwright.config.ts` + `playwright.docs.config.ts`
-`scripts/` — build helpers, spec-index regen (`regen-spec-index.ts`), git hooks, benchmark runners
-`benchmarks/` — benchmark suites and framework comparisons (todomvc-{react,vue,svelte,vanilla}, fullstack-{react,scrml}, sql-batching, llm-efficiency, per-route-roles, browser)
-`scratch/` / `.scratch-p42/` — transient scratch work; not mapped
+compiler/  — Bun workspace; the entire compiler toolchain plus tests
+compiler/src/  — compiler pipeline source (33 .js + 107 .ts files): block-splitter, ast-builder, tokenizer, type-system, auth-graph, dependency-graph, etc.
+compiler/src/codegen/  — 60+ emit-*.ts modules; errors.ts (CGError class + code catalog); ir.ts (IR shapes); emit-error-boundary.ts (+320L §19.6); emit-client.ts (GITI-026 SSE wiring); emit-server.ts
+compiler/src/codegen/compat/  — compatibility shims for legacy pipeline shapes
+compiler/src/commands/  — CLI subcommand implementations: build.js compile.js dev.js generate.js init.js migrate.js promote.js serve.js
+compiler/src/types/  — pure TypeScript declarations: ast.ts (1983L AST node shapes), reachability.ts
+compiler/src/reachability/  — reachability sub-passes (5 component passes, entry-points, gate-classifier, outer-fixpoint)
+compiler/src/validators/  — attribute validation and lint passes: ast-walk.ts, attribute-allowlist.ts, attribute-interpolation.ts, lint-async-user-source.ts, lint-try-catch.ts, post-ce-invariant.ts
+compiler/src/native-parser-canary/  — canary harness for native-parser pipeline parity checks
+compiler/src/native-walker/  — walker utilities for native-parser output traversal
+compiler/native-parser/  — bootstrap native parser (.js + .scrml paired files); replaces block-splitter+ast-builder at M5-swap
+compiler/tests/  — 852 test files total across all categories
+compiler/tests/unit/  — unit tests (~600 files) covering individual compiler passes
+compiler/tests/integration/  — full compile-to-output verification tests
+compiler/tests/browser/  — browser runtime tests via happy-dom (~18 files)
+compiler/tests/conformance/  — conformance tests for E-/W-/I- code surface (block-grammar, s32-fn-state-machine, tab subdirs)
+compiler/tests/parser-conformance*.test.js  — 10 native-parser parity test files at tests/ root
+compiler/tests/lsp/  — LSP protocol tests (completions, hover, code-actions, diagnostics, workspace)
+compiler/tests/helpers/  — shared test utilities and compile harnesses
+compiler/tests/fixtures/  — shared fixtures and multi-file app stubs
+compiler/tests/self-host/  — self-host compiler conformance tests
+compiler/tests/commands/  — CLI subcommand integration tests
+compiler/runtime/  — embedded client runtime JS (stdlib/idempotency.js; stdlib/ modules)
+compiler/self-host/  — experimental scrml-native self-hosting compiler output (cg-parts/ + dist/)
+compiler/samples/  — MCP v0 fixture sample app with routes/
+stdlib/  — scrml standard library (server-side modules): auth, cron, crypto, data, format, fs, host, http, mcp, oauth, path, process, redis, regex, router, store, test, time
+lsp/  — Language Server Protocol implementation (server.js, handlers.js, workspace.js, l4.js)
+e2e/  — Playwright end-to-end tests (tests/, fixtures/, playwright.config.ts)
+benchmarks/  — performance comparison suites (fullstack-react, fullstack-scrml, todomvc-* variants, sql-batching, llm-efficiency)
+samples/  — compilation-test samples and gauntlet suites (individual files not enumerated)
+docs/  — project documentation: changelog, known-gaps, tutorial, adopter guides, design-ratification logs
+docs/changes/  — per-dispatch progress.md + BRIEF.md archives (~80+ change directories)
+docs/heads-up/  — design-ratification decision logs (spec-consolidation, iteration-design, lifecycle-annotation, const-deep-freeze)
+docs/audits/  — historical audit artifacts
+docs/articles/  — dev.to articles and outreach content
+scripts/  — maintenance scripts: regen-spec-index.ts, compile-test-samples.sh, git-hooks/
+editors/  — editor extension stubs (VS Code etc.)
+scratch/  — throwaway working files
 
 ## Ignored / Generated Paths
-
-node_modules, dist, build, .git, compiler/dist, compiler/native-parser/dist, compiler/self-host/dist, samples/compilation-tests/dist, handOffs
+node_modules/, compiler/node_modules/, dist/, compiler/dist/, compiler/native-parser/dist/,
+compiler/self-host/dist/, stdlib/*/dist/, .git/, handOffs/,
+benchmarks/todomvc-react/, benchmarks/todomvc-vue/, benchmarks/todomvc-svelte/
 
 ## Tags
-#scrmlts #map #structure #compiler #cli #pipeline #native-parser #validate-emit #v0.6.10
+#scrmlts #map #structure #compiler #cli #bun
 
 ## Links
 - [primary.map.md](./primary.map.md)

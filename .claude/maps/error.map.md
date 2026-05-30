@@ -1,93 +1,111 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-05-29T00:00:00-06:00  commit: 9ab7aa38
+# updated: 2026-05-30T00:00:00Z  commit: 948d3f2f
 
 scrml's own language error model is values-not-exceptions (SPEC §19.1 — no try/catch, no throw).
-The compiler tooling uses its own error taxonomy internally.
+The compiler itself surfaces structured CGError objects to the caller; it never throws on bad input.
 
-## Custom Error Types (compiler-internal)
+## Error Class
 
-`CGError` — `compiler/src/codegen/errors.ts:11` — base diagnostic class for all pipeline stages; fields: `code`, `message`, `span`, `severity`
-`BSError extends Error` — `compiler/src/block-splitter.js:59` — thrown by block-splitter for structural parse failures
-`TABError extends Error` — `compiler/src/ast-builder.js:1364` — thrown by TAB (AST builder) for unrecoverable parse errors
+### CGError  [compiler/src/codegen/errors.ts:11]
+code: string; message: string; span: CGSpan | object; severity: 'error' | 'warning' | 'info'
+- W-/I- prefix OR severity:warning/info → result.warnings (non-fatal, CLI exits 0)
+- All other codes → result.errors (fatal, CLI exits 1)
+- Cross-stream helper required when asserting on W-*/I-* codes in tests (see diagnostic-stream-partition memory note)
 
-### Runtime errors emitted into generated output (compiler/src/runtime-template.js)
-`_ScrmlError extends Error` — base; `line:2020`
-`NetworkError extends _ScrmlError` — `line:2028`
-`ValidationError extends _ScrmlError` — `line:2036`
-`SQLError extends _ScrmlError` — `line:2044`
-`AuthError extends _ScrmlError` — `line:2052`
-`TimeoutError extends _ScrmlError` — `line:2060`
-`ParseError extends _ScrmlError` — `line:2068`
-`NotFoundError extends _ScrmlError` — `line:2076`
-`ConflictError extends _ScrmlError` — `line:2084`
+## Error Code Families (373 distinct codes in compiler source)
 
-## Diagnostic Code Catalog (SPEC §34 — normative)
+| Family | Count | Description |
+|--------|-------|-------------|
+| E-ATTR-* | ~15 | Attribute validation errors |
+| E-AUTH-* | ~8 | Auth graph + role resolution errors |
+| E-AUTH-GRAPH-* | 4 | Auth graph structural errors (E-AUTH-GRAPH-001..004) |
+| E-BATCH-* | 2 | SQL batch planner errors |
+| E-BS-* | 1 | Block-splitter sentinel (E-BS-000) |
+| E-CG-* | ~15 | Code generator errors (E-CG-001..015) |
+| E-CHANNEL-* | ~10 | Channel declaration errors |
+| E-CLOSURE-* | 2 | Closure scope errors |
+| E-COMPONENT-* | ~15 | Component definition/usage errors |
+| E-CONTRACT-* | 4 | Server-fn contract errors |
+| E-CPS-* | 6 | CPS async planner errors (idempotency, multibatch reorder/machine-crossing) |
+| E-CTRL-* | 6 | Control flow errors |
+| E-CTX-* | 2 | Context errors (E-CTX-001: unclosed block; E-CTX-003: shorthand confusion) |
+| E-DERIVED-* | 7 | Derived-value errors (circular-dep, engine-no-initial/rules/write, value-mutate) |
+| E-DG-* | 2 | Dependency graph errors |
+| E-ENGINE-* | ~20 | Engine declaration errors |
+| E-ERRORS-* | 2 | `<errors>` element validation (E-ERRORS-001, E-ERRORS-002) |
+| E-EXPR-* | 30 | Native-parser expression grammar codes (§34.1) |
+| E-FORMFOR-* | 8 | formFor type validation errors |
+| E-HISTORY-* | 1 | Engine history attribute error |
+| E-IMPORT-* | 7 | Import resolution errors |
+| E-INPUT-* | 5 | Input element errors |
+| E-LIFECYCLE-* | ~12 | Lifecycle hook errors |
+| E-LIN-* | 2 | Linear-type errors |
+| E-MATCH-* | ~6 | Pattern match errors |
+| E-META-* | 7 | Meta check/eval errors |
+| E-MW-* | ~6 | Middleware errors |
+| E-NAME-* | 1 | Name collision with reserved identifier |
+| E-PARSEVARIANT-* | ~3 | parseVariant API errors |
+| E-PROTECT-* | ~3 | protect= attribute errors |
+| E-REPLAY-* | 3 | Engine replay errors |
+| E-RESET-* | 1 | Reset target errors |
+| E-RI-* | ~3 | Route inference errors |
+| E-SQL-* | ~8 | SQL context errors |
+| E-STMT-* | 43 | Native-parser statement grammar codes (§34.1) |
+| E-SWITCH-FORBIDDEN | 1 | `switch` keyword in scrml source |
+| E-SYNTAX-* | ~10 | Syntax errors (E-SYNTAX-042..044: null/undefined in source) |
+| E-TEST-* | 6 | Test block errors (E-TEST-001..006) |
+| E-TIMEOUT-* | 2 | Engine timeout errors |
+| E-TYPE-* | ~20 | Type system errors |
+| E-USE-* | ~5 | `use` declaration errors |
+| E-VALIDATOR-* | ~5 | Validator circular-dep / inline-dynamic |
+| E-WRITE-NOT-IN-LOGIC-CONTEXT | 1 | Write attempt outside logic context |
+| W-ASSIGN-* | 1 | Assignment warnings |
+| W-ATTR-* | 2 | Attribute warnings |
+| W-AUTH-* | 5 | Auth warnings: W-AUTH-001, W-AUTH-LOGIN-MISSING, W-AUTH-PAGE-INFERRED, W-AUTH-RUNTIME-FALLBACK |
+| W-AUTH-CONTENT-NOT-GATED | 1 | NEW (GITI-027A) — `<auth role>` gates JS-mount only, NOT served HTML content [auth-graph.ts:627] |
+| W-BATCH-* | 1 | SQL batch warnings |
+| W-CG-* | ~10 | Code generator warnings (W-CG-001: top-level suppression; chunk warnings) |
+| W-DEPRECATED-* | 2 | Deprecation warnings |
+| W-EACH-* | 2 | Each/iteration warnings |
+| W-ENGINE-* | 2 | Engine warnings |
+| W-EQ-* | 1 | Equality warnings |
+| W-LIFECYCLE-* | 5 | Lifecycle warnings |
+| W-LINT-001..024 | 24 | Ghost-pattern lint warnings [lint-ghost-patterns.js] |
+| W-MATCH-* | 5 | Match warnings (W-MATCH-RULE-INERT, W-MATCH-VALUE-UNUSED) |
+| W-PROGRAM-* | 4 | Program-level warnings |
+| W-PURE-REDUNDANT | 1 | Redundant `pure` modifier |
+| W-STDLIB-* | 2 | stdlib shim/compiler-deferred warnings |
+| W-TAILWIND-* | 2 | Tailwind class warnings |
+| W-TRY-CATCH-IN-SCRML-SOURCE | 1 | try/catch used in scrml source |
+| I-ASYNC-USER-SOURCE | 1 | Info: async pattern in user source |
+| I-AUTH-REDIRECT-UNRESOLVED | 1 | Info: auth redirect target unresolved |
+| I-FN-PROMOTABLE | 1 | Info: function eligible for promotion |
+| I-MATCH-PROMOTABLE | 1 | Info: match eligible for engine promotion (§56) |
+| I-PARSER-NATIVE-SHADOW | 1 | Info: native parser shadows live-pipeline result |
 
-SPEC §34 is the authoritative error code source (~684 lines; 240+ codes). Key families:
+## Key New Codes This Cycle (since watermark 9ab7aa38)
+- W-AUTH-CONTENT-NOT-GATED — GITI-027A; `<auth role="X">` is NOT a content gate; fires once per auth-role site [auth-graph.ts:627]
+- W-MATCH-VALUE-UNUSED — S144 Bug Y; unused match discriminant value
+- E-MATCH-ARM-SEPARATOR — S144 Bug AA; malformed match arm separator
 
-| Prefix family | Coverage |
-|---|---|
-| `E-SYNTAX-*` | tokenizer / block-splitter parse errors |
-| `E-STMT-*` / `E-EXPR-*` | native-parser diagnostics (§34.1 sub-section; 79 codes) |
-| `E-ATTR-*` | attribute validation |
-| `E-COMPONENT-*` | component system |
-| `E-ENGINE-*` | state machine / engine decl |
-| `E-LIN-*` | linear type violations |
-| `E-TYPE-*` | type system |
-| `E-CG-*` | code generator |
-| `E-IMPORT-*` / `E-USE-*` | module / import system |
-| `E-META-*` | metaprogramming |
-| `E-SQL-*` | SQL context |
-| `E-LIFECYCLE-*` | lifecycle annotation |
-| `E-MATCH-*` | pattern matching |
-| `E-CPS-MULTIBATCH-*` | multi-batch CPS planner (SPEC §19.9.9) |
-| `E-FORMFOR-*` / `E-PARSEVARIANT-*` / `E-SCHEMAFOR-*` / `E-TABLEFOR-*` | L22 type-as-argument family |
-| `E-TEST-*` | test-block (`~{}`) errors |
-| `W-*` | non-fatal warnings (route to `result.warnings`) |
-| `I-*` | info-level lints (route to `result.warnings`) |
+## Error Handling Patterns
+- All compile errors returned as CGError[] in result.errors or result.warnings
+- Caller checks result.errors.length to determine if compilation succeeded
+- No exceptions thrown for source-level errors; exceptions only for internal compiler bugs
+- `compileScrml()` in api.js is the single error-surface boundary
 
-Notable codes added or closed since S135 watermark:
-
-- `E-CPS-MULTIBATCH-REORDER` / `E-CPS-MULTIBATCH-MACHINE-CROSSING` — §34.1 §19.9.9 (S114 Ext 1)
-- `E-STORY-UNKNOWN` / `W-STORY-ON-TOP-LEVEL` — §58 Build Story (S118, Nominal section)
-- `E-CODEGEN-INVALID-JS` — **NEW S141** (`compiler/src/codegen/validate-emit.ts:94`); emitted-JS in-process parse gate (Approach A, ratified S141); fires when any final artifact (`.client.js` / `.server.js` / library `.js` / per-route chunk / runtime chunk) fails Acorn parse after codegen; aborts compile (exit 1) and writes no output artifacts; diagnostic names artifact path + byte/line/column + 60-char snippet; framed as compiler defect (adopter cannot fix emitted JS); wired in `api.js:1919` behind `validateEmit` option (default `false`; flag-gated per §2.2.1 carry-forward backlog); mirrors `E-META-EVAL-002` reparse-emitted precedent from §22.4; SPEC §34 + §2.2.1 — codegen-gate catalog entry
-- `E-CG-003` — **NEW S141** (`compiler/src/codegen/emit-control-flow.ts:1621`); hard error on no-arm-lowerable `<match>` expression; replaces the prior silent `/* match expression could not be compiled */` stub that produced invalid JS in expression position (R27 C2 class); emits a source-anchored CGError when an error channel is threaded, AND falls back to syntactically-valid `(undefined)` placeholder so the parse gate (E-CODEGEN-INVALID-JS) does not double-report a known-unlowerable site; SPEC §34 §47
-- Bug 9 L2 / Bug 55: `isStatementShapeStmt` guard in `scheduling.ts` prevents Promise.all shape errors (no new error code; silent miscompile class closed)
-- Bug 56: body-DG reads folded into scheduler dep sets (no new error code; TDZ silent miscompile class closed)
-- Bug 57 (S140): `case "each-block"` chunk-gate added to `emit-client.ts:detectRuntimeChunks` — `<each>` files shipped without `_scrml_reconcile_list` definition (ReferenceError on first render); no new error code; runtime crash class closed
-- Bug 58 (S140): `type-system.ts` routes formFor compound decls into §55 validity-surface pass; `emit-form-for.ts` tags `_cellKind:"compound-parent"`, wires `formForSubmitCell` on submit binding; `emit-event-wiring.ts` / `emit-bindings.ts` / `emit-html.ts` consume the tags — no new error code; formFor validity surface was silently dead
-- Bug 59 (S140): `emit-lift.js` per-row event emission corrected for `<tableFor>` (string-form + AST-form paths) — no new error code; per-row handlers were dropped
-- Bug 61 (S140): `collectSynthCellKeys` collector added to `reactive-deps.ts`; threaded into `CompileContext.synthCellKeys`; `emit-expr.ts:emitMember` gates `@compound.<synthProp>` reads on membership in this set to route to `_scrml_reactive_get("<dotted>")` — no new error code; `@compound.<synthProp>` reads collapsed to dotted synth cell correctly; over-fire guard prevents plain object fields from mis-routing
-
-## Diagnostic-Stream Partition Rule (S93 fix, api.js:2200)
-
-```
-isNonFatal(e) = e.code?.startsWith("W-") || e.code?.startsWith("I-")
-             || e.severity === "warning" || e.severity === "info"
-
-result.errors   = allErrors.filter(!isNonFatal)   → CLI exit 1
-result.warnings = allErrors.filter(isNonFatal)    → CLI exit 0
-```
-
-CRITICAL: tests asserting on W-*/I-* codes MUST use a cross-stream helper; `result.errors.filter(e => e.code === "W-...")` always yields empty (S92 false-negative precedent).
-
-## Error Handling Patterns (compiler pipeline)
-
-`collectErrors(stageName, errors, filePath)` — central accumulator in `api.js:733`; stamps `filePath` and `stage` onto every diagnostic; routes CGError-shape objects + raw Error objects
-Per-stage `errors` arrays are merged into `allErrors`; then partitioned at pipeline exit
-`BSError`/`TABError` thrown synchronously → caught in `try/catch` in api.js → added to `allErrors` with stage label
-
-## Global Error Handling
-
-No global Express error handler (compiler is a library / CLI tool, not a web server).
-Test suite uses `compileScrml()` result inspection, not try/catch patterns.
+## Global Error Boundaries
+No client-level JS error boundaries in the compiler itself.
+The emitted scrml app gets `errorBoundary` support via `emit-error-boundary.ts` (§19.6).
+errorBoundary compile support: `compiler/src/codegen/emit-error-boundary.ts` (320L) — extracts
+fallback markup + per-variant renders; paired with host-JS try/catch backstop (§19.6.8 C-hybrid).
 
 ## Tags
-#scrmlts #map #error #diagnostics #compiler #pipeline #spec-34 #e-codegen-invalid-js #e-cg-003 #v0.6.10
+#scrmlts #map #error #diagnostics #CGError #compiler
 
 ## Links
 - [primary.map.md](./primary.map.md)
-- [schema.map.md](./schema.map.md)
 - [master-list.md](../../master-list.md)
 - [pa.md](../../pa.md)
+- [schema.map.md](./schema.map.md)
