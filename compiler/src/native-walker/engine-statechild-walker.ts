@@ -534,6 +534,33 @@ export function walkEngineStateChildren(
 }
 
 // =============================================================================
+// Bug-AB fix (engine-direct `<onTransition>` parser-coverage gap, 2026-05-30).
+//
+// Native-pipeline equivalent of `scanForEngineDirectOnTransitions`
+// (engine-statechild-parser.ts). `walkEngineStateChildren` filters the engine
+// block's DIRECT children to PascalCase openers only (line ~530), so a
+// lowercase-led engine-DIRECT `<onTransition>` (sibling of state-children) is
+// dropped — the SAME coverage gap the legacy text parser had. This walker
+// recovers those engine-direct entries from `engineBlock.children` by name,
+// reusing the per-block `readOnTransitionEntry` recipe. Nested onTransitions
+// (inside a state-child body) are NOT here — they live under each
+// state-child's `children` and are captured by `walkOneStateChild`, so there
+// is no double-count.
+//
+// EXPORT — symbol-table.ts PASS 11 consumes alongside `walkEngineStateChildren`.
+// =============================================================================
+export function walkEngineDirectOnTransitions(
+  engineBlock: Block | undefined | null,
+  source: string,
+): OnTransitionEntry[] {
+  if (!engineBlock || !Array.isArray(engineBlock.children)) return [];
+  if (typeof source !== "string") source = "";
+  const rulesRawStart = computeRulesRawStart(engineBlock, source);
+  return filterChildrenByName(engineBlock.children, "onTransition")
+    .map((b) => readOnTransitionEntry(b, source, rulesRawStart));
+}
+
+// =============================================================================
 // M6.6.b.3 — walkIsLegacyArrowRulesBody
 //
 // Replace the legacy `isLegacyArrowRulesBody(rulesRaw)` text regex

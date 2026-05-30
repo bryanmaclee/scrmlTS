@@ -2880,7 +2880,11 @@ export function emitCrossFileEngineMountsForFile(
 type EngineHookArm =
   | { kind: "effect"; from: string; to: string; bodyRaw: string }
   | { kind: "to"; from: string; to: string; bodyRaw: string; ifExprRaw: string | null; once: boolean; onceIdx: number | null }
-  | { kind: "from"; from: string; to: string; bodyRaw: string; ifExprRaw: string | null; once: boolean; onceIdx: number | null };
+  | { kind: "from"; from: string; to: string; bodyRaw: string; ifExprRaw: string | null; once: boolean; onceIdx: number | null }
+  // §51.0.H (Bug-AB) — engine-DIRECT <onTransition from=.X to=.Y>: BOTH endpoints
+  // explicit (no enclosing-state-child inference). Same predicate + body shape
+  // as "to"/"from"; distinct kind only for the placement comment.
+  | { kind: "direct"; from: string; to: string; bodyRaw: string; ifExprRaw: string | null; once: boolean; onceIdx: number | null };
 
 /**
  * Walk a single engine's state-children and collect hook arms in source order.
@@ -2906,11 +2910,10 @@ type EngineHookArm =
 function collectEngineHooks(meta: EngineMetadata): EngineHookArm[] {
   const arms: EngineHookArm[] = [];
   const sc = meta.stateChildren;
-  if (!Array.isArray(sc) || sc.length === 0) return arms;
 
   let onceCounter = 0;
 
-  for (const child of sc) {
+  for (const child of Array.isArray(sc) ? sc : []) {
     if (!child || typeof child.tag !== "string" || child.tag.length === 0) continue;
     const fromTag = child.tag;
 
@@ -2963,6 +2966,39 @@ function collectEngineHooks(meta: EngineMetadata): EngineHookArm[] {
         }
         // else: B17.3 fired E-ONTRANSITION-NO-TARGET; defensive skip.
       }
+    }
+  }
+
+  // (3) §51.0.H (Bug-AB fix) — engine-DIRECT <onTransition> arms (siblings of
+  // state-children, the CANONICAL PRIMER §7 placement). Both `from` and `to`
+  // are explicit on each entry, so the edge maps directly with no enclosing-
+  // state-child inference. Emitted AFTER per-child arms, preserving source
+  // order (engine-direct entries are declared after their state-children in
+  // practice; if interleaved, declaration-order across the two scans is not
+  // reconstructed, which is harmless — fire arms are independent predicates).
+  const edirect = meta.engineOnTransitions;
+  if (Array.isArray(edirect) && edirect.length > 0) {
+    for (const entry of edirect) {
+      if (!entry || typeof entry !== "object") continue;
+      const hasBody = typeof entry.bodyRaw === "string" && entry.bodyRaw.trim().length > 0;
+      if (!hasBody) continue; // structural no-op — nothing to emit.
+      const hasFrom = typeof entry.from === "string" && entry.from.length > 0;
+      const hasTo = typeof entry.to === "string" && entry.to.length > 0;
+      // Engine-direct REQUIRES both endpoints (the canonical
+      // `<onTransition from=.X to=.Y>` shape). A one-sided engine-direct
+      // entry has no enclosing state-child to supply the missing endpoint, so
+      // it is not a well-formed edge — defensive skip (B17.3 territory).
+      if (!hasFrom || !hasTo) continue;
+      const onceIdx = entry.once === true ? onceCounter++ : null;
+      arms.push({
+        kind: "direct",
+        from: entry.from as string,
+        to: entry.to as string,
+        bodyRaw: entry.bodyRaw,
+        ifExprRaw: entry.ifExprRaw ?? null,
+        once: entry.once === true,
+        onceIdx,
+      });
     }
   }
 
@@ -3154,7 +3190,9 @@ function emitHookArm(arm: EngineHookArm, varName: string): string[] {
 
   const placement = arm.kind === "to"
     ? `<onTransition to=.${arm.to}> in .${arm.from}`
-    : `<onTransition from=.${arm.from}> in .${arm.to}`;
+    : arm.kind === "from"
+      ? `<onTransition from=.${arm.from}> in .${arm.to}`
+      : `<onTransition from=.${arm.from} to=.${arm.to}> (engine-direct)`;
 
   lines.push(`  if (fromVariant === ${fromKey} && toVariant === ${toKey}) {`);
   lines.push(`    // §51.0.H ${placement}`);

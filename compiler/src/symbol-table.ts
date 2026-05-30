@@ -136,6 +136,7 @@ import {
 // test harnesses migrate to native-pipeline construction.
 import {
   parseEngineStateChildren,
+  scanForEngineDirectOnTransitions,
   isLegacyArrowRulesBody,
   scanForOnIdleEntries,
 } from "./engine-statechild-parser.ts";
@@ -147,6 +148,7 @@ import {
 // legacy parser when the bridge fields are absent.
 import {
   walkEngineStateChildren,
+  walkEngineDirectOnTransitions,
   walkIsLegacyArrowRulesBody,
   walkOnIdleEntries,
 } from "./native-walker/engine-statechild-walker.ts";
@@ -397,6 +399,18 @@ export interface EngineMetadata {
    *  Future B17 will add walkable body content; until then `bodyRaw` is
    *  raw text. */
   stateChildren?: EngineStateChildEntry[];
+
+  /** §51.0.H (Bug-AB fix, 2026-05-30) — engine-DIRECT `<onTransition>` elements
+   *  parsed as DIRECT children of `<engine>` (siblings of state-children), per
+   *  the CANONICAL / DOCUMENTED placement (PRIMER §7). Each entry carries BOTH
+   *  `from` and `to` explicitly. DISTINCT from per-state-child
+   *  `stateChildren[i].onTransitionElements` (the NESTED placement). The parser
+   *  (`scanForEngineDirectOnTransitions`) excludes nested entries to avoid
+   *  double-counting. POPULATED by SYM PASS 11 alongside `stateChildren`.
+   *  Empty array when the engine declares no engine-direct `<onTransition>`.
+   *  Codegen (`collectEngineHooks`, emit-engine.ts) consumes this IN ADDITION
+   *  to per-child `onTransitionElements`. */
+  engineOnTransitions?: OnTransitionEntry[];
 }
 
 /** §51.0.F three target-only forms — the `rule=` shape recognized by B15.
@@ -5814,6 +5828,21 @@ export function validateEngineStateChildrenAndRules(
         )
       : parseEngineStateChildren(rulesRaw);
   meta.stateChildren = stateChildren;
+
+  // §51.0.H (Bug-AB fix, 2026-05-30) — engine-DIRECT `<onTransition>` elements
+  // (siblings of state-children, the CANONICAL PRIMER §7 placement). Neither
+  // `parseEngineStateChildren` nor `walkEngineStateChildren` captures these
+  // (both gate on PascalCase openers); the dedicated engine-direct scanners
+  // recover them, excluding NESTED entries (already on `stateChildren[]`) to
+  // avoid double-counting. Codegen `collectEngineHooks` consumes this field IN
+  // ADDITION to per-child `onTransitionElements`.
+  meta.engineOnTransitions =
+    nativeEngineBlock !== undefined && nativeEngineBlock !== null
+      ? walkEngineDirectOnTransitions(
+          nativeEngineBlock as Parameters<typeof walkEngineDirectOnTransitions>[0],
+          typeof nativeSource === "string" ? nativeSource : "",
+        )
+      : scanForEngineDirectOnTransitions(rulesRaw, stateChildren);
 
   // Step 3.5 (A5-6, S77) — scan for engine-root `<onIdle>` event-timeout
   // watchdog entries. Validates placement (engine-root only — inside-state-

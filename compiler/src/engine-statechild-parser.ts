@@ -1978,3 +1978,62 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
 
   return out;
 }
+
+/**
+ * Bug-AB fix (engine-direct `<onTransition>` parser-coverage gap, 2026-05-30).
+ *
+ * SPEC §51.0.H / PRIMER §7 — the CANONICAL / DOCUMENTED `<onTransition>`
+ * placement is a DIRECT child of `<engine>` with BOTH endpoints explicit:
+ *
+ *     <engine for=Mode initial=.Nav>
+ *       <Nav rule=.Edit />
+ *       <Edit rule=.Nav />
+ *       <onTransition from=.Nav to=.Edit>${ ... }</onTransition>
+ *     </engine>
+ *
+ * `parseEngineStateChildren` only recognizes openers whose first char is an
+ * uppercase A-Z (the state-child shape), so the lowercase-led `<onTransition>`
+ * engine-DIRECT element is SKIPPED entirely and never enters the state-child
+ * set. The only pre-existing path that captured `<onTransition>` is
+ * `scanForOnTransitionEntries` invoked over a STATE-CHILD's `bodyRaw` — i.e.
+ * the NESTED placement only. The engine-direct form was silently dropped,
+ * leaving `collectEngineHooks` with nothing to emit (no fire fn, no fire call).
+ *
+ * This scan runs `scanForOnTransitionEntries` over the FULL engine `rulesRaw`,
+ * EXCLUDING each state-child's opener-to-body span (so a `<onTransition>`
+ * NESTED inside a state-child body is NOT double-counted — that one is already
+ * captured per-state-child by `parseEngineStateChildren`). Engine-direct
+ * entries carry BOTH `from` and `to` explicitly, so the codegen consumer maps
+ * the edge directly without enclosing-state-child inference.
+ *
+ * Mirrors the `<onIdle>` engine-root placement classification in
+ * symbol-table.ts PASS 11 (Step 3.5): a conservative opener-end + bodyRaw.length
+ * span per state-child is sufficient to suppress nested entries.
+ */
+export function scanForEngineDirectOnTransitions(
+  rulesRaw: string,
+  stateChildren: ReadonlyArray<EngineStateChildEntry>,
+): OnTransitionEntry[] {
+  if (typeof rulesRaw !== "string" || !rulesRaw.trim()) return [];
+  if (isLegacyArrowRulesBody(rulesRaw)) return [];
+
+  // Build skip-regions that cover each state-child's opener+body span, so a
+  // `<onTransition>` nested inside a state-child body is excluded from the
+  // engine-direct scan (it is already captured by parseEngineStateChildren).
+  // Self-closing / colon-shorthand state-children have empty / single-line
+  // bodies and cannot host a nested `<onTransition>` block, so they contribute
+  // no (or a harmless zero-width) range.
+  const skipRegions: Array<readonly [number, number]> = [];
+  for (const sc of stateChildren) {
+    if (!sc || typeof sc.rawOffset !== "number") continue;
+    const bodyLen = typeof sc.bodyRaw === "string" ? sc.bodyRaw.length : 0;
+    if (bodyLen === 0) continue;
+    const openerEnd = rulesRaw.indexOf(">", sc.rawOffset);
+    if (openerEnd < 0) continue;
+    // Conservative span: opener-end through opener-end + bodyRaw.length.
+    // Covers the entire body where a nested `<onTransition>` would live.
+    skipRegions.push([sc.rawOffset, openerEnd + 1 + bodyLen] as const);
+  }
+
+  return scanForOnTransitionEntries(rulesRaw, skipRegions);
+}
