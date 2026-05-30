@@ -331,6 +331,45 @@ function skipBlockComment(source, startPos) {
 }
 
 /**
+ * Skip past whitespace AND `//` line comments / `/* *\/` block comments
+ * starting at `startPos`. Returns the offset of the first non-trivia byte
+ * (or `len` at EOF).
+ *
+ * R28-BUG-3 (S143): the compound-state-decl auto-lift recognizers
+ * (`classifyOpenerForCompoundScan` + `scanCompoundBlockEnd`) inspect the
+ * bytes between a parent opener's `>` and its first structural child to
+ * decide compound-vs-markup and to find the matching close. A `//` comment
+ * (SPEC §27.1 — universal, valid in ALL contexts) sitting on its own line
+ * between the parent opener and the first `<child>` is structurally inert
+ * trivia, exactly like whitespace, and MUST be skipped. Without this skip
+ * the classifier sees `/` (the comment's first byte) instead of `<`, falls
+ * back to `kind: "markup"`, and the parent (`<div>`/`<program>` body) is
+ * pushed as a markup context that never closes — surfacing W-PROGRAM-001 +
+ * E-CTX-001/E-CTX-003 (the `:`-shorthand-engine + leading-`//`-comment
+ * combinatorial-closer failure).
+ */
+function skipTriviaForCompoundScan(source, len, startPos) {
+  let i = startPos;
+  while (i < len) {
+    const c = source[i];
+    if (c === " " || c === "\t" || c === "\n" || c === "\r" || c === "\f" || c === "\v") {
+      i++;
+      continue;
+    }
+    if (c === "/" && source[i + 1] === "/") {
+      i = skipLineComment(source, i);
+      continue;
+    }
+    if (c === "/" && source[i + 1] === "*") {
+      i = skipBlockComment(source, i);
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+/**
  * Read the lowercased tag name starting at `nameStart` (the first
  * post-`<` or post-`</` byte). Returns `{ name, nameEnd }` where `nameEnd`
  * is the position immediately after the last name byte. Returns name=""
@@ -1377,8 +1416,15 @@ export function splitBlocks(filePath, source) {
     // ambiguous between empty compound state and empty markup element; the
     // safe default is "markup" so existing markup behaviour is preserved.
     // A user wanting an empty compound state-decl can wrap in `${...}`.
-    let s = q;
-    while (s < len && /\s/.test(source[s])) s++;
+    //
+    // R28-BUG-3 (S143): skip whitespace AND `//`/`/* */` comment trivia (SPEC
+    // §27.1 — `//` is universal, valid in ALL contexts) so a comment line
+    // between the parent opener and the first `<child>` does not derail the
+    // compound-vs-markup classification. Pre-fix this skipped only whitespace,
+    // so a leading `//` comment made the scanner see `/` instead of `<`, mis-
+    // classify the parent as ordinary markup, and push it as a never-closing
+    // context (W-PROGRAM-001 + E-CTX-001/E-CTX-003 on `:`-shorthand engines).
+    let s = skipTriviaForCompoundScan(source, len, q);
     if (s < len && source[s] === "<") {
       const nx = s + 1 < len ? source[s + 1] : "";
       if (/[A-Za-z_]/.test(nx)) {
@@ -1430,6 +1476,11 @@ export function splitBlocks(filePath, source) {
         p++;
         continue;
       }
+      // R28-BUG-3 (S143): skip `//` line / `/* */` block comments (SPEC §27.1)
+      // so a comment body containing `<` / quote chars cannot derail the
+      // depth count or string-state tracking of the compound-span scan.
+      if (c === "/" && source[p + 1] === "/") { p = skipLineComment(source, p); continue; }
+      if (c === "/" && source[p + 1] === "*") { p = skipBlockComment(source, p); continue; }
       if (c === '"') { inDouble = true; p++; continue; }
       if (c === "'") { inSingle = true; p++; continue; }
       if (c === "<") {

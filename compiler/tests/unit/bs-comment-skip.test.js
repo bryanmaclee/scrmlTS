@@ -150,3 +150,115 @@ describe("BS HTML-comment skip — §27.2 + §4.7-amend", () => {
     expect(result.blocks[0].type).toBe("comment");
   });
 });
+
+// ---------------------------------------------------------------------------
+// R28-BUG-3 (S143) — a leading `//` comment between a compound-state-decl
+// parent opener and its first structural child broke compound-vs-markup
+// classification, surfacing W-PROGRAM-001 + E-CTX-001/E-CTX-003 on the
+// `:`-shorthand-engine kickstarter shape. The compound-auto-lift recognizers
+// (classifyOpenerForCompoundScan + scanCompoundBlockEnd) skipped only
+// whitespace when locating the first/next structural child; per SPEC §27.1
+// `//` is universal trivia and must be skipped too.
+//
+// Working repro (kickstarter §4.1 Mario flagship shape) — the SAME source
+// WITHOUT the comment, OR with bodied `</>` state-children, already compiled
+// clean; the `//` comment is the standalone co-trigger.
+// ---------------------------------------------------------------------------
+describe("BS R28-BUG-3 — // comment before :-shorthand engine in a compound body", () => {
+  test("div compound body: // comment + :-shorthand engine → no errors", () => {
+    const src = [
+      "<div>",
+      "  // comment before colon-shorthand engine",
+      "  <engine for=S initial=.A>",
+      "    <A rule=.B> : \"a\"",
+      "    <B rule=.A> : \"b\"",
+      "  </>",
+      "  <p>x</p>",
+      "</div>",
+    ].join("\n");
+    const result = splitWithErrors(src);
+    // The compound-auto-lift path gobbles the whole `<div>...</div>` span as a
+    // single text block (re-parsed downstream). Crucially: zero BS errors —
+    // pre-fix this fired E-CTX-001 (</div> tries to close <engine>) +
+    // E-CTX-003 (unclosed div) because <div> was pushed as a never-closing
+    // markup context.
+    expect(result.errors).toHaveLength(0);
+    const meaningful = result.blocks.filter(
+      (b) => !(b.type === "text" && b.raw.trim() === "")
+    );
+    expect(meaningful).toHaveLength(1);
+    expect(meaningful[0].type).toBe("text");
+    expect(meaningful[0].raw).toContain("<div>");
+    expect(meaningful[0].raw).toContain("</div>");
+  });
+
+  test("program compound body: // comment + :-shorthand engine → no errors", () => {
+    const src = [
+      "<program title=\"T\">",
+      "<div>",
+      "  // comment before colon-shorthand engine",
+      "  <engine for=S initial=.A>",
+      "    <A rule=.B> : \"a\"",
+      "    <B rule=.A> : \"b\"",
+      "  </>",
+      "  <p>x</p>",
+      "</div>",
+      "</program>",
+    ].join("\n");
+    const result = splitWithErrors(src);
+    expect(result.errors).toHaveLength(0);
+    // The single <program> root survives (pre-fix the root was lost →
+    // W-PROGRAM-001 downstream).
+    expect(result.blocks).toHaveLength(1);
+    expect(result.blocks[0].type).toBe("markup");
+    expect(result.blocks[0].name).toBe("program");
+    expect(result.blocks[0].closerForm).toBe("explicit");
+  });
+
+  test("parity: SAME source WITHOUT the comment also has no errors", () => {
+    // Confirms the fix preserves the pre-existing clean path (the comment was
+    // the standalone co-trigger; the non-comment shape must stay green).
+    const src = [
+      "<div>",
+      "  <engine for=S initial=.A>",
+      "    <A rule=.B> : \"a\"",
+      "    <B rule=.A> : \"b\"",
+      "  </>",
+      "  <p>x</p>",
+      "</div>",
+    ].join("\n");
+    const result = splitWithErrors(src);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test("/* block */ comment before :-shorthand engine in a compound body → no errors", () => {
+    // `/* */` is also universal trivia (SPEC §27.2 logic/CSS native form,
+    // accepted everywhere via the same skip). Guards the block-comment arm of
+    // skipTriviaForCompoundScan.
+    const src = [
+      "<div>",
+      "  /* block comment before engine */",
+      "  <engine for=S initial=.A>",
+      "    <A rule=.B> : \"a\"",
+      "  </>",
+      "</div>",
+    ].join("\n");
+    const result = splitWithErrors(src);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test("comment body containing `<` and quotes does not derail the span scan", () => {
+    // scanCompoundBlockEnd must skip the comment body so an embedded `<foo>`
+    // or quote char cannot corrupt the depth/string tracking of the span.
+    const src = [
+      "<div>",
+      "  // see <foo> and \"bar\" before the engine",
+      "  <engine for=S initial=.A>",
+      "    <A rule=.B> : \"a\"",
+      "  </>",
+      "</div>",
+    ].join("\n");
+    const result = splitWithErrors(src);
+    expect(result.errors).toHaveLength(0);
+  });
+});
