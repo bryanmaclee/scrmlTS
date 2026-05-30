@@ -1568,6 +1568,27 @@ export function esTreeToExprNode(
       } satisfies UnaryExpr;
     }
 
+    // ---- Dynamic import `import(spec)` (ESTree ImportExpression) ----
+    case "ImportExpression": {
+      // Without an explicit case, ImportExpression falls into the `default`
+      // escape-hatch which uses the PARENT's rawSource verbatim. When the
+      // import is the argument of an `await` (`await import("path")`), the
+      // parent rawSource INCLUDES the `await`, so the emitted escape-hatch raw
+      // was `await import("path")` and the outer unary-await re-prefixed it →
+      // `await await import("path")` (invalid double-await; also leaked the
+      // `await` out of any async wrapper). Build the import text from the
+      // source child so it slices ONLY `import(<spec>)`.
+      const sourceNode = (node as { source: ESNode }).source;
+      const sourceExpr = esTreeToExprNode(sourceNode, filePath, baseOffset, rawSource);
+      const importRaw = `import(${emitStringFromTree(sourceExpr)})`;
+      return {
+        kind: "escape-hatch",
+        span,
+        nativeKind: "ImportExpression",
+        raw: importRaw,
+      } satisfies EscapeHatchExpr;
+    }
+
     // ---- Binary ----
     case "BinaryExpression": {
       const op = node.operator as string;

@@ -2621,19 +2621,50 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // function-decl. (Function-as-call-arg already worked because it sits inside
         // `(`...`)` and never reached depth 0 here.)
         if (parts.length > 0 && angleDepth === 0 && tok.kind === "KEYWORD" && STMT_KEYWORDS.has(tok.text) && parts[parts.length - 1]?.trim() !== ".") {
-          let _isFnExprAfterRhs = false;
-          if (tok.text === "function" || tok.text === "fn") {
-            const _lastPart = parts[parts.length - 1]?.trim() ?? "";
-            const _RHS_CTX = new Set([
-              "=", ",", ":", "=>", ":>", "?",
-              "&&", "||", "??", "!",
-              "+", "-", "*", "/", "%",
-              "<", ">", "<=", ">=", "==", "!=",
-              "return", "throw", "yield", "await", "new",
-            ]);
-            if (_RHS_CTX.has(_lastPart)) _isFnExprAfterRhs = true;
+          const _lastPart = parts[parts.length - 1]?.trim() ?? "";
+          // RHS context: the previous part is an operator/punctuation that
+          // demands a following operand, so the upcoming token belongs to THIS
+          // expression, not a new statement. (`obj.x = function() {...}` etc.)
+          const _RHS_CTX = new Set([
+            "=", ",", ":", "=>", ":>", "?",
+            "&&", "||", "??", "!",
+            "+", "-", "*", "/", "%",
+            "<", ">", "<=", ">=", "==", "!=",
+            "return", "throw", "yield", "await", "new",
+          ]);
+          const _inRhsCtx = _RHS_CTX.has(_lastPart);
+          let _isExprAfterRhs = false;
+          // `function`/`fn` are dual-form (decl OR expression); in RHS context
+          // the upcoming `function`/`fn` opens a function EXPRESSION.
+          if ((tok.text === "function" || tok.text === "fn") && _inRhsCtx) {
+            _isExprAfterRhs = true;
           }
-          if (!_isFnExprAfterRhs) break;
+          // A STMT_KEYWORD used as an IDENTIFIER (member access `type.x`, call
+          // `type(...)`, or index `type[...]`, incl. optional-chain `type?.x`)
+          // is an operand, not a statement opener. When the previous part is an
+          // operator demanding an operand (RHS context — e.g. a ternary `?` /
+          // `:`, binary op, `=`), the keyword continues the expression. Without
+          // this, `cond ? type.variants.map(...) : []` (where `type` is the
+          // `type` keyword used as a variable name) breaks at the second `type`
+          // — collectExpr truncated the init to `... ?`, emitting invalid JS
+          // (`const x = ... ?;`). The keyword-expression openers (`if`, `match`,
+          // `for`, `partial`) are NOT exempted here — they retain their
+          // expression-form handling, which fires before collectExpr is entered.
+          if (!_isExprAfterRhs && _inRhsCtx) {
+            const _n1 = peek(1);
+            const _kwAsIdentifier =
+              _n1 &&
+              ((_n1.kind === "PUNCT" && (_n1.text === "." || _n1.text === "(" || _n1.text === "[")) ||
+               (_n1.kind === "OPERATOR" && (_n1.text === "?." || _n1.text === "?.[" || _n1.text === "?.(")));
+            // Only the keywords that have NO competing expression form are
+            // treated as bare identifiers; expression-opener keywords keep
+            // breaking so their dedicated handlers run.
+            const _EXPR_OPENER_KW = new Set(["if", "match", "for", "partial", "function", "fn", "switch", "when", "given"]);
+            if (_kwAsIdentifier && !_EXPR_OPENER_KW.has(tok.text)) {
+              _isExprAfterRhs = true;
+            }
+          }
+          if (!_isExprAfterRhs) break;
         }
         // BUG-R14-002: @name = or bare name = at depth 0 starts a new statement.
         // Guards:

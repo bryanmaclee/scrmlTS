@@ -890,6 +890,17 @@ export function tokenizeLogic(content: string, baseOffset: number, baseLine: num
     let str = "";
     let depth = 1;
     while (pos < content.length && depth > 0) {
+      // Backslash escape: `\\`` (escaped backtick), `\\$` (escaped
+      // interpolation), `\\n` etc. — copy BOTH chars verbatim and skip past
+      // them so an escaped backtick does NOT close the template. Without this
+      // the tokenizer treated `\\`` as a closing backtick and truncated the
+      // template literal mid-string (e.g. `\\`${name}\\`` lost everything
+      // after the first escaped backtick, emitting invalid JS).
+      if (content[pos] === "\\" && pos + 1 < content.length) {
+        str += content[pos] + content[pos + 1];
+        advance(2);
+        continue;
+      }
       if (content[pos] === "`") {
         depth--;
         if (depth === 0) { advance(); break; }

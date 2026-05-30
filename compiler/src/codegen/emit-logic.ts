@@ -352,6 +352,80 @@ interface LogicArm {
 // Helper: emit a guarded-expr arm body
 // ---------------------------------------------------------------------------
 
+/**
+ * Scan a block-body string for a TOP-LEVEL (depth-0) `!{` failable-handler
+ * opener — i.e. a NESTED `EXPR !{ ARMS }` guarded-expr written inside an outer
+ * `!{}` arm body (R25-Bug-49 §5). The scan is string-literal-aware (a `!{`
+ * inside `"..."` / `'...'` / `` `...` `` is string content, not a handler) and
+ * brace/paren/bracket depth-aware (only depth-0 `!{` counts — a `!{` already
+ * inside braces is handled when that inner block is itself re-parsed).
+ *
+ * The OUTER guarded-expr is parsed at TAB time (parseLogicBody → guarded-expr
+ * node), but the OUTER arm HANDLER is captured as a flat token-joined STRING by
+ * parseErrorTokens, so any nested `!{}` inside it never became a child
+ * guarded-expr node — it would reach rewriteBlockBody (which has zero `!{}`
+ * handling) and leak the `!{ }` structural wrapper verbatim (invalid JS).
+ */
+function _handlerHasTopLevelGuardedExpr(body: string): boolean {
+  let depth = 0;
+  let strQuote: string | null = null;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (strQuote !== null) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === strQuote) strQuote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { strQuote = ch; continue; }
+    if (ch === "{" || ch === "(" || ch === "[") { depth++; continue; }
+    if (ch === "}" || ch === ")" || ch === "]") { depth--; continue; }
+    if (ch === "!" && body[i + 1] === "{" && depth === 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Re-parse a NESTED-`!{}` arm-handler body through the BS → TAB sub-pipeline so
+ * the nested `EXPR !{ ARMS }` becomes a proper guarded-expr AST node, then emit
+ * it via emitLogicBody (which lowers guarded-expr nodes correctly, including
+ * arbitrary nesting). Returns null on any failure so the caller falls back to
+ * the (lossy) rewriteBlockBody path rather than crashing the compile.
+ *
+ * The handler body is wrapped in a `${...}` logic block so BS classifies it as
+ * a logic body and (crucially) re-splits the nested `!{...}` as an error-effect
+ * CHILD block — the same shape parseLogicBody's guarded-expr detection (TAB
+ * line ~3707) consumes at the OUTER level.
+ */
+function _emitNestedGuardedArmBody(inner: string, opts: EmitLogicOpts): string | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const bs = require("../block-splitter.js") as { runBlockSplitter: (i: { filePath: string; source: string }) => any };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const tab = require("../ast-builder.js") as { buildAST: (bsOut: any) => any };
+    const wrapped = "${\n" + inner + "\n}";
+    const bsOut = bs.runBlockSplitter({ filePath: "__nested_arm__.scrml", source: wrapped });
+    const built = tab.buildAST(bsOut);
+    // buildAST returns { filePath, ast, errors }; the AST node array is ast.nodes.
+    const nodes: any[] = built?.ast?.nodes ?? [];
+    // The `${...}` wrap produces a single `logic` node whose `.body` holds the
+    // parsed statement list (guarded-expr + the rest of the arm body).
+    let stmts: any[] | null = null;
+    for (const n of nodes) {
+      if (n?.kind === "logic" && Array.isArray(n.body) && n.body.length > 0) { stmts = n.body; break; }
+      if (Array.isArray(n?.body) && n.body.length > 0) { stmts = n.body; break; }
+      if (Array.isArray(n?.children) && n.children.length > 0) { stmts = n.children; break; }
+    }
+    if (!stmts) return null;
+    // Emit inside-function-body semantics: a no-wildcard nested handler should
+    // `return result` (escalate) exactly like the outer path.
+    const emitted = emitLogicBody(stmts, { ...opts, insideFunctionBody: true });
+    const joined = emitted.join("\n").trim();
+    return joined || null;
+  } catch (_e) {
+    return null;
+  }
+}
+
 function emitArmBody(arm: LogicArm, errVar: string, machineBindings?: Map<string, { engineName: string; tableName: string; rules: any[]; auditTarget?: string | null }> | null): string {
   const handler = (arm.handler ?? "").trim();
   if (!handler) return "";
@@ -361,7 +435,17 @@ function emitArmBody(arm: LogicArm, errVar: string, machineBindings?: Map<string
   // When machineBindings is provided, machine-bound assignments emit transition guards (§51.5).
   if (handler.startsWith("{") && handler.endsWith("}")) {
     const inner = handler.slice(1, -1).trim();
-    return inner ? rewriteBlockBody(inner, machineBindings ?? null) : "";
+    if (!inner) return "";
+    // R25-Bug-49 §5 — nested `!{}` inside this arm body. rewriteBlockBody has no
+    // guarded-expr handling, so a nested `EXPR !{ ARMS }` leaks its `!{ }`
+    // structural wrapper verbatim (invalid JS). Re-parse the body through the
+    // BS → TAB sub-pipeline so the nested guarded-expr becomes a real node and
+    // emits correctly. Falls back to rewriteBlockBody if the re-parse fails.
+    if (_handlerHasTopLevelGuardedExpr(inner)) {
+      const nested = _emitNestedGuardedArmBody(inner, { boundary: "client", machineBindings: machineBindings ?? null });
+      if (nested) return nested;
+    }
+    return rewriteBlockBody(inner, machineBindings ?? null);
   }
   const rewritten = emitExprField(arm.handlerExpr, handler, _makeExprCtx({}));
   return rewritten.trim().endsWith(";") ? rewritten.trim() : rewritten.trim() + ";";
@@ -2990,8 +3074,17 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       const capturedBindings = emitCapturedBindings(node);
       const typeRegistryLiteral = emitTypeRegistryLiteral(node);
 
+      // The meta-effect body may contain `await` (e.g. `await import(...)` for
+      // dynamic stdlib loading at meta-eval time). A bare `function(meta)`
+      // wrapper would make `await` a SyntaxError ("await outside async"); emit
+      // `async function(meta)` whenever a top-level `await` appears in the body.
+      const _metaBodyHasAwait = bodyLines.some(
+        (l) => /(^|[^.\w$])await\s/.test(l),
+      );
+      const _metaFnKw = _metaBodyHasAwait ? "async function(meta)" : "function(meta)";
+
       return [
-        `_scrml_meta_effect(${metaScopeId}, function(meta) {`,
+        `_scrml_meta_effect(${metaScopeId}, ${_metaFnKw} {`,
         ...bodyLines,
         `}, ${capturedBindings}, ${typeRegistryLiteral});`
       ].join("\n");

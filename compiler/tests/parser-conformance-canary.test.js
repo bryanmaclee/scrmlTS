@@ -831,13 +831,30 @@ describe("dual-pipeline-canary — classifyDivergence LIVE-HOIST-MISCLASSIFY bra
     expect(v.detail.nativeHoist.exports).toBe(4);
   });
 
-  test("the real cg.scrml corpus file classifies LIVE-HOIST-MISCLASSIFY (imports-axis)", () => {
+  test("the real cg.scrml corpus file classifies EXACT post-S142 dynamic-import phantom fix (was LIVE-HOIST-MISCLASSIFY imports-axis)", () => {
+    // S142 (gate-flip-and-residuals) — residual-1 collectExpr STMT_KEYWORD fix
+    // eliminated the LIVE dynamic-import-as-module-import phantom EARLY (ahead
+    // of M6). cg.scrml's five `const X = await import("...")` statements were
+    // phantom-hoisted by LIVE's scanner as module import-decls (liveHoist.imports
+    // === 5) while native correctly hoisted 0 (the dynamic-import call is an
+    // expression, not an import declaration).
+    //
+    // The phantom came from collectExpr breaking at the `import` STMT_KEYWORD in
+    // `await import(...)` (RHS-position keyword-as-operand), leaving the dynamic
+    // import detached and re-classified as an import-decl. The residual-1 guard
+    // (a STMT_KEYWORD followed by `(`/`.`/`[` in RHS context is an operand, not
+    // a statement opener) keeps `import(...)` inside the expression, so LIVE no
+    // longer phantom-hoists it. liveHoist.imports === nativeHoist.imports === 0;
+    // the file classifies EXACT (mirrors the bs.scrml precedent below).
+    //
+    // Regression-guard against the phantom returning if the STMT_KEYWORD
+    // keyword-as-operand guard regresses.
     const path = __dirname + "/../../compiler/self-host/cg.scrml";
     const src = readFileSync(path, "utf8");
     const v = classifyDivergence(path, src);
-    expect(v.class).toBe("LIVE-HOIST-MISCLASSIFY");
+    expect(v.class).toBe("EXACT");
     expect(v.explained).toBe(true);
-    expect(v.detail.liveHoist.imports).toBe(5);
+    expect(v.detail.liveHoist.imports).toBe(0);
     expect(v.detail.nativeHoist.imports).toBe(0);
   });
 
