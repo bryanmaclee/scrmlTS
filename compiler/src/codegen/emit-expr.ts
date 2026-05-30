@@ -316,6 +316,34 @@ function emitIdent(node: IdentExpr, ctx: EmitExprContext): string {
     return JSON.stringify(name.slice(1));
   }
 
+  // §36 input-state ref recovered from the already-lowered bare form.
+  //
+  // ast-builder.js `preprocessWorkerAndStateRefs()` (TAB) lowers a standalone
+  // `<#id>` in a markup-interpolation / logic-block body to the bare identifier
+  // `_scrml_input_<id>_` (single leading + trailing underscore). The expression
+  // parser then sees a plain Identifier (not the `__scrml_input_<id>__`
+  // double-underscore placeholder it knows how to fold into an
+  // `input-state-ref` ExprNode), so it produces an IdentExpr whose name is the
+  // dead bare form. That name was never bound — it compiled to a hard
+  // `ReferenceError: _scrml_input_<id>_ is not defined`, leaving the entire
+  // §36 input-state read surface (mouse/keyboard/gamepad) 100% runtime-dead
+  // (6nz Bug AC, S144).
+  //
+  // Recover it here to the SAME runtime lookup that `emitInputStateRef` (the
+  // structured `input-state-ref` node) and `rewriteInputStateRefs` (the string
+  // pipeline) emit — so the read name agrees with the registration name
+  // (`_scrml_input_state_registry.set("<id>", state)` inside
+  // `_scrml_input_*_create`). Runtime helpers share the `_scrml_input_` prefix
+  // but NEVER end in `_` (`_scrml_input_mouse_create`,
+  // `_scrml_input_state_registry`, …); the trailing-`_` anchor in the pattern
+  // matches only user id-refs.
+  if (name.length > 13 && name.startsWith("_scrml_input_") && name.endsWith("_")) {
+    const m = name.match(/^_scrml_input_([A-Za-z_$][A-Za-z0-9_$]*)_$/);
+    if (m) {
+      return `_scrml_input_state_registry.get(${JSON.stringify(m[1])})`;
+    }
+  }
+
   // Plain identifier — pass through
   return name;
 }

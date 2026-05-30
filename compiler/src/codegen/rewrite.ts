@@ -511,11 +511,50 @@ export function rewriteRequestRefs(expr: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Rewrite `<#identifier>` input state references to runtime registry lookups (§35).
+ * Rewrite `<#identifier>` input state references to runtime registry lookups (§36).
+ *
+ * Two source forms are handled:
+ *
+ *  1. The literal `<#id>` sigil — the canonical surface form. This reaches CG
+ *     intact when BS preserves it as raw text (block-splitter.js contract:
+ *     "`<#name>` standalone → rewriteInputStateRefs in CG (§36)").
+ *
+ *  2. The already-lowered bare identifier `_scrml_input_<id>_` — produced by
+ *     ast-builder.js `preprocessWorkerAndStateRefs()` (TAB stage) when a
+ *     standalone `<#id>` appears inside a markup-interpolation / logic-block
+ *     body (e.g. `${<#cursor>.x}`). That TAB pass rewrites `<#id>` → the bare
+ *     name BEFORE CG runs, so by Pass 7 there is no `<#` left to match. The
+ *     bare name was NEVER bound anywhere, so reads compiled to a dead
+ *     `ReferenceError: _scrml_input_<id>_ is not defined` (6nz Bug AC, S144 —
+ *     the entire §36 input-state read surface was 100% runtime-dead). We map
+ *     the bare form to the SAME registry lookup so the read name and the
+ *     registration name (`_scrml_input_state_registry.set("<id>", state)` in
+ *     `_scrml_input_*_create`) agree.
+ *
+ * The bare-form pass uses a negative lookahead to avoid clobbering the runtime
+ * helper identifiers, which share the `_scrml_input_` prefix but continue with
+ * an identifier char after their final segment (`_scrml_input_mouse_create`,
+ * `_scrml_input_state_registry`, `_scrml_input_keyboard_destroy`, …). A user
+ * id-ref is always followed by a member access / call / boundary (`.x`,
+ * `.pressed(`, end-of-expr) — i.e. a NON-identifier char after the trailing
+ * `_` — so `_scrml_input_<id>_(?![A-Za-z0-9_$])` matches refs but never helpers
+ * (even when a user names an input `id="mouse"` → `_scrml_input_mouse_.x`,
+ * because the helper `_scrml_input_mouse_create` has `c` after the trailing `_`).
  */
 export function rewriteInputStateRefs(expr: string): string {
   if (!expr || typeof expr !== "string") return expr;
-  return expr.replace(/<#([A-Za-z_$][A-Za-z0-9_$]*)>/g, '_scrml_input_state_registry.get("$1")');
+  // Form 1: literal <#id> sigil.
+  let out = expr.replace(/<#([A-Za-z_$][A-Za-z0-9_$]*)>/g, '_scrml_input_state_registry.get("$1")');
+  // Form 2: already-lowered bare `_scrml_input_<id>_` (TAB preprocessWorkerAndStateRefs).
+  // Negative lookahead excludes runtime helpers (…_create / …_destroy / …_registry
+  // and the `mouse|keyboard|gamepad|state` infixes that precede them).
+  if (out.includes("_scrml_input_")) {
+    out = out.replace(
+      /_scrml_input_([A-Za-z_$][A-Za-z0-9_$]*?)_(?![A-Za-z0-9_$])/g,
+      '_scrml_input_state_registry.get("$1")'
+    );
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

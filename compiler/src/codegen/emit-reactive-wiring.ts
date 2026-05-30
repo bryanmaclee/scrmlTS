@@ -444,12 +444,25 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
       // Pure-read regex matches `IDENT;`, `IDENT.path;`, `_scrml_reactive_get("x");`,
       // `_scrml_derived_get("x");`. Doesn't match: `foo();` (call), `@x = 1;`
       // (assignment), `{ ... }` (block), multi-line output.
+      //
+      // S144 (6nz Bug AC) — also suppress the §36 input-state registry read
+      // shape `_scrml_input_state_registry.get("id").member.chain;`. Like the
+      // `_scrml_reactive_get` orphan beside it, an input-state read in an
+      // interpolation `${<#cursor>.x}` is CONSUMED by the binding wiring at
+      // DOMContentLoaded (emit-event-wiring.ts) and must NOT also leak as a
+      // file-scope statement. It would not only be visible no-op noise — it
+      // would EXECUTE before `_scrml_input_*_create` registers the state
+      // (file-scope runs top-down, registration follows), so the empty
+      // registry returns `undefined` and `.member` throws a fresh file-scope
+      // `TypeError`. (Before S144 this shape never reached here: the read
+      // compiled to the dead bare `_scrml_input_<id>_.member` form, which the
+      // first regex alternative already matched and suppressed.)
       if (
         pid &&
         !groupTildeCtx &&
         stmt.kind === "bare-expr" &&
         code &&
-        /^(?:[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*|_scrml_(?:reactive|derived)_get\([^)]*\))\s*;?\s*$/.test(code.trim())
+        /^(?:[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*|_scrml_(?:reactive|derived)_get\([^)]*\)|_scrml_input_state_registry\.get\([^)]*\)(?:\.[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]]*\]|\([^)]*\))*)\s*;?\s*$/.test(code.trim())
       ) {
         continue;
       }
