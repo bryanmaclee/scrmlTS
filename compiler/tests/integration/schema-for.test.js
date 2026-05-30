@@ -454,3 +454,109 @@ describe("§7 pick / omit transforms", () => {
     expect(colNames).toEqual(["email", "name"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §8 (R28-7, S143) — nullable `T | not` / `T?` → NULLABLE column (§41.15.8a).
+// The canonical scrml optional/nullable field shape lowers to a nullable SQL
+// column: the base T's column type WITHOUT NOT NULL. This is the inverse of
+// §14.8.3 (DB introspection produces `T | not` for a nullable column).
+// ---------------------------------------------------------------------------
+
+describe("§8 nullable T|not → nullable column (R28-7)", () => {
+  test("string | not / integer | not / T? lower to nullable columns (no NOT NULL)", () => {
+    const source = `\${
+  import { schemaFor } from 'scrml:data'
+
+  type Post:struct = {
+    title:       string req length(<=80)
+    subtitle:    string | not
+    publishedAt: integer | not
+    tag:         string?
+  }
+}
+<program db="./db.sqlite">
+  <schema>
+    \${ schemaFor(Post) }
+  </>
+</program>
+`;
+    const { tsResult } = compileToTS(source, "p8/nullable.scrml");
+    // No schemaFor error fires on the nullable fields.
+    const sfErrs = realErrors(tsResult).filter(e => e.code && e.code.startsWith("E-SCHEMAFOR-"));
+    expect(sfErrs).toEqual([]);
+
+    const body = extractSchemaBodyText(tsResult.files[0]);
+    const parsed = parseSchemaBlock(body);
+    const cols = parsed.tables[0].columns;
+    const byName = Object.fromEntries(cols.map(c => [c.name, c]));
+
+    // The required field keeps `req` → NOT NULL.
+    expect(byName.title.sharedCorePredicates.some(p => p.name === "req")).toBe(true);
+    // The nullable fields carry NO `req` predicate (→ no NOT NULL).
+    for (const f of ["subtitle", "publishedAt", "tag"]) {
+      expect(byName[f]).toBeDefined();
+      expect(byName[f].sharedCorePredicates.some(p => p.name === "req")).toBe(false);
+    }
+    // Base column types preserved.
+    expect(byName.subtitle.scrmlType).toBe("text");
+    expect(byName.publishedAt.scrmlType).toBe("integer");
+    expect(byName.tag.scrmlType).toBe("text");
+
+    // DDL path: the nullable columns SHALL NOT carry NOT NULL.
+    const { sql } = diffSchema(parsed, { tables: [] }, { driver: "sqlite" });
+    const createStmt = sql.find(s => s.startsWith("CREATE TABLE") && s.includes('"posts"'));
+    expect(createStmt).toBeDefined();
+    // The `title` line has NOT NULL; the nullable lines do not. We assert per-column.
+    const colLine = (name) => {
+      const m = createStmt.match(new RegExp(`"${name}"[^,\\n)]*`));
+      return m ? m[0] : "";
+    };
+    expect(colLine("title")).toContain("NOT NULL");
+    expect(colLine("subtitle")).not.toContain("NOT NULL");
+    expect(colLine("publishedAt")).not.toContain("NOT NULL");
+    expect(colLine("tag")).not.toContain("NOT NULL");
+  });
+
+  test("nullable enum (Status | not) → nullable oneOf column (no req)", () => {
+    const source = `\${
+  import { schemaFor } from 'scrml:data'
+
+  type Post:struct = {
+    status: Status | not
+  }
+  type Status:enum = { Pending, Active, Archived }
+}
+<program db="./db.sqlite">
+  <schema>
+    \${ schemaFor(Post) }
+  </>
+</program>
+`;
+    const { tsResult } = compileToTS(source, "p8/nullable-enum.scrml");
+    const sfErrs = realErrors(tsResult).filter(e => e.code && e.code.startsWith("E-SCHEMAFOR-"));
+    expect(sfErrs).toEqual([]);
+    const body = extractSchemaBodyText(tsResult.files[0]);
+    // oneOf present (CHECK constraint), req absent (no NOT NULL).
+    expect(body).toMatch(/status: text oneOf\(/);
+    expect(body).not.toMatch(/status: text req/);
+  });
+
+  test("REGRESSION: non-nullable union (string | integer) still fires E-SCHEMAFOR-NO-SQL-MAPPING", () => {
+    const source = `\${
+  import { schemaFor } from 'scrml:data'
+
+  type Post:struct = {
+    kind: string | integer
+  }
+}
+<program db="./db.sqlite">
+  <schema>
+    \${ schemaFor(Post) }
+  </>
+</program>
+`;
+    const { tsResult } = compileToTS(source, "p8/union-reject.scrml");
+    const codes = realErrors(tsResult).map(e => e.code);
+    expect(codes).toContain("E-SCHEMAFOR-NO-SQL-MAPPING");
+  });
+});

@@ -47,7 +47,9 @@
 
 **Worktrees:** 4 agent worktrees CLEANED at fix-wave close (work landed in main).
 
-**STILL QUEUED:** **R28-7 severity/scope DECISION** (schemaFor/tableFor `T | not` L22 mapping — v1.0 fix vs v1.next; PA lean fix-now, 5/5 adopter signal) · **R28-8 DECISION** (extend §14.10 inference vs fix kickstarter §4.8 overclaim) · **R28-1b** runtime-confirm + fix-dispatch · **R28-2b** tokenizer dispatch · R28-C2 kickstarter drift bundle (canon-maintenance) · errorBoundary version cut (deferred from S142 — now ALSO the R28 fix-wave landed, so a v0.6.12/v0.7.0 cut bundles errorBoundary + the 4 R28 fixes) · maps refresh (now ~17 commits stale).
+**R28-7 DISPATCHED (S143, user chose fix-now + empty-`<td>` for absent tableFor cell)** — agent `a69c9ecb08f566311`, scrml-js-codegen-engineer, isolation:worktree, opus, background. change-id `r28-7-schemafor-tablefor-nullable-tnot-2026-05-29`; BRIEF archived. Builds: SPEC §41.15+§41.16 amendment (`T | not`/`T?` where T mappable → nullable column/cell; ground §14.8.3 inverse; clarify union-exclusion = non-`|not` unions) + schemaFor impl (emit-schema-for.ts + type-system) + tableFor impl (emit-table-for.ts + type-system; empty `<td>` for `not`) + tests + R26 (revert R28 devs' `omit=` workarounds). STOP-latitude (land schemaFor first if the type-classification refactor is large). LANDING: same protocol (S67 file-delta + branch-coherence + PA R26 + canary + commit; **NOTE — both emit-table-for.ts + type-system.ts were touched by the R28-1/R28-2/R28-6 fix-wave already in main, so R28-7's file-delta will likely need 3-way patches on those — analyze regions before checkout, per the `feedback_file_delta_vs_cherry_pick` rule**).
+
+**STILL QUEUED (after R28-7 lands):** · **R28-8 DECISION** (extend §14.10 inference vs fix kickstarter §4.8 overclaim) · **R28-1b** runtime-confirm + fix-dispatch · **R28-2b** tokenizer dispatch · R28-C2 kickstarter drift bundle (canon-maintenance) · errorBoundary version cut (deferred from S142 — now ALSO the R28 fix-wave landed, so a v0.6.12/v0.7.0 cut bundles errorBoundary + the 4 R28 fixes) · maps refresh (now ~17 commits stale).
 
 ---
 

@@ -473,3 +473,112 @@ describe("§6 composed surfaces", () => {
     expect(html).toContain('class="primary"');
   });
 });
+
+// ---------------------------------------------------------------------------
+// §7 (R28-7, S143) — nullable `T | not` / `T?` → value-or-EMPTY cell (§41.16.6a).
+// The canonical scrml optional/nullable field renders the base T's value when
+// present and an EMPTY <td> when absent — never the literal "null"/"undefined".
+// ---------------------------------------------------------------------------
+
+describe("§7 nullable T|not → value-or-empty cell (R28-7)", () => {
+  test("string|not / integer|not / T? cells compile + guard absence", () => {
+    const result = compile("e2e-nullable.scrml", `\${
+  import { tableFor } from 'scrml:data'
+
+  type Post:struct = {
+    id:          integer
+    title:       string req
+    subtitle:    string | not
+    publishedAt: integer | not
+    tag:         string?
+  }
+}
+<program>
+  <posts> = []
+  <tableFor for=Post rows=@posts/>
+</program>
+`);
+    // No display-mapping error on the nullable fields.
+    expect(realErrors(result).filter(e => e.code?.startsWith("E-TABLEFOR-"))).toEqual([]);
+    const js = getClientJs(result);
+    // Each nullable cell is guarded — references the field but never emits the
+    // bare literal "null"/"undefined" string in the default render path.
+    for (const f of ["subtitle", "publishedAt", "tag"]) {
+      expect(js).toContain(`row.${f}`);
+    }
+    // The guard lowers `is not` to the canonical absence check; the absent branch
+    // produces "" (empty cell), never a literal null/undefined string.
+    expect(js).toMatch(/=== null \|\| .*=== undefined/);
+    // The required (non-nullable) field renders bare (no guard).
+    expect(js).toContain("row.title");
+  });
+
+  test("nullable cell never emits literal null/undefined text", () => {
+    const result = compile("e2e-nullable-noliteral.scrml", `\${
+  import { tableFor } from 'scrml:data'
+
+  type Post:struct = {
+    id:       integer
+    subtitle: string | not
+  }
+}
+<program>
+  <posts> = []
+  <tableFor for=Post rows=@posts/>
+</program>
+`);
+    const js = getClientJs(result);
+    // The default nullable cell path SHALL NOT inject the literal strings
+    // "null" or "undefined" as cell content (the empty-string branch is "").
+    // Find the subtitle cell render line + assert it has no `"null"`/`"undefined"` literal.
+    const subtitleLines = js.split("\n").filter(l => l.includes("row.subtitle"));
+    expect(subtitleLines.length).toBeGreaterThan(0);
+    for (const l of subtitleLines) {
+      expect(l).not.toContain('"null"');
+      expect(l).not.toContain('"undefined"');
+    }
+  });
+
+  test("nullable field with explicit <column> slot — slot owns content, guard skipped", () => {
+    const result = compile("e2e-nullable-slot.scrml", `\${
+  import { tableFor } from 'scrml:data'
+
+  type Post:struct = {
+    id:       integer
+    subtitle: string | not
+  }
+}
+<program>
+  <posts> = []
+  <tableFor for=Post rows=@posts>
+    <column field="subtitle">
+      <em>\${row.subtitle}</em>
+    </column>
+  </tableFor>
+</program>
+`);
+    expect(realErrors(result).filter(e => e.code?.startsWith("E-TABLEFOR-"))).toEqual([]);
+    const js = getClientJs(result);
+    // Slot body owns the cell — the adopter's <em> wins.
+    expect(js).toContain("em");
+    expect(js).toContain("row.subtitle");
+  });
+
+  test("REGRESSION: non-nullable union (string | integer) still fires E-TABLEFOR-NO-DISPLAY-MAPPING", () => {
+    const result = compile("e2e-union-reject.scrml", `\${
+  import { tableFor } from 'scrml:data'
+
+  type Post:struct = {
+    id:   integer
+    kind: string | integer
+  }
+}
+<program>
+  <posts> = []
+  <tableFor for=Post rows=@posts/>
+</program>
+`);
+    const codes = realErrors(result).map(e => e.code);
+    expect(codes).toContain("E-TABLEFOR-NO-DISPLAY-MAPPING");
+  });
+});

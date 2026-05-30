@@ -89,14 +89,20 @@ export interface TableForStructLike {
  * Drives the `<td>` default-render emission when no `<column>` slot override.
  */
 export type CellDisplayKind =
-  | { kind: "string" }
-  | { kind: "number" }      // integer or real — bare ${row.field}
-  | { kind: "boolean" }     // "true"/"false" via bare ${row.field}
-  | { kind: "timestamp" }   // ISO string via bare ${row.field}
-  | { kind: "bare-enum"; variants: string[] }  // bare ${row.field} = variant name string
+  | { kind: "string"; nullable?: boolean }
+  | { kind: "number"; nullable?: boolean }      // integer or real — bare ${row.field}
+  | { kind: "boolean"; nullable?: boolean }     // "true"/"false" via bare ${row.field}
+  | { kind: "timestamp"; nullable?: boolean }   // ISO string via bare ${row.field}
+  | { kind: "bare-enum"; variants: string[]; nullable?: boolean }  // bare ${row.field} = variant name string
   | { kind: "payload-enum"; enumName: string } // E-TABLEFOR-VARIANT-PAYLOAD-ENUM-V1
   | { kind: "nested-struct"; structName: string } // E-TABLEFOR-NESTED-STRUCT-NO-SLOT (when no slot)
   | { kind: "unmappable"; typeKind: string };   // E-TABLEFOR-NO-DISPLAY-MAPPING
+  //
+  // §41.16.6a — the `nullable` flag rides the renderable kinds (string / number /
+  // boolean / timestamp / bare-enum). Set when the field's declared type is the
+  // canonical nullable union `T | not` (or `T?` sugar). A nullable cell renders
+  // the base T's value when present and an EMPTY <td> when the value is `not`
+  // (DESIGN: empty cell, NOT "—"; adopters override via a <column> slot).
 
 /** Per-column metadata as recognized by the type-system pass. */
 export interface TableForColumnInfo {
@@ -106,6 +112,14 @@ export interface TableForColumnInfo {
   headerText: string;
   /** Display-mapping classification per §41.16.6. Drives default <td> body emit. */
   displayKind: CellDisplayKind;
+  /**
+   * True when the field's declared type is the nullable union `T | not`
+   * (or `T?` sugar) per §41.16.6a. A nullable column's default <td> guards the
+   * value with `is not ? "" : ...` so an absent (`not`) value yields an EMPTY
+   * cell (NOT the literal "null"/"undefined"). Adopters override via a
+   * `<column>` slot (the slot body owns the cell content; the guard is skipped).
+   */
+  nullable?: boolean;
   /** Slot-body override (zero or more AST nodes); null for default-rendered columns. */
   slotBody: unknown[] | null;
   /** Adopter-chosen row-binding name from `:let={(row) => ...}` — defaults to "row". */
@@ -619,8 +633,54 @@ export function classifyFieldForCell(fieldType: unknown): CellDisplayKind {
     return { kind: "unmappable", typeKind: `predicated:${t.baseType ?? "<unknown>"}` };
   }
 
-  // Array, asIs, union, not, function, snippet, opaque — no v1.0 display mapping.
+  // Union — the ONLY v1.0-renderable union shape is the nullable `T | not`
+  // (§42 / §5721 `T?` sugar; §41.16.6a). Detect EXACTLY `[T, not]` where the
+  // non-`not` member is a v1.0-renderable base type; render the base T's value
+  // when present + an EMPTY <td> when `not`. Any other union (e.g.
+  // `string | integer`) stays unmappable (E-TABLEFOR-NO-DISPLAY-MAPPING).
+  if (t.kind === "union") {
+    const base = nullableUnionBaseForCell(fieldType);
+    if (base) {
+      const inner = classifyFieldForCell(base);
+      // Only renderable base kinds carry the nullable flag. A nested-struct,
+      // payload-enum, further-union, or unmappable base is NOT a v1.0 nullable
+      // cell — fall through to the unmappable report.
+      if (inner.kind === "string" || inner.kind === "number"
+          || inner.kind === "boolean" || inner.kind === "timestamp") {
+        return { kind: inner.kind, nullable: true };
+      }
+      if (inner.kind === "bare-enum") {
+        return { kind: "bare-enum", variants: inner.variants, nullable: true };
+      }
+    }
+    return { kind: "unmappable", typeKind: "union" };
+  }
+
+  // Array, asIs, not, function, snippet, opaque — no v1.0 display mapping.
   return { kind: "unmappable", typeKind: t.kind ?? "<unknown>" };
+}
+
+/**
+ * Detect the canonical nullable union `T | not` (§42 / §5721 `T?` sugar) and
+ * return the base `T` member. Mirror of emit-schema-for.ts's `nullableUnionBase`
+ * — a union qualifies ONLY when it has EXACTLY two members, EXACTLY one of which
+ * is `{ kind: "not" }`. Member ORDER is irrelevant. Returns null for any
+ * non-`| not` union, a >2-member union, or a `not | not` degenerate.
+ */
+function nullableUnionBaseForCell(fieldType: unknown): unknown | null {
+  if (!fieldType || typeof fieldType !== "object") return null;
+  const t = fieldType as { kind?: string; members?: unknown[] };
+  if (t.kind !== "union" || !Array.isArray(t.members) || t.members.length !== 2) {
+    return null;
+  }
+  const notMembers = t.members.filter(
+    (m) => m && typeof m === "object" && (m as { kind?: string }).kind === "not",
+  );
+  if (notMembers.length !== 1) return null;
+  const base = t.members.find(
+    (m) => !(m && typeof m === "object" && (m as { kind?: string }).kind === "not"),
+  );
+  return base ?? null;
 }
 
 function mapPrimitiveToCellKind(name: string | undefined): CellDisplayKind | null {
@@ -728,6 +788,20 @@ function buildBodyCell(
     // directly are unaffected (the rewriter is a no-op on text without
     // `@.`).
     children = rewriteAtDotInSlotBody(col.slotBody, rowBindingName);
+  } else if (col.nullable) {
+    // §41.16.6a — nullable cell (`T | not` / `T?`). Guard the value so an
+    // absent (`not`) value yields an EMPTY <td> (DESIGN: empty, NOT "—").
+    // The ternary renders the base T's value when present, "" when `not` —
+    // never the literal "null"/"undefined". `is not` is the canonical scrml
+    // absence check (§42); the empty-string branch produces no visible text.
+    const accessor = `${rowBindingName}.${col.fieldName}`;
+    children = [
+      bareExprNode(
+        `${accessor} is not ? "" : ${accessor}`,
+        [rowBindingName],
+        span,
+      ),
+    ];
   } else {
     // Default cell — `${<rowBindingName>.<fieldName>}` bare interpolation.
     children = [

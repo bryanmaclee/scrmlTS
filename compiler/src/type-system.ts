@@ -11455,6 +11455,31 @@ function _sfParseOptionsArg(
  * "valid context" branch; the walker handles AST splicing once a valid
  * expansion is produced.
  */
+/**
+ * §5721 — detect the `T?` optional sugar in a struct-field's raw clause text.
+ *
+ * The struct-body resolver lowers a predicated/sugared field to `asIs` and the
+ * downstream recovery captures only the bare leading type-token, discarding the
+ * postfix `?`. To re-establish that the field is nullable (`T | not`), we inspect
+ * the TYPE PORTION of the raw clause — everything up to the first shared-core
+ * validator keyword — and check whether it ends in `?`.
+ *
+ *   "string ?"                  → true   (`string?`)
+ *   "string?  req"              → true   (sugar + req)
+ *   "string req length(<=80)"   → false
+ *   "string | not"              → false  (explicit union — handled separately)
+ *   "Status?"                   → true   (enum sugar)
+ *
+ * The check is type-portion-scoped so a `?` appearing inside a predicate arg
+ * (e.g. `pattern(/a?b/)`) never false-positives.
+ */
+function _schemaForFieldTypePortionIsOptional(clauseRaw: string): boolean {
+  const typePortion = clauseRaw.split(
+    /\b(?:req|length|pattern|oneOf|notIn|min|max|references|default|unique|nullable)\b/,
+  )[0];
+  return /\?\s*$/.test(typePortion.trim());
+}
+
 function _processSchemaForCallInSchemaContext(
   call: { args?: unknown[]; span?: Span } & Record<string, unknown>,
   typeRegistry: Map<string, ResolvedType>,
@@ -11595,6 +11620,15 @@ function _processSchemaForCallInSchemaContext(
         const resolved = typeRegistry.get(tokenName);
         if (resolved) {
           fieldType = resolved;
+          // §5721 `T?` sugar — postfix `?` desugars to `T | not`. The struct-
+          // body resolver drops the trailing `?` (clause lowered to `asIs`,
+          // raw recovered as the bare leading token), so the nullability is
+          // lost by this point. Re-synthesize the `[T, not]` union when the
+          // raw clause's type-portion ends in `?` (e.g. `string ?` → string?)
+          // so it rides the SAME nullable path as the explicit `T | not` form.
+          if (_schemaForFieldTypePortionIsOptional(clauseRaw)) {
+            fieldType = { kind: "union", members: [resolved, { kind: "not" }] };
+          }
         }
       }
     }
@@ -11644,12 +11678,18 @@ function _processSchemaForCallInSchemaContext(
     // Resolve column type + bare-variant set per the classification result.
     const columnType = mapping.kind === "ok" ? mapping.columnType : "text";
     const bareVariantNames = mapping.kind === "bare-enum" ? mapping.variants : [];
+    // §41.15.8a — nullable when the classifier resolved a `T | not` / `T?`
+    // union. A nullable field drops `req`/`NOT NULL` in lowerFieldToSharedCore.
+    const nullable = (mapping.kind === "ok" || mapping.kind === "bare-enum")
+      ? !!mapping.nullable
+      : false;
 
     includedFields.push({
       name: fieldName,
       columnType,
       validators,
       bareVariantNames,
+      nullable,
     });
   }
 
@@ -12233,7 +12273,15 @@ function _processTableForNode(
       if (m) {
         const tokenName = m[1];
         const r = typeRegistry.get(tokenName);
-        if (r) fieldType = r;
+        if (r) {
+          fieldType = r;
+          // §5721 `T?` sugar — re-synthesize the `[T, not]` union so the
+          // sugar form rides the SAME nullable cell path as `T | not`
+          // (mirror _processSchemaForCallInSchemaContext).
+          if (_schemaForFieldTypePortionIsOptional(clauseRaw)) {
+            fieldType = { kind: "union", members: [r, { kind: "not" }] };
+          }
+        }
       }
     }
     const override = columnOverrides.get(fieldName);
@@ -12282,10 +12330,19 @@ function _processTableForNode(
     const headerText = override?.headerText ?? codegen.tableHeaderTitleCase(fieldName);
     const sortable = !!override?.sortable;
     if (sortable) hasSortable = true;
+    // §41.16.6a — nullable when the classifier resolved a `T | not` / `T?`
+    // union on a renderable base. A nullable default cell guards the value
+    // with `is not ? "" : ...` (empty <td> when absent).
+    const nullable = (displayKind.kind === "string" || displayKind.kind === "number"
+      || displayKind.kind === "boolean" || displayKind.kind === "timestamp"
+      || displayKind.kind === "bare-enum")
+      ? !!(displayKind as { nullable?: boolean }).nullable
+      : false;
     columns.push({
       fieldName,
       headerText,
       displayKind,
+      nullable,
       slotBody: hasExplicitSlot ? (override!.slotBody as unknown[]) : null,
       rowBindingName: override?.rowBindingName ?? "row",
       sortable,

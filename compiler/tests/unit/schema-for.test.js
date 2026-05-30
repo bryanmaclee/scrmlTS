@@ -36,6 +36,7 @@ import {
   lowerFieldToSharedCore,
   renderValidator,
   expandSchemaFor,
+  nullableUnionBase,
 } from "../../src/codegen/emit-schema-for.ts";
 
 let TMP;
@@ -853,5 +854,127 @@ describe("§12 expandSchemaFor", () => {
       span: { file: "test.scrml", start: 0, end: 0, line: 1, col: 1 },
     });
     expect(text).toMatch(/^users \{\n\}\n$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §13 (R28-7, S143) — nullable `T | not` / `T?` → NULLABLE column (§41.15.8a).
+// The canonical scrml optional/nullable struct-field shape maps to a nullable
+// SQL column (base T's type, NO NOT NULL). Non-`| not` unions still reject.
+// ---------------------------------------------------------------------------
+
+describe("§13 nullableUnionBase (R28-7)", () => {
+  const NOT = { kind: "not" };
+  test("string | not → base primitive string", () => {
+    const base = nullableUnionBase({ kind: "union", members: [{ kind: "primitive", name: "string" }, NOT] });
+    expect(base).toEqual({ kind: "primitive", name: "string" });
+  });
+
+  test("not | string (reversed order) → base primitive string", () => {
+    const base = nullableUnionBase({ kind: "union", members: [NOT, { kind: "primitive", name: "string" }] });
+    expect(base).toEqual({ kind: "primitive", name: "string" });
+  });
+
+  test("enum | not → base enum", () => {
+    const en = { kind: "enum", name: "Status", variants: [{ name: "A", payload: null }] };
+    expect(nullableUnionBase({ kind: "union", members: [en, NOT] })).toBe(en);
+  });
+
+  test("non-`| not` union (string | integer) → null", () => {
+    const r = nullableUnionBase({ kind: "union", members: [{ kind: "primitive", name: "string" }, { kind: "primitive", name: "integer" }] });
+    expect(r).toBeNull();
+  });
+
+  test("degenerate not | not → null", () => {
+    expect(nullableUnionBase({ kind: "union", members: [NOT, NOT] })).toBeNull();
+  });
+
+  test("3-member union → null", () => {
+    const r = nullableUnionBase({ kind: "union", members: [{ kind: "primitive", name: "string" }, { kind: "primitive", name: "integer" }, NOT] });
+    expect(r).toBeNull();
+  });
+
+  test("non-union input → null", () => {
+    expect(nullableUnionBase({ kind: "primitive", name: "string" })).toBeNull();
+    expect(nullableUnionBase(null)).toBeNull();
+  });
+});
+
+describe("§13 classifyFieldForSql nullable (R28-7)", () => {
+  const NOT = { kind: "not" };
+  test("string | not → ok text + nullable:true", () => {
+    const r = classifyFieldForSql({ kind: "union", members: [{ kind: "primitive", name: "string" }, NOT] });
+    expect(r.kind).toBe("ok");
+    if (r.kind === "ok") { expect(r.columnType).toBe("text"); expect(r.nullable).toBe(true); }
+  });
+
+  test("integer | not → ok integer + nullable:true", () => {
+    const r = classifyFieldForSql({ kind: "union", members: [{ kind: "primitive", name: "integer" }, NOT] });
+    expect(r.kind).toBe("ok");
+    if (r.kind === "ok") { expect(r.columnType).toBe("integer"); expect(r.nullable).toBe(true); }
+  });
+
+  test("bare-enum | not → bare-enum + nullable:true", () => {
+    const en = { kind: "enum", name: "Status", variants: [{ name: "Pending", payload: null }, { name: "Active", payload: null }] };
+    const r = classifyFieldForSql({ kind: "union", members: [en, NOT] });
+    expect(r.kind).toBe("bare-enum");
+    if (r.kind === "bare-enum") { expect(r.variants).toEqual(["Pending", "Active"]); expect(r.nullable).toBe(true); }
+  });
+
+  test("REGRESSION: string | integer union → no-mapping (NOT nullable)", () => {
+    const r = classifyFieldForSql({ kind: "union", members: [{ kind: "primitive", name: "string" }, { kind: "primitive", name: "integer" }] });
+    expect(r.kind).toBe("no-mapping");
+  });
+
+  test("REGRESSION: payload-enum | not → no-mapping (payload base not nullable-mappable)", () => {
+    const payload = new Map(); payload.set("v", { kind: "primitive", name: "string" });
+    const en = { kind: "enum", name: "Result", variants: [{ name: "Ok", payload }] };
+    const r = classifyFieldForSql({ kind: "union", members: [en, NOT] });
+    // The nullable base is a payload-bearing enum → not a v1.0 nullable column.
+    expect(r.kind).toBe("no-mapping");
+  });
+
+  test("non-nullable base (string) classification unchanged", () => {
+    const r = classifyFieldForSql({ kind: "primitive", name: "string" });
+    expect(r.kind).toBe("ok");
+    if (r.kind === "ok") expect(r.nullable).toBeFalsy();
+  });
+});
+
+describe("§13 lowerFieldToSharedCore nullable (R28-7)", () => {
+  test("nullable field drops `req` (no NOT NULL)", () => {
+    const line = lowerFieldToSharedCore({
+      name: "subtitle",
+      columnType: "text",
+      validators: [{ name: "req", argsRaw: null }, { name: "length", argsRaw: "<=80" }],
+      bareVariantNames: [],
+      nullable: true,
+    });
+    // req is stripped; length survives.
+    expect(line).toBe("subtitle: text length(<=80)");
+    expect(line).not.toContain("req");
+  });
+
+  test("nullable enum field → oneOf WITHOUT req", () => {
+    const line = lowerFieldToSharedCore({
+      name: "status",
+      columnType: "text",
+      validators: [{ name: "req", argsRaw: null }],
+      bareVariantNames: ["Pending", "Active"],
+      nullable: true,
+    });
+    expect(line).not.toContain("req");
+    expect(line).toContain(`oneOf(['Pending', 'Active'])`);
+  });
+
+  test("non-nullable field keeps `req` (control)", () => {
+    const line = lowerFieldToSharedCore({
+      name: "title",
+      columnType: "text",
+      validators: [{ name: "req", argsRaw: null }],
+      bareVariantNames: [],
+      nullable: false,
+    });
+    expect(line).toBe("title: text req");
   });
 });

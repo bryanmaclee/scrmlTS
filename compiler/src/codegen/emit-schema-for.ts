@@ -106,6 +106,13 @@ export interface SchemaForFieldInfo {
    * predicate per §41.15.6 (the flagship). Empty otherwise.
    */
   bareVariantNames: string[];
+  /**
+   * True when the field's declared type is the nullable union `T | not`
+   * (or `T?` sugar) per §41.15.8a. A nullable field lowers to the base `T`
+   * column WITHOUT the `NOT NULL` constraint — the emitter strips any `req`
+   * validator (which would otherwise produce `NOT NULL`) from this field.
+   */
+  nullable?: boolean;
 }
 
 /**
@@ -183,10 +190,10 @@ export function pluralizeStructName(structName: string): string {
 // ---------------------------------------------------------------------------
 
 export type SqlMappingResult =
-  | { kind: "ok"; columnType: SchemaColumnType }
+  | { kind: "ok"; columnType: SchemaColumnType; nullable?: boolean }
   | { kind: "nested-struct" }
   | { kind: "payload-enum"; enumName: string }
-  | { kind: "bare-enum"; enumName: string; variants: string[] }
+  | { kind: "bare-enum"; enumName: string; variants: string[]; nullable?: boolean }
   | { kind: "no-mapping"; typeKind: string };
 
 /**
@@ -253,8 +260,58 @@ export function classifyFieldForSql(fieldType: unknown): SqlMappingResult {
     return { kind: "no-mapping", typeKind: `predicated:${t.baseType ?? "<unknown>"}` };
   }
 
-  // Array, asIs, union, not, function, snippet, opaque — no v1.0 mapping.
+  // Union — the ONLY v1.0-mappable union shape is the nullable `T | not`
+  // (§42 / §5721 `T?` sugar; §41.15.8a). It is EXACTLY `[T, not]` where the
+  // non-`not` member is a v1.0-mappable base type. The nullable case lowers
+  // to the base T's column WITHOUT `NOT NULL` (the §14.8.3 inverse — DB
+  // introspection produces `T | not` for a nullable column; schemaFor closes
+  // the round-trip by lowering `T | not` back to a nullable column).
+  // Any other union (e.g. `string | integer`) stays unmappable.
+  if (t.kind === "union") {
+    const base = nullableUnionBase(fieldType);
+    if (base) {
+      const inner = classifyFieldForSql(base);
+      // Only base-type (ok) or bare-variant-enum bases are nullable-mappable.
+      // A `not | not`, nested-struct, payload-enum, or further-union base is
+      // NOT a v1.0 nullable column — fall through to the no-mapping report.
+      if (inner.kind === "ok") {
+        return { kind: "ok", columnType: inner.columnType, nullable: true };
+      }
+      if (inner.kind === "bare-enum") {
+        return { kind: "bare-enum", enumName: inner.enumName, variants: inner.variants, nullable: true };
+      }
+    }
+    return { kind: "no-mapping", typeKind: "union" };
+  }
+
+  // Array, asIs, not, function, snippet, opaque — no v1.0 mapping.
   return { kind: "no-mapping", typeKind: t.kind ?? "<unknown>" };
+}
+
+/**
+ * Detect the canonical nullable union `T | not` (§42 / §5721 `T?` sugar) and
+ * return the base `T` member. A union qualifies ONLY when it has EXACTLY two
+ * members, EXACTLY one of which is `{ kind: "not" }` — the other is returned.
+ * Member ORDER is irrelevant (`not | string` and `string | not` both qualify).
+ *
+ * Returns null for any non-`| not` union (`string | integer`), a union with
+ * more than two members, or a `not | not` degenerate. The caller then classifies
+ * the returned base `T` recursively to decide nullable-mappability.
+ */
+export function nullableUnionBase(fieldType: unknown): unknown | null {
+  if (!fieldType || typeof fieldType !== "object") return null;
+  const t = fieldType as { kind?: string; members?: unknown[] };
+  if (t.kind !== "union" || !Array.isArray(t.members) || t.members.length !== 2) {
+    return null;
+  }
+  const notMembers = t.members.filter(
+    (m) => m && typeof m === "object" && (m as { kind?: string }).kind === "not",
+  );
+  if (notMembers.length !== 1) return null;  // `not | not` or no-`not` union
+  const base = t.members.find(
+    (m) => !(m && typeof m === "object" && (m as { kind?: string }).kind === "not"),
+  );
+  return base ?? null;
 }
 
 /**
@@ -335,8 +392,16 @@ export function renderValidator(v: FormForValidator): string {
 export function lowerFieldToSharedCore(field: SchemaForFieldInfo): string {
   const parts: string[] = [field.columnType];
   // Render existing validators.
+  //
+  // §41.15.8a — a nullable field (`T | not` / `T?`) lowers to the base `T`
+  // column WITHOUT `NOT NULL`. The shared-core `req` predicate is what
+  // schema-differ lowers to `NOT NULL` (§39.5.8), so a `req` on a nullable
+  // field is a CONFLICT: the field declares both "absence-permitting" (`| not`)
+  // AND "presence-required" (`req`). Resolution per the §14.8.3 inverse — the
+  // nullable union wins; we drop `req` so the column is genuinely nullable.
   const seenNames = new Set<string>();
   for (const v of field.validators) {
+    if (field.nullable && v.name === "req") continue;  // nullable column — no NOT NULL
     parts.push(renderValidator(v));
     seenNames.add(v.name);
   }
