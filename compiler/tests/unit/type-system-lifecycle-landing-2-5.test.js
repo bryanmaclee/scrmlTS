@@ -1002,3 +1002,168 @@ describe("§LL2-5_J Bug 24 — qualified-form discrim regex tolerance", () => {
     expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §LL2-5_K R28-6 (S143) — variant-progression gate DORMANT on reactive-assign RHS
+//
+// Bug R28-6 (HIGH): a variant-progression fn-return binding read on the RHS of
+// a reactive assignment (`@cell = "x" + m.publishedAt`) inside its source-variant
+// discrimination scope did NOT fire E-TYPE-LIFECYCLE-VARIANT-NOT-TRANSITIONED.
+// The state-decl walker handler `continue`d past the RHS read-scan, only
+// classifying the cell's own write transition. The pre-fix comment ("there's
+// no LHS access to scan in the bare-expr surface") overlooked the RHS read of
+// a DIFFERENT lifecycle binding.
+//
+// This is the SAME shape as the canonical SPEC §14.12.6.2 worked example
+// (dev-1-react publishManuscript), where the post-transition field access lives
+// on the RHS of a reactive assignment rather than a bare print() call.
+//
+// Fix: the state-decl handler now scans its RHS via processStatementText BEFORE
+// applying the cell's own write classification (pre-write state so a
+// self-referential RHS observes the cell's prior transition state).
+//
+// SPEC §14.12.6.2 / §14.12.10 normative SHALL-fire. §14.12.6.1 presence path
+// must NOT regress.
+// ---------------------------------------------------------------------------
+
+describe("§LL2-5_K R28-6 — variant gate on reactive-assign RHS (state-decl)", () => {
+  // `@cell = init` reactive-assignment wire form (parser uses state-decl with
+  // structuralForm:false per ast-builder.js ~5128). The RHS lives in `init`.
+  function stateReassign(name, init) {
+    return { kind: "state-decl", name, init, structuralForm: false, span: span(0) };
+  }
+
+  const variantBinding = () => new Map([
+    ["m", {
+      kind: "variant",
+      preType: { kind: "enum", name: "Manuscript" },
+      postType: { kind: "enum", name: "Manuscript" },
+      preVariantName: "Draft",
+      postVariantName: "Published",
+    }],
+  ]);
+
+  test("DORMANT case now fires: `if (m is .Draft) { @v = \"x\" + m.publishedAt }` (no transition())", () => {
+    const body = [
+      makeIfStmt(
+        "m is .Draft",
+        [
+          stateReassign("v", '"published at " + m.publishedAt'),  // RHS read, no transition()
+        ],
+      ),
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, variantBinding(), errors, span());
+
+    const fires = errors.filter(e => e.code === "E-TYPE-LIFECYCLE-VARIANT-NOT-TRANSITIONED");
+    expect(fires.length).toBe(1);
+    expect(fires[0].message).toMatch(/`m`/);
+    expect(fires[0].message).toMatch(/publishedAt/);
+    expect(fires[0].message).toMatch(/Draft/);
+    expect(fires[0].message).toMatch(/Published/);
+    expect(fires[0].message).toMatch(/transition\(m\)/);
+    expect(fires[0].message).toMatch(/§14\.12\.6\.2/);
+  });
+
+  test("CORRECT path stays clean: `if (m is .Draft) { transition(m); @v = \"x\" + m.publishedAt }`", () => {
+    const body = [
+      makeIfStmt(
+        "m is .Draft",
+        [
+          bareExpr("transition(m)"),
+          stateReassign("v", '"published at " + m.publishedAt'),  // RHS read AFTER transition()
+        ],
+      ),
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, variantBinding(), errors, span());
+
+    expect(errors.filter(e => e.code === "E-TYPE-LIFECYCLE-VARIANT-NOT-TRANSITIONED").length).toBe(0);
+    expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(0);
+  });
+
+  test("presence-progression NOT regressed: `given m => { @v = m.n }` stays clean", () => {
+    const presenceBinding = new Map([
+      ["m", {
+        kind: "presence",
+        preType: { kind: "absence" },
+        postType: { kind: "struct", name: "Stats" },
+        preVariantName: "",
+        postVariantName: "",
+      }],
+    ]);
+    const body = [
+      makeGivenGuard(["m"], [
+        stateReassign("v", '"count: " + m.n'),  // RHS read inside given => post
+      ]),
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, presenceBinding, errors, span());
+
+    expect(errors.length).toBe(0);
+  });
+
+  test("presence-progression pre-discrimination RHS read fires E-TYPE-001 (also dormant pre-fix)", () => {
+    const presenceBinding = new Map([
+      ["m", {
+        kind: "presence",
+        preType: { kind: "absence" },
+        postType: { kind: "struct", name: "Stats" },
+        preVariantName: "",
+        postVariantName: "",
+      }],
+    ]);
+    const body = [
+      stateReassign("v", '"count: " + m.n'),  // RHS read WITHOUT any discrimination
+    ];
+    const errors = [];
+    checkLifecycleBindingAccess(body, presenceBinding, errors, span());
+
+    expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(1);
+  });
+
+  test("end-to-end via wrapper: publishManuscript .get()-return shape — dormant case fires", () => {
+    const errors = [];
+    const typeRegistry = buildTypeRegistry([], errors, span());
+
+    // Mirrors dev-1-react publishManuscript: fn-return (.Draft to .Published),
+    // caller binds the result, discriminates .Draft, reads post-field on a
+    // reactive-assignment RHS WITHOUT transition().
+    const topNodes = [
+      makeFnDecl("publishManuscript", "(.Draft to .Published)"),
+      { ...makeLetDecl("m", "publishManuscript(42)", { const: true }) },
+      makeIfStmt("m is .Draft", [
+        stateReassign("viewerName", '"published at " + m.publishedAt'),
+      ]),
+    ];
+
+    const fnReturnMap = buildFnReturnLifecycleMap(topNodes, typeRegistry);
+    expect(fnReturnMap.size).toBe(1);
+
+    runLifecycleBindingAccessCheck(topNodes, fnReturnMap, errors, span());
+
+    const fires = errors.filter(e => e.code === "E-TYPE-LIFECYCLE-VARIANT-NOT-TRANSITIONED");
+    expect(fires.length).toBe(1);
+    expect(fires[0].message).toMatch(/`m`/);
+  });
+
+  test("end-to-end via wrapper: with transition() the .get()-return shape stays clean", () => {
+    const errors = [];
+    const typeRegistry = buildTypeRegistry([], errors, span());
+
+    const topNodes = [
+      makeFnDecl("publishManuscript", "(.Draft to .Published)"),
+      { ...makeLetDecl("m", "publishManuscript(42)", { const: true }) },
+      makeIfStmt("m is .Draft", [
+        bareExpr("transition(m)"),
+        stateReassign("viewerName", '"published at " + m.publishedAt'),
+      ]),
+    ];
+
+    const fnReturnMap = buildFnReturnLifecycleMap(topNodes, typeRegistry);
+    runLifecycleBindingAccessCheck(topNodes, fnReturnMap, errors, span());
+
+    expect(errors.filter(e => e.code === "E-TYPE-LIFECYCLE-VARIANT-NOT-TRANSITIONED").length).toBe(0);
+    expect(errors.filter(e => e.code === "E-TYPE-001").length).toBe(0);
+  });
+});

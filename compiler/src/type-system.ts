@@ -15055,15 +15055,33 @@ function checkLifecycleBindingAccess(
         // tag) as writes; structural decls are the original declarations and
         // their states come from initialStates seeding.
         const isStructuralDecl = (stmt as ASTNodeLike).structuralForm === true;
+        const stateDeclInitText = readNodeInitText(stmt);
+        // R28-6 (S143) — fix: scan the state-decl RHS for post-transition READ
+        // accesses of OTHER tracked lifecycle bindings BEFORE applying this
+        // cell's own write classification. A reactive assignment such as
+        // `@viewerName = "x" + m.publishedAt` (where `m` is a variant-progression
+        // fn-return binding inside its `if (m is .Draft)` discrimination scope)
+        // reads `m.publishedAt` on its RHS; that read MUST fire
+        // E-TYPE-LIFECYCLE-VARIANT-NOT-TRANSITIONED when `transition(m)` is
+        // absent (SPEC §14.12.6.2 / §14.12.10). Pre-fix this handler `continue`d
+        // past the read-scan, leaving the variant-progression gate DORMANT on the
+        // reactive-assignment surface (the prior comment that "there's no LHS
+        // access to scan" overlooked the RHS read of a DIFFERENT binding).
+        // Reads are scanned against the PRE-write state so a self-referential RHS
+        // (`@cell = @cell.field`) observes the cell's transition state before this
+        // write lands (cancel-then-apply, §6.8.2/§6.8.3).
+        if (stateDeclInitText) {
+          processStatementText(stateDeclInitText, localStates, stmtSpan, activeVariantDiscrim);
+        }
         if (spec && !isStructuralDecl) {
-          const initText = readNodeInitText(stmt);
-          if (initText) {
-            const newState = classifyWriteAgainstSpec(initText, spec);
+          if (stateDeclInitText) {
+            const newState = classifyWriteAgainstSpec(stateDeclInitText, spec);
             if (newState) localStates.set(cellName, newState);
           }
         }
-        // Don't fall through — the state-decl's init text is the RHS;
-        // there's no LHS access to scan in the bare-expr surface.
+        // Don't fall through — the RHS read-scan + this cell's write
+        // classification are both handled above; the LHS cell name is a write
+        // target, not a read.
         continue;
       }
 
