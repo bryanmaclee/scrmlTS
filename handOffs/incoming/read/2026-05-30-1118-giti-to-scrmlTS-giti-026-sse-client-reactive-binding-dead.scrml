@@ -1,0 +1,49 @@
+// repro-22 / GITI-026 — SSE client reactive binding `@cell = gen()` is dead.
+// The compiler emits `_scrml_reactive_set("cell", _scrml_sse_fn())` — which
+// stores the RETURNED EventSource object in the cell — and calls the stub with
+// NO onMessage callback, so stream events never update the cell. Affects even
+// the no-arg, default-event case (the canonical §37.5.1 usage). Named-event
+// yields (`{event,data}`) are additionally unreachable: the stub only sets
+// `onmessage`, never `addEventListener(<name>)`.
+//
+// compiled against scrmlTS@v0.7.0 (4c9079d2). Both bundles node --check clean.
+//
+// CLIENT emit (repro-22-*.client.js):
+//   function _scrml_sse_ticks_N(_scrml_onMessage, _scrml_onEvent) {
+//     const _scrml_es = new EventSource("/_scrml/__ri_route_ticks_1");
+//     _scrml_es.onmessage = function(e){ ...; if (typeof _scrml_onMessage==='function') _scrml_onMessage(JSON.parse(e.data)); };
+//     return _scrml_es;                       // <-- returns the EventSource
+//   }
+//   _scrml_reactive_set("latest", _scrml_sse_ticks_N());   // <-- no callback passed;
+//                                                          //     @latest := EventSource obj
+//
+// RUNTIME (faithful EventSource, default-event stream): _scrml_reactive_set is
+// called exactly once, with the EventSource object; ZERO stream values reach
+// @latest. The server side streams correctly (verified separately) — the break
+// is entirely the client binding.
+//
+// FIX SHAPE: bind the cell via a per-event callback, e.g.
+//   _scrml_sse_ticks_N((d) => _scrml_reactive_set("latest", d))
+// and register addEventListener(<name>) for named-event generators (route the
+// `{event,data}` form to the named listener; keep onmessage for bare yields).
+
+<program>
+
+${
+  // No-arg, default-event generator — the simplest reactive SSE; still dead.
+  server function* ticks() {
+    let i = 0
+    while (i < 5) {
+      yield i
+      i = i + 1
+    }
+  }
+
+  @latest = ticks()
+}
+
+<div>
+  <p>latest tick (never updates): ${@latest}</>
+</div>
+
+</program>

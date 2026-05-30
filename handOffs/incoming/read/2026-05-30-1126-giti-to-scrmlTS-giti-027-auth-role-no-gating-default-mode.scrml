@@ -1,0 +1,52 @@
+// repro-23 / GITI-027 — `<auth role="X">` does not hide content from
+// unauthorized viewers.
+//
+// compiled against scrmlTS@v0.7.0 (4c9079d2).
+//
+// DEFAULT compile mode (no --emit-per-route — the mode giti's compile-on-serve
+// uses):
+//   * the gated markup (button + secret text) is emitted verbatim into the
+//     served HTML (<auth role="Owner"> passes through as a literal tag);
+//   * the owner button's click handler is wired UNCONDITIONALLY in the single
+//     client bundle (global _scrml_click map; document-level listener; no role
+//     check);
+//   * the emitted `UserRole` enum is never consulted; the runtime has no
+//     <auth>-element role gating (grep of runtime-template.js: only AuthError +
+//     the scrml:auth stdlib chunk).
+//   => `<auth role="Owner">` is a NO-OP: anonymous viewers both SEE and can USE
+//      the owner-only content. No warning is emitted.
+//
+// --emit-per-route mode:
+//   * per-role JS chunks ARE correctly differentiated — Anonymous.initial.js
+//     omits the owner button/secret mounts; Owner.initial.js includes them
+//     (§40.9 closure classification works for the JS mount set);
+//   * BUT there is ONE shared min.html for all roles, and it contains the
+//     owner-only markup verbatim (incl. the secret text). Only JS *behavior* is
+//     role-split; the HTML *content* ships to everyone. The secret is visible in
+//     view-source to an anonymous viewer.
+//
+// Net: in neither mode does `<auth role>` withhold the gated CONTENT from a
+// lower-role viewer. For the default mode it withholds nothing at all.
+//
+// QUESTION for scrmlTS: is SSR-HTML content-stripping meant to happen at a serve
+// layer? No such layer/runtime exists in the emitted output, and default mode
+// emits no warning that auth gating requires --emit-per-route — so an adopter who
+// writes `<auth role>` to hide content ships an inert security gate.
+
+<program>
+
+type UserRole:enum = { Anonymous, Owner }
+
+<count> = 0
+
+<div class="app">
+  <h1>giti</>
+  <p>Public status: ${@count}</>
+
+  <auth role="Owner">
+    <button onclick=${@count = @count + 1}>OWNER-ONLY: bump</button>
+    <p class="secret">owner-only-marker-12345</>
+  </auth>
+</div>
+
+</program>

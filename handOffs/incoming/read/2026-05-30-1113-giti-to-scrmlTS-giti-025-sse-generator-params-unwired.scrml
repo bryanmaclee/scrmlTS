@@ -1,0 +1,61 @@
+// repro-21 / GITI-025 — SSE `server function*` PARAMETERS are not wired.
+// The client drops the call arguments (and binds them to the stub's callback
+// slots), and the server never extracts the params from the request, so the
+// generator body references an unbound identifier. The ReferenceError is
+// swallowed by the stream's try/catch → the client gets a silent EMPTY stream.
+//
+// compiled against scrmlTS@v0.7.0 (4c9079d2)
+//   bun run ../scrmlTS/compiler/src/cli.js compile ui/repros/repro-21-*.scrml -o /tmp/out
+//   node --check passes on both bundles (silent — the bug is runtime/empty-stream).
+//
+// SERVER emit (repro-21-*.server.js):
+//   async function* _scrml_gen() {
+//     for (let i = from; i >= 0; i--) { yield i }   // <-- `from` is UNBOUND
+//   }
+//   ...no `const from = route.query.from` / body extraction anywhere...
+//   try { for await (...) {...} } catch { /* swallowed */ } finally { close() }
+//
+// CLIENT emit (repro-21-*.client.js):
+//   function _scrml_sse_countdown_N(_scrml_onMessage, _scrml_onEvent) {
+//     const _scrml_es = new EventSource("/_scrml/__ri_route_countdown_1");  // no ?from=
+//   }
+//   _scrml_reactive_set("latest", _scrml_sse_countdown_N(5));  // 5 -> onMessage slot, dropped
+//
+// RUNTIME: no-arg generators stream correctly (verified: 3 frames data:0/1/2);
+// the parameterized one yields ZERO frames.
+//
+// FIX SHAPE: encode call args into the EventSource URL query client-side, and
+// bind params from `route.query` (already constructed in the handler) server-
+// side — mirroring how non-generator server fns bind from `_scrml_body`.
+// Also: the stream try/catch should surface generator errors (an `event: error`
+// frame) rather than silently closing — otherwise this class is invisible.
+
+<program>
+
+${
+  // PARAMETERIZED generator — silently yields nothing.
+  server function* countdown(from) {
+    for (let i = from; i >= 0; i--) {
+      yield i
+    }
+  }
+
+  // Control: NO-ARG generator streams correctly.
+  server function* ticks() {
+    let i = 0
+    while (i < 3) {
+      yield i
+      i = i + 1
+    }
+  }
+
+  @latest = countdown(5)
+  @tick   = ticks()
+}
+
+<div>
+  <p>countdown (param, broken): ${@latest}</>
+  <p>ticks (no-arg, works): ${@tick}</>
+</div>
+
+</program>
