@@ -25,9 +25,6 @@
                 layer. The server boundary disappears.
             </p>
             <div class="flex gap-4 mt-4 text-xs">
-                <span class="px-2 py-1 bg-emerald-50 text-emerald-700 rounded">
-                    Available since v0.1.0
-                </span>
                 <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md#§8"
                    class="text-blue-700 hover:text-blue-900 underline">
                     SPEC §8 (normative)

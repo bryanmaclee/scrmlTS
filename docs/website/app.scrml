@@ -20,7 +20,7 @@
 
     const SITE_NAME = "scrml.dev"
     const SITE_TAGLINE = "Official documentation for the scrml language"
-    const VERSION = "v0.3.0"
+    const VERSION = "v0.7.0"
 
     #{
         /* ─── base canvas ────────────────────────────────────────── */
