@@ -172,10 +172,16 @@ describe("LSP L1 — buildDocumentSymbols", () => {
     // on structural diagnostics only. Also filter the v0.3 info-level
     // W-PROGRAM-SPA-INFERRED lint (SPEC §40.8.1) which fires for SPA-
     // shaped examples like the Mario fixture (no <page>, no pages/).
+    // Also filter the S147 info-level W-MATCH-ARROW-LEGACY lint (SPEC §18.2):
+    // the Mario fixture uses the (now-deprecated) `=>` match arm separator,
+    // which is fully valid during the `:>`-canonical deprecation window — an
+    // advisory nudge, not a structural diagnostic. (Same class as the lints
+    // above; corpus arm-arrow migration is deferred, so the fixture keeps `=>`.)
     const errs = diagnostics.filter(d =>
       d.code !== "W-DEAD-FUNCTION" &&
       d.code !== "W-DEPRECATED-SERVER-MODIFIER" &&
-      d.code !== "W-PROGRAM-SPA-INFERRED"
+      d.code !== "W-PROGRAM-SPA-INFERRED" &&
+      d.code !== "W-MATCH-ARROW-LEGACY"
     );
     expect(errs.length).toBe(0);
     // Should at minimum surface the three enum types. Post-v0.2.0 rewrite
