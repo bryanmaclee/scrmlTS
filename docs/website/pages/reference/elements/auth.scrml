@@ -21,19 +21,30 @@
                 &lt;auth&gt;
             </h1>
             <p class="text-lg text-slate-600 mt-2">
-                Per-role visibility constraint. Wraps page subtrees
-                that should only render for specific roles. The
-                compiler emits per-role bundles automatically &mdash;
-                anonymous visitors download strictly smaller initial
-                artifacts.
+                Per-role <strong>JS-mount / code-split</strong> constraint.
+                Wraps page subtrees whose client behaviour should mount only
+                for specific roles. The compiler emits per-role JS bundles
+                automatically &mdash; anonymous visitors download strictly
+                smaller initial <em>JS</em> artifacts.
+            </p>
+            <p class="text-sm text-rose-800 bg-rose-50 border border-rose-200 rounded px-3 py-2 mt-3">
+                <strong>Not a content-secrecy control.</strong>
+                <code class="font-mono text-xs">&lt;auth role&gt;</code> gates JS
+                mount/behaviour only &mdash; it does <strong>not</strong> withhold
+                served HTML. Gated markup ships verbatim in the HTML payload to
+                every viewer (view-source), even under
+                <code class="font-mono text-xs">--emit-per-route</code>. The
+                compiler fires
+                <a href="/reference/errors/W-AUTH-CONTENT-NOT-GATED"
+                   class="font-mono text-xs underline">W-AUTH-CONTENT-NOT-GATED</a>
+                on every <code class="font-mono text-xs">&lt;auth role=&gt;</code>
+                site. To withhold sensitive <em>content</em>, gate it server-side
+                (see Semantics).
             </p>
             <div class="flex gap-4 mt-4 text-xs">
-                <span class="px-2 py-1 bg-emerald-50 text-emerald-700 rounded">
-                    Available since v0.3.0 (Approach A — S91)
-                </span>
                 <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md#§40"
                    class="text-blue-700 hover:text-blue-900 underline">
-                    SPEC §40.1 + §40.9 (normative)
+                    SPEC §40.1 + §40.9.5 (normative)
                 </a>
             </div>
         </header>
@@ -94,11 +105,13 @@
 
         <p class="text-slate-700 leading-relaxed mt-3">
             The compiler analyzes the closure of each page across the
-            three roles and emits three sets of chunks. Anonymous
-            visitors load the public pages and the login redirect;
-            the admin subtree's atoms are absent from their bundle.
-            Per &sect;40.9.9 the chunk variance is observable in the
-            generated
+            three roles and emits three sets of <em>JS</em> chunks. Anonymous
+            visitors load the public pages and the login redirect; the admin
+            subtree's <em>JS atoms</em> (mount + wiring) are absent from their
+            bundle. The served HTML, however, still carries the admin markup
+            verbatim &mdash; chunk variance role-splits <em>behaviour</em>, not
+            <em>content</em>. Per &sect;40.9.9 the chunk variance is observable
+            in the generated
             <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">chunks.json</code>
             manifest.
         </p>
@@ -113,13 +126,18 @@
 
         <ul class="space-y-3 text-slate-700">
             <li>
-                <strong>Compile-time, not runtime.</strong>
-                &lt;auth&gt; is a visibility constraint the closure
+                <strong>A JS-mount gate, not a content gate.</strong>
+                &lt;auth role&gt; is a code-split / mount constraint the closure
                 analysis honors at chunk-splitting time. It is NOT a
-                middleware-style runtime check on its own &mdash; the
-                emitted bundle is the enforcement.
-                Server-side route guards are a separate layer
-                (&lt;program auth="required"&gt;).
+                content-secrecy control and NOT a runtime check on its own
+                &mdash; the served HTML carries the gated markup for every
+                viewer. To withhold sensitive <em>content</em>, gate it
+                server-side: put it behind a
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">server function</code>
+                that resolves the authenticated role and returns/renders it only
+                for admitted roles, so non-admitted markup never enters the
+                response body. Request-boundary route guards
+                (&lt;program auth="required"&gt;) are the other server-side layer.
             </li>
             <li>
                 <strong>Closed-form vs runtime-fallback.</strong>
@@ -186,6 +204,7 @@
             <li><a href="/reference/errors/W-AUTH-PAGE-INFERRED" class="text-blue-700 underline">W-AUTH-PAGE-INFERRED</a> &mdash; inherited role</li>
             <li><a href="/reference/errors/W-AUTH-LOGIN-MISSING" class="text-amber-700 underline">W-AUTH-LOGIN-MISSING</a> &mdash; auth=required without login route</li>
             <li><a href="/reference/errors/I-AUTH-REDIRECT-UNRESOLVED" class="text-blue-700 underline">I-AUTH-REDIRECT-UNRESOLVED</a> &mdash; redirect to unknown route</li>
+            <li><a href="/reference/errors/W-AUTH-CONTENT-NOT-GATED" class="text-amber-700 underline">W-AUTH-CONTENT-NOT-GATED</a> &mdash; security footgun: gates JS mount only, not served HTML content</li>
         </ul>
 
         // ───────────────────────────────────────────────────────────

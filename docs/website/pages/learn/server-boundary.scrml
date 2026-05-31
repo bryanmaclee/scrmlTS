@@ -57,33 +57,41 @@
         <p class="text-slate-700 leading-relaxed mb-3">
             Per SPEC &sect;39, the
             <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;schema&gt;</code>
-            block declares your database structure. It sits next to
-            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;program&gt;</code>
-            in your file, NOT inside it.
+            block declares your database structure. It is an immediate child
+            of <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;program&gt;</code>
+            (which carries the <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">db=</code>
+            connection). A top-level <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;schema&gt;</code>
+            outside <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;program&gt;</code>
+            fires E-SCHEMA-003.
         </p>
 
-        <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>&lt;schema&gt;
-  contacts &#123;
-    id:    integer primary key
-    name:  text n&#111;t null
-    email: text n&#111;t null
-    phone: text
-  &#125;
-&lt;/schema&gt;
+        <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>&lt;program db="./contacts.db"&gt;
 
-&lt;program db="./contacts.db"&gt;
+  &lt;schema&gt;
+    contacts &#123;
+      id:    integer primary key
+      name:  text n&#111;t null
+      email: text n&#111;t null
+      phone: text
+    &#125;
+  &lt;/schema&gt;
+
   &lt;h1&gt;Contact book&lt;/h1&gt;
+
 &lt;/program&gt;</code></pre>
 
         <p class="text-slate-700 leading-relaxed mt-3">
-            Save the file. Run
-            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">scrml migrate</code>
-            and the compiler diffs your
+            Save the file and run
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">scrml dev</code>.
+            On reload the compiler diffs your
             <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;schema&gt;</code>
             against the live database at
-            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">./contacts.db</code>,
-            generates the migration SQL, and applies it. No separate
-            schema-file-and-generator step.
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">./contacts.db</code>
+            and applies the migration (the schema-differ runs during dev reload).
+            No separate schema-file-and-generator step. (Note:
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">scrml migrate</code>
+            is a different command &mdash; it applies source-syntax deprecation
+            rewrites, not database migrations.)
         </p>
 
         // ───────────────────────────────────────────────────────────
@@ -110,7 +118,7 @@
 
   &lt;h1&gt;Contact book&lt;/h1&gt;
   &lt;ul&gt;
-    ${ @contacts.forEach(c =&gt; lift &lt;li&gt;${c.name} &mdash; ${c.email}&lt;/li&gt;) }
+    ${ for (c of @contacts) { lift &lt;li&gt;${c.name} &mdash; ${c.email}&lt;/li&gt; } }
   &lt;/ul&gt;
 
 &lt;/program&gt;</code></pre>
@@ -220,8 +228,8 @@
             <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">addContact</code>
             inserts, the
             <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">@contacts</code>
-            list should re-fetch. There's a pattern for that &mdash;
-            invalidate the read and the compiler re-runs it:
+            list should re-fetch. Re-assign the cell to re-run the read &mdash;
+            the compiler re-issues the query through the server boundary:
         </p>
 
         <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>function submit() &#123;
@@ -229,8 +237,19 @@
   reset(@newName)
   reset(@newEmail)
   reset(@newPhone)
-  invalidate(@contacts)    // re-runs the SELECT
+  @contacts = ?&#123;`SELECT id, name, email, phone FROM contacts ORDER BY name`&#125;.all()  // re-run the read
 &#125;</code></pre>
+
+        <p class="text-slate-600 text-sm leading-relaxed mt-3">
+            For richer loading / error states, model the read as a
+            <code class="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">&lt;request id=contacts&gt;</code>
+            element and call
+            <code class="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">&lt;#contacts&gt;.refetch()</code>
+            (SPEC &sect;6.7.6) &mdash; it exposes
+            <code class="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">.loading</code> &#47;
+            <code class="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">.error</code> &#47;
+            <code class="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">.data</code> alongside the re-fetch.
+        </p>
 
         <p class="text-slate-700 leading-relaxed mt-3">
             Save, click "Add" in the browser &mdash; the new contact

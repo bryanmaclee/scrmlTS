@@ -102,10 +102,14 @@
             <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;head&gt;</code>
             (per SPEC &sect;40.7). The
             <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;auth role="Admin"&gt;</code>
-            wrapper makes
+            wrapper omits
             <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">/admin</code>
-            invisible to anonymous bundles (per the Approach A
-            closure-analysis + per-route per-role artifact splitter).
+            from anonymous <em>JS</em> bundles (code-split only, per the
+            Approach A closure-analysis + per-route per-role artifact splitter)
+            &mdash; it is NOT a content-secrecy gate; the served HTML still
+            carries the markup (see the
+            <a href="/reference/elements/auth" class="text-blue-700 hover:text-blue-900 underline">&lt;auth&gt;</a>
+            page).
             The channel body uses V5-strict declarations; its cells
             auto-sync across connected clients.
         </p>
