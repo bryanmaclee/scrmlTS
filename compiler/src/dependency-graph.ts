@@ -361,8 +361,88 @@ function collectReactiveRefsFromExprNode(node: Record<string, unknown>): string[
     forEachIdentInExprNode(field as ExprNode, (ident) => {
       if (ident.name.startsWith("@")) refs.push(ident.name.slice(1));
     });
+    // E-DG-002 false-positive class (SB1) — `forEachIdentInExprNode` is a
+    // SHARED helper that deliberately stops at LambdaExpr bodies (a new
+    // lin-scope boundary; capture tracking for `checkLinear` is handled
+    // separately via the closure node's `captures` array). For DG
+    // "has-readers" accounting that boundary is wrong: a `@var` read inside a
+    // `.map`/`.filter`/`.reduce` callback body (e.g.
+    // `@items.filter(x => x > @threshold)`) IS a real consumption of `@var` —
+    // the callback runs with the cell captured. Without descending into lambda
+    // bodies, `@threshold` is invisible to the reader set and E-DG-002
+    // false-fires on it. Widening the shared helper would change lin-capture
+    // semantics, so we descend here, DG-locally, only for reader-credit.
+    collectLambdaBodyReactiveRefs(field as ExprNode, refs);
   }
   return refs;
+}
+
+/**
+ * Walk an ExprNode tree finding every LambdaExpr and collect the `@var`
+ * reactive reads inside each lambda body — the reads that
+ * `forEachIdentInExprNode` intentionally skips at the lambda scope boundary.
+ *
+ * Pushes bare names (without the `@`) onto `out`. Nested lambdas are handled
+ * (a lambda body's `forEachIdentInExprNode` walk stops at any inner lambda, so
+ * we recurse into the inner one here too). Block-body lambdas
+ * (`{ kind: "block", stmts }`) walk each statement's parallel ExprNode fields
+ * (the same field set `collectReactiveRefsFromExprNode` uses).
+ *
+ * Scope note: this descends ONLY for E-DG-002 reader-accounting. It does NOT
+ * change lin tracking (which keeps the shared helper's scope boundary).
+ */
+function collectLambdaBodyReactiveRefs(node: ExprNode, out: string[]): void {
+  if (!node || typeof node !== "object") return;
+
+  if ((node as { kind?: string }).kind === "lambda") {
+    const lambda = node as Record<string, unknown>;
+    const body = lambda.body as
+      | { kind: "expr"; value: ExprNode }
+      | { kind: "block"; stmts: unknown[] }
+      | undefined;
+    if (body && body.kind === "expr" && body.value) {
+      // Credit `@var` reads in the arrow's expression body, then recurse so
+      // any lambda nested inside the body is also descended into.
+      forEachIdentInExprNode(body.value, (ident) => {
+        if (ident.name.startsWith("@")) out.push(ident.name.slice(1));
+      });
+      collectLambdaBodyReactiveRefs(body.value, out);
+    } else if (body && body.kind === "block" && Array.isArray(body.stmts)) {
+      // Block-body lambda — walk each statement's parallel ExprNode fields
+      // (mirrors collectReactiveRefsFromExprNode's field set), descending into
+      // any nested lambdas.
+      for (const stmt of body.stmts) {
+        if (!stmt || typeof stmt !== "object") continue;
+        const s = stmt as Record<string, unknown>;
+        for (const field of [s.exprNode, s.initExpr, s.condExpr, s.valueExpr, s.iterExpr, s.headerExpr]) {
+          if (!field || typeof field !== "object" || !(field as { kind?: string }).kind) continue;
+          forEachIdentInExprNode(field as ExprNode, (ident) => {
+            if (ident.name.startsWith("@")) out.push(ident.name.slice(1));
+          });
+          collectLambdaBodyReactiveRefs(field as ExprNode, out);
+        }
+      }
+    }
+    // Lambda default-parameter values are in the OUTER scope and are already
+    // covered by forEachIdentInExprNode's lambda case; no extra walk needed.
+    return;
+  }
+
+  // Non-lambda node: structurally recurse into every ExprNode-shaped child so
+  // we reach lambdas nested anywhere in the tree (call args, ternary arms,
+  // array elements, object prop values, member objects, etc.).
+  for (const key of Object.keys(node as Record<string, unknown>)) {
+    const child = (node as Record<string, unknown>)[key];
+    if (child && typeof child === "object" && (child as { kind?: string }).kind) {
+      collectLambdaBodyReactiveRefs(child as ExprNode, out);
+    } else if (Array.isArray(child)) {
+      for (const item of child) {
+        if (item && typeof item === "object" && (item as { kind?: string }).kind) {
+          collectLambdaBodyReactiveRefs(item as ExprNode, out);
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -2616,6 +2696,41 @@ export function runDG(input: DGInput): DGOutput {
         }
         // Body walking continues via the generic markup-walk on
         // bodyChildren / templateChildren (handled by the outer recursion).
+      }
+
+      // E-DG-002 false-positive class (SB2) — block-form `<match on=@cell>`.
+      // The markup match-block node is captured raw by the block-splitter
+      // (NOT in the §4.15 markup-element table — see ast-builder.js line 173),
+      // so it carries its match subject as a raw string on `onExprRaw`
+      // (e.g. `@phase`, `@wrapper.phase`) rather than a walkable ExprNode.
+      // The generic ExprNode markup-sweep above therefore never sees the
+      // subject, and E-DG-002 false-fires on a cell consumed ONLY by a
+      // block-form match dispatch. Structurally identical to the each-block
+      // opener-attr credit above (inExprRaw/ofExprRaw/keyExprRaw): scan
+      // `onExprRaw` for the subject cell, with `armsRaw` as the raw fallback
+      // for @cell reads inside the arm bodies (the arms are raw-captured into
+      // `bodyChildren` text, mirroring each-block's bodyRaw fallback).
+      if ((node as Record<string, unknown>).kind === "match-block") {
+        const matchAny = node as Record<string, unknown>;
+        for (const key of ["onExprRaw", "armsRaw"]) {
+          const raw = matchAny[key];
+          if (typeof raw === "string" && raw.length > 0) {
+            const atRefs = raw.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+            if (atRefs) {
+              for (const ref of atRefs) {
+                const cellName = ref.slice(1);
+                // Skip `@.` contextual sigil (single dot, no ident).
+                if (!cellName) continue;
+                creditReader(cellName);
+                if (markupContextEmitEdges && node.span) {
+                  emitMarkupReadEdge(node.span, cellName);
+                }
+              }
+            }
+          }
+        }
+        // Arm body markup continues via the generic markup-walk on
+        // bodyChildren (handled by the outer recursion).
       }
 
       if (node.kind === "engine-decl") {
