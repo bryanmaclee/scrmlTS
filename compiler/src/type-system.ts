@@ -6363,7 +6363,17 @@ function annotateNodes(
         }
         const mBody = n.body as ASTNodeLike[] | undefined;
         if (Array.isArray(mBody)) {
-          for (const c of mBody) visitNode(c);
+          for (const c of mBody) {
+            // §42.2.3 / §34 — mark direct given-guard children as in-match so
+            // the given-guard case suppresses W-GIVEN-ARROW-LEGACY (an in-match
+            // `given x => ...` arm parses to a given-guard node; the in-match
+            // arrow-deprecation is W-MATCH-ARROW-LEGACY's job, fired via the
+            // sibling `not =>`/`else =>` match-arm nodes). No double-fire.
+            if (c && typeof c === "object" && (c as ASTNodeLike).kind === "given-guard") {
+              (c as { __inMatchBody?: boolean }).__inMatchBody = true;
+            }
+            visitNode(c);
+          }
         }
         resolvedType = tAsIs();
         break;
@@ -6412,6 +6422,48 @@ function annotateNodes(
       // prevent "unknown kind" fallthrough.
       // ------------------------------------------------------------------
       case "match-arm-inline": {
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
+      // §42.2.3 / §34 — W-GIVEN-ARROW-LEGACY (S148). The canonical STANDALONE
+      // `given` presence-guard separator is `:>`; `=>` is a deprecated alias
+      // accepted during the deprecation window (both parse + emit identically).
+      // Fire an info-level lint when the recorded `separatorGlyph` is `=>`.
+      // SCOPED to the standalone-`given`-guard separator only:
+      //   - a `=>` arrow-function glyph never reaches here (it is not a
+      //     given-guard node, and `separatorGlyph` is set ONLY by the
+      //     given-guard parser at the guard-separator position — ast-builder.js).
+      //   - an IN-`match` `given`-arm parses to a given-guard node too, but the
+      //     match-stmt case marks those with `__inMatchBody` so the in-match
+      //     given fires W-MATCH-ARROW-LEGACY (its sibling `not =>`/`else =>`
+      //     arms), NOT W-GIVEN-ARROW-LEGACY (no double-fire / cross-contam).
+      // Mirrors the W-MATCH-ARROW-LEGACY arm-context-scoped emission. Lands in
+      // result.warnings via the info-severity diagnostic-stream partition (S93).
+      case "given-guard": {
+        const inMatchBody = (n as { __inMatchBody?: boolean }).__inMatchBody === true;
+        const glyph = (n as { separatorGlyph?: string }).separatorGlyph;
+        if (!inMatchBody && glyph === "=>") {
+          const ggSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          const vars = Array.isArray((n as { variables?: unknown }).variables)
+            ? ((n as { variables: unknown[] }).variables).filter((v) => typeof v === "string").join(", ")
+            : "";
+          errors.push(new TSError(
+            "W-GIVEN-ARROW-LEGACY",
+            givenArrowLegacyMessage(vars),
+            ggSpan,
+            "info",
+          ));
+        }
+        // Walk the guard body so nested statements still get visited (the
+        // default-case recursion would otherwise own this; we replicate it).
+        const ggBody = (n as { body?: ASTNodeLike[] }).body;
+        if (Array.isArray(ggBody)) {
+          for (const child of ggBody) {
+            if (child && typeof child === "object" && (child as ASTNodeLike).kind) visitNode(child);
+          }
+        }
         resolvedType = tAsIs();
         break;
       }
@@ -8557,6 +8609,31 @@ function matchArrowLegacyMessage(location: string, glyph: string): string {
     `\`<pattern> :> <body>\`, or run \`bun scrml migrate --fix\` (AST-driven; it ` +
     `rewrites ONLY arm-separator arrows, never arrow-function or fn-return ` +
     `arrows). See SPEC §18.2 / §34.`
+  );
+}
+
+/**
+ * Build the W-GIVEN-ARROW-LEGACY (§42.2.3 / §34) diagnostic message — the
+ * STANDALONE-`given`-guard sibling of `matchArrowLegacyMessage`. `vars` names
+ * the guarded identifier-list (e.g. "x" or "x, y"). The standalone presence
+ * guard `given x => { ... }` uses the deprecated `=>` separator; the canonical
+ * separator is `:>` (the same "maps-to" glyph as a match arm — §18.2). Both
+ * forms parse + resolve identically during the deprecation window. SCOPED to
+ * the `given`-guard separator only — the JS arrow-function `=>` is untouched,
+ * and an in-`match` `given`-arm fires W-MATCH-ARROW-LEGACY instead (no
+ * double-fire). End-of-window timing promotes this → a reserved
+ * E-GIVEN-ARROW-LEGACY (not yet emitted).
+ */
+function givenArrowLegacyMessage(vars: string): string {
+  const guard = vars ? `\`given ${vars} => { ... }\`` : "the standalone `given` guard";
+  return (
+    `W-GIVEN-ARROW-LEGACY: ${guard} uses the deprecated \`=>\` separator. ` +
+    `The canonical standalone-\`given\` presence-guard separator is \`:>\` — the same ` +
+    `"maps-to" glyph as a match arm (§18.2). Both forms parse + resolve identically ` +
+    `during the deprecation window; new code SHALL use \`:>\`. Rewrite the guard as ` +
+    `\`given ${vars || "x"} :> { ... }\`, or run \`bun scrml migrate --fix\` (AST-driven; ` +
+    `it rewrites ONLY the \`given\`-guard separator, never an arrow-function \`=>\`). ` +
+    `See SPEC §42.2.3 / §34.`
   );
 }
 

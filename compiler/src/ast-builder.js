@@ -5785,9 +5785,15 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           break;
         }
       }
-      // consume '=>' (tokenized as a single OPERATOR token by tokenizeLogic)
+      // consume the separator. `:>` canonical, `=>` deprecated alias
+      // (§42.2.3, S148) — both single OPERATOR tokens via tokenizeLogic;
+      // isMatchArrow accepts either. Record which glyph the source used so the
+      // W-GIVEN-ARROW-LEGACY lint + `migrate --fix` can see the deprecated form
+      // (mirrors the match-arm `armArrow` field — S147).
+      let separatorGlyph = ":>";
       if (isMatchArrow(peek())) {
-        consume(); // consume '=>'
+        separatorGlyph = peek().text === "=>" ? "=>" : ":>";
+        consume(); // consume the arm separator
       }
       // parse body
       let body = [];
@@ -5799,6 +5805,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         id: ++counter.next,
         kind: "given-guard",
         variables,
+        separatorGlyph,
         body,
         span: spanOf(startTok, peek()),
       };
@@ -9956,9 +9963,15 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           break;
         }
       }
-      // consume '=>' (tokenized as a single OPERATOR token by tokenizeLogic)
+      // consume the separator. `:>` canonical, `=>` deprecated alias
+      // (§42.2.3, S148) — both single OPERATOR tokens via tokenizeLogic;
+      // isMatchArrow accepts either. Record which glyph the source used so the
+      // W-GIVEN-ARROW-LEGACY lint + `migrate --fix` can see the deprecated form
+      // (mirrors the match-arm `armArrow` field — S147).
+      let separatorGlyph = ":>";
       if (isMatchArrow(peek())) {
-        consume(); // consume '=>'
+        separatorGlyph = peek().text === "=>" ? "=>" : ":>";
+        consume(); // consume the arm separator
       }
       // parse body
       let body = [];
@@ -9970,6 +9983,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         id: ++counter.next,
         kind: "given-guard",
         variables,
+        separatorGlyph,
         body,
         span: spanOf(startTok, peek()),
       });

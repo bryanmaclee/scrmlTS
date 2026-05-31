@@ -290,6 +290,91 @@ export function rewriteMatchArmArrows(source, filePath) {
   return { rewritten, changed: rewritten !== source, count };
 }
 
+/**
+ * AST-driven rewrite of deprecated standalone-`given` presence-guard separators
+ * `=>` → the canonical `:>` (SPEC §42.2.3 / §34 — the `given`-guard sibling of
+ * `rewriteMatchArmArrows`). Powers the W-GIVEN-ARROW-LEGACY lint's
+ * `bun scrml migrate --fix` suggestion.
+ *
+ * This MUST be AST/parser-position-driven, NOT a regex text-replace — `=>` is
+ * ALSO the arrow-function glyph (`(x) => ...`). A blind text replace would
+ * destroy every lambda. We drive the LIVE front-end (splitBlocks + buildAST)
+ * and rewrite ONLY at recorded `given-guard` separator positions:
+ *   - every `given-guard` node carries `separatorGlyph` (`":>"` / `"=>"`, set by
+ *     the given-guard parser) and a `span` whose `.start` is the `given` keyword.
+ *   - the identifier-list between `given` and the separator never contains a
+ *     `=>`, so the FIRST `=>` at/after `span.start` IS the guard separator.
+ * Rewrites are applied right-to-left so earlier offsets stay valid; each glyph
+ * is exactly 2 chars (`=>` → `:>`). A byte-check at the recorded offset is the
+ * fail-safe: never rewrite a position we cannot confirm.
+ *
+ * NOT in-match-scoped: an in-`match` `given x => ...` arm also parses to a
+ * `given-guard` node, and its `=>` separator IS a `given`-guard separator that
+ * SHALL become `:>` (§42.2.3) — so it is rewritten here too. (The lint scoping
+ * that suppresses a DOUBLE W-GIVEN/W-MATCH diagnostic is a lint-only concern;
+ * the byte-rewrite target is the same canonical `:>` either way.)
+ *
+ * @param {string} source — raw source text
+ * @param {string} filePath — for the block splitter's diagnostics
+ * @returns {{ rewritten: string, changed: boolean, count: number }}
+ */
+export function rewriteGivenGuardArrows(source, filePath) {
+  let ast;
+  try {
+    const bs = splitBlocks(filePath, source);
+    ({ ast } = buildAST(bs));
+  } catch {
+    // Front-end could not build an AST — do not guess at guard positions.
+    return { rewritten: source, changed: false, count: 0 };
+  }
+  if (!ast || typeof ast !== "object") {
+    return { rewritten: source, changed: false, count: 0 };
+  }
+
+  const edits = [];
+  const seenOffsets = new Set();
+
+  const walk = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { for (const x of n) walk(x); return; }
+    if (n.kind === "given-guard" && n.separatorGlyph === "=>") {
+      const span = n.span;
+      const start = span && typeof span.start === "number" ? span.start : -1;
+      if (start >= 0) {
+        // The first `=>` at/after the `given` keyword is the guard separator
+        // (the identifier-list contains no `=>`).
+        const at = source.indexOf("=>", start);
+        if (at >= 0 && !seenOffsets.has(at)) {
+          seenOffsets.add(at);
+          edits.push({ offset: at });
+        }
+      }
+    }
+    for (const k of Object.keys(n)) {
+      if (k === "span") continue;
+      walk(n[k]);
+    }
+  };
+  walk(ast);
+
+  if (edits.length === 0) {
+    return { rewritten: source, changed: false, count: 0 };
+  }
+
+  // Apply right-to-left so earlier offsets remain valid. Verify the bytes at
+  // the recorded offset still read `=>` (fail-safe — never clobber otherwise).
+  edits.sort((a, b) => b.offset - a.offset);
+  let rewritten = source;
+  let count = 0;
+  for (const { offset } of edits) {
+    if (rewritten.slice(offset, offset + 2) !== "=>") continue; // moved/clobbered — skip
+    rewritten = rewritten.slice(0, offset) + ":>" + rewritten.slice(offset + 2);
+    count++;
+  }
+
+  return { rewritten, changed: rewritten !== source, count };
+}
+
 // ---------------------------------------------------------------------------
 // v0.3 program-shape migration (SPEC §40.8) — classification + rewrite
 // ---------------------------------------------------------------------------
@@ -1779,6 +1864,11 @@ Optional migrations (opt-in flags):
                             to the canonical \`:>\`. AST-driven — arrow-function
                             \`=>\` and \`fn ... -> Type\` returns are NOT touched.
                             Surfaces W-MATCH-ARROW-LEGACY pre-migration.
+  - given-guard \`:>\`      (--fix, SPEC §42.2.3 / §34): rewrites the deprecated
+                            standalone \`given\` presence-guard separator \`=>\`
+                            to the canonical \`:>\`. AST-driven — arrow-function
+                            \`=>\` is NOT touched. Surfaces W-GIVEN-ARROW-LEGACY
+                            pre-migration.
 
 Arguments:
   <file>                  A single .scrml file
@@ -1791,8 +1881,10 @@ Options:
   --exclude=<glob>        Additional exclude pattern (substring match)
   --no-default-excludes   Disable built-in samples/ + tests/ exclusions
   --program-shape         Enable v0.3 program-shape migration (SPEC §40.8)
-  --fix                   Enable the arm-arrow \`:>\` canonicalisation
-                          (SPEC §18.2 / §34): \`=>\` / \`->\` arm separators → \`:>\`
+  --fix                   Enable the \`:>\` canonicalisation rewrites:
+                          arm-arrow (SPEC §18.2 / §34): \`=>\` / \`->\` arm
+                          separators → \`:>\`; and given-guard (SPEC §42.2.3 /
+                          §34): standalone \`given x => { ... }\` → \`given x :> { ... }\`
   --report                With --dry-run --program-shape, emit a structured
                           advisory report listing every in-scope file's bucket,
                           evidence, and proposed action (REWRITE / SKIP /
@@ -2006,6 +2098,18 @@ export function migrateFile(filePath, opts, cwd) {
       changed = true;
     }
     migrations.matchArmArrow = armResult.count;
+
+    // Step 1c: standalone-`given` presence-guard separator `=>` → `:>`
+    // (SPEC §42.2.3 / §34 — the `given`-guard sibling of the arm-arrow rewrite).
+    // AST-driven (rewriteGivenGuardArrows); rewrites ONLY recorded given-guard
+    // separators, never an arrow-function `=>`. Reported separately from the
+    // arm-arrow count. Runs on the post-arm-rewrite text so offsets are fresh.
+    const ggResult = rewriteGivenGuardArrows(rewritten, filePath);
+    if (ggResult.changed) {
+      rewritten = ggResult.rewritten;
+      changed = true;
+    }
+    migrations.givenGuardArrow = ggResult.count;
   }
 
   // Step 2: optionally apply v0.3 program-shape migration.
@@ -2158,6 +2262,7 @@ export function runMigrate(args) {
   let totalWhitespace = 0;
   let totalMachine = 0;
   let totalMatchArmArrow = 0;
+  let totalGivenGuardArrow = 0;
   const failures = [];
   const reportRows = []; // for --report aggregation
 
@@ -2180,6 +2285,7 @@ export function runMigrate(args) {
         totalWhitespace += r.migrations.whitespace;
         totalMachine += r.migrations.machine;
         totalMatchArmArrow += r.migrations.matchArmArrow ?? 0;
+        totalGivenGuardArrow += r.migrations.givenGuardArrow ?? 0;
       }
       if (dryRun && r.diff && !report) {
         console.log(r.diff);
@@ -2212,6 +2318,7 @@ export function runMigrate(args) {
     if (totalWhitespace > 0) console.log(`    ${c.dim(`whitespace migrations:`)} ${totalWhitespace}`);
     if (totalMachine > 0) console.log(`    ${c.dim(`<machine> migrations:`)} ${totalMachine}`);
     if (totalMatchArmArrow > 0) console.log(`    ${c.dim(`arm-arrow \`:>\` migrations:`)} ${totalMatchArmArrow}`);
+    if (totalGivenGuardArrow > 0) console.log(`    ${c.dim(`given-guard \`:>\` migrations:`)} ${totalGivenGuardArrow}`);
   }
   if (unchangedCount > 0) {
     console.log(`  ${c.dim(`${unchangedCount} unchanged`)}`);

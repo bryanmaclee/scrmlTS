@@ -2445,7 +2445,7 @@
   "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-given-multi-088.scrml": {
     "EXTRA-FIELD": 3,
     "FIELD-SHAPE": 5,
-    "MISSING-FIELD": 8,
+    "MISSING-FIELD": 9,
     "SPAN-COORD": 16
   },
   "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-given-old-syntax-089.scrml": {
@@ -2460,13 +2460,13 @@
     "COUNT-LENGTH": 1,
     "EXTRA-FIELD": 4,
     "FIELD-SHAPE": 4,
-    "MISSING-FIELD": 8,
+    "MISSING-FIELD": 9,
     "SPAN-COORD": 15
   },
   "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-given-single-087.scrml": {
     "EXTRA-FIELD": 3,
     "FIELD-SHAPE": 5,
-    "MISSING-FIELD": 7,
+    "MISSING-FIELD": 8,
     "SPAN-COORD": 14
   },
   "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-if-and-else-same-elem-021.scrml": {
@@ -3302,20 +3302,20 @@
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-given-multi-095.scrml": {
     "EXTRA-FIELD": 2,
     "FIELD-SHAPE": 3,
-    "MISSING-FIELD": 4,
+    "MISSING-FIELD": 5,
     "SPAN-COORD": 11
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-given-property-path-096.scrml": {
     "COUNT-LENGTH": 1,
     "EXTRA-FIELD": 3,
     "FIELD-SHAPE": 2,
-    "MISSING-FIELD": 4,
+    "MISSING-FIELD": 5,
     "SPAN-COORD": 9
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-given-single-094.scrml": {
     "EXTRA-FIELD": 2,
     "FIELD-SHAPE": 2,
-    "MISSING-FIELD": 3,
+    "MISSING-FIELD": 4,
     "SPAN-COORD": 7
   },
   "samples/compilation-tests/gauntlet-s19-phase3-operators/phase3-is-attribute-quoted-111.scrml": {
