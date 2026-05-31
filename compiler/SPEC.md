@@ -7145,16 +7145,16 @@ ${
 on mount { loadUsers() }
 
 match @usersState {
-    .NotAsked => {}
-    .Loading  => { <div class="spinner">Loading users...</> }
-    .Ready(users) => {
+    .NotAsked :> {}
+    .Loading  :> { <div class="spinner">Loading users...</> }
+    .Ready(users) :> {
         <ul>
             ${ for (user of users) {
                 lift <li>${user.name} (${user.email})</>
             }}
         </>
     }
-    .Failed(msg) => {
+    .Failed(msg) :> {
         <div class="error">
             ${msg}
             <button onclick=loadUsers()>Retry</>
@@ -7430,9 +7430,9 @@ Pattern matching on an enum-typed struct field works normally:
 
 ```scrml
 match issue.status {
-    .Pending -> showPending()
-    .Active  -> showActive()
-    .Closed  -> showClosed()
+    .Pending :> showPending()
+    .Active  :> showActive()
+    .Closed  :> showClosed()
 }
 ```
 
@@ -7591,9 +7591,9 @@ Pattern matching over enum types uses match arms. All variants must be covered o
 
 ```scrml
 match value {
-    ::Circle(r) -> ...
-    ::Rectangle(w, h) -> ...
-    ::Point -> ...
+    ::Circle(r) :> ...
+    ::Rectangle(w, h) :> ...
+    ::Point :> ...
 }
 ```
 
@@ -8104,7 +8104,7 @@ print(u.name)            // OK — post-transition access
 const u = loadUser(42)
 
 match u {
-    not => handleAbsence()         // the `not` arm — u is `not`
+    not :> handleAbsence()         // the `not` arm — u is `not`
     given u => {
         // INSIDE this arm: u is typed as User AND lifecycle-transitioned.
         print(u.name)               // OK — post-transition access
@@ -10989,32 +10989,32 @@ deprecation window (surfacing `W-MATCH-ARROW-LEGACY`, §34). `is-pattern` define
 **Worked example — unit variants:**
 ```scrml
 match direction {
-    .North => "up"
-    .South => "down"
-    .East  => "right"
-    .West  => "left"
+    .North :> "up"
+    .South :> "down"
+    .East  :> "right"
+    .West  :> "left"
 }
 ```
 
 **Worked example — payload variants, positional binding:**
 ```scrml
 match shape {
-    .Circle(r)       => r * r * 3.14159
-    .Rectangle(w, h) => w * h
-    .Point           => 0
+    .Circle(r)       :> r * r * 3.14159
+    .Rectangle(w, h) :> w * h
+    .Point           :> 0
 }
 ```
 
 **Worked example — block arm body:**
 ```scrml
 match shape {
-    .Circle(r) => {
+    .Circle(r) :> {
         let area = r * r * 3.14159
         let perimeter = 2 * r * 3.14159
         area + perimeter
     }
-    .Rectangle(w, h) => w * h
-    .Point            => 0
+    .Rectangle(w, h) :> w * h
+    .Point            :> 0
 }
 ```
 
@@ -11048,10 +11048,10 @@ right-hand side of an assignment.
 ```scrml
 ${ function getLabel(status) {
     return match status {
-        .Loading => "Loading..."
-        .Success => "Done!"
-        .Error   => "Failed"
-        else     => "Unknown"
+        .Loading :> "Loading..."
+        .Success :> "Done!"
+        .Error   :> "Failed"
+        else     :> "Unknown"
     }
 } }
 ```
@@ -11065,10 +11065,10 @@ string. The function's return type is inferred as `string`.
 ```scrml
 ${ function logStatus(status) {
     return match status {
-        .Loading => console.log("loading")
-        .Success => console.log("done")
-        .Error   => console.log("error")
-        else     => console.log("unknown")
+        .Loading :> console.log("loading")
+        .Success :> console.log("done")
+        .Error   :> console.log("error")
+        else     :> console.log("unknown")
     }
 } }
 ```
@@ -11105,9 +11105,9 @@ unify to a common supertype. The result type of the `match` expression is that u
 **Worked example — valid (all arms same type):**
 ```scrml
 let label:string = match status {
-    .Active  => "active"
-    .Pending => "pending"
-    .Closed  => "closed"
+    .Active  :> "active"
+    .Pending :> "pending"
+    .Closed  :> "closed"
 }
 ```
 All arms produce `string`. Result type is `string`.
@@ -11115,8 +11115,8 @@ All arms produce `string`. Result type is `string`.
 **Worked example — invalid (type mismatch across arms):**
 ```scrml
 let x = match flag {
-    .On  => "yes"
-    .Off => 42        // Error: string vs number
+    .On  :> "yes"
+    .Off :> 42        // Error: string vs number
 }
 ```
 Error E-TYPE-001: match arm at `.Off` produces `number`; earlier arms produce `string`.
@@ -11130,13 +11130,13 @@ An arm body is either a single expression or a block body.
 
 **Single-expression arm:**
 ```scrml
-.Circle(r) => r * r * 3.14159
+.Circle(r) :> r * r * 3.14159
 ```
 The expression is the arm's result value.
 
 **Block arm:**
 ```scrml
-.Circle(r) => {
+.Circle(r) :> {
     let scaled = r * scaleFactor
     scaled * scaled * 3.14159
 }
@@ -11208,14 +11208,14 @@ declared in the enum definition.
 
 ```scrml
 // Declaration: Rectangle(width:number, height:number)
-.Rectangle(w, h) => w * h   // w binds width, h binds height
+.Rectangle(w, h) :> w * h   // w binds width, h binds height
 ```
 
 **Named form:** Bindings are assigned by field name. The order in the arm pattern does not
 need to match the declaration order.
 
 ```scrml
-.Rectangle(height: h, width: w) => w * h
+.Rectangle(height: h, width: w) :> w * h
 ```
 
 **Type of bound variables:** A bound variable in a payload destructuring pattern has the
@@ -11245,7 +11245,7 @@ cover the mixed-form case).
 
 ```scrml
 // FORBIDDEN — mixed positional + named
-.Rectangle(w, height: h) => w * h
+.Rectangle(w, height: h) :> w * h
 // Error E-TYPE-021: arm pattern mixes positional (`w`) and named (`height: h`)
 // binding forms. Pick one: positional `.Rectangle(w, h)` or named
 // `.Rectangle(width: w, height: h)`.
@@ -11280,8 +11280,8 @@ type Person:enum = {
 }
 
 match person {
-    .Employee(name: n, department: d) => "${n} works in ${d}"
-    .Contractor(name: n)              => "${n} is a contractor"
+    .Employee(name: n, department: d) :> "${n} works in ${d}"
+    .Contractor(name: n)              :> "${n} is a contractor"
 }
 ```
 `salary` is not bound in the `.Employee` arm; it is inaccessible but causes no error.
@@ -11293,8 +11293,8 @@ type Shape:enum = {
 }
 
 match shape {
-    .Rectangle(w) => w   // Error E-TYPE-021: arity mismatch, 1 binding for 2 fields
-    else          => 0
+    .Rectangle(w) :> w   // Error E-TYPE-021: arity mismatch, 1 binding for 2 fields
+    else          :> 0
 }
 ```
 Error E-TYPE-021: `.Rectangle` has 2 payload fields; 1 binding provided. Use positional
@@ -11342,8 +11342,8 @@ use `.Some(value)` / `.None` when the union contains `not` (optional match).
 ```scrml
 // val : string | not
 match val {
-    .Some(s) => "got: ${s}"
-    .None    => "nothing"
+    .Some(s) :> "got: ${s}"
+    .None    :> "nothing"
 }
 ```
 
@@ -11453,14 +11453,14 @@ dispatches over the bound value.
 ```scrml
 // Correct pattern for nested dispatch (sequential match)
 match expr {
-    .Add(left, right) => {
+    .Add(left, right) :> {
         let leftVal = match left {
-            .Lit(v)    => v
-            .Add(l, r) => l + r   // recursive; here simplified
+            .Lit(v)    :> v
+            .Add(l, r) :> l + r   // recursive; here simplified
         }
         leftVal + evalExpr(right)
     }
-    .Lit(v) => v
+    .Lit(v) :> v
 }
 ```
 
@@ -11561,9 +11561,9 @@ Two arms for the same variant in a single match expression:
 
 ```scrml
 match shape {
-    ::Circle(r) -> r * 2
-    ::Circle(r) -> r * 3   // Error E-TYPE-023
-    ::Point -> 0
+    ::Circle(r) :> r * 2
+    ::Circle(r) :> r * 3   // Error E-TYPE-023
+    ::Point :> 0
 }
 ```
 
@@ -11613,9 +11613,9 @@ arm-pattern         ::= variant-pattern
 
 ```scrml
 match status {
-    "active"  => handleActive()
-    "banned"  => handleBanned()
-    else      => handleOther()
+    "active"  :> handleActive()
+    "banned"  :> handleBanned()
+    else      :> handleOther()
 }
 ```
 
@@ -11623,10 +11623,10 @@ match status {
 
 ```scrml
 match priority {
-    1    => "high"
-    2    => "medium"
-    3    => "low"
-    else => "unknown"
+    1    :> "high"
+    2    :> "medium"
+    3    :> "low"
+    else :> "unknown"
 }
 ```
 
@@ -11634,8 +11634,8 @@ match priority {
 
 ```scrml
 match isAdmin {
-    true  => showAdminPanel()
-    false => showUserPanel()
+    true  :> showAdminPanel()
+    false :> showUserPanel()
 }
 ```
 
@@ -11772,8 +11772,8 @@ in generated code rather than an enum variant dispatch.
 
 ```scrml
 match role {
-    "admin"  -> showAdmin()
-    "editor" -> showEditor()
+    "admin"  :> showAdmin()
+    "editor" :> showEditor()
 }
 ```
 
@@ -11784,9 +11784,9 @@ Compiles. Emits W-MATCH-002: non-exhaustive string match; a role value other tha
 
 ```scrml
 match role {
-    "admin"  -> showAdmin()
-    "editor" -> showEditor()
-    _        -> showUser()
+    "admin"  :> showAdmin()
+    "editor" :> showEditor()
+    _        :> showUser()
 }
 ```
 
@@ -11798,8 +11798,8 @@ No warning. `_` covers all other string values.
 type Status:enum = { Active, Banned }
 
 match status {
-    "active" -> handleActive()   // Error E-TYPE-028
-    _        -> handleOther()
+    "active" :> handleActive()   // Error E-TYPE-028
+    _        :> handleOther()
 }
 ```
 
@@ -11829,9 +11829,9 @@ explicitly ignore the rest. The current workaround is an `else =>` arm that does
 
 ```scrml
 match @status {
-    .Failed(err) => console.log(err.message)
-    .Timeout => retryPayment()
-    else => {}   // deliberately ignoring Active, Pending, Cancelled
+    .Failed(err) :> console.log(err.message)
+    .Timeout :> retryPayment()
+    else :> {}   // deliberately ignoring Active, Pending, Cancelled
 }
 ```
 
@@ -11856,8 +11856,8 @@ syntactic.
 ```scrml
 // partial match — only handles the variants relevant here; others silently ignored
 partial match @status {
-    .Failed(err) => console.log(err.message)
-    .Timeout => retryPayment()
+    .Failed(err) :> console.log(err.message)
+    .Timeout :> retryPayment()
 }
 ```
 
@@ -11915,8 +11915,8 @@ type Status:enum = { Active, Pending }
 
 // W-MATCH-003: `partial` is unnecessary — all variants are covered
 partial match @status {
-    .Active => handleActive()
-    .Pending => handlePending()
+    .Active :> handleActive()
+    .Pending :> handlePending()
 }
 ```
 
@@ -11978,8 +11978,8 @@ achievable at no additional cost.
 
     ${ function handleTerminalStates() {
         partial match @status {
-            .Failed(err) => console.log(err.message)
-            .Timeout => retryPayment()
+            .Failed(err) :> console.log(err.message)
+            .Timeout :> retryPayment()
             // Active, Pending, Cancelled silently ignored
         }
     } }
@@ -11999,7 +11999,7 @@ are intentionally unhandled.
     <div>
         ${
             lift partial match @status {
-                .Active => <p>Active</>
+                .Active :> <p>Active</>
             }
         }
     </>
@@ -12025,8 +12025,8 @@ type Mode:enum = { Dark, Light }
 
 ${ function applyMode() {
     partial match @mode {
-        .Dark => setDarkStyles()
-        .Light => setLightStyles()
+        .Dark :> setDarkStyles()
+        .Light :> setLightStyles()
     }
 } }
 ```
@@ -12042,8 +12042,8 @@ against future variant additions.
 ```scrml
 ${ server function processEvent(event: AppEvent) {
     partial match event {
-        .UserLogin(userId) => recordLogin(userId)
-        .UserLogout(userId) => recordLogout(userId)
+        .UserLogin(userId) :> recordLogin(userId)
+        .UserLogout(userId) :> recordLogout(userId)
         // Other AppEvent variants (SystemAlert, ConfigChange, etc.) not handled here
     }
 } }
@@ -12262,8 +12262,8 @@ The `?` operator is postfix. When applied to the result of a `!` function call:
 
 ```scrml
 match riskyFunction() {
-    ::Ok(val) -> val
-    ::ErrorVariant(args) -> fail EnclosingErrorType::ErrorVariant(args)
+    ::Ok(val) :> val
+    ::ErrorVariant(args) :> fail EnclosingErrorType::ErrorVariant(args)
 }
 ```
 
@@ -12401,11 +12401,11 @@ The success value is wrapped in an implicit `::Ok` variant. Error variants use t
 
 ```scrml
 match processPayment(100, 42) {
-    ::Ok(receipt) -> <div>Success: ${receipt.id}</>
-    ::InvalidAmount(reason) -> <div class="error">${reason}</>
-    ::CustomerNotFound(id) -> redirect("/customers")
-    ::ExpiredCard -> <div>Please update payment method</>
-    ::NetworkError(detail) -> <div>Network issue: ${detail}</>
+    ::Ok(receipt) :> <div>Success: ${receipt.id}</>
+    ::InvalidAmount(reason) :> <div class="error">${reason}</>
+    ::CustomerNotFound(id) :> redirect("/customers")
+    ::ExpiredCard :> <div>Please update payment method</>
+    ::NetworkError(detail) :> <div>Network issue: ${detail}</>
 }
 ```
 
@@ -12630,9 +12630,9 @@ function notifyOrder(orderId: number) {
 3. **Explicit match on result** (most-precise control):
    ```scrml
    match loadProfile(id) {
-       ::Ok(p) -> @profile = p
-       ::NetworkError(detail) -> @lastError = detail.message
-       ::ServerError(detail) -> @lastError = detail.message
+       ::Ok(p) :> @profile = p
+       ::NetworkError(detail) :> @lastError = detail.message
+       ::ServerError(detail) :> @lastError = detail.message
    }
    ```
 
@@ -12915,22 +12915,22 @@ Error values from `!` functions can be stored in reactive cells (§6):
 ${
     function handlePayment() {
         match processPayment(100, 42) {
-            ::Ok(receipt) -> @receipt = receipt
-            ::InvalidAmount(reason) -> @error = PaymentError::InvalidAmount(reason)
-            ::CustomerNotFound(id) -> @error = PaymentError::CustomerNotFound(id)
-            ::ExpiredCard -> @error = PaymentError::ExpiredCard
-            ::NetworkError(detail) -> @error = PaymentError::NetworkError(detail)
+            ::Ok(receipt) :> @receipt = receipt
+            ::InvalidAmount(reason) :> @error = PaymentError::InvalidAmount(reason)
+            ::CustomerNotFound(id) :> @error = PaymentError::CustomerNotFound(id)
+            ::ExpiredCard :> @error = PaymentError::ExpiredCard
+            ::NetworkError(detail) :> @error = PaymentError::NetworkError(detail)
         }
     }
 }
 
 <div if=@error>
     ${match @error {
-        ::InvalidAmount(reason) -> lift <div class="validation-error">${reason}</>
-        ::CustomerNotFound(_) -> lift <div class="error">Customer not found</>
-        ::ExpiredCard -> lift <div class="error">Card expired</>
-        ::NetworkError(detail) -> lift <div class="error">${detail}</>
-        _ -> lift <div></>
+        ::InvalidAmount(reason) :> lift <div class="validation-error">${reason}</>
+        ::CustomerNotFound(_) :> lift <div class="error">Customer not found</>
+        ::ExpiredCard :> lift <div class="error">Card expired</>
+        ::NetworkError(detail) :> lift <div class="error">${detail}</>
+        _ :> lift <div></>
     }}
 </>
 ```
@@ -12952,8 +12952,8 @@ ${
 < errorBoundary fallback={<div>Payment failed/}>
     <div if=@paymentResult>
         ${match @paymentResult {
-            ::Ok(receipt) -> lift <div>Paid: ${receipt.id}</>
-            _ -> lift <div></>
+            ::Ok(receipt) :> lift <div>Paid: ${receipt.id}</>
+            _ :> lift <div></>
         }}
     </>
 </>
@@ -13216,7 +13216,7 @@ ${
         </>
         <div if=@receipt>
             match @receipt {
-                ::Ok(txn) -> <div class="success">Payment ${txn.id} confirmed!</>
+                ::Ok(txn) :> <div class="success">Payment ${txn.id} confirmed!</>
             }
         </>
     </>
@@ -16966,17 +16966,17 @@ This rule is coordinated with the exhaustiveness checker (§18). The exhaustiven
 // Valid — consumed in all arms
 lin token = fetchToken()
 match role {
-    .Admin => useAdminToken(token)
-    .User  => useToken(token)
-    .Guest => discardToken(token)
+    .Admin :> useAdminToken(token)
+    .User  :> useToken(token)
+    .Guest :> discardToken(token)
 }
 
 // Invalid — E-LIN-003: .Guest arm does not consume token
 lin token = fetchToken()
 match role {
-    .Admin => useAdminToken(token)
-    .User  => useToken(token)
-    .Guest => doSomethingElse()   // token not consumed — E-LIN-003
+    .Admin :> useAdminToken(token)
+    .User  :> useToken(token)
+    .Guest :> doSomethingElse()   // token not consumed — E-LIN-003
 }
 ```
 
@@ -17195,9 +17195,9 @@ ${
 ${
     lin token = fetchToken()
     match role {
-        .Admin => adminAuth(token)
-        .User  => userAuth(token)
-        .Guest => guestAuth(token)
+        .Admin :> adminAuth(token)
+        .User  :> userAuth(token)
+        .Guest :> guestAuth(token)
     }
 }
 ```
@@ -20097,7 +20097,7 @@ type LoadError:enum  = { Malformed(reason: string), Network(msg: string) }
 server function loadResult()! -> LoadError {
     const raw = fetch("https://api.example.com/results")
     const result = parseVariant(raw, LoadResult) !{
-        | ::ParseError msg -> { fail LoadError::Malformed(msg) }
+        | ::ParseError msg :> { fail LoadError::Malformed(msg) }
     }
     return result    // typed as LoadResult; <match> exhaustive
 }
@@ -20839,7 +20839,7 @@ Multi-narrowing is all-or-nothing. If any listed variable is `not`, the body is 
 ```scrml
 ${
     match x {
-        not        => handleAbsence()
+        not        :> handleAbsence()
         given x    => handlePresence(x)
     }
 }
@@ -24826,8 +24826,8 @@ type LoadPhase:enum = { Idle, Loading, Done(rows: int), TimedOut, Error(msg: str
 function load() {
   @loadPhase = .Loading
   const result = fetchItems() !{
-    | ::Network msg -> { @loadPhase = .Error(msg); return }
-    | ::Empty       -> { @loadPhase = .Done(0);    return }
+    | ::Network msg :> { @loadPhase = .Error(msg); return }
+    | ::Empty       :> { @loadPhase = .Done(0);    return }
   }
   @loadPhase = .Done(result.length)
 }
@@ -29308,9 +29308,9 @@ Narrowing semantics extend the existing §18.17 `is` operator and §42 `not` nar
 
 ```scrml
 match @sub {
-    < Draft>     => "editing"
-    < Validated> => "ready"
-    < Submitted> => "done"
+    < Draft>     :> "editing"
+    < Validated> :> "ready"
+    < Submitted> :> "done"
     // missing any arm -> E-TYPE-020
 }
 ```
