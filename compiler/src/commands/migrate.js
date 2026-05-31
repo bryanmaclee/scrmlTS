@@ -61,6 +61,8 @@ import {
 } from "fs";
 import { resolve, join, relative, sep } from "path";
 import { compileScrml } from "../api.js";
+import { splitBlocks } from "../block-splitter.js";
+import { buildAST } from "../ast-builder.js";
 
 // ---------------------------------------------------------------------------
 // ANSI color helpers
@@ -186,6 +188,106 @@ export function applyMigrations(source) {
       machine: machineCount,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Arm-arrow `:>` canonicalisation migration (SPEC §18.2 / §34, S147)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite deprecated `match` / `!{}`-handler arm separators (`=>` / `->`) to
+ * the canonical `:>` (SPEC §18.2; surfaces W-MATCH-ARROW-LEGACY pre-migration).
+ *
+ * This MUST be AST/parser-position-driven, NOT a regex text-replace — `=>` is
+ * also the arrow-function glyph (`(x) => ...`) and `->` is the `fn ... -> Type`
+ * return separator + legacy machine event-arrow. A blind text replace would
+ * destroy every lambda and fn signature. We drive the LIVE front-end
+ * (splitBlocks + buildAST) and rewrite ONLY at recorded arm-separator
+ * positions:
+ *   - `match-arm-inline` / `match-arm-block` nodes carry `armArrow` (the source
+ *     glyph) and a `span` whose `.start` is the arm-pattern start.
+ *   - `guarded-expr.arms[]` carry `armArrow` and an arm `span`.
+ * For each arm whose `armArrow` is `=>` / `->`, we locate the FIRST occurrence
+ * of that exact glyph at or after the arm's `span.start` (the arm pattern never
+ * contains an arm arrow, so the first one IS the separator) and splice in `:>`.
+ * Rewrites are applied right-to-left so earlier offsets stay valid.
+ *
+ * Returns `{ rewritten, changed, count }`. On any parse trouble (no AST, or a
+ * located glyph that does not match the recorded one) the affected arm is
+ * skipped — fail-safe: never rewrite a position we cannot confirm.
+ *
+ * @param {string} source — raw source text
+ * @param {string} filePath — for the block splitter's diagnostics
+ * @returns {{ rewritten: string, changed: boolean, count: number }}
+ */
+export function rewriteMatchArmArrows(source, filePath) {
+  let ast;
+  try {
+    const bs = splitBlocks(filePath, source);
+    ({ ast } = buildAST(bs));
+  } catch {
+    // Front-end could not build an AST — do not guess at arm positions.
+    return { rewritten: source, changed: false, count: 0 };
+  }
+  if (!ast || typeof ast !== "object") {
+    return { rewritten: source, changed: false, count: 0 };
+  }
+
+  // Collect every deprecated-glyph arm rewrite as a { offset, glyph } edit.
+  // `offset` is the source index of the glyph's first char; `glyph` is `=>`
+  // or `->` (both 2 chars wide — replaced by the 2-char `:>`).
+  const edits = [];
+  const seenOffsets = new Set();
+
+  const recordArm = (glyph, armStartRaw) => {
+    if (glyph !== "=>" && glyph !== "->") return;
+    if (typeof armStartRaw !== "number" || armStartRaw < 0) return;
+    // Find the first occurrence of THIS glyph at/after the arm-pattern start.
+    const at = source.indexOf(glyph, armStartRaw);
+    if (at < 0) return;
+    if (seenOffsets.has(at)) return;
+    seenOffsets.add(at);
+    edits.push({ offset: at, glyph });
+  };
+
+  const walk = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { for (const x of n) walk(x); return; }
+    const kind = n.kind;
+    if (kind === "match-arm-inline" || kind === "match-arm-block") {
+      const span = n.span;
+      recordArm(n.armArrow, span && typeof span.start === "number" ? span.start : -1);
+    } else if (kind === "guarded-expr" && Array.isArray(n.arms)) {
+      for (const arm of n.arms) {
+        if (!arm || typeof arm !== "object") continue;
+        const aspan = arm.span;
+        recordArm(arm.armArrow, aspan && typeof aspan.start === "number" ? aspan.start : -1);
+      }
+    }
+    for (const k of Object.keys(n)) {
+      if (k === "span") continue;
+      walk(n[k]);
+    }
+  };
+  walk(ast);
+
+  if (edits.length === 0) {
+    return { rewritten: source, changed: false, count: 0 };
+  }
+
+  // Apply right-to-left so earlier offsets remain valid. Each glyph is exactly
+  // 2 chars (`=>` / `->`) and is replaced by the 2-char `:>` — verify the
+  // bytes at the recorded offset still match the recorded glyph (fail-safe).
+  edits.sort((a, b) => b.offset - a.offset);
+  let rewritten = source;
+  let count = 0;
+  for (const { offset, glyph } of edits) {
+    if (rewritten.slice(offset, offset + 2) !== glyph) continue; // moved/clobbered — skip
+    rewritten = rewritten.slice(0, offset) + ":>" + rewritten.slice(offset + 2);
+    count++;
+  }
+
+  return { rewritten, changed: rewritten !== source, count };
 }
 
 // ---------------------------------------------------------------------------
@@ -1672,6 +1774,11 @@ Optional migrations (opt-in flags):
                             unwrap redundant \`\${...}\` wrappers around top-level
                             declarations. Schema-anchor files (per §39.12.0
                             workaround) are left alone with an advisory.
+  - arm-arrow \`:>\`         (--fix, SPEC §18.2 / §34): rewrites deprecated
+                            \`match\` / \`!{}\`-handler arm separators \`=>\` / \`->\`
+                            to the canonical \`:>\`. AST-driven — arrow-function
+                            \`=>\` and \`fn ... -> Type\` returns are NOT touched.
+                            Surfaces W-MATCH-ARROW-LEGACY pre-migration.
 
 Arguments:
   <file>                  A single .scrml file
@@ -1684,6 +1791,8 @@ Options:
   --exclude=<glob>        Additional exclude pattern (substring match)
   --no-default-excludes   Disable built-in samples/ + tests/ exclusions
   --program-shape         Enable v0.3 program-shape migration (SPEC §40.8)
+  --fix                   Enable the arm-arrow \`:>\` canonicalisation
+                          (SPEC §18.2 / §34): \`=>\` / \`->\` arm separators → \`:>\`
   --report                With --dry-run --program-shape, emit a structured
                           advisory report listing every in-scope file's bucket,
                           evidence, and proposed action (REWRITE / SKIP /
@@ -1704,6 +1813,8 @@ Examples:
   scrml migrate src/ --check                        # CI gate
   scrml migrate src/ --program-shape --dry-run --report   # v0.3 report
   scrml migrate src/ --program-shape                # apply v0.3 rewrites
+  scrml migrate src/ --fix --dry-run                # preview arm-arrow :> rewrite
+  scrml migrate src/ --fix                          # apply arm-arrow :> rewrite
 `);
 }
 
@@ -1723,6 +1834,7 @@ function parseArgs(args) {
   let help = false;
   let programShape = false;
   let report = false;
+  let fix = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -1753,6 +1865,8 @@ function parseArgs(args) {
       useDefaultExcludes = false;
     } else if (arg === "--program-shape") {
       programShape = true;
+    } else if (arg === "--fix") {
+      fix = true;
     } else if (arg === "--report") {
       report = true;
     } else if (arg.startsWith("-")) {
@@ -1770,7 +1884,7 @@ function parseArgs(args) {
     excludes.push(`${sep}tests${sep}`);
   }
 
-  return { paths, dryRun, check, include, excludes, help, programShape, report };
+  return { paths, dryRun, check, include, excludes, help, programShape, report, fix };
 }
 
 // ---------------------------------------------------------------------------
@@ -1880,6 +1994,20 @@ export function migrateFile(filePath, opts, cwd) {
   let changed = baseline.changed;
   const migrations = baseline.migrations;
 
+  // Step 1b: optionally apply the arm-arrow `:>` canonicalisation (--fix).
+  // AST-driven (rewriteMatchArmArrows) — rewrites ONLY match / `!{}`-handler
+  // arm-separator `=>` / `->` to the canonical `:>` (SPEC §18.2 / §34); arrow-
+  // function and fn-return arrows are untouched. Opt-in per the
+  // W-MATCH-ARROW-LEGACY lint's `bun scrml migrate --fix` suggestion.
+  if (opts.fix) {
+    const armResult = rewriteMatchArmArrows(rewritten, filePath);
+    if (armResult.changed) {
+      rewritten = armResult.rewritten;
+      changed = true;
+    }
+    migrations.matchArmArrow = armResult.count;
+  }
+
   // Step 2: optionally apply v0.3 program-shape migration.
   let classification = null;
   let advisories = [];
@@ -1978,7 +2106,7 @@ export function migrateFile(filePath, opts, cwd) {
  * @param {string[]} args — raw argv slice after "migrate"
  */
 export function runMigrate(args) {
-  const { paths, dryRun, check, include, excludes, help, programShape, report } = parseArgs(args);
+  const { paths, dryRun, check, include, excludes, help, programShape, report, fix } = parseArgs(args);
 
   if (help) {
     printHelp();
@@ -2029,6 +2157,7 @@ export function runMigrate(args) {
   let failedCount = 0;
   let totalWhitespace = 0;
   let totalMachine = 0;
+  let totalMatchArmArrow = 0;
   const failures = [];
   const reportRows = []; // for --report aggregation
 
@@ -2039,7 +2168,7 @@ export function runMigrate(args) {
   for (const file of uniqueFiles) {
     const r = migrateFile(
       file,
-      { dryRun, check, programShape, report, projectRoot },
+      { dryRun, check, programShape, report, fix, projectRoot },
       cwd
     );
     if (programShape && report) {
@@ -2050,6 +2179,7 @@ export function runMigrate(args) {
       if (r.migrations) {
         totalWhitespace += r.migrations.whitespace;
         totalMachine += r.migrations.machine;
+        totalMatchArmArrow += r.migrations.matchArmArrow ?? 0;
       }
       if (dryRun && r.diff && !report) {
         console.log(r.diff);
@@ -2081,6 +2211,7 @@ export function runMigrate(args) {
     console.log(`  ${c.green(changedCount)} ${verb}`);
     if (totalWhitespace > 0) console.log(`    ${c.dim(`whitespace migrations:`)} ${totalWhitespace}`);
     if (totalMachine > 0) console.log(`    ${c.dim(`<machine> migrations:`)} ${totalMachine}`);
+    if (totalMatchArmArrow > 0) console.log(`    ${c.dim(`arm-arrow \`:>\` migrations:`)} ${totalMatchArmArrow}`);
   }
   if (unchangedCount > 0) {
     console.log(`  ${c.dim(`${unchangedCount} unchanged`)}`);

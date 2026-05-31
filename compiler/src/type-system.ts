@@ -6003,7 +6003,28 @@ function annotateNodes(
       // ------------------------------------------------------------------
       case "guarded-expr": {
         const guardedNode = n.guardedNode as ASTNodeLike | undefined;
-        const errorArms = (n.arms as Array<{pattern?: string; binding?: string; handler?: string; handlerExpr?: unknown; span?: Span}> | undefined) ?? [];
+        const errorArms = (n.arms as Array<{pattern?: string; binding?: string; handler?: string; handlerExpr?: unknown; armArrow?: string; span?: Span}> | undefined) ?? [];
+
+        // §18.2 / §34 — W-MATCH-ARROW-LEGACY (S147), `!{}`-handler-arm lockstep.
+        // The match and `!{}` handler arms share the §18.2 arm-arrow rule:
+        // `:>` is canonical; `=>` / `->` are deprecated aliases. Fire the
+        // info-level lint at every handler arm whose recorded `armArrow` glyph
+        // is a deprecated alias. ARM-CONTEXT-SCOPED — `armArrow` is set ONLY by
+        // the `!{}` arm parser at the arm-separator position (ast-builder.js
+        // parseErrorTokens), so a `=>`/`->` elsewhere in the handler body never
+        // reaches here.
+        for (const arm of errorArms) {
+          const glyph = arm.armArrow;
+          if (glyph !== "=>" && glyph !== "->") continue;
+          const armSpan = (arm.span ?? ((n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 })) as Span;
+          const pat = String(arm.pattern ?? "").trim().slice(0, 40);
+          errors.push(new TSError(
+            "W-MATCH-ARROW-LEGACY",
+            matchArrowLegacyMessage(`\`!{}\` handler arm${pat ? " `" + pat + "`" : ""}`, glyph),
+            armSpan,
+            "info",
+          ));
+        }
 
         // Visit the guarded node itself for its type checks. Mark it so the
         // bare-expr branch's E-ERROR-002 check skips — the !{} arms handle it.
@@ -8519,6 +8540,26 @@ function resolveMatchSubjectType(
   return null;
 }
 
+/**
+ * Build the W-MATCH-ARROW-LEGACY (§18.2 / §34) diagnostic message. `location`
+ * names where the deprecated glyph appears (e.g. "match arm `.North`" or
+ * "`!{}` handler arm `::Timeout`"); `glyph` is the offending separator
+ * (`"=>"` or `"->"`). Shared by the match-arm site (checkMatchDiagnostics) and
+ * the `!{}` error-handler-arm site so both surface the identical lockstep
+ * message. Mirrors the W-LIFECYCLE-LEGACY-ARROW `->`→`to` template.
+ */
+function matchArrowLegacyMessage(location: string, glyph: string): string {
+  return (
+    `W-MATCH-ARROW-LEGACY: The ${location} uses the deprecated \`${glyph}\` arm ` +
+    `separator. The canonical match / \`!{}\` handler arm separator is \`:>\`. ` +
+    `All three forms (\`:>\` / \`=>\` / \`->\`) parse, build, and emit identically ` +
+    `during the deprecation window; new code SHALL use \`:>\`. Rewrite the arm as ` +
+    `\`<pattern> :> <body>\`, or run \`bun scrml migrate --fix\` (AST-driven; it ` +
+    `rewrites ONLY arm-separator arrows, never arrow-function or fn-return ` +
+    `arrows). See SPEC §18.2 / §34.`
+  );
+}
+
 function checkMatchDiagnostics(
   node: ASTNodeLike,
   scopeChain: ScopeChain,
@@ -8557,6 +8598,39 @@ function checkMatchDiagnostics(
         "Match arms are separated by newlines, not commas (§18.2) — there is no comma separator " +
         "between arms. Remove the trailing `,` and place each arm on its own line.",
         armSpan,
+      ));
+    }
+  }
+
+  // §18.2 / §34 — W-MATCH-ARROW-LEGACY (S147). The canonical match arm
+  // separator is `:>`; `=>` and `->` are deprecated aliases accepted during
+  // the deprecation window (all three parse + emit identically). Fire an
+  // info-level lint at every arm whose recorded `armArrow` glyph is a
+  // deprecated alias. ARM-CONTEXT-SCOPED: `armArrow` is set ONLY by the
+  // match-arm parser at the arm-separator position (ast-builder.js), so a
+  // `=>` arrow-function glyph or a `->` fn-return separator elsewhere in the
+  // arm body NEVER reaches here. Mirrors the W-LIFECYCLE-LEGACY-ARROW
+  // `->`→`to` template (§14.12.5). The lint lands in result.warnings via the
+  // info-severity diagnostic-stream partition.
+  {
+    const armBody = (node as { body?: ASTNodeLike[] }).body ?? [];
+    for (const arm of armBody) {
+      if (!arm || typeof arm !== "object") continue;
+      const kind = (arm as ASTNodeLike).kind;
+      if (kind !== "match-arm-inline" && kind !== "match-arm-block") continue;
+      const glyph = (arm as { armArrow?: string }).armArrow;
+      if (glyph !== "=>" && glyph !== "->") continue;
+      const armSpan = ((arm as { span?: Span }).span ?? span) as Span;
+      const test = String((arm as { test?: unknown }).test
+        ?? ((arm as { isWildcard?: boolean }).isWildcard ? "else"
+          : (arm as { variant?: unknown }).variant
+            ? "." + String((arm as { variant?: unknown }).variant)
+            : "")).trim().slice(0, 40);
+      errors.push(new TSError(
+        "W-MATCH-ARROW-LEGACY",
+        matchArrowLegacyMessage(`match arm \`${test}\``, glyph),
+        armSpan,
+        "info",
       ));
     }
   }

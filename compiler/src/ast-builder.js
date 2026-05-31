@@ -1643,11 +1643,42 @@ function tokenSpan(tok, filePath) {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true if `tok` is a match arm arrow token.
- * Accepts both the canonical `=>` and the alias `:>` (§18, §19).
+ * Returns true if `tok` is a single-token match arm arrow.
+ * Accepts the canonical `:>` and the deprecated alias `=>` (§18.2, §19).
+ * NOTE: the third deprecated alias `->` tokenizes as TWO PUNCT tokens
+ * (`-` then `>`) and is NOT recognised by this single-token predicate —
+ * use `matchArrowGlyphAt` when `->` must also be detected.
  */
 function isMatchArrow(tok) {
   return tok != null && tok.kind === "OPERATOR" && (tok.text === "=>" || tok.text === ":>");
+}
+
+/**
+ * Detect a match / `!{}`-handler arm-separator arrow at peek-offset `k` and
+ * report which glyph it is plus how many tokens it spans. Handles all three
+ * §18.2 arm separators:
+ *   - `:>` (canonical)  — single OPERATOR token   → { glyph: ":>", len: 1 }
+ *   - `=>` (deprecated) — single OPERATOR token   → { glyph: "=>", len: 1 }
+ *   - `->` (deprecated) — two PUNCT tokens (`-`,`>`) → { glyph: "->", len: 2 }
+ * Returns null when no arm arrow begins at `k`. `peek` is the offset-relative
+ * lookahead closure from the surrounding parser body.
+ *
+ * `->` deliberately stays a two-token sequence at the lexer level — it is also
+ * the `fn ... -> ReturnType` separator (parsed as two tokens at the fn-decl
+ * sites) and merging it into a single OPERATOR would fracture that path.
+ */
+function matchArrowGlyphAt(peek, k = 0) {
+  const t = peek(k);
+  if (t != null && t.kind === "OPERATOR" && (t.text === "=>" || t.text === ":>")) {
+    return { glyph: t.text, len: 1 };
+  }
+  if (t != null && t.kind === "PUNCT" && t.text === "-") {
+    const t2 = peek(k + 1);
+    if (t2 != null && t2.kind === "PUNCT" && t2.text === ">") {
+      return { glyph: "->", len: 2 };
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -2554,11 +2585,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // match-arm syntax — scrml has no other construct with that shape.
         if (parts.length > 0) {
           const startsArmPattern = (() => {
-            // Helper: check if a token is an arm arrow (=>, :>, or legacy ->).
-            // The tokenizer produces `=>` and `:>` as OPERATOR kind,
-            // and `->` as two separate PUNCT tokens — but accept either kind
-            // so the boundary detection is robust.
-            const isArmArrow = (t) => t && (t.kind === "OPERATOR" || t.kind === "PUNCT") && (t.text === "=>" || t.text === ":>" || t.text === "->");
+            // Detect an arm arrow at peek-offset `k`. `=>` / `:>` are single
+            // OPERATOR tokens; `->` is two adjacent PUNCT tokens (`-` `>`).
+            // Delegates to the module-level `matchArrowGlyphAt` so the
+            // boundary scanner and the arm-construction sites agree on what
+            // counts as an arm separator (all three §18.2 glyphs).
+            const armArrowAt = (k) => matchArrowGlyphAt(peek, k) != null;
             // `.IDENT =>` or `.IDENT(…)=>`  — enum-variant arm
             if ((tok.kind === "PUNCT" && tok.text === ".") || (tok.kind === "OPERATOR" && tok.text === "::")) {
               const t1 = peek(1);
@@ -2576,30 +2608,30 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
                   i++;
                 }
               }
-              return isArmArrow(peek(i));
+              return armArrowAt(i);
             }
             // `else =>` — wildcard arm
             if (tok.kind === "KEYWORD" && tok.text === "else") {
-              return isArmArrow(peek(1));
+              return armArrowAt(1);
             }
             // `_ =>` — wildcard alias
             if (tok.kind === "IDENT" && tok.text === "_") {
-              return isArmArrow(peek(1));
+              return armArrowAt(1);
             }
             // `not …=>` — is-not arm (§42). Scan forward up to 6 tokens
-            // for `=>` before hitting a block opener.
+            // for an arm arrow before hitting a block opener.
             if (tok.kind === "KEYWORD" && tok.text === "not") {
               for (let i = 1; i < 6; i++) {
                 const tk = peek(i);
                 if (!tk || tk.kind === "EOF") return false;
-                if (isArmArrow(tk)) return true;
+                if (armArrowAt(i)) return true;
                 if (tk.kind === "PUNCT" && tk.text === "{") return false;
               }
               return false;
             }
             // `"string" =>` or `'string' =>` — string literal arm
             if (tok.kind === "STRING") {
-              return isArmArrow(peek(1));
+              return armArrowAt(1);
             }
             return false;
           })();
@@ -6263,26 +6295,30 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // This ensures the component expander can process lift-expr nodes inside match arm blocks
     // (e.g., `lift <InfoStep>` inside `.Info => { lift <InfoStep> }`).
     //
-    // Form 1: `. VariantName => {` — enum variant arm with block body
-    if (tok.kind === 'PUNCT' && tok.text === '.' &&
-        peek(1) && peek(1).kind === 'IDENT' && /^[A-Z]/.test(peek(1).text) &&
-        peek(2) && isMatchArrow(peek(2)) &&
-        peek(3) && peek(3).kind === 'PUNCT' && peek(3).text === '{') {
-      const startTok = tok;
-      consume(); // '.'
-      const variantNameTok = consume(); // IDENT (PascalCase variant name)
-      consume(); // '=>'
-      consume(); // '{'
-      const blockBody = parseRecursiveBody(); // parse until matching '}'
-      return {
-        id: ++counter.next,
-        kind: 'match-arm-block',
-        variant: variantNameTok.text,
-        payloadBindings: [],
-        isWildcard: false,
-        body: blockBody,
-        span: spanOf(startTok, peek()),
-      };
+    // Form 1: `. VariantName :> {` — enum variant arm with block body
+    // (`:>` canonical; `=>`/`->` deprecated aliases — §18.2.)
+    {
+      const _arrow1 = (tok.kind === 'PUNCT' && tok.text === '.' &&
+        peek(1) && peek(1).kind === 'IDENT' && /^[A-Z]/.test(peek(1).text))
+        ? matchArrowGlyphAt(peek, 2) : null;
+      if (_arrow1 && peek(2 + _arrow1.len) && peek(2 + _arrow1.len).kind === 'PUNCT' && peek(2 + _arrow1.len).text === '{') {
+        const startTok = tok;
+        consume(); // '.'
+        const variantNameTok = consume(); // IDENT (PascalCase variant name)
+        for (let _a = 0; _a < _arrow1.len; _a++) consume(); // arm arrow
+        consume(); // '{'
+        const blockBody = parseRecursiveBody(); // parse until matching '}'
+        return {
+          id: ++counter.next,
+          kind: 'match-arm-block',
+          variant: variantNameTok.text,
+          payloadBindings: [],
+          isWildcard: false,
+          armArrow: _arrow1.glyph,
+          body: blockBody,
+          span: spanOf(startTok, peek()),
+        };
+      }
     }
 
     // Form 1b: `. VariantName(binding, ...) => {` — payload-destructure arm
@@ -6302,9 +6338,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         if (depth === 0) break;
         i++;
       }
-      if (peek(i) && peek(i).kind === 'PUNCT' && peek(i).text === ')' &&
-          peek(i + 1) && isMatchArrow(peek(i + 1)) &&
-          peek(i + 2) && peek(i + 2).kind === 'PUNCT' && peek(i + 2).text === '{') {
+      const _arrow1b = (peek(i) && peek(i).kind === 'PUNCT' && peek(i).text === ')')
+        ? matchArrowGlyphAt(peek, i + 1) : null;
+      if (_arrow1b &&
+          peek(i + 1 + _arrow1b.len) && peek(i + 1 + _arrow1b.len).kind === 'PUNCT' && peek(i + 1 + _arrow1b.len).text === '{') {
         const startTok = tok;
         consume(); // '.'
         const variantNameTok = consume(); // IDENT (PascalCase variant name)
@@ -6388,7 +6425,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // Flush the last segment (no trailing comma).
         finalizeSegment();
         consume(); // ')'
-        consume(); // '=>'
+        for (let _a = 0; _a < _arrow1b.len; _a++) consume(); // arm arrow
         consume(); // '{'
         // Reconstruct the raw paren-interior text so codegen's
         // `parseBindingList` (in emit-control-flow.ts) can resolve named
@@ -6405,49 +6442,56 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           // to emit `const localName = subject.data.fieldName;` preludes.
           binding: bindingText.length > 0 ? bindingText : null,
           isWildcard: false,
+          armArrow: _arrow1b.glyph,
           body: blockBody,
           span: spanOf(startTok, peek()),
         };
       }
     }
 
-    // Form 2: `else => {` — wildcard arm with block body
-    if (tok.kind === 'KEYWORD' && tok.text === 'else' &&
-        peek(1) && isMatchArrow(peek(1)) &&
-        peek(2) && peek(2).kind === 'PUNCT' && peek(2).text === '{') {
-      const startTok = tok;
-      consume(); // 'else'
-      consume(); // '=>'
-      consume(); // '{'
-      const blockBody = parseRecursiveBody();
-      return {
-        id: ++counter.next,
-        kind: 'match-arm-block',
-        variant: null,
-        isWildcard: true,
-        body: blockBody,
-        span: spanOf(startTok, peek()),
-      };
+    // Form 2: `else :> {` — wildcard arm with block body
+    {
+      const _arrow2 = (tok.kind === 'KEYWORD' && tok.text === 'else')
+        ? matchArrowGlyphAt(peek, 1) : null;
+      if (_arrow2 && peek(1 + _arrow2.len) && peek(1 + _arrow2.len).kind === 'PUNCT' && peek(1 + _arrow2.len).text === '{') {
+        const startTok = tok;
+        consume(); // 'else'
+        for (let _a = 0; _a < _arrow2.len; _a++) consume(); // arm arrow
+        consume(); // '{'
+        const blockBody = parseRecursiveBody();
+        return {
+          id: ++counter.next,
+          kind: 'match-arm-block',
+          variant: null,
+          isWildcard: true,
+          armArrow: _arrow2.glyph,
+          body: blockBody,
+          span: spanOf(startTok, peek()),
+        };
+      }
     }
 
-    // Form 3: `not => {` — absence arm with block body (§42)
-    if (tok.kind === 'KEYWORD' && tok.text === 'not' &&
-        peek(1) && isMatchArrow(peek(1)) &&
-        peek(2) && peek(2).kind === 'PUNCT' && peek(2).text === '{') {
-      const startTok = tok;
-      consume(); // 'not'
-      consume(); // '=>'
-      consume(); // '{'
-      const blockBody = parseRecursiveBody();
-      return {
-        id: ++counter.next,
-        kind: 'match-arm-block',
-        variant: '__not__',
-        isWildcard: false,
-        isNotArm: true,
-        body: blockBody,
-        span: spanOf(startTok, peek()),
-      };
+    // Form 3: `not :> {` — absence arm with block body (§42)
+    {
+      const _arrow3 = (tok.kind === 'KEYWORD' && tok.text === 'not')
+        ? matchArrowGlyphAt(peek, 1) : null;
+      if (_arrow3 && peek(1 + _arrow3.len) && peek(1 + _arrow3.len).kind === 'PUNCT' && peek(1 + _arrow3.len).text === '{') {
+        const startTok = tok;
+        consume(); // 'not'
+        for (let _a = 0; _a < _arrow3.len; _a++) consume(); // arm arrow
+        consume(); // '{'
+        const blockBody = parseRecursiveBody();
+        return {
+          id: ++counter.next,
+          kind: 'match-arm-block',
+          variant: '__not__',
+          isWildcard: false,
+          isNotArm: true,
+          armArrow: _arrow3.glyph,
+          body: blockBody,
+          span: spanOf(startTok, peek()),
+        };
+      }
     }
 
     // MATCH ARM INLINE: `. VariantName => result`, `else => result`, `not => result`
@@ -6484,9 +6528,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             bindingText = innerTokens.join(' ').replace(/\s+/g, ' ').trim() || null;
           }
         }
-        const arrowTok = peek(arrowIdx);
-        if (arrowTok && isMatchArrow(arrowTok)) {
-          const afterArrow = peek(arrowIdx + 1);
+        const _arrowI1 = matchArrowGlyphAt(peek, arrowIdx);
+        if (_arrowI1) {
+          const afterArrow = peek(arrowIdx + _arrowI1.len);
           // Only match inline arms (no `{` after arrow — block arms handled above)
           if (!afterArrow || afterArrow.text !== '{') {
             const startTok = consume(); // consume '.' or '::'
@@ -6498,7 +6542,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               while (!(peek().kind === 'PUNCT' && peek().text === ')') && peek().kind !== 'EOF') consume();
               if (peek().text === ')') consume(); // ')'
             }
-            consume(); // consume arrow
+            for (let _a = 0; _a < _arrowI1.len; _a++) consume(); // arm arrow
             const { expr: result } = collectExpr();
             const trimmedResult = result.trim();
             return {
@@ -6506,6 +6550,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               kind: 'match-arm-inline',
               test: testStr,
               binding: bindingText ?? undefined,
+              armArrow: _arrowI1.glyph,
               result: trimmedResult,
               resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
               span: spanOf(startTok, peek()),
@@ -6515,71 +6560,83 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
     }
 
-    // Inline Form 2: `else => result` — wildcard arm without block body
-    if (tok.kind === 'KEYWORD' && tok.text === 'else' &&
-        peek(1) && isMatchArrow(peek(1))) {
-      const afterArrow = peek(2);
-      if (!afterArrow || afterArrow.text !== '{') {
-        const startTok = consume(); // consume 'else'
-        consume(); // consume arrow
-        const { expr: result } = collectExpr();
-        const trimmedResult = result.trim();
-        return {
-          id: ++counter.next,
-          kind: 'match-arm-inline',
-          test: 'else',
-          result: trimmedResult,
-          resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
-          span: spanOf(startTok, peek()),
-        };
+    // Inline Form 2: `else :> result` — wildcard arm without block body
+    {
+      const _arrowI2 = (tok.kind === 'KEYWORD' && tok.text === 'else')
+        ? matchArrowGlyphAt(peek, 1) : null;
+      if (_arrowI2) {
+        const afterArrow = peek(1 + _arrowI2.len);
+        if (!afterArrow || afterArrow.text !== '{') {
+          const startTok = consume(); // consume 'else'
+          for (let _a = 0; _a < _arrowI2.len; _a++) consume(); // arm arrow
+          const { expr: result } = collectExpr();
+          const trimmedResult = result.trim();
+          return {
+            id: ++counter.next,
+            kind: 'match-arm-inline',
+            test: 'else',
+            armArrow: _arrowI2.glyph,
+            result: trimmedResult,
+            resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
+            span: spanOf(startTok, peek()),
+          };
+        }
       }
     }
 
-    // Inline Form 3: `not => result` — absence arm without block body
-    if (tok.kind === 'KEYWORD' && tok.text === 'not' &&
-        peek(1) && isMatchArrow(peek(1))) {
-      const afterArrow = peek(2);
-      if (!afterArrow || afterArrow.text !== '{') {
-        const startTok = consume(); // consume 'not'
-        consume(); // consume arrow
-        const { expr: result } = collectExpr();
-        const trimmedResult = result.trim();
-        return {
-          id: ++counter.next,
-          kind: 'match-arm-inline',
-          test: 'not',
-          result: trimmedResult,
-          resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
-          span: spanOf(startTok, peek()),
-        };
+    // Inline Form 3: `not :> result` — absence arm without block body
+    {
+      const _arrowI3 = (tok.kind === 'KEYWORD' && tok.text === 'not')
+        ? matchArrowGlyphAt(peek, 1) : null;
+      if (_arrowI3) {
+        const afterArrow = peek(1 + _arrowI3.len);
+        if (!afterArrow || afterArrow.text !== '{') {
+          const startTok = consume(); // consume 'not'
+          for (let _a = 0; _a < _arrowI3.len; _a++) consume(); // arm arrow
+          const { expr: result } = collectExpr();
+          const trimmedResult = result.trim();
+          return {
+            id: ++counter.next,
+            kind: 'match-arm-inline',
+            test: 'not',
+            armArrow: _arrowI3.glyph,
+            result: trimmedResult,
+            resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
+            span: spanOf(startTok, peek()),
+          };
+        }
       }
     }
 
-    // Inline Form 4: `_ => result` — wildcard alias (legacy)
-    if (tok.kind === 'IDENT' && tok.text === '_' &&
-        peek(1) && isMatchArrow(peek(1))) {
-      const afterArrow = peek(2);
-      if (!afterArrow || afterArrow.text !== '{') {
-        const startTok = consume(); // consume '_'
-        consume(); // consume arrow
-        const { expr: result } = collectExpr();
-        const trimmedResult = result.trim();
-        return {
-          id: ++counter.next,
-          kind: 'match-arm-inline',
-          test: 'else', // normalize _ to else
-          result: trimmedResult,
-          resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
-          span: spanOf(startTok, peek()),
-        };
+    // Inline Form 4: `_ :> result` — wildcard alias (legacy)
+    {
+      const _arrowI4 = (tok.kind === 'IDENT' && tok.text === '_')
+        ? matchArrowGlyphAt(peek, 1) : null;
+      if (_arrowI4) {
+        const afterArrow = peek(1 + _arrowI4.len);
+        if (!afterArrow || afterArrow.text !== '{') {
+          const startTok = consume(); // consume '_'
+          for (let _a = 0; _a < _arrowI4.len; _a++) consume(); // arm arrow
+          const { expr: result } = collectExpr();
+          const trimmedResult = result.trim();
+          return {
+            id: ++counter.next,
+            kind: 'match-arm-inline',
+            test: 'else', // normalize _ to else
+            armArrow: _arrowI4.glyph,
+            result: trimmedResult,
+            resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
+            span: spanOf(startTok, peek()),
+          };
+        }
       }
     }
 
-    // Inline Form 5: `"string" => result` or `'string' => result` — string literal arm
+    // Inline Form 5: `"string" :> result` or `'string' :> result` — string literal arm
     if (tok.kind === 'STRING') {
-      const t1 = peek(1);
-      if (t1 && isMatchArrow(t1)) {
-        const afterArrow = peek(2);
+      const _arrowI5 = matchArrowGlyphAt(peek, 1);
+      if (_arrowI5) {
+        const afterArrow = peek(1 + _arrowI5.len);
         if (!afterArrow || afterArrow.text !== '{') {
           const startTok = consume(); // consume string literal
           // STRING tokens have their delimiters stripped by the tokenizer.
@@ -6589,13 +6646,14 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           const testStr = rawText.includes('"') && !rawText.includes("'")
             ? `'${rawText}'`
             : `"${rawText}"`;
-          consume(); // consume arrow
+          for (let _a = 0; _a < _arrowI5.len; _a++) consume(); // arm arrow
           const { expr: result } = collectExpr();
           const trimmedResult = result.trim();
           return {
             id: ++counter.next,
             kind: 'match-arm-inline',
             test: testStr,
+            armArrow: _arrowI5.glyph,
             result: trimmedResult,
             resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
             span: spanOf(startTok, peek()),
@@ -10898,10 +10956,15 @@ function parseErrorTokens(tokens, filePath) {
         i++;
       }
 
-      // Arrow `->`
+      // Arm arrow — `:>` (canonical), `=>` / `->` (deprecated aliases, §18.2).
+      // Record which glyph the source used so the typer can fire the
+      // W-MATCH-ARROW-LEGACY lock-step lint for `!{}` handler arms.
+      let armArrow = ":>";
       if (i < tokens.length && tokens[i].kind === "OPERATOR" && (tokens[i].text === "=>" || tokens[i].text === ":>")) {
-        i++; // Note: the tokenizer may emit `=>` or `:>` but the spec uses `->`. Handle both.
+        armArrow = tokens[i].text;
+        i++;
       } else if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === "-") {
+        armArrow = "->";
         i++; // consume `-`
         if (i < tokens.length && tokens[i].kind === "OPERATOR" && tokens[i].text === ">") i++; // won't happen with `>`
         // `>` is emitted as PUNCT `>`
@@ -10946,6 +11009,7 @@ function parseErrorTokens(tokens, filePath) {
         binding,
         handler: _handlerTrimmed,
         handlerExpr: _parseHandlerExpr(_handlerTrimmed, filePath, tokenSpan(armStart, filePath)?.start ?? 0),
+        armArrow,
         span: tokenSpan(armStart, filePath),
       });
     } else if (tok.kind === "OPERATOR" && tok.text === "::") {
@@ -10981,10 +11045,13 @@ function parseErrorTokens(tokens, filePath) {
         binding = tokens[i].text;
         i++;
       }
-      // Arrow `->`, `=>`, or `:>`
+      // Arm arrow — `:>` (canonical), `=>` / `->` (deprecated aliases, §18.2).
+      let armArrow2 = ":>";
       if (i < tokens.length && tokens[i].kind === "OPERATOR" && (tokens[i].text === "=>" || tokens[i].text === ":>")) {
+        armArrow2 = tokens[i].text;
         i++;
       } else if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === "-") {
+        armArrow2 = "->";
         i++;
         if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === ">") i++;
       }
@@ -11019,6 +11086,7 @@ function parseErrorTokens(tokens, filePath) {
         binding,
         handler: _handlerTrimmed3,
         handlerExpr: _parseHandlerExpr(_handlerTrimmed3, filePath, tokenSpan(armStart, filePath)?.start ?? 0),
+        armArrow: armArrow2,
         span: tokenSpan(armStart, filePath),
       });
     } else if (
@@ -11035,8 +11103,12 @@ function parseErrorTokens(tokens, filePath) {
       const typeName = tok.text;
       const pattern = typeName === "_" ? "_" : "::" + typeName;
       const binding = "e";
+      // Arm arrow — this short-form gate matches only `=>` / `:>` (both single
+      // OPERATOR tokens). Record which glyph the source used for the §18.2
+      // W-MATCH-ARROW-LEGACY lock-step lint.
+      const armArrow3 = tokens[i + 1] && tokens[i + 1].text === "=>" ? "=>" : ":>";
       i++; // consume TypeName or _
-      i++; // consume =>
+      i++; // consume arm arrow
       const handlerParts = [];
       const handlerPartLines = []; // parallel: source line number for each part
       while (i < tokens.length && tokens[i].kind !== "EOF") {
@@ -11070,6 +11142,7 @@ function parseErrorTokens(tokens, filePath) {
         binding,
         handler: _handlerTrimmed2,
         handlerExpr: _parseHandlerExpr(_handlerTrimmed2, filePath, tokenSpan(armStart, filePath)?.start ?? 0),
+        armArrow: armArrow3,
         span: tokenSpan(armStart, filePath),
       });
     } else {

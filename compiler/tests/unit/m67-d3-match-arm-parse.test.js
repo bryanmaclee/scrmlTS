@@ -58,7 +58,12 @@ function shape(node) {
     if (Array.isArray(node)) return node.map(shape);
     const out = {};
     for (const k of Object.keys(node)) {
-        if (k === "span" || k === "spans" || k === "id" || k === "_sourceText") continue;
+        // `armArrow` records the SOURCE arm-separator glyph (`:>` / `=>` / `->`,
+        // §18.2) for the W-MATCH-ARROW-LEGACY deprecation lint. It is a
+        // source-provenance field (like span/id) — `.A :> x` and `.A => x`
+        // build a semantically identical match-expr that differs ONLY in this
+        // recorded glyph. Strip it for the cross-glyph structural-parity check.
+        if (k === "span" || k === "spans" || k === "id" || k === "_sourceText" || k === "armArrow") continue;
         out[k] = shape(node[k]);
     }
     return out;
