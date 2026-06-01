@@ -1,0 +1,164 @@
+// docs/website/viewer/lib/provenance.scrml
+//
+// Pure scrml provenance helpers for the C1 self-demo viewer.
+//
+// Parses a REAL Source Map v3 (the exact bytes the scrml compiler emitted via
+// build-source-map.ts) into the two indexes the showcase hovers against:
+//
+//   forward:  source-line (1-based)  ->  [ generated-line, ... ]   (JS output lines)
+//   reverse:  generated-line (1-based) -> source-line (1-based)
+//
+// The map carries `mappings` (delta-VLQ), `names` (AUTHOR identifiers such as
+// `coins`/`marioState`), and the non-standard `x_scrml_kinds` per-generated-line
+// sidecar ("source" | "synthetic"). Post-S150 the map is LINE-HONEST: no named
+// mapping points at a source line that lacks the identifier. Synthetic
+// generated lines have no author origin and are deliberately excluded from
+// highlighting.
+//
+// EVERYTHING here is `fn` (pure) — no reactive reads, no I/O, no DOM. Importable.
+//
+// VLQ reference: base64 alphabet, 5 data bits per digit + 1 continuation bit
+// (0x20); the first digit's least-significant bit is the sign. Each generated
+// line is a `;`-separated group; segments within a line are `,`-separated; each
+// segment is [genCol, srcIdx, srcLine, srcCol, (nameIdx)] as DELTAS against the
+// running state.
+//
+// DOGFOOD FRICTION (logged in the build report): inline object / array-of-object
+// / `-> {}` return-type annotations are MIS-COMPILED today (E-SCOPE-001 on the
+// object keys + E-CODEGEN-INVALID-JS, or an empty fn body). Workaround used here:
+// named `:struct` return types for structured returns, and OMITTED return-type
+// annotations for plain-dictionary returns.
+
+${
+    // A single decoded VLQ step: the integer plus the index just past it.
+    type VlqStep:struct = { value: number, next: number }
+
+    // A decoded mapping segment. srcLine/genLine are 0-based (the map is
+    // 0-indexed); callers add 1 for 1-based editor lines. srcLine == -1 means
+    // the segment carried only a generated-column field (no source origin).
+    type Segment:struct = {
+        genLine: number,
+        genCol:  number,
+        srcLine: number,
+        srcCol:  number,
+        nameIdx: number
+    }
+
+    const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+    // Decode one base64 char to its 0..63 value (-1 if not in the alphabet).
+    export fn b64Value(ch: string) -> number {
+        return B64.indexOf(ch)
+    }
+
+    // Decode the VLQ integer starting at `start` in `s`.
+    export fn vlqDecodeAt(s: string, start: number) -> VlqStep {
+        let result = 0
+        let shift = 0
+        let i = start
+        let continuation = 1
+        while (continuation == 1) {
+            let digit = b64Value(s.charAt(i))
+            i = i + 1
+            continuation = (digit & 32) >> 5
+            let chunk = digit & 31
+            result = result + (chunk << shift)
+            shift = shift + 5
+        }
+        // The least-significant bit of the assembled value is the sign.
+        let negative = result & 1
+        let magnitude = result >> 1
+        let value = magnitude
+        if (negative == 1) { value = 0 - magnitude }
+        return { value: value, next: i }
+    }
+
+    // Parse the full `mappings` string into a flat list of Segment records.
+    export fn parseMappings(mappings: string) -> [Segment] {
+        let out = []
+        let genLine = 0
+        let srcIdx = 0
+        let srcLine = 0
+        let srcCol = 0
+        let nameIdx = 0
+        let i = 0
+        let genCol = 0
+        let len = mappings.length
+        while (i < len) {
+            let ch = mappings.charAt(i)
+            if (ch == ";") {
+                genLine = genLine + 1
+                genCol = 0
+                i = i + 1
+            } else if (ch == ",") {
+                i = i + 1
+            } else {
+                // Decode one segment — always at least the genCol delta.
+                let d0 = vlqDecodeAt(mappings, i)
+                genCol = genCol + d0.value
+                i = d0.next
+                let hasMore = i < len && mappings.charAt(i) != ";" && mappings.charAt(i) != ","
+                let segSrcLine = 0 - 1
+                let segName = 0 - 1
+                if (hasMore) {
+                    let d1 = vlqDecodeAt(mappings, i)
+                    srcIdx = srcIdx + d1.value
+                    i = d1.next
+                    let d2 = vlqDecodeAt(mappings, i)
+                    srcLine = srcLine + d2.value
+                    i = d2.next
+                    let d3 = vlqDecodeAt(mappings, i)
+                    srcCol = srcCol + d3.value
+                    i = d3.next
+                    segSrcLine = srcLine
+                    let hasName = i < len && mappings.charAt(i) != ";" && mappings.charAt(i) != ","
+                    if (hasName) {
+                        let d4 = vlqDecodeAt(mappings, i)
+                        nameIdx = nameIdx + d4.value
+                        i = d4.next
+                        segName = nameIdx
+                    }
+                }
+                out.push({ genLine: genLine, genCol: genCol, srcLine: segSrcLine, srcCol: srcCol, nameIdx: segName })
+            }
+        }
+        return out
+    }
+
+    // Build the forward index: source-line (1-based) -> sorted unique list of
+    // generated-line (1-based). Synthetic generated lines are EXCLUDED. Plain
+    // dictionary keyed by the stringified source line. (No return-type
+    // annotation — see the FRICTION note above.)
+    export fn buildForwardIndex(segments: [Segment], kinds: [string]) {
+        let fwd = {}
+        for (let seg of segments) {
+            if (seg.srcLine < 0) { continue }
+            let kind = kinds[seg.genLine]
+            if (kind == "synthetic") { continue }
+            let srcKey = "" + (seg.srcLine + 1)
+            let genLine1 = seg.genLine + 1
+            let bucket = fwd[srcKey]
+            if (bucket is not) { bucket = [] }
+            if (not bucket.includes(genLine1)) { bucket.push(genLine1) }
+            fwd[srcKey] = bucket
+        }
+        return fwd
+    }
+
+    // Build the reverse index: generated-line (1-based) -> source-line (1-based).
+    // Synthetic generated lines are skipped; first mapping per generated line
+    // wins. Plain dictionary keyed by the stringified generated line.
+    export fn buildReverseIndex(segments: [Segment], kinds: [string]) {
+        let rev = {}
+        for (let seg of segments) {
+            if (seg.srcLine < 0) { continue }
+            let kind = kinds[seg.genLine]
+            if (kind == "synthetic") { continue }
+            let genKey = "" + (seg.genLine + 1)
+            if (rev[genKey] is not) {
+                rev[genKey] = seg.srcLine + 1
+            }
+        }
+        return rev
+    }
+}

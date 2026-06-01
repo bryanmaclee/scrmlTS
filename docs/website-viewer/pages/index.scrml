@@ -1,0 +1,567 @@
+// docs/website/viewer/pages/index.scrml — the flagship showcase (/).
+//
+// Left ~60%: the LIVE flagship app (an <iframe> of the flagship's own compiled
+// mario.html — clean isolation, REAL artifact).
+// Right ~40%: stacked panes — scrml SOURCE (top), engine WHAT-COMES-NEXT
+// diagram (middle), tabbed JS/HTML/CSS OUTPUT (bottom).
+//
+// HOVER-PROVENANCE (the credibility thesis): hovering a scrml source line
+// highlights the spans in the active output tab that the compiler generated
+// from that line — driven by the REAL .js.map (names + x_scrml_kinds), parsed
+// in pure scrml by lib/provenance.scrml. Reverse: hovering a JS output line
+// lights its source line. Line-granularity. JS tab only (HTML/CSS provenance
+// is Phase 2). Synthetic generated lines have no author origin and never light
+// up (by design — the 'some lines dead' read is intentional).
+//
+// DOGFOOD-FRICTION WORKAROUNDS (logged in the build report):
+//   - object literals are built inside `fn` helpers, never inline in a reactive
+//     write (E-SCOPE-001 on string values otherwise).
+//   - `when` bodies are single-statement function calls (multi-statement `when`
+//     bodies emit semicolon-less invalid JS otherwise).
+//   - data-* attributes use the quoted `"${@.n}"` interpolation form (bare
+//     `=@.n` trips E-SCOPE-001 in attribute position).
+
+<page>
+
+    ${
+        // FRICTION (logged): importing client-side pure `fn` helpers from a
+        // sibling .scrml emits an ES `import` in the page's client.js, but the
+        // HTML loads it as a plain (non-module) <script> — the browser throws
+        // "Cannot use import statement outside a module" and NO client code
+        // runs. So the helpers are INLINED here (the canonical copies still live
+        // in lib/provenance.scrml + components/*.scrml as importable reference).
+        // Everything below is real scrml — nothing is hand-written JS.
+
+        // ── enum for the output tab (an engine over this enum is the idiomatic
+        //    scrml shape for tab state) ──
+        type OutputTab:enum = { Js, Html, Css }
+
+        // VLQ step record (named struct — inline object return types mis-compile)
+        type VlqStep:struct = { value: number, next: number }
+        // decoded mapping segment (srcLine == -1 means no source origin)
+        type Segment:struct = { genLine: number, genCol: number, srcLine: number, srcCol: number, nameIdx: number }
+
+        const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+        fn b64Value(ch: string) -> number { return B64.indexOf(ch) }
+
+        // Decode one delta-VLQ integer starting at `start`.
+        fn vlqDecodeAt(s: string, start: number) -> VlqStep {
+            let result = 0
+            let shift = 0
+            let i = start
+            let continuation = 1
+            while (continuation == 1) {
+                let digit = b64Value(s.charAt(i))
+                i = i + 1
+                continuation = (digit & 32) >> 5
+                let chunk = digit & 31
+                result = result + (chunk << shift)
+                shift = shift + 5
+            }
+            let negative = result & 1
+            let magnitude = result >> 1
+            let value = magnitude
+            if (negative == 1) { value = 0 - magnitude }
+            return { value: value, next: i }
+        }
+
+        // Parse the `mappings` string into a flat list of Segment records.
+        fn parseMappings(mappings: string) -> [Segment] {
+            let out = []
+            let genLine = 0
+            let srcIdx = 0
+            let srcLine = 0
+            let srcCol = 0
+            let nameIdx = 0
+            let i = 0
+            let genCol = 0
+            let len = mappings.length
+            while (i < len) {
+                let ch = mappings.charAt(i)
+                if (ch == ";") {
+                    genLine = genLine + 1
+                    genCol = 0
+                    i = i + 1
+                } else if (ch == ",") {
+                    i = i + 1
+                } else {
+                    let d0 = vlqDecodeAt(mappings, i)
+                    genCol = genCol + d0.value
+                    i = d0.next
+                    let hasMore = i < len && mappings.charAt(i) != ";" && mappings.charAt(i) != ","
+                    let segSrcLine = 0 - 1
+                    let segName = 0 - 1
+                    if (hasMore) {
+                        let d1 = vlqDecodeAt(mappings, i)
+                        srcIdx = srcIdx + d1.value
+                        i = d1.next
+                        let d2 = vlqDecodeAt(mappings, i)
+                        srcLine = srcLine + d2.value
+                        i = d2.next
+                        let d3 = vlqDecodeAt(mappings, i)
+                        srcCol = srcCol + d3.value
+                        i = d3.next
+                        segSrcLine = srcLine
+                        let hasName = i < len && mappings.charAt(i) != ";" && mappings.charAt(i) != ","
+                        if (hasName) {
+                            let d4 = vlqDecodeAt(mappings, i)
+                            nameIdx = nameIdx + d4.value
+                            i = d4.next
+                            segName = nameIdx
+                        }
+                    }
+                    out.push({ genLine: genLine, genCol: genCol, srcLine: segSrcLine, srcCol: srcCol, nameIdx: segName })
+                }
+            }
+            return out
+        }
+
+        // forward index: source-line (1-based) -> [generated-line, ...]; synthetic excluded.
+        fn buildForwardIndex(segments: [Segment], kinds: [string]) {
+            let fwd = {}
+            for (let seg of segments) {
+                if (seg.srcLine < 0) { continue }
+                let kind = kinds[seg.genLine]
+                if (kind == "synthetic") { continue }
+                let srcKey = "" + (seg.srcLine + 1)
+                let genLine1 = seg.genLine + 1
+                let bucket = fwd[srcKey]
+                if (bucket is not) { bucket = [] }
+                if (not bucket.includes(genLine1)) { bucket.push(genLine1) }
+                fwd[srcKey] = bucket
+            }
+            return fwd
+        }
+
+        // reverse index: generated-line (1-based) -> source-line (1-based); synthetic skipped.
+        fn buildReverseIndex(segments: [Segment], kinds: [string]) {
+            let rev = {}
+            for (let seg of segments) {
+                if (seg.srcLine < 0) { continue }
+                let kind = kinds[seg.genLine]
+                if (kind == "synthetic") { continue }
+                let genKey = "" + (seg.genLine + 1)
+                if (rev[genKey] is not) { rev[genKey] = seg.srcLine + 1 }
+            }
+            return rev
+        }
+
+        // Split verbatim text into { n, text } line records (n 1-based).
+        fn toLines(src: string) -> any {
+            let raw = src.split("\n")
+            let out = []
+            let i = 0
+            while (i < raw.length) {
+                out.push({ n: i + 1, text: raw[i] })
+                i = i + 1
+            }
+            return out
+        }
+
+        // Faux syntax-highlight class (S148 — coloring faked, mapping real).
+        fn lineClass(text: string) -> string {
+            let t = text
+            if (t.indexOf("//") == 0) { return "tok-comment" }
+            if (t.indexOf("    //") == 0 || t.indexOf("        //") == 0) { return "tok-comment" }
+            if (t.indexOf("<engine") >= 0) { return "tok-engine" }
+            if (t.indexOf("type ") >= 0 && t.indexOf(":enum") >= 0) { return "tok-type" }
+            if (t.indexOf("type ") >= 0 && t.indexOf(":struct") >= 0) { return "tok-type" }
+            if (t.indexOf("function ") >= 0 || t.indexOf("fn ") >= 0) { return "tok-fn" }
+            if (t.indexOf("@") >= 0) { return "tok-state" }
+            if (t.indexOf("<") >= 0) { return "tok-markup" }
+            return "tok-plain"
+        }
+
+        // Engine-card header label (avoids the "for=" substring — see FRICTION).
+        fn engineHeading(forType: string, varName: string) -> string {
+            return "engine over " + forType + "  ->  @" + varName
+        }
+
+        // ── raw artifact text + parsed structures (all loaded on mount) ──
+        <sourceText> = ""
+        <jsText>     = ""
+        <htmlText>   = ""
+        <cssText>    = ""
+
+        // line lists ({ n, text }) built by toLines() — never inline literals
+        <sourceLines> = []
+        <jsLines>     = []
+        <htmlLines>   = []
+        <cssLines>    = []
+
+        // engine-graph JSON (parsed) + its engines array
+        <engines> = []
+
+        // provenance indexes (plain dictionaries from the builder fns)
+        <forwardIndex> = {}
+        <reverseIndex> = {}
+
+        // shared hover state — the panes color-coordinate against these
+        <activeSourceLine>  = 0
+        <activeOutputLines> = []
+
+        <title>  = "flagship"
+        <loaded> = false
+
+        // Output-tab selector. The architecture wants an <engine for=OutputTab>
+        // here (idiomatic), but a plain reactive cell is used instead: it drives
+        // the same .Js/.Html/.Css selection via if= without rendering an empty
+        // engine block, and keeps tab switching to a single reactive write.
+        <activeTab>: OutputTab = .Js
+        function showTab(t) { @activeTab = t }
+
+        // ── pure helpers (object construction lives here, see FRICTION note) ──
+
+        // Parse the engine-graph JSON text and return its engines[] array.
+        fn enginesOf(graphText: string) -> any {
+            if (graphText == "") { return [] }
+            let g = JSON.parse(graphText)
+            if (g.engines is not) { return [] }
+            return g.engines
+        }
+
+        // Look up the output lines for a given source line in the forward index.
+        fn forwardLookup(fwd: any, srcLine: number) -> any {
+            let key = "" + srcLine
+            let hit = fwd[key]
+            if (hit is not) { return [] }
+            return hit
+        }
+
+        // Reverse: output (generated) line -> source line (0 when none).
+        fn reverseLookup(rev: any, outLine: number) -> number {
+            let key = "" + outLine
+            let hit = rev[key]
+            if (hit is not) { return 0 }
+            return hit
+        }
+
+        // ── client functions (state writes) ──
+
+        function setActiveSourceLine(ln) { @activeSourceLine = ln }
+        function clearActive()           { @activeSourceLine = 0 }
+
+        // reverse hover: an output JS line lights its source line
+        function hoverOutputLine(outLine) {
+            @activeSourceLine = reverseLookup(@reverseIndex, outLine)
+        }
+
+        // recompute the highlight set — single-statement `when` body calls this
+        function recomputeActiveOutputs() {
+            @activeOutputLines = forwardLookup(@forwardIndex, @activeSourceLine)
+        }
+
+        when @activeSourceLine changes { recomputeActiveOutputs() }
+
+        // ── artifact load (on mount) ──
+        // Fetch the manifest, then the source / map / outputs / engine-graph.
+        // No async/await — fetch().then() is the JS-host path; reactive writes
+        // inside .then callbacks compile to _scrml_reactive_set correctly.
+
+        function loadArtifacts() {
+            fetch("/data/mario/manifest.json").then((r) => r.json()).then((m) => {
+                @title = m.title
+                fetch("/data/mario/" + m.source).then((r) => r.text()).then((t) => {
+                    @sourceText  = t
+                    @sourceLines = toLines(t)
+                })
+                fetch("/data/mario/" + m.clientJs).then((r) => r.text()).then((t) => {
+                    @jsText  = t
+                    @jsLines = toLines(t)
+                })
+                fetch("/data/mario/" + m.html).then((r) => r.text()).then((t) => {
+                    @htmlText  = t
+                    @htmlLines = toLines(t)
+                })
+                fetch("/data/mario/" + m.css).then((r) => r.text()).then((t) => {
+                    @cssText  = t
+                    @cssLines = toLines(t)
+                })
+                fetch("/data/mario/" + m.engineGraph).then((r) => r.text()).then((t) => {
+                    @engines = enginesOf(t)
+                })
+                fetch("/data/mario/" + m.jsMap).then((r) => r.json()).then((map) => {
+                    let segs = parseMappings(map.mappings)
+                    @forwardIndex = buildForwardIndex(segs, map.x_scrml_kinds)
+                    @reverseIndex = buildReverseIndex(segs, map.x_scrml_kinds)
+                    @loaded = true
+                })
+            })
+        }
+
+        on mount { loadArtifacts() }
+    }
+
+    #{
+        .showcase-grid {
+            display: grid;
+            grid-template-columns: 60% 40%;
+            gap: 1rem;
+            align-items: start;
+        }
+        .pane {
+            border: 1px solid rgb(30 41 59);
+            border-radius: 0.5rem;
+            background-color: rgb(15 23 42);
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+        .pane-label {
+            padding: 0.4rem 0.75rem;
+            font-size: 0.7rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: rgb(148 163 184);
+            border-bottom: 1px solid rgb(30 41 59);
+            background-color: rgb(2 6 23);
+        }
+
+        .showcase-iframe {
+            width: 100%;
+            height: 640px;
+            border: 0;
+            background-color: rgb(26 26 46);
+            display: block;
+        }
+        .showcase-live-note { padding: 0.5rem 0.75rem; font-size: 0.75rem; color: rgb(100 116 139); margin: 0; }
+
+        /* code panes — monospace line lists */
+        .code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.72rem;
+            line-height: 1.45;
+            max-height: 360px;
+            overflow: auto;
+            padding: 0.25rem 0;
+        }
+        .code-line {
+            display: flex;
+            white-space: pre;
+            padding: 0 0.5rem;
+            cursor: default;
+        }
+        .code-line:hover { background-color: rgb(30 41 59 / 0.5); }
+        .ln {
+            display: inline-block;
+            width: 2.5rem;
+            text-align: right;
+            margin-right: 0.75rem;
+            color: rgb(71 85 105);
+            user-select: none;
+            flex: none;
+        }
+        /* faux syntax-highlight palette (S148 — coloring faked, mapping real) */
+        .tok-comment { color: rgb(100 116 139); font-style: italic; }
+        .tok-engine  { color: rgb(244 114 182); }
+        .tok-type    { color: rgb(125 211 252); }
+        .tok-fn      { color: rgb(134 239 172); }
+        .tok-state   { color: rgb(252 211 77); }
+        .tok-markup  { color: rgb(147 197 253); }
+        .tok-plain   { color: rgb(203 213 225); }
+
+        /* the REAL provenance highlights */
+        .src-active { background-color: rgb(56 189 248 / 0.18) !important; outline: 1px solid rgb(56 189 248 / 0.45); }
+        .out-hot    { background-color: rgb(250 204 21 / 0.20) !important; outline: 1px solid rgb(250 204 21 / 0.5); }
+
+        /* output tabs */
+        .tabs { display: flex; gap: 0.25rem; padding: 0.4rem 0.5rem; border-bottom: 1px solid rgb(30 41 59); background-color: rgb(2 6 23); }
+        .tab {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.7rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 0.3rem;
+            border: 1px solid rgb(51 65 85);
+            background-color: rgb(15 23 42);
+            color: rgb(148 163 184);
+            cursor: pointer;
+        }
+        .tab.tab-active { background-color: rgb(56 189 248 / 0.15); color: rgb(125 211 252); border-color: rgb(56 189 248 / 0.4); }
+
+        /* engine-graph what-comes-next */
+        .eg-card { border: 1px solid rgb(30 41 59); border-radius: 0.4rem; margin: 0.6rem; padding: 0.6rem 0.75rem; background-color: rgb(2 6 23); }
+        .eg-head { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; color: rgb(125 211 252); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+        .eg-badge { font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: 9999px; border: 1px solid rgb(168 85 247 / 0.5); color: rgb(216 180 254); background-color: rgb(168 85 247 / 0.12); }
+        .eg-opener-badge { font-size: 0.6rem; padding: 0.1rem 0.4rem; border-radius: 9999px; border: 1px solid rgb(34 197 94 / 0.5); color: rgb(134 239 172); background-color: rgb(34 197 94 / 0.12); }
+        .chip { display: inline-block; font-family: ui-monospace, monospace; font-size: 0.68rem; padding: 0.1rem 0.45rem; border-radius: 0.3rem; border: 1px solid rgb(51 65 85); color: rgb(203 213 225); margin: 0.1rem; }
+        .chip-initial { border-color: rgb(250 204 21 / 0.55); color: rgb(253 224 71); }
+        .eg-state { margin-top: 0.5rem; }
+        .eg-state-tag { font-family: ui-monospace, monospace; font-size: 0.72rem; color: rgb(226 232 240); }
+        .eg-arrow { color: rgb(100 116 139); margin: 0 0.25rem; }
+        .eg-flag { font-size: 0.6rem; color: rgb(148 163 184); border: 1px dashed rgb(71 85 105); border-radius: 0.25rem; padding: 0 0.3rem; margin-left: 0.25rem; }
+
+        /* dashboard stub */
+        .dash-stub { border: 1px solid rgb(30 41 59); border-radius: 0.5rem; padding: 0.9rem 1rem; margin-top: 1.5rem; background-color: rgb(15 23 42); }
+        .dash-stub-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+        .dash-stub-title { font-weight: 600; color: rgb(226 232 240); }
+        .dash-stub-posture { color: rgb(134 239 172); font-family: ui-monospace, monospace; font-size: 0.85rem; margin: 0.5rem 0 0.25rem; }
+        .dash-stub-summary { color: rgb(148 163 184); font-size: 0.85rem; margin: 0; }
+        .dash-stub-note { color: rgb(100 116 139); font-size: 0.75rem; margin-top: 0.5rem; }
+        .dash-stub-note a, .dash-stub-note code { color: rgb(125 211 252); }
+
+        .showcase-intro h1 { font-size: 1.4rem; margin: 0 0 0.25rem; color: rgb(241 245 249); }
+        .showcase-intro p { color: rgb(148 163 184); margin: 0 0 1rem; font-size: 0.9rem; }
+    }
+
+    <div class="showcase-intro">
+        <h1>This page is a scrml app dissecting another scrml app.</h1>
+        <p>
+            Left: the real compiled <span class="mono">${@title}</span> flagship,
+            running live. Right: its real source, its real engine graph, and its
+            real compiled output. Hover a <span class="mono">@state</span> line in
+            the source — the spans the compiler generated from it light up in the
+            JS tab. The mapping is the actual <span class="mono">.js.map</span> the
+            compiler emitted.
+        </p>
+    </div>
+
+    <div class="showcase-grid">
+
+        // ── LEFT: live flagship (real artifact, iframe-isolated) ──
+        <div class="pane">
+            <div class="pane-label">Live app — real compiled artifact</div>
+            <iframe class="showcase-iframe" src="/data/mario/14-mario-state-machine.html" title="live flagship app"></iframe>
+            <p class="showcase-live-note">
+                The actual compiled flagship — the same
+                <span class="mono">.client.js</span> dissected on the right.
+            </p>
+        </div>
+
+        // ── RIGHT: stacked panes ──
+        <div>
+
+            // SOURCE pane
+            //
+            // NOTE: Tier-0 `${ for ... lift }` (not the Tier-1 <each> element).
+            // The Tier-1 <each> reconcile path emits ATTRIBUTE `${}`
+            // interpolations + class bindings + event handlers as LITERAL
+            // strings (friction bug #7, logged) — the hover wiring is lost.
+            // Tier-0 lift goes through normal markup codegen: class:bindings
+            // become real classList.toggle effects and onmouseover becomes a
+            // real addEventListener. The faux-highlight token color is applied
+            // via class: toggles (no `${}` in attribute values, which is the
+            // part that is still broken in BOTH paths).
+            <div class="pane">
+                <div class="pane-label">Source — 14-mario-state-machine.scrml (hover a line)</div>
+                <div class="code" onmouseleave=clearActive()>
+                    ${
+                        for (let ln of @sourceLines) {
+                            lift <div class="code-line"
+                                class:tok-comment=(lineClass(ln.text) == "tok-comment")
+                                class:tok-engine=(lineClass(ln.text) == "tok-engine")
+                                class:tok-type=(lineClass(ln.text) == "tok-type")
+                                class:tok-fn=(lineClass(ln.text) == "tok-fn")
+                                class:tok-state=(lineClass(ln.text) == "tok-state")
+                                class:tok-markup=(lineClass(ln.text) == "tok-markup")
+                                class:src-active=(@activeSourceLine == ln.n)
+                                onmouseover=setActiveSourceLine(ln.n)>
+                                <span class="ln">${ln.n}</span>${ln.text}
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+
+            // ENGINE what-comes-next pane (hidden when no engines)
+            <div class="pane" if=(@engines.length > 0)>
+                <div class="pane-label">Engine graph — what comes next (from --emit-engine-graph)</div>
+                ${
+                    for (let eng of @engines) {
+                        lift <div class="eg-card">
+                            <div class="eg-head">
+                                <span>${engineHeading(eng.forType, eng.varName)}</span>
+                                <span class="eg-badge" if=(eng.derived)>derived / projection</span>
+                                <span class="eg-opener-badge" if=(eng.hasOpenerEffect)>opener effect</span>
+                            </div>
+                            <div>
+                                ${
+                                    for (let v of eng.variants) {
+                                        lift <span class="chip" class:chip-initial=(v == eng.initialState)>${v}</span>
+                                    }
+                                }
+                            </div>
+                            ${
+                                for (let st of eng.states) {
+                                    lift <div class="eg-state">
+                                        <span class="eg-state-tag">${st.tag}</span>
+                                        <span class="eg-arrow">can go to →</span>
+                                        ${
+                                            for (let nx of st.next) {
+                                                lift <span class="chip">${nx}</span>
+                                            }
+                                        }
+                                        <span class="eg-flag" if=(st.next.length == 0)>terminal (no transitions)</span>
+                                        <span class="eg-flag" if=(st.hasEffect)>effect</span>
+                                        <span class="eg-flag" if=(st.lifecycle.onTransition)>onTransition</span>
+                                        <span class="eg-flag" if=(st.lifecycle.onTimeout)>onTimeout</span>
+                                        <span class="eg-flag" if=(st.lifecycle.internalRule)>internal:rule</span>
+                                        <span class="eg-flag" if=(st.lifecycle.history)>history</span>
+                                    </div>
+                                }
+                            }
+                            <p class="showcase-live-note" if=(eng.derived)>
+                                Derived engines have no own transitions — the
+                                source engine drives every change (projection).
+                            </p>
+                        </div>
+                    }
+                }
+            </div>
+
+            // OUTPUT tabs pane
+            <div class="pane">
+                <div class="pane-label">Compiled output</div>
+                <div class="tabs">
+                    <button class="tab" class:tab-active=(@activeTab == .Js)   onclick=showTab(.Js)>client.js</button>
+                    <button class="tab" class:tab-active=(@activeTab == .Html) onclick=showTab(.Html)>.html</button>
+                    <button class="tab" class:tab-active=(@activeTab == .Css)  onclick=showTab(.Css)>.css</button>
+                </div>
+
+                // JS tab — the ONLY tab with hover-provenance (the .js.map covers JS)
+                <div class="code" if=(@activeTab == .Js)>
+                    ${
+                        for (let jl of @jsLines) {
+                            lift <div class="code-line"
+                                class:out-hot=(@activeOutputLines.includes(jl.n))
+                                onmouseover=hoverOutputLine(jl.n)>
+                                <span class="ln">${jl.n}</span>${jl.text}
+                            </div>
+                        }
+                    }
+                </div>
+
+                <div class="code" if=(@activeTab == .Html)>
+                    ${
+                        for (let hl of @htmlLines) {
+                            lift <div class="code-line"><span class="ln">${hl.n}</span>${hl.text}</div>
+                        }
+                    }
+                </div>
+
+                <div class="code" if=(@activeTab == .Css)>
+                    ${
+                        for (let cl of @cssLines) {
+                            lift <div class="code-line"><span class="ln">${cl.n}</span>${cl.text}</div>
+                        }
+                    }
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    // ── dashboard-embed STUB (inc1: static; live dashboard is inc2) ──
+    <section class="dash-stub">
+        <div class="dash-stub-head">
+            <span class="dash-stub-title">Verification dashboard</span>
+            <span class="built-in-pill">built in scrml</span>
+        </div>
+        <p class="dash-stub-posture">GREEN — 27/27 examples compiling</p>
+        <p class="dash-stub-summary">Last-known posture (hardcoded stub). The live dashboard reads examples/.verification.json via scrml:fs.</p>
+        <p class="dash-stub-note">
+            inc1 embed STUB — the live server-side dashboard drops into this slot
+            in increment 2. <a href="/dashboard">Dashboard route</a>.
+        </p>
+    </section>
+
+</page>

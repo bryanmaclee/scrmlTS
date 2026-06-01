@@ -1,0 +1,25 @@
+// docs/website/viewer/components/nav-skeleton.scrml
+//
+// The deliberately-plain-HTML nav for the C1 self-demo viewer + the
+// dashboard-embed STUB. Per the ratified nav_and_dashboard constraint: NO
+// dropdowns, NO animation, NO @reactive state, NO onclick, NO class:active.
+// It is literally a flat list of <a href> anchors. Plainness is the point —
+// the viewer is a credibility harness, not a marketing site.
+//
+// Links OUT to the existing 97-page site routes (untouched) and to the
+// viewer's own /showcase. The dashboard-embed stub proves the embed SLOT
+// exists in the layout and the nav reaches it; the LIVE dashboard
+// (dashboard/app.scrml — needs scrml:fs) drops into that slot in inc2.
+
+${
+    // Plain nav — exported presentational component. No props: it is the same
+    // static anchor list on every viewer page.
+    export const NavSkeleton = <nav class="viewer-nav">
+        <a href="/" class="viewer-nav-brand">scrml.dev</a>
+        <span class="viewer-nav-sep">/</span>
+        <a href="/">Showcase</a>
+        <a href="/reference">Reference</a>
+        <a href="/dashboard">Dashboard</a>
+        <a href="https://github.com/bryanmaclee/scrmlTS">GitHub</a>
+    </>
+}

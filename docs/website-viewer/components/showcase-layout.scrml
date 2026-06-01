@@ -1,0 +1,44 @@
+// docs/website/viewer/components/showcase-layout.scrml
+//
+// REFERENCE-ONLY in inc1. The showcase layout is inlined directly in
+// pages/index.scrml because the panes need the page's shared reactive
+// hover state (and cross-file component import has a runtime module-load
+// gap, friction bug #6). This file documents the intended slotted-frame
+// shape for when that gap closes; it compiles clean but is not mounted.
+//
+// The 60/40 split-grid FRAME for the C1 showcase. Left column hosts the live
+// flagship app (an <iframe> of the flagship's own compiled mario.html — clean
+// isolation, REAL artifact). Right column STACKS source-pane / engine-graph-pane
+// / output-tabs vertically.
+//
+// This file exports the presentational shell (a slotted component): the host
+// page passes the flagship title + the iframe src and fills the right-column
+// slot with the three panes (which need the page's shared reactive hover state,
+// so they live in the page body, not here). The shared @activeSourceLine /
+// @activeOutputLines / @activeTab cells + the provenance-controller live in the
+// PAGE (program-scope reactive state), per the architecture's
+// provenance-controller note.
+//
+// MOUNT MECHANISM (open-fork resolved): iframe the flagship's own mario.html.
+// It is the architecture's low-risk default — real separate artifact, clean
+// isolation. Bidirectional cross-document hover (postMessage) is NOT wired in
+// inc1 (the source<->JS hover-provenance is fully realized on the RIGHT panes,
+// which is the credibility thesis); live-pane<->source hover is a Phase-2
+// polish noted in the report.
+
+${
+    export const ShowcaseFrame = <section class="showcase-grid" props={ title: string, liveSrc: string }>
+        <div class="showcase-live">
+            <div class="pane-label">LIVE APP — <span class="mono">${title}</span> (real compiled artifact)</div>
+            <iframe class="showcase-iframe" src=liveSrc title="live flagship app"></iframe>
+            <p class="showcase-live-note">
+                This is the actual compiled flagship running in an isolated
+                frame — the same <span class="mono">.client.js</span> the panes
+                on the right dissect.
+            </p>
+        </div>
+        <div class="showcase-panes">
+            ${children}
+        </div>
+    </>
+}

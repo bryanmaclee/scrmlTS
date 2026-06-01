@@ -1,0 +1,130 @@
+{
+  "engines": [
+    {
+      "varName": "marioState",
+      "forType": "MarioState",
+      "initialState": "Small",
+      "derived": false,
+      "variants": [
+        "Small",
+        "Big",
+        "Fire",
+        "Cape"
+      ],
+      "transitions": [
+        {
+          "from": "Big",
+          "to": "Cape",
+          "wildcard": false
+        },
+        {
+          "from": "Big",
+          "to": "Fire",
+          "wildcard": false
+        },
+        {
+          "from": "Big",
+          "to": "Small",
+          "wildcard": false
+        },
+        {
+          "from": "Cape",
+          "to": "Small",
+          "wildcard": false
+        },
+        {
+          "from": "Fire",
+          "to": "Small",
+          "wildcard": false
+        },
+        {
+          "from": "Small",
+          "to": "Big",
+          "wildcard": false
+        },
+        {
+          "from": "Small",
+          "to": "Cape",
+          "wildcard": false
+        },
+        {
+          "from": "Small",
+          "to": "Fire",
+          "wildcard": false
+        }
+      ],
+      "states": [
+        {
+          "tag": "Big",
+          "next": [
+            "Cape",
+            "Fire",
+            "Small"
+          ],
+          "hasEffect": false,
+          "lifecycle": {
+            "onTransition": false,
+            "onTimeout": false,
+            "internalRule": false,
+            "history": false
+          }
+        },
+        {
+          "tag": "Cape",
+          "next": [
+            "Small"
+          ],
+          "hasEffect": false,
+          "lifecycle": {
+            "onTransition": false,
+            "onTimeout": false,
+            "internalRule": false,
+            "history": false
+          }
+        },
+        {
+          "tag": "Fire",
+          "next": [
+            "Small"
+          ],
+          "hasEffect": false,
+          "lifecycle": {
+            "onTransition": false,
+            "onTimeout": false,
+            "internalRule": false,
+            "history": false
+          }
+        },
+        {
+          "tag": "Small",
+          "next": [
+            "Big",
+            "Cape",
+            "Fire"
+          ],
+          "hasEffect": false,
+          "lifecycle": {
+            "onTransition": false,
+            "onTimeout": false,
+            "internalRule": false,
+            "history": false
+          }
+        }
+      ],
+      "hasOpenerEffect": false
+    },
+    {
+      "varName": "healthRisk",
+      "forType": "HealthRisk",
+      "initialState": null,
+      "derived": true,
+      "variants": [
+        "AtRisk",
+        "Safe"
+      ],
+      "transitions": [],
+      "states": [],
+      "hasOpenerEffect": false
+    }
+  ]
+}

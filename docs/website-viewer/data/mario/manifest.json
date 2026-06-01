@@ -1,0 +1,10 @@
+{
+  "title": "Super Mario State Machine",
+  "flagship": "mario",
+  "source": "source.scrml.txt",
+  "clientJs": "14-mario-state-machine.client.js",
+  "jsMap": "14-mario-state-machine.client.js.map",
+  "html": "14-mario-state-machine.html",
+  "css": "14-mario-state-machine.css",
+  "engineGraph": "mario.engine-graph.json"
+}

@@ -1,0 +1,63 @@
+// docs/website/viewer/pages/dashboard.scrml — the /dashboard route (inc1 STUB).
+//
+// inc1 is a STATIC STUB, not the live dashboard. The real verification
+// dashboard (dashboard/app.scrml) is a server-side scrml app that reads
+// examples/.verification.json + .git/HEAD via scrml:fs; embedding it live
+// couples the viewer to a server runtime + repo filesystem — that is inc2.
+//
+// This page proves the embed SLOT exists and the nav reaches it. The live
+// dashboard drops into this slot in increment 2.
+//
+// The stub markup is inlined here (not a cross-file component): a multi-element
+// component BODY with </> closers hits the Phase-1 component-body re-parse limit
+// (E-COMPONENT-021) — friction bug logged in the build report. Inline markup
+// has no such limit.
+
+<page>
+
+    <div class="dash-route">
+        <h1>Verification dashboard</h1>
+        <p class="dash-route-lede">
+            This route is the increment-1 embed slot. The live dashboard is a
+            server-side scrml app; it mounts here in increment 2.
+        </p>
+
+        <section class="dash-stub">
+            <div class="dash-stub-head">
+                <span class="dash-stub-title">Verification dashboard</span>
+                <span class="built-in-pill">built in scrml</span>
+            </div>
+            <p class="dash-stub-posture">GREEN — 27/27 examples compiling</p>
+            <p class="dash-stub-summary">
+                Last-known posture (hardcoded stub). The live dashboard reads
+                examples/.verification.json via scrml:fs and reports per-example
+                compile + e2e status.
+            </p>
+            <p class="dash-stub-note">
+                inc1 embed STUB — the live server-side dashboard drops into this
+                slot in increment 2. <a href="/showcase">Back to the showcase</a>.
+            </p>
+        </section>
+    </div>
+
+    #{
+        .dash-route { max-width: 720px; margin: 1rem auto; }
+        .dash-route h1 { color: rgb(241 245 249); font-size: 1.5rem; }
+        .dash-route-lede { color: rgb(148 163 184); }
+
+        .dash-stub { border: 1px solid rgb(30 41 59); border-radius: 0.5rem; padding: 0.9rem 1rem; margin-top: 1.5rem; background-color: rgb(15 23 42); }
+        .dash-stub-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+        .dash-stub-title { font-weight: 600; color: rgb(226 232 240); }
+        .dash-stub-posture { color: rgb(134 239 172); font-family: ui-monospace, monospace; font-size: 0.85rem; margin: 0.5rem 0 0.25rem; }
+        .dash-stub-summary { color: rgb(148 163 184); font-size: 0.85rem; margin: 0; }
+        .dash-stub-note { color: rgb(100 116 139); font-size: 0.75rem; margin-top: 0.5rem; }
+        .dash-stub-note a { color: rgb(125 211 252); }
+        .built-in-pill {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            padding: 0.25rem 0.65rem; border-radius: 9999px;
+            background-color: rgb(14 165 233 / 0.10); border: 1px solid rgb(14 165 233 / 0.35);
+            color: rgb(125 211 252); font-family: ui-monospace, monospace; font-size: 0.7rem;
+        }
+    }
+
+</page>

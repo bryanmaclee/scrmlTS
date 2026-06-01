@@ -1,0 +1,103 @@
+// docs/website/viewer/app.scrml — the C1 self-demo VIEWER root program.
+//
+// A SEPARATE compile unit from docs/website/app.scrml (the 97-page site). The
+// existing site is untouched; this viewer is independently servable:
+//   scrml dev docs/website/viewer/
+//
+// The viewer is a credibility harness: it shows a REAL compiled flagship app
+// running next to its REAL .scrml source, its REAL compiled JS/HTML/CSS, and a
+// REAL engine "what-comes-next" diagram — with hover-provenance driven by the
+// REAL compiler-emitted .js.map. Built AS A SCRML APP (full dogfood), per the
+// ratified architecture.
+//
+// This file owns: the dark theme (#{}), the plain-HTML header/nav skeleton, and
+// the <main> route slot. Page content (the showcase) lifts into <main> via
+// filesystem routing (pages/index.scrml).
+
+<program>
+
+    // NOTE: the nav is INLINED here (not imported from components/nav-skeleton.scrml).
+    // Importing a component emits an ES `import` in app.client.js, but the HTML
+    // loads it as a plain (non-module) <script> — the browser throws "Cannot use
+    // import statement outside a module" (friction bug, logged). The canonical
+    // NavSkeleton component still lives in components/nav-skeleton.scrml as
+    // importable reference once the module-load gap is closed.
+
+    #{
+        :root { color-scheme: dark; }
+
+        html, body {
+            background-color: rgb(2 6 23);
+            color: rgb(226 232 240);
+            font-family: ui-sans-serif, system-ui, sans-serif;
+            margin: 0;
+        }
+
+        /* ── plain nav skeleton — deliberately no animation/dropdowns ── */
+        .viewer-nav {
+            display: flex;
+            align-items: center;
+            gap: 1.25rem;
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid rgb(30 41 59);
+            background-color: rgb(2 6 23);
+            font-size: 0.9rem;
+        }
+        .viewer-nav a {
+            color: rgb(148 163 184);
+            text-decoration: none;
+        }
+        .viewer-nav a:hover { color: rgb(226 232 240); }
+        .viewer-nav-brand {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-weight: 700;
+            color: rgb(226 232 240) !important;
+        }
+        .viewer-nav-sep { color: rgb(51 65 85); }
+
+        .viewer-tag {
+            margin-left: auto;
+            font-size: 0.7rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            color: rgb(148 163 184);
+            background-color: rgb(30 41 59 / 0.7);
+            padding: 0.15rem 0.55rem;
+            border-radius: 9999px;
+            border: 1px solid rgb(51 65 85);
+        }
+
+        .built-in-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.25rem 0.65rem;
+            border-radius: 9999px;
+            background-color: rgb(14 165 233 / 0.10);
+            border: 1px solid rgb(14 165 233 / 0.35);
+            color: rgb(125 211 252);
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.7rem;
+        }
+
+        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+        main { padding: 1.25rem; max-width: 1400px; margin: 0 auto; }
+    }
+
+    <header>
+        <nav class="viewer-nav">
+            <a href="/" class="viewer-nav-brand">scrml.dev</a>
+            <span class="viewer-nav-sep">&#47;</span>
+            <a href="/">Showcase</a>
+            <a href="/reference">Reference</a>
+            <a href="/dashboard">Dashboard</a>
+            <a href="https://github.com/bryanmaclee/scrmlTS">GitHub</a>
+        </nav>
+    </header>
+
+    <main>
+        // pages/index.scrml (the showcase) lifts into this slot via
+        // filesystem routing per SPEC §40 multi-page composition.
+    </main>
+
+</program>

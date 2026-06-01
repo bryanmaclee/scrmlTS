@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>14-mario-state-machine</title>
+  <link rel="stylesheet" href="14-mario-state-machine.css">
+</head>
+<body>
+
+
+
+                                    <span data-scrml-logic="_scrml_logic_1"></span>                    
+
+                        
+
+    <div class="flex justify-center items-center min-h-screen text-white font-mono bg-[#1a1a2e]">
+        <div class="bg-gray-800 rounded-2xl p-8 w-96 border border-gray-700 shadow-2xl">
+            <h1 class="text-center text-lg text-yellow-400 mb-6">SUPER MARIO STATE MACHINE</h1>
+
+            <div class="flex justify-between bg-black rounded-lg p-3 mb-5 text-xs">
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400 uppercase text-xs">LIVES</span>
+                    <span><span data-scrml-logic="_scrml_logic_2"></span></span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400 uppercase text-xs">COINS</span>
+                    <span><span data-scrml-logic="_scrml_logic_3"></span></span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400 uppercase text-xs">STATE</span>
+                    <span><span data-scrml-logic="_scrml_logic_4"></span></span>
+                </div>
+            </div>
+
+            <div class="flex flex-col items-center justify-center py-8">
+                <span class="text-6xl"><span data-scrml-logic="_scrml_logic_5"></span></span>
+                <span class="text-sm mt-3 text-yellow-400"><span data-scrml-logic="_scrml_logic_6"></span></span>
+            </div>
+
+            <div class="bg-red-900 border border-red-700 text-red-400 px-4 py-2 rounded-lg text-center text-xs mb-4" data-scrml-bind-if="_scrml_attr_if_7"><span data-scrml-logic="_scrml_logic_8"></span></div>
+
+            <template id="_scrml_scrml_tpl_9"><p class="text-xl text-red-500 my-6 text-center font-bold">GAME OVER</p></template><!--scrml-if-marker:_scrml_if_marker_10-->
+
+            <div data-scrml-bind-if="_scrml_attr_if_11">
+                <div class="grid grid-cols-3 gap-2 mb-3">
+                    <button class="py-3 px-2 bg-green-600 text-white text-xs rounded-lg cursor-pointer border-0" data-scrml-bind-onclick="_scrml_attr_onclick_12">MUSHROOM +1</button>
+                    <button class="py-3 px-2 bg-yellow-500 text-gray-800 text-xs rounded-lg cursor-pointer border-0" data-scrml-bind-onclick="_scrml_attr_onclick_13">FLOWER +3</button>
+                    <button class="py-3 px-2 bg-blue-500 text-white text-xs rounded-lg cursor-pointer border-0" data-scrml-bind-onclick="_scrml_attr_onclick_14">FEATHER +5</button>
+                </div>
+                <button class="w-full mt-2 py-3 bg-red-600 text-white text-sm rounded-lg cursor-pointer border-0" data-scrml-bind-onclick="_scrml_attr_onclick_15">GET HURT</button>
+            </div>
+
+            <button class="w-full mt-3 py-3 bg-green-600 text-white text-sm rounded-lg cursor-pointer border-0" data-scrml-bind-if="_scrml_attr_if_16" data-scrml-bind-onclick="_scrml_attr_onclick_17">CONTINUE</button>
+        </div>
+    </div>
+
+
+
+<script src="scrml-runtime.00okhlvg.js"></script>
+<script src="14-mario-state-machine.client.js"></script>
+</body>
+</html>

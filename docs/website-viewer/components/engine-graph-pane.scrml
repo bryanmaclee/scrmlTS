@@ -1,0 +1,43 @@
+// docs/website/viewer/components/engine-graph-pane.scrml
+//
+// Renders the engine "what-comes-next" box from the --emit-engine-graph JSON
+// (EngineGraph shape from engine-graph.ts):
+//   { engines: [ { varName, forType, initialState, derived, variants,
+//                  transitions, states:[{tag,next,hasEffect,lifecycle}],
+//                  hasOpenerEffect } ] }
+//
+// For mario this yields TWO engines: MarioState (non-derived, fan-out next[])
+// and HealthRisk (derived projection — derived badge + variants-only legend,
+// empty transitions/states per the projection contract).
+//
+// states[].next is ALREADY wildcard-expanded by the compiler, so the box
+// renders concrete reachable targets directly with no client-side wildcard
+// math. The pane is engine-conditional: the host hides it when engines is empty.
+//
+// Pure helpers only; the host page owns the parsed JSON and drives the <each>
+// loops. (Presentational sub-rendering is done inline in the page so the
+// per-state hover/highlight can share the page's reactive context.)
+
+${
+    // Compact lifecycle/effect flag summary for a state. Returns a short label
+    // string the page renders as a badge row; empty string when all flags are
+    // false (mario's case — but the rendering must HANDLE the true case so
+    // inc2 engines with timers/effects light up).
+    export fn stateFlags(hasEffect: boolean, onTransition: boolean, onTimeout: boolean, internalRule: boolean, history: boolean) -> any {
+        let flags = []
+        if (hasEffect)    flags.push("effect")
+        if (onTransition) flags.push("onTransition")
+        if (onTimeout)    flags.push("onTimeout")
+        if (internalRule) flags.push("internal:rule")
+        if (history)      flags.push("history")
+        return flags
+    }
+
+    // Human label for the engine-card header. NOTE: avoids the substring
+    // "for=" inside the string literal — `for=` in a `fn`-body string trips the
+    // parser into treating `for` as an assignment target (E-FN-003). Friction
+    // bug logged in the build report.
+    export fn engineHeading(forType: string, varName: string) -> string {
+        return "engine over " + forType + "  ->  @" + varName
+    }
+}
