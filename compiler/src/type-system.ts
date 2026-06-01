@@ -14481,7 +14481,7 @@ function runLifecycleAccessCheck(
         // Path 3: typed let-decl with positional binding `let u: User = ("alice", ...)`.
         // The presence of a type annotation + tuple-shaped value means EVERY
         // lifecycle field is constructed with a value — start them all in "post".
-        if (varName && stmt.typeAnnotation && initText) {
+        if (varName && !structInstances.has(varName) && stmt.typeAnnotation && initText) {
           const annot = (stmt.typeAnnotation as string).trim();
           if (lifecycleRegistry.has(annot) && /^\s*\(/.test(initText)) {
             structInstances.set(varName, annot);
@@ -14489,6 +14489,27 @@ function runLifecycleAccessCheck(
             const perField = new Map<string, "pre" | "post">();
             for (const fieldName of lifecycleFields.keys()) perField.set(fieldName, "post");
             initialFieldStates.set(varName, perField);
+          }
+        }
+
+        // Path 4: typed let/const/variable decl with OBJECT-LITERAL construction
+        // `const u: User = { id: 1, passwordHash: not }`. Mirrors the working
+        // state-decl analogue (collectStateDeclStructBindings) — enroll by
+        // typeAnnotation and seed PER FIELD via seedInitialFromObjectLiteral so a
+        // field constructed `not` stays "pre" (E-TYPE-001 fires on read) while a
+        // field constructed with a B-shape value starts "post" (clean). Distinct
+        // from Path 3, which seeds ALL fields "post" for positional tuples; the
+        // object-literal form names fields individually, so we must respect each.
+        // Engine-cell carve-out is preserved: fn-local/top-level const/let
+        // object-literal bindings are never engine cells (those are auto-declared
+        // <engine> state-decls, handled by collectStateDeclStructBindings which
+        // honors engineCellNames), so no engine binding can flow through here.
+        if (varName && !structInstances.has(varName) && stmt.typeAnnotation && initText) {
+          const annot = (stmt.typeAnnotation as string).trim();
+          if (lifecycleRegistry.has(annot) && /^\s*\{/.test(initText)) {
+            structInstances.set(varName, annot);
+            const perField = seedInitialFromObjectLiteral(annot, initText);
+            if (perField.size > 0) initialFieldStates.set(varName, perField);
           }
         }
       }
