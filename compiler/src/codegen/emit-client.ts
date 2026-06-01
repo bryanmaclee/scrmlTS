@@ -1407,8 +1407,16 @@ export function generateClientJs(ctx: CompileContext): string {
   const eachBodyRender = clientStage(ctx, "emit-each-body-render", () => emitEachBodyRenderForFile(fileAST, ctx));
 
   const allRenderFns = [...c12BodyRender.renderFunctions, ...c14BodyRender.renderFunctions, ...matchBodyRender.renderFunctions, ...eachBodyRender.renderFunctions];
-  const allDispatchers = [...c12BodyRender.dispatchers, ...c14BodyRender.dispatchers, ...matchBodyRender.dispatchers, ...eachBodyRender.dispatchers];
-  if (allRenderFns.length > 0 || allDispatchers.length > 0) {
+  // Engine (C12/C14) + match dispatchers fire here (early, before reactiveLines):
+  // their boot ordering is intentional (engine substrate seeds its OWN variant
+  // cells via emitEngineSubstrate, not via the user reactiveLines below). The
+  // EACH dispatchers are DEFERRED to after reactiveLines (see eachDispatchers
+  // below) so the initial `_scrml_each_render_NN()` sees the source cell's real
+  // value rather than undefined (the same-file cell-init crash, change-id
+  // each-render-before-cell-init-2026-06-01).
+  const allDispatchers = [...c12BodyRender.dispatchers, ...c14BodyRender.dispatchers, ...matchBodyRender.dispatchers];
+  const eachDispatchers = [...eachBodyRender.dispatchers];
+  if (allRenderFns.length > 0 || allDispatchers.length > 0 || eachDispatchers.length > 0) {
     lines.push("// --- engine + match + each body render (Phase A10, §51.0.D + §18.0.1 + §17.X) ---");
     for (const fn of allRenderFns) {
       lines.push(fn);
@@ -1564,6 +1572,23 @@ export function generateClientJs(ctx: CompileContext): string {
   // Emit top-level logic statements and CSS variable bridge
   const reactiveLines = clientStage(ctx, "emit-reactive-wiring", () => emitReactiveWiring(ctx));
   for (const line of reactiveLines) lines.push(line);
+
+  // each-render-before-cell-init-2026-06-01: the `<each>` dispatchers (initial
+  // `_scrml_each_render_NN()` + `_scrml_effect_static(...)`) are emitted HERE,
+  // AFTER reactiveLines, NOT up in the render-fn block above. reactiveLines holds
+  // the same-file cell-init (`_scrml_reactive_set("items", _scrml_deep_reactive(...))`),
+  // so deferring the each dispatchers lets the FIRST `_scrml_each_render_NN()` read
+  // the real collection value instead of undefined. The emit-each guard +
+  // `_scrml_reconcile_list` Array.isArray guard are belt-and-suspenders for the
+  // residual case (cell init in a LATER module via import, or no init at all).
+  if (eachDispatchers.length > 0) {
+    lines.push("");
+    lines.push("// --- each body-render dispatchers (deferred post-cell-init, §17.X) ---");
+    for (const disp of eachDispatchers) {
+      lines.push(disp);
+      lines.push("");
+    }
+  }
 
   // A5-4 (§51.0.M) — Initial-arm for engines with <onTimeout>. Emitted AFTER
   // emitReactiveWiring so the user reactive cells (which a computed-form

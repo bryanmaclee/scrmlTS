@@ -1236,6 +1236,13 @@ function animationFrame(fn) {
  */
 function _scrml_reconcile_list(container, newItems, keyFn, createFn) {
   const __t_rec_top = __SCRML_PERF ? __SCRML_PERF_NOW() : 0;
+  // Defensive: tolerate an undefined / not-yet-initialized collection. The each
+  // render fn can run once at module-init BEFORE the source cell's
+  // _scrml_reactive_set(...) runs (same-file cell-init ordering), so newItems may
+  // be undefined on the first call. Treat absence as the empty list (render
+  // nothing); the each effect re-runs this once the cell-init fires. Also covers a
+  // non-array value defensively. Without this, the newItems.length read below throws.
+  if (!Array.isArray(newItems)) newItems = [];
   // Fast path: clear all — avoid iterating old nodes one by one
   if (newItems.length === 0) {
     if (__SCRML_PERF) {

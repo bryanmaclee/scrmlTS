@@ -867,6 +867,21 @@ export function emitEachBodyRenderForFile(
       fnLines.push(`    return;`);
       fnLines.push(`  }`);
     }
+    else {
+      // No `<empty>` block: still guard against an undefined / not-yet-initialized
+      // collection. The each render fn runs once synchronously at module-init
+      // (`_scrml_each_render_NN()` dispatcher); if the source cell is declared in
+      // the SAME file its `_scrml_reactive_set(...)` runs LATER in module-init, so
+      // `_scrml_reactive_get(name)` returns undefined on this first call. Without
+      // this guard the bare `_scrml_reconcile_list(_mount, undefined, ...)` below
+      // throws `TypeError: ...newItems.length` (HIGH runtime crash: compile-clean,
+      // runtime-dead). Render empty for now; the `_scrml_effect_static` subscription
+      // below re-runs this fn once the cell-init `_scrml_reactive_set` fires.
+      fnLines.push(`  if (!_items) {`);
+      fnLines.push(`    _mount.replaceChildren();`);
+      fnLines.push(`    return;`);
+      fnLines.push(`  }`);
+    }
 
     // Per-item template factory.
     // gate-found-invalid-js-fix-wave (S141): the keyFn index param + the
