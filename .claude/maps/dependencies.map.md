@@ -1,6 +1,6 @@
 # dependencies.map.md
 # project: scrmlts
-# updated: 2026-05-31T05:32:43-06:00  commit: 09f74bee
+# updated: 2026-06-01T00:00:00-06:00  commit: 4e1f9492
 
 ## Runtime Dependencies (root package.json — v0.7.0)
 @modelcontextprotocol/sdk@1.29.0 — MCP server SDK for scrml MCP integration
@@ -29,19 +29,25 @@ bun>=1.3.13 — required runtime; no Node support (Bun-specific APIs used throug
 | Module | Imports from |
 |--------|-------------|
 | cli.js | commands/compile.js, commands/dev.js, commands/build.js, commands/migrate.js, commands/promote.js |
-| api.js | block-splitter.js, ast-builder.js, code-generator.js, module-resolver.js, component-expander.ts, type-system.ts |
-| code-generator.js | codegen/index.ts (all emit-*), dependency-graph.ts, auth-graph.ts, route-inference.ts |
-| codegen/emit-client.ts | codegen/emit-*.ts, codegen/runtime-chunks.ts, codegen/context.ts |
+| api.js | block-splitter.js, ast-builder.js, code-generator.js, module-resolver.js, component-expander.ts, type-system.ts, engine-graph.ts (S149 — buildEngineGraphJson) |
+| code-generator.js (codegen/index.ts) | codegen/emit-*.ts, codegen/srcmap-provenance.ts, codegen/build-source-map.ts, codegen/source-map.ts, dependency-graph.ts, auth-graph.ts, route-inference.ts |
+| codegen/emit-client.ts | codegen/emit-*.ts, codegen/runtime-chunks.ts, codegen/context.ts; derives _scrml_modules key via moduleRegistryKey() |
+| codegen/emit-engine.ts | codegen/emit-*.ts; emitEngineOpenerEffect() for §51.0.H Form 3 (S148) |
+| codegen/emit-each.ts | codegen/context.ts; emitEachBodyRenderForFile() guards undefined cell pre-init (S152) |
 | codegen/emit-server.ts | codegen/emit-*.ts, codegen/emit-channel.ts |
 | codegen/emit-error-boundary.ts | block-splitter.js, ast-builder.js (re-parse pipeline) |
+| codegen/build-source-map.ts | codegen/srcmap-provenance.ts, codegen/source-map.ts |
+| engine-graph.ts | types/ast.ts (FileAST shapes via unknown); standalone — no codegen/ imports |
 | auth-graph.ts | types/ast.ts, symbol-table.ts |
 | type-system.ts | types/ast.ts, dependency-graph.ts, protect-analyzer.ts |
 | reachability/*.ts | types/reachability.ts, types/ast.ts |
 | native-parser/*.js | (self-contained; no compiler/src imports) |
+| commands/compile.js | api.js (compileScrml), engine-graph sidecar write site (--emit-engine-graph) |
+| commands/dev.js | api.js (compileScrml); Bun.serve + per-file fs.watch (rewritten S152 — no recursive-dir) |
 | commands/migrate.js | api.js (compileScrml), block-splitter.js, ast-builder.js (buildAST — for rewriteMatchArmArrows AST-driven walk) |
 
 ## Tags
-#scrmlts #map #dependencies #bun #acorn #lsp #mcp
+#scrmlts #map #dependencies #bun #acorn #lsp #mcp #engine-graph #source-map #s149 #s152
 
 ## Links
 - [primary.map.md](./primary.map.md)

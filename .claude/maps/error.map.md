@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-05-31T05:32:43-06:00  commit: 09f74bee
+# updated: 2026-06-01T00:00:00-06:00  commit: 4e1f9492
 
 scrml's own language error model is values-not-exceptions (SPEC §19.1 — no try/catch, no throw).
 The compiler itself surfaces structured CGError objects to the caller; it never throws on bad input.
@@ -13,7 +13,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 - All other codes → result.errors (fatal, CLI exits 1)
 - Cross-stream helper required when asserting on W-*/I-* codes in tests (see diagnostic-stream-partition memory note)
 
-## Error Code Families (374 distinct codes in compiler source)
+## Error Code Families (374+ distinct codes in compiler source)
 
 | Family | Count | Description |
 |--------|-------|-------------|
@@ -30,9 +30,11 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-CPS-* | 6 | CPS async planner errors (idempotency, multibatch reorder/machine-crossing) |
 | E-CTRL-* | 6 | Control flow errors |
 | E-CTX-* | 2 | Context errors (E-CTX-001: unclosed block; E-CTX-003: shorthand confusion) |
+| E-DECL-NEEDS-INITIALIZER | 1 | NEW (S152) — non-array typed-decl with no RHS; only `T[]` typed-array decls may omit RHS (default `[]` per §6.2 Shape 4) [ast-builder.js:4236] |
 | E-DERIVED-* | 7 | Derived-value errors (circular-dep, engine-no-initial/rules/write, value-mutate) |
 | E-DG-* | 2 | Dependency graph errors — E-DG-002 false-positive fix: credits lambda-body @var reads + `<match on=@cell>` block-form headers [dependency-graph.ts] |
-| E-ENGINE-* | ~20 | Engine declaration errors |
+| E-EACH-ITER-SHAPE | 1 | Each iteration shape errors: missing-or-both `of`/`in` attrs [ast-builder.js] |
+| E-ENGINE-* | ~20 | Engine declaration errors (incl. E-ENGINE-010: `given` guard in type-level transitions block) |
 | E-ERRORS-* | 2 | `<errors>` element validation (E-ERRORS-001, E-ERRORS-002) |
 | E-EXPR-* | 30 | Native-parser expression grammar codes (§34.1) |
 | E-FORMFOR-* | 8 | formFor type validation errors |
@@ -45,7 +47,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-META-* | 7 | Meta check/eval errors |
 | E-MW-* | ~6 | Middleware errors |
 | E-NAME-* | 1 | Name collision with reserved identifier |
-| E-PA-* | ~7 | protect-analyzer errors — E-PA-002 false-positive fix: `extractCreateTableStatements` now generic cycle-safe deep-walk (not just `node.children`); finds CREATE TABLE in `body`/`?{}` under fn-decl bodies + top-level `${}` logic blocks [protect-analyzer.ts] |
+| E-PA-* | ~7 | protect-analyzer errors — E-PA-002 false-positive fix: `extractCreateTableStatements` now generic cycle-safe deep-walk; finds CREATE TABLE in `body`/`?{}` under fn-decl bodies + top-level `${}` logic blocks [protect-analyzer.ts] |
 | E-PARSEVARIANT-* | ~3 | parseVariant API errors |
 | E-REPLAY-* | 3 | Engine replay errors |
 | E-RESET-* | 1 | Reset target errors |
@@ -56,23 +58,24 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-SYNTAX-* | ~10 | Syntax errors (E-SYNTAX-042..044: null/undefined in source) |
 | E-TEST-* | 6 | Test block errors (E-TEST-001..006) |
 | E-TIMEOUT-* | 2 | Engine timeout errors |
-| E-TYPE-* | ~20 | Type system errors |
+| E-TYPE-* | ~20 | Type system errors (E-TYPE-001 dormancy fix for object-literal lifecycle, S151 C4) |
 | E-USE-* | ~5 | `use` declaration errors |
 | E-VALIDATOR-* | ~5 | Validator circular-dep / inline-dynamic |
 | E-WRITE-NOT-IN-LOGIC-CONTEXT | 1 | Write attempt outside logic context |
 | W-ASSIGN-* | 1 | Assignment warnings |
 | W-ATTR-* | 2 | Attribute warnings |
 | W-AUTH-* | 5 | Auth warnings: W-AUTH-001, W-AUTH-LOGIN-MISSING, W-AUTH-PAGE-INFERRED, W-AUTH-RUNTIME-FALLBACK |
-| W-AUTH-CONTENT-NOT-GATED | 1 | NEW (GITI-027A) — `<auth role>` gates JS-mount only, NOT served HTML content [auth-graph.ts:627] |
+| W-AUTH-CONTENT-NOT-GATED | 1 | `<auth role="X">` gates JS-mount only, NOT served HTML content [auth-graph.ts:627] |
 | W-BATCH-* | 1 | SQL batch warnings |
 | W-CG-* | ~10 | Code generator warnings (W-CG-001: top-level suppression; chunk warnings) |
 | W-DEPRECATED-* | 2 | Deprecation warnings |
-| W-EACH-* | 2 | Each/iteration warnings |
+| W-EACH-KEY-001 | 1 | Info-level lint: `<each in=@cell>` has no inferable per-item `.id` key [lint-w-each-key.js] |
+| W-EACH-PROMOTABLE | 1 | Info-level lint: `${ for (let x of @cell) { lift ... } }` is promotable to `<each>` form [lint-w-each-promotable.js] |
 | W-ENGINE-* | 2 | Engine warnings |
 | W-EQ-* | 1 | Equality warnings |
 | W-LIFECYCLE-* | 5 | Lifecycle warnings |
 | W-LINT-001..024 | 24 | Ghost-pattern lint warnings [lint-ghost-patterns.js] |
-| W-MATCH-* | 6 | Match warnings — NEW: W-MATCH-ARROW-LEGACY (S147): info-level, arm-context-scoped, fires in `checkMatchDiagnostics` + `!{}`-handler-arm path (type-system.ts); W-MATCH-RULE-INERT; W-MATCH-VALUE-UNUSED |
+| W-MATCH-* | 6 | Match warnings — W-MATCH-ARROW-LEGACY (S147): info-level, arm-context-scoped; W-MATCH-RULE-INERT; W-MATCH-VALUE-UNUSED |
 | W-PROGRAM-* | 4 | Program-level warnings |
 | W-PURE-REDUNDANT | 1 | Redundant `pure` modifier |
 | W-STDLIB-* | 2 | stdlib shim/compiler-deferred warnings |
@@ -84,26 +87,38 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | I-MATCH-PROMOTABLE | 1 | Info: match eligible for engine promotion (§56) |
 | I-PARSER-NATIVE-SHADOW | 1 | Info: native parser shadows live-pipeline result |
 
-## Key New Codes This Cycle (since watermark 948d3f2f)
-- W-MATCH-ARROW-LEGACY — S147; info-level; fires at every `match` arm and `!{}`-handler arm whose `armArrow` glyph is `=>` or `->` (deprecated aliases); canonical separator is `:>`; message includes `bun scrml migrate --fix` suggestion; shared helper `matchArrowLegacyMessage()` in type-system.ts:8551; fires from both `checkMatchDiagnostics` (match-arm path) and the `!{}`-handler-arm walk [type-system.ts:6022, 8630]
-- W-AUTH-CONTENT-NOT-GATED — GITI-027A; `<auth role="X">` is NOT a content gate; fires once per auth-role site [auth-graph.ts:627]
-- W-MATCH-VALUE-UNUSED — S144 Bug Y; unused match discriminant value
-- E-MATCH-ARM-SEPARATOR — S144 Bug AA; malformed match arm separator
+## Key New / Changed Codes Since Watermark 09f74bee (S148-S152)
 
-## E-PA-002 Fix Note (S147 R28-4)
-`extractCreateTableStatements` in protect-analyzer.ts was rewritten to a generic cycle-safe
-depth-first walk over all child-bearing fields (`body`, `children`, `consequent`, `alternate`,
-`arms`, etc.), replacing the prior `node.children`-only descent. Max depth cap: 64.
-CREATE TABLE inside a `?{}` block nested in a fn-decl body or top-level `${}` logic block
-is now found, preventing spurious E-PA-002.
+- E-DECL-NEEDS-INITIALIZER — S152 §6.2 Shape 4; fires when a non-array typed-cell decl has no RHS initializer; message includes the correct `<name>: T = ...` form as correction hint [ast-builder.js:4236]
+- W-EACH-PROMOTABLE — S130 HU-1; info-level; `${ for (let x of @cell) { lift ... } }` is promotable to `<each>` tier-1 form; fired in Stage 6.4c lint pass [lint-w-each-promotable.js:205]
+- W-EACH-KEY-001 — S130 HU-1; info-level; `<each in=@cell>` items have no inferable `.id` key; fired in Stage 6.4d lint pass [lint-w-each-key.js:210]
 
-## E-DG-002 Fix Note (S147 R28-1d)
-Two false-positive classes fixed in dependency-graph.ts:
-- SB1: `@var` reads inside lambda bodies (`.map`/`.filter`/`.reduce` callbacks) are now credited
-  via local `collectLambdaBodyReactiveRefs()` — the shared `forEachIdentInExprNode` intentionally
-  stops at lambda scope boundaries (lin-capture tracking); DG descends locally for reader-credit.
-- SB2: block-form `<match on=@cell>` headers — `onExprRaw` + `armsRaw` string fields are now
-  scanned for `@ident` refs and credited to `reactiveVarReaders`.
+## Fix Notes
+
+### E-TYPE-001 dormancy (S151 C4 / R28-5)
+Object-literal lifecycle contexts in `type-system.ts` were missing E-TYPE-001 emission paths.
+Fixed in `type-system.ts` — object-literal construction now correctly triggers lifecycle type checks.
+
+### Source-map line-lie (S149-S150)
+Prior implementation emitted `0:0` stubs for all mappings (a lying synthetic source map).
+S149 (B2): `build-source-map.ts` now uses `srcmap-provenance.ts` sentinel marks injected by
+emit functions to record USE-SITE spans. `srcmapMark()` injects `#scrmlmap#` tokens; `buildSourceMap()`
+scans them via `findSrcmapMarks()`, resolves to real source positions, and strips marks via
+`stripSrcmapMarks()` before output.
+S150 (line-lie close): honest-synthetic validation — synthetic mappings validated at resolution
+time; map entries that cannot resolve to a real source line are marked synthetic in the output.
+
+### Inline ?{} SQL CPS-split (S152)
+`emit-control-flow.ts` — inline `?{}` SQL inside a conditional branch was not being CPS-split;
+the branch body lacked the `await _scrml_sql...` wrapping IIFE. Fixed; coupled match-server-emit
+path also corrected (match arms containing SQL on the server side).
+
+### `<each>` render-before-cell-init crash (S152 HIGH)
+`emit-each.ts` — `emitEachBodyRenderForFile()` emits a render fn that runs synchronously at
+module-init. When the source cell is declared in the same file, `_scrml_reactive_set` runs
+AFTER the render fn (module-init order). The bare `_scrml_reconcile_list(_mount, undefined, ...)`
+threw `TypeError: ...newItems.length`. Fix: guard `if (!_items) { _mount.replaceChildren(); return; }`
+before reconcile; `_scrml_effect_static` subscription re-runs the fn once cell-init fires.
 
 ## Error Handling Patterns
 - All compile errors returned as CGError[] in result.errors or result.warnings
@@ -118,7 +133,7 @@ errorBoundary compile support: `compiler/src/codegen/emit-error-boundary.ts` (32
 fallback markup + per-variant renders; paired with host-JS try/catch backstop (§19.6.8 C-hybrid).
 
 ## Tags
-#scrmlts #map #error #diagnostics #CGError #compiler #W-MATCH-ARROW-LEGACY #E-PA-002 #E-DG-002
+#scrmlts #map #error #diagnostics #CGError #compiler #W-MATCH-ARROW-LEGACY #E-PA-002 #E-DG-002 #E-DECL-NEEDS-INITIALIZER #W-EACH #source-map #s152
 
 ## Links
 - [primary.map.md](./primary.map.md)
