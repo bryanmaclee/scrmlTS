@@ -1,56 +1,74 @@
-# scrmlTS — Session 150 (CLOSE)
+# scrmlTS — Session 151 (CLOSE)
 
-**Date:** 2026-05-31
-**Previous:** `handOffs/hand-off-154.md` (S149 CLOSE).
-**Next-session pickup:** rotate THIS file → `handOffs/hand-off-155.md` at S151 OPEN.
-
----
-
-## 🏁 S150 CLOSE
-
-- **HEAD scrmlTS:** `addfd205` — **div 0/0 with origin (PUSHED).** Clean tree (except this hand-off + the wrap-doc commit in flight).
-  - This session's pushes: (a) S149 backlog `8765462a`/`fe705c09`/`bd90f66e` (scrmlTS was 0/3) + scrml-support `0e15055` DD (was 0/1) — pushed early-session on "push both"; (b) `addfd205` srcmap fix — pushed via "wrap and push".
-- **scrml-support:** div 0/0 with origin (the S149 DD pushed early-session). This session only appended user-voice S150 (uncommitted in scrml-support — see wrap note below).
-- **Tests:** full `bun run test` **22,450 pass / 0 fail / 220 skip / 1 todo / 861 files** (S149 baseline 22,448; +2 srcmap regression tests).
-- **known-gaps §0:** HIGH 0 · MED 12 · LOW ~15 (srcmap-attr line-lie RESOLVED; srcmap-offset-threading NEW) · Nominal 7.
-- **Worktrees:** main only. **Inbox:** empty.
-
-### THE SESSION (one arc)
-**Source-map attr-expr line-lie RESOLVED** (`addfd205`) — the only substantive work. The S149-carried "located, bounded, PA-direct" task turned out to be **mis-diagnosed** (Rule 4): the hand-off's `emit-event-wiring.ts:1243` root cause never fires on mario (no if-chains). Empirical instrumented tracing found TWO classes — ~40 ast-builder `safeParseExprToNode(…,0)` fragment-relative sites + a distinct wrong-absolute-offset B1 class (object-props / worker `if=` / reactive-assigns). PA surfaced the corrected scope via AskUserQuestion; user chose **honest-synthetic now + queue full fix**. Fix = validate-at-resolution in `build-source-map.ts` (drop any named mapping whose offset resolves to a line not containing the identifier). Offset-source-agnostic, contained to the source-map-only path, no AST mutation, zero footprint when maps off. **Empirical: LINE-WRONG 40→0; col-drift 39 KEPT unchanged (purely subtractive); named 103→63; mario 6 line-0 → 0; maps valid JSON + node --check clean.** +2 regression tests.
+**Date:** 2026-06-01
+**Previous:** `handOffs/hand-off-155.md` (= S150 CLOSE, the reference for this session).
+**Next-session pickup:** rotate THIS file → `handOffs/hand-off-156.md` at S152 OPEN.
 
 ---
 
-## ⭐ S151 FIRST ACTIONS (carry-forward, priority order)
+## 🏁 S151 CLOSE (wrap + push). Three landings + a self-demo-website milestone + MCP-dogfood research.
 
-1. **C1 self-demo website — build into the repo.** The largest ratified-for-go carry. The S149 spike (`/tmp/c1-demo/viewer.html` + `/tmp/c1-serve.js` — may be gone by S151; rebuild from the spec) proved: editable scrml → server-side recompile → live app + folded output + engine boxes, hover-linked via real `.js.map`. Layout: live+boxes left 60%, editable source+output right 40%, fixed live pane. Build into `docs/website/` properly (decide: keep harness chrome plain-JS, or rebuild as a scrml app per the dogfood thesis). **Per S146 — serve in browser for user BEFORE any push.** The F1=C1-static launch increment. NOTE: with the S150 fix, the C1 viewer's hover-provenance no longer points reads at the comment line — but col-precision awaits the offset-threading arc (#2).
+**Numbering note (one-time):** a prior "S151" was started erroneously (zero work). This real session reclaimed S151. The S150 CLOSE is preserved at `handOffs/hand-off-155.md` (byte-identical to the committed reference). Resolved at OPEN; ignore henceforth.
 
-2. **srcmap offset-threading full-fix (the queued half — NEW LOW).** Thread the real absolute base offset through the offset-0 parse sites (~40 ast-builder `safeParseExprToNode(…,0)` + the wrong-absolute-offset B1 root in object-props/worker-if/reactive-assigns) so the now-DROPPED use-site reads gain CORRECT col-precise provenance, and the 39 col-drift mappings become col-accurate. Infra exists (`collectExpr` returns absolute spans; `parseExprToNode`/`safeParseExprToNode` accept an offset). Regression surface: span field read by other passes + tests assert near spans → run full suite. Matters most when C1 needs full bidirectional provenance. BRIEF + landing note archived `docs/changes/srcmap-attr-expr-relative-span-2026-05-31/BRIEF.md`.
+## State as of CLOSE
+- **HEAD scrmlTS:** the S151 wrap commit (this commit) — pushed origin **0/0**. Session commits: `543e07fe` canon-fix(R28-C2) · `cce289b4` C4/R28-5 lifecycle · `c66af6b2` C1 self-demo website inc1 · + this wrap commit.
+- **scrml-support:** user-voice S151 appended (as-we-go) — committed + pushed **0/0**.
+- **Cross-machine:** scrmlTS + scrml-support both **0/0** with origin.
+- **Tests:** full `bun run test` **22,456 pass / 0 fail / 224 skip / 1 todo / 862 files** (S150 baseline 22,450/220/861; +6 pass +4 skip = C4's +10 cases [6 active / 4 skip]; 0 regressions; pre-push gate passed end-to-end, NO `--no-verify`).
+- **known-gaps §0:** HIGH 0 · MED 11 (C4/R28-5 RESOLVED) · LOW ~17 (+given-guard +srcmap-offset-threading carried) · Nominal 7. PLUS 7 NEW C1-dogfood bug-candidates filed needs-PA-confirm (see below) — NOT yet severity-counted pending confirm.
+- **Worktrees:** NONE — both dispatch worktrees (C4 `wf_96f76c79-096-2`, C1 `wf_5d5afd3c-972-2`) cleaned at wrap step 6b (work landed via file-delta). `git worktree list` = main only.
+- **Inbox:** empty. **Outbox:** none sent this session.
 
-3. **Tier-2 ceiling primitive** (event-payload-transition) — the highest-leverage *language* arc the S149 tier-rung DD surfaced (the real case-analysis friction lives at the Tier-2 ceiling, not the 0→1 step). A design arc, not ratified-for-go; would need a deliberation.
+## 🔬 S151 EXECUTION LOG
 
-## Carry-forward backlog → S151
+### Session start
+Reclaimed S151 from a void-started prior. Read pa.md + pa-scrmlTS.md (full, 1068L), SPEC-INDEX (full, 385L), PRIMER, master-list §0, user-voice S141–S150. Both repos 0/0, inbox empty, worktrees clean at OPEN.
 
-**From S150 (NEW):**
-- srcmap offset-threading full-fix (task #2 above — col-precise correct provenance; the queued half of the S150 ratification).
+### Arc 1 — C1 self-demo website, increment 1 (the milestone) — LANDED `c66af6b2`
+The S148-ratified compile-transparent self-demo scrml.dev viewer, built into `docs/website-viewer/` (21 files), via a BG workflow (Design → Build[worktree] → Verify). **It works and the provenance is REAL** (the credibility crux): the committed `.js.map` + `.client.js` + engine-graph are **byte-identical to an independent regeneration** from `examples/14-mario-state-machine.scrml`; verify VLQ-decoded the map with its own decoder — hover src-line 69 (`@coins = @coins + n`) → JS line 52, bidirectional, line-honest, synthetic lines excluded. **Not a 0:0 stub.**
+- **Layout (S151 revision, captured user-voice):** site-left-60% (live mario iframe) + right-40% STACKED — scrml source (top) / engine "what-comes-next" diagram (middle, engine-conditional) / tabbed JS·HTML·CSS output (bottom). Provenance links vertically.
+- **Decisions ratified (3× AskUserQuestion):** showcase-only (live-edit deferred to C2a) · shell built AS a scrml app (full dogfood) · first-cut = viewer + flagships + dashboard then iterate.
+- **TWO deviations the next PA must know:** (1) path is `docs/website-viewer/` (SIBLING), NOT nested `docs/website/viewer/` — a nested viewer gets swept into the 97-page-site compile by `scrml dev docs/website/` and regresses it; sibling keeps the 97-page site **provably untouched** (verify: zero `compiler/src` + zero `docs/website` edits). (2) Serve via `docs/website-viewer/scripts/serve.sh` (it symlinks the precomputed `/data`; bare `scrml dev` 404s the artifacts — `scrml dev` has no static-asset/public-dir convention).
+- **SERVE-BEFORE-PUSH (S146) OVERRIDE:** the user did NOT eyeball it in a browser; they explicitly directed "commit C1" on the verification (build-agent Puppeteer-verified + verify's byte-identical adversarial check). PA flagged the hold; user overrode. `serve.sh` remains available to eyeball live anytime (it's inc1, iterable). Logged user-voice.
+- **inc2 (next):** the other 3 engine-heavy flagships + full dashboard live-embed + KB-nav + PE-layer toggle; live-pane↔source hover (postMessage across the iframe); HTML/CSS-tab provenance (Phase-2); col-precise highlights (srcmap offset-threading). Open forks parked for owner: engine-graph multi-file write-loop bug (inc1 sidesteps via single-file compile; inc2's multi-file flagship `23-trucking-dispatch/hos` needs it fixed) · live-pane mount mechanism (iframe chosen; bidirectional hover needs postMessage) · dashboard live-embed.
 
-**Still open (carried):**
-- **engine-graph multi-file write-loop bug** (LOW): `engineGraphJson()` builds an all-files graph; the compile.js write loop writes that same JSON to EVERY per-file `<base>.engine-graph.json`. Single-file correct. Reachability shares the loop shape.
-- **C2a playground** (F1 fast-follow, ratified): spike proves local live-edit free; deployed-static needs the WASM/self-host path. Gated behind a CLI-conformance corpus. Next milestone after C1-static.
-- **Phase 2 provenance** (F2 standards-hybrid, ratified but unbuilt): CSS source maps + HTML `data-scrml-span` correlation. Deferred until C1 needs them.
-- **2 S148 findings:** `derived=match` arms not covered by match-`:>` tooling (triage). `migrate.js` Migration-2 `<machine>`→`<engine>` rewrites inside comment/string context (tool bug — add comment/string skip).
-- **Open MEDs:** C4 object-literal lifecycle E-TYPE-001 · C6 formFor-in-engine · R28-8 bare-variant-into-object-literal (design call) · `:`-shorthand-state-body fragility (S145 — KEEP+make-robust, so it's a BUG to fix) · Bug 60 render-by-tag nested-compound.
-- **Ratified-but-gated arcs:** D-runtime arc (027B-D server-render-time role-gating) · native-parser M6 joint-retirement (complete front-end, shadow-only, parity 1005/0 — the flip-to-default decision).
-- **Hygiene:** 12 non-compliance deref candidates · within-node allowlist staleness · **maps refresh** (watermark `09f74bee`, now stale for S149 source-map + engine-graph + S150 build-source-map codegen landings — refresh before next compiler-source dispatch).
+### Arc 2 — C4/R28-5 object-literal lifecycle E-TYPE-001 dormancy — RESOLVED `cce289b4`
+Function-local `const u: User = {…}` object-literal bindings skipped the lifecycle tracker (pre-transition field read compiled clean = silent safety gap). Root: `collectStructBindings` (type-system.ts) had JSX + positional-tuple enrollment paths but no `{`-object-literal branch (unlike working sibling `collectStateDeclStructBindings`). Fix (+22/-1): Path 4 reusing the existing `seedInitialFromObjectLiteral`; enrollment-only, gated on `lifecycleRegistry` (no over-fire), carve-outs preserved. +10 tests. reproduce→fix→verify BG workflow; independently verified. **Disclosure (NEW LOW filed):** the struct-field walker doesn't honor `given (u.field is not not)` guard discrimination — PRE-EXISTING (JSX form behaves identically), NOT introduced by C4; test asserts parity.
 
-## NATIVE-PARSER STATUS (current, keep)
-Native parser is a **COMPLETE front-end** (charter B, ~37,300 LOC, 38 modules w/ .scrml mirrors). M1-M4 + MK1-MK4 done; K-ledger 12/12 (S114). Runs as **opt-in shadow** via `--parser=scrml-native` (M5.1); DEFAULT is still legacy live path. Parity 1005/0. Remaining arc: **M6 joint-retirement** (delete legacy front-end behind a soak-gated flag-flip) — dormant since ~S128.
+### Arc 3 — R28-C2 kickstarter canon-fix — LANDED `543e07fe` (PA-direct)
+§11.3 real-time recipe: `<channel>` was a sibling of `<program>` (fires E-CHANNEL-OUTSIDE-PROGRAM per SPEC §38.1 / Insight 30) → moved inside `<program>`; PA compile-verified the fixed recipe exit-0 clean. §11.13 SSE: added `import { sleep } from 'scrml:time'`. **R28-C1 found STALE-open** — the `server fn`→`server function` flagship fix already landed S144 `44d61a19` (reverse-direction caught it; no action). **Parked (not safe-mechanical):** `print()` (~15 SPEC+kickstarter sites; NOT a defined builtin — canon-wide decision needed on the right idiom / JS-host passthrough) + `< db>` leading-space (markdown-display-vs-copy-paste tension).
 
-## pa.md directives — S150 observations
-- **Rule 4 fired** (caught the mis-located root cause before acting; corrected via empirical tracing + AskUserQuestion).
-- **`feedback_dont_preclassify_fix_as_surgical` confirmed again** — the "bounded PA-direct" hand-off framing was wrong; the real fix surface was broad; scope surfaced to user not assumed.
-- **S146 show-visual-work-before-push** — N/A this session (no UI work; srcmap is internal). Applies to S151 C1 website.
-- Commit auth GRANTED this session (PA-reviewed srcmap fix); push GRANTED ("wrap and push"). Both consumed.
-- Rules R1-R5 in force; S136 BRIEF archival (landing note added), S138 R26 (empirical-first applied — instrumented + corpus-verified before claiming closed), S147 branch-leak coherence (held).
+### Arc 4 — MCP dogfood research (delivered; decisions QUEUED, nothing built)
+Grounded against code: **MCP V0 is SHIPPED** — `<program mcp>` activates an 11-tool read-only stdio MCP server (`compiler/runtime/stdlib/mcp.js`); 8 topology tools work, 3 live-state tools (currentVariant/form-status/channel-state) are SHIPPED-BUT-BROKEN (= **Bug 14**, no server-side `globalThis._scrml_reactive_get` stash). The S122 "DevTools-for-agents" candidate is NOT unbuilt — its v0 tier IS that shipped MCP V0 (framing-corrected). The genuinely-NEW C1↔MCP work = a "site-as-corpus" MCP (engineReachableStates / provenanceFor / corpusStatus over the site's own artifacts; ~half free reads of already-emitted JSON). **Staging (queued, NOT built):** the `<program mcp>` flip on `docs/website-viewer/app.scrml` → a small **inc2** (tiny + reproduces Bug 14 on a public app); the corpus-MCP → its **own arc** after inc1. `docs/website-viewer/app.scrml` is a bare `<program>` today (flip-ready). Awaiting user ratify.
+
+### Arc 5 — R28-8 RATIFIED (extend §14.10); predicate-fields question PARKED
+- **R28-8 ratified** (condition "only drawback is extra work" PA-verified against §14.10): extend the bare-variant inference position-list to typed object-literal fields + `is some`-narrowed `==` RHS — same rule + same E-VARIANT-AMBIGUOUS union-guard at more positions, graceful qualify-fallback, no new ambiguity. Becomes an IMPL arc; makes kickstarter §4.8 correct. NOT yet implemented.
+- **Predicate-fields standing question PARKED** (awaiting clarification — "exept" = except vs accept): grounded — struct field TYPES carry refinement predicates broadly (§53; `email: string(pattern(...))` etc.); the open edge = subset-restricting an enum field via `oneOf([.A,.B])` (not clearly spec'd, possible gap). User to confirm reading before any design call.
+
+## 🐛 7 C1-DOGFOOD BUG-CANDIDATES (build-surfaced, NEEDS PA-CONFIRM before fix-dispatch — reverse-direction R26)
+Filed in known-gaps §S151. Two significant:
+1. **#6 (potential HIGH, looks new):** cross-file client-side `fn`/component imports break at runtime — page emits ES `import` in `client.js` but HTML loads it via non-`module` `<script>` → "Cannot use import statement outside a module", no client code runs. Blocks cross-file client composition; forced inlining in C1. **Highest-value — confirm + likely fix-dispatch first.**
+2. **#7 (overlaps known caveat):** Tier-1 `<each>` body drops attribute `${}` interp / `class:` bindings / event handlers (literal-string emit). PRIMER §6.3 documents the attribute-interp half as a Landing-1 caveat; the class:/handler-drop may be broader. Forced Tier-0 `${for…lift}` in C1.
+3–7 (lower): no `--sourceMap` CLI flag (API-only) · inline-object/`->{}` return-type miscompile (E-SCOPE-001 on keys + E-CODEGEN-INVALID-JS) · inline-object-string-in-reactive-write E-SCOPE-001 · multi-statement `when` body → invalid JS · `for=` substring in fn-string → E-FN-003. Plus minors (bare `/`→E-SYNTAX-050, nested `<each in=@.field>`, W-DEAD-FUNCTION RI false-positive on a `.then`-called fn).
+
+## Open questions / S152 priorities (CARRY-FORWARD)
+1. **C1 inc2** — 3 more flagships + full dashboard live-embed + KB-nav + PE-layer toggle + postMessage live-pane↔source hover. (Serve `serve.sh` for a browser look anytime.)
+2. **Confirm + fix #6** (cross-file client imports → non-module script) — the highest-value dogfood finding; likely HIGH once confirmed.
+3. **Confirm #7** scope (is the class:/handler-drop broader than the documented `<each>` Landing-1 attribute-interp caveat?).
+4. **MCP dogfood** — ratify the `<program mcp>` flip (inc2) + the corpus-MCP arc; Bug 14 (3 broken live-state tools) is the real fix it surfaces.
+5. **R28-8 impl arc** (extend §14.10 inference — ratified, unbuilt).
+6. **Predicate-fields question** — get the user's reading, then decide (enum-subset `oneOf` gap?).
+7. **`print()` canon-wide decision** (~15 sites; what idiom / JS-host passthrough?) + `< db>` markdown-spacing careful sweep.
+8. Carried LOWs: srcmap offset-threading (col-precision) · engine-graph multi-file write-loop · given-guard struct-field discrimination · the C1 punch-list (x_scrml_kinds off-by-N, stale `docs/website/viewer/` header comments, intentional inline duplication).
+9. Carried from earlier: `:`-shorthand-state-body block-splitter fragility (S145, keep+fix); C6 formFor-in-engine; R28-1c `<each>` same-key reactivity; tier-2 ceiling primitive DD; bank the C1 F1/F2 verdict to scrml-support/design-insights (only in user-voice + hand-offs today); maps refresh (stale for S149+S150+S151 codegen).
+
+## pa.md directives in force
+- Rules R1–R5. Working-style S147 (largest fully-ratified-for-go target, autonomous, park-on-input-needed). `full wrap` discriminator (S139) + 88% floor available.
+- This session: 3 PA commits + wrap, branch-leak coherence held (ahead == PA-authored throughout); C1 serve-before-push OVERRIDDEN by explicit user "commit C1" (logged). Standing: `--no-verify` prohibition (held — full pre-push gate passed) · S88 explicit isolation:worktree (held, 2 worktree dispatches, 0 leaks) · S99 path-discipline · S147 branch-leak coherence (held) · S136 BRIEF.md archival (BG-workflow scripts persist the briefs on disk) · S138 R26 (C4 reproduce-gated + verified; #6/#7 await reverse-direction confirm) · S90 CWD gate · S94 bump-on-tag (NONE — no tag this session).
+
+## Notes for next PA
+- **pre-existing untracked in scrml-support** (`voice/articles/*devto*.md` + `tools/`) are NOT this session's work — left untracked; only `user-voice-scrmlTS.md` was committed.
+- C4 + C1 dispatched as BG workflows; the persisted scripts are at `…/workflows/scripts/c4-objlit-lifecycle-fix-*.js` + `c1-website-build-inc1-*.js` (serve as BRIEF.md-equivalent forensic record).
 
 ## Tags
-#session-150 #CLOSE #source-map-line-lie-RESOLVED #honest-synthetic #rule-4-fired #root-cause-corrected #carry-C1-website #carry-srcmap-offset-threading #carry-tier2-ceiling-primitive #pushed-all-0-0 #known-gaps-HIGH-0
+#session-151 #CLOSE #c1-self-demo-website-inc1 #real-provenance-byte-identical #c4-objlit-lifecycle-resolved #r28-c2-canon #mcp-dogfood-research #r28-8-ratified #serve-before-push-overridden #7-dogfood-bug-candidates #known-gaps-HIGH-0
