@@ -165,6 +165,9 @@ interface IfOpts {
   enginesWithIdleWatchdog?: Set<string> | null;
   enginesWithInternalRules?: Set<string> | null;
   enginesWithHistory?: Set<string> | null;
+  // §51.0.S (S155 batch 3) — message-plane routing inputs.
+  enginesWithMessageArms?: Set<string> | null;
+  engineMessageVariants?: Map<string, Set<string>> | null;
   machineBindings?: Map<string, MachineBindingInfo> | null;
 }
 
@@ -206,6 +209,9 @@ export interface EngineRewriteCtx {
     | "enginesWithIdleWatchdog"
     | "enginesWithInternalRules"
     | "enginesWithHistory"
+    // §51.0.S (S155 batch 3) — message-plane routing inputs.
+    | "enginesWithMessageArms"
+    | "engineMessageVariants"
     // §51.0.F (Option A comprehensive engine-routing) — engine binding-info
     // threaded into nested-expression contexts (arm-result expressions,
     // event-handler bodies) so `@engineCell = .X` writes appearing inside
@@ -299,6 +305,8 @@ export function emitIfStmt(node: any, opts: IfOpts = {}): string {
     ...(opts.enginesWithIdleWatchdog ? { enginesWithIdleWatchdog: opts.enginesWithIdleWatchdog } : {}),
     ...(opts.enginesWithInternalRules ? { enginesWithInternalRules: opts.enginesWithInternalRules } : {}),
     ...(opts.enginesWithHistory ? { enginesWithHistory: opts.enginesWithHistory } : {}),
+    ...(opts.enginesWithMessageArms ? { enginesWithMessageArms: opts.enginesWithMessageArms } : {}),
+    ...(opts.engineMessageVariants ? { engineMessageVariants: opts.engineMessageVariants } : {}),
     ...(opts.machineBindings ? { machineBindings: opts.machineBindings } : {}),
   };
 
@@ -1595,6 +1603,9 @@ export function emitMatchExpr(node: any, opts?: any): string {
       enginesWithIdleWatchdog: opts?.enginesWithIdleWatchdog ?? null,
       enginesWithInternalRules: opts?.enginesWithInternalRules ?? null,
       enginesWithHistory: opts?.enginesWithHistory ?? null,
+      // §51.0.S (S155 batch 3) — forward the message-plane routing inputs.
+      enginesWithMessageArms: opts?.enginesWithMessageArms ?? null,
+      engineMessageVariants: opts?.engineMessageVariants ?? null,
       // §51.0.F (Option A) — forward engine binding-info into nested
       // expression contexts so `@engineCell = .X` writes appearing inside
       // arm-result expressions / event-handler bodies route through

@@ -1359,7 +1359,7 @@ export function generateClientJs(ctx: CompileContext): string {
   // C15. See `compiler/src/codegen/emit-engine.ts` and the C12 SURVEY
   // (`docs/changes/phase-a1c-step-c12-engine-state-machine-runtime/SURVEY.md`)
   // for the full hand-off contract.
-  const engineLines = clientStage(ctx, "emit-engine-substrate", () => emitEngineSubstrate(fileAST));
+  const engineLines = clientStage(ctx, "emit-engine-substrate", () => emitEngineSubstrate(fileAST, errors));
   if (engineLines.length > 0) {
     lines.push("// --- engine substrate (compiler-generated, §51.0) ---");
     for (const line of engineLines) lines.push(line);

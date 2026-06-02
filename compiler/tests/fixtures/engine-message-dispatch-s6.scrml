@@ -1,0 +1,49 @@
+<!-- SPEC §51.0.S.6 worked example — #14 event-payload-transition (Approach E).
+     The engine self-describes BOTH the transition graph (rule=) AND the
+     event->transition map (the (state x message) arms). The pre-E manual
+     dropOn(toColumn) — gate + taskMovedTo + two manual writes — disappears:
+     the gate is the (Dragging x Drop) arm's existence, the transform is the arm
+     body, the transition is the arm's .Idle target, and id comes from the
+     .Dragging(id) state binding.
+
+     EXHAUSTIVE form: the spec §51.0.S.6 illustration shows the SHAPE with
+     partial per-state arms; a compilable program must cover the message set
+     per §51.0.S.2.4, so each state carries the canonical `| _ :> @<engineVar>`
+     ignore-the-rest escape hatch.
+
+     NOTE: the spec §51.0.S.6 listing mounts the dispatch handlers inside nested
+     `<each>` (`<li ondrop=@dragPhase.advance(.Drop(col.id))>`). `.advance` inside
+     an `<each>`-render event handler is a SEPARATE pre-existing codegen gap
+     (the each-render event-wiring path does not thread the engine ctx, so
+     `@x.advance(...)` emits a raw `@` → E-CODEGEN-INVALID-JS) — orthogonal to
+     #14 and tracked as a follow-up. This fixture therefore drives the SAME
+     message dispatches from plain (non-each) handlers so it exercises the
+     §51.0.S message-dispatch lowering end-to-end. -->
+<program title="Drag board (§51.0.S.6)">
+${
+  type DragPhase:enum = { Idle, Dragging(id: number) }
+  type DragMsg:enum   = { Start(id: number), Drop(col: string), End }
+}
+
+<tasks> = [{ id: 1, col: "todo" }, { id: 2, col: "todo" }]
+
+const taskMovedTo = (tasks, id, col) => tasks.map((t) => t.id == id ? { id: t.id, col: col } : t)
+
+<engine for=DragPhase initial=.Idle accepts=DragMsg>
+  <Idle rule=.Dragging>
+    | .Start(id) :> .Dragging(id)
+    | _          :> @dragPhase
+  </>
+  <Dragging(id) rule=.Idle>
+    | .Drop(col) :> { @tasks = taskMovedTo(@tasks, id, col); .Idle }
+    | .End       :> .Idle
+    | _          :> @dragPhase
+  </>
+</>
+
+<div class="board">
+  <button class="grab" onclick=@dragPhase.advance(.Start(1))>grab task 1</button>
+  <button class="drop" onclick=@dragPhase.advance(.Drop("done"))>drop on done</button>
+  <button class="release" onclick=@dragPhase.advance(.End)>release</button>
+</div>
+</program>

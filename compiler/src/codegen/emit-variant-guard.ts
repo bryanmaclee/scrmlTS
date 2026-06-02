@@ -512,6 +512,10 @@ function emitArmWireFunction(
   const _eIdle = _engineMod.collectEnginesWithIdleWatchdog(ctx.fileAST);
   const _eInternal = _engineMod.collectEnginesWithInternalRules(ctx.fileAST);
   const _eHistory = _engineMod.collectEnginesWithHistory(ctx.fileAST);
+  // §51.0.S (S155 batch 3) — message-plane routing inputs for `.advance`
+  // calls inside engine state-child render-body event handlers.
+  const _eMsgArms = _engineMod.collectEnginesWithMessageArms(ctx.fileAST);
+  const _eMsgVariants = _engineMod.collectEngineMessageVariants(ctx.fileAST);
   const _engineRewriteCtx =
     _eBindings != null || _eVarNames.size > 0
       ? {
@@ -523,6 +527,8 @@ function emitArmWireFunction(
             enginesWithIdleWatchdog: _eIdle.size > 0 ? _eIdle : null,
             enginesWithInternalRules: _eInternal.size > 0 ? _eInternal : null,
             enginesWithHistory: _eHistory.size > 0 ? _eHistory : null,
+            enginesWithMessageArms: _eMsgArms.size > 0 ? _eMsgArms : null,
+            engineMessageVariants: _eMsgVariants.size > 0 ? _eMsgVariants : null,
           },
         }
       : null;

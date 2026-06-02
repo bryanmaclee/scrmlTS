@@ -132,6 +132,26 @@ export interface EmitExprContext {
    */
   enginesWithHistory?: Set<string> | null;
   /**
+   * §51.0.S (S155 batch 3 — #14 event-payload-transition) — engine variable
+   * names in the file's scope that declare at least one `(state × message)`
+   * arm. When the engine var is in this set AND the `.advance(.X)` argument's
+   * variant is a member of `engineMessageVariants.get(varName)`, `emitCall`
+   * routes the call to the MESSAGE plane (`_scrml_engine_dispatch_message`)
+   * instead of the STATE plane (`_scrml_engine_advance`). §51.0.G.1 /
+   * §51.0.S.2.5. Tree-shaken: engines without message arms omit this and the
+   * `.advance` router always takes the state plane (pre-S154 behavior).
+   */
+  enginesWithMessageArms?: Set<string> | null;
+  /**
+   * §51.0.S (S155 batch 3) — map of engine var name → resolved `accepts=`
+   * message-variant name set. Used to STAMP the `.advance(.X)` plane at
+   * codegen: a literal bare-variant `.X` whose name is in this set is the
+   * message plane. The plane is statically known post-batch-2 (the typer
+   * resolved `accepts=` and the arms), so codegen decides it without any
+   * runtime membership check.
+   */
+  engineMessageVariants?: Map<string, Set<string>> | null;
+  /**
    * §51.0.F (Option A comprehensive engine-routing) — engine variable
    * binding-info map keyed by engine variable name (e.g. `"marioState"`).
    * When set and the assignment LHS matches a key, `emitAssign` dispatches
@@ -156,6 +176,41 @@ export interface EmitExprContext {
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
+
+/**
+ * §51.0.S (S155 batch 3) — Extract the PascalCase variant NAME from an
+ * `.advance(arg)` argument node, for the codegen plane stamp (§51.0.G.1).
+ *
+ * Accepted shapes (the only shapes the plane stamp acts on — literal bare-
+ * variant per §51.0.G.1 step 1):
+ *   - `.Drop`            → bare-dot ident       → "Drop"
+ *   - `.Drop(col)`       → CallExpr on bare-dot → "Drop"
+ *   - `DragMsg.Drop`     → qualified member     → "Drop"
+ *   - `DragMsg.Drop(c)`  → CallExpr on member   → "Drop"
+ *
+ * Returns the variant name, or `null` for any other shape (a variable / call /
+ * computed expression) — those are §51.0.G.1 step 3 (static-type resolution,
+ * which the typer handled) and are NOT plane-stamped at the literal level here.
+ */
+function extractAdvanceBareVariantName(arg: any): string | null {
+  if (!arg || typeof arg !== "object") return null;
+  let node: any = arg;
+  // Unwrap a constructor call `.Variant(args)` / `Enum.Variant(args)`.
+  if (node.kind === "call" && node.callee && typeof node.callee === "object") {
+    node = node.callee;
+  }
+  // Bare-dot ident `.Variant` — the §14.10 / §18.0.3 inference shape.
+  if (node.kind === "ident" && typeof node.name === "string" && node.name.startsWith(".")) {
+    const name = node.name.slice(1).trim();
+    return /^[A-Z][A-Za-z0-9_]*$/.test(name) ? name : null;
+  }
+  // Qualified member `Enum.Variant` — the property is the variant name.
+  if (node.kind === "member" && typeof node.property === "string") {
+    const name = node.property.trim();
+    return /^[A-Z][A-Za-z0-9_]*$/.test(name) ? name : null;
+  }
+  return null;
+}
 
 /**
  * Emit a JavaScript expression string from an ExprNode tree.
@@ -1139,6 +1194,45 @@ function emitCall(node: CallExpr, ctx: EmitExprContext): string {
         }
       }
       const targetExpr = emitExpr(arg0, ctx);
+      // §51.0.S (S155 batch 3) — PLANE STAMP (§51.0.G.1 / §51.0.S.2.5). When the
+      // engine declares message arms AND the `.advance` argument is a literal
+      // bare-variant whose name is in the engine's resolved `accepts=` message-
+      // variant set, this is a MESSAGE-plane dispatch — route to
+      // `_scrml_engine_dispatch_message` (runs the (state × message) arm,
+      // resolves the target, transitions). Otherwise (state-plane variant, or
+      // engine has no message arms) take the existing STATE-plane advance.
+      //
+      // The plane is decided STATICALLY at codegen: the typer (batch 2) already
+      // resolved `accepts=` + verified the variant against exactly one plane
+      // (§51.0.G.1 — ambiguous / unknown cases are compile errors there), so a
+      // bare-variant arg that lands in the message-variant set is unambiguously
+      // the message plane. No runtime membership check is emitted.
+      const hasMessageArms = ctx.enginesWithMessageArms
+        ? ctx.enginesWithMessageArms.has(bareName)
+        : false;
+      if (hasMessageArms) {
+        const msgVariantSet = ctx.engineMessageVariants
+          ? ctx.engineMessageVariants.get(bareName)
+          : undefined;
+        const argVariantName = extractAdvanceBareVariantName(node.args[0]);
+        if (
+          !isHistoryRestore &&
+          argVariantName !== null &&
+          msgVariantSet &&
+          msgVariantSet.has(argVariantName)
+        ) {
+          const { emitEngineMessageDispatchCall } = require("./emit-engine.ts");
+          return emitEngineMessageDispatchCall(
+            bareName,
+            targetExpr,
+            ctx.enginesWithHooks ? ctx.enginesWithHooks.has(bareName) : false,
+            ctx.enginesWithOnTimeout ? ctx.enginesWithOnTimeout.has(bareName) : false,
+            ctx.enginesWithIdleWatchdog ? ctx.enginesWithIdleWatchdog.has(bareName) : false,
+            ctx.enginesWithInternalRules ? ctx.enginesWithInternalRules.has(bareName) : false,
+            ctx.enginesWithHistory ? ctx.enginesWithHistory.has(bareName) : false,
+          );
+        }
+      }
       // B17.4 — pass hasHooks so the wrap (capture pre-write + fire-hooks-post)
       // is emitted only when this engine has at least one effect=/<onTransition>
       // arm. Tree-shake: hookless engines emit the bare runtime helper call.

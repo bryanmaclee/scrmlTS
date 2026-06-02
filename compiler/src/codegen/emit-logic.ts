@@ -182,6 +182,15 @@ export interface EmitLogicOpts {
    */
   enginesWithHistory?: Set<string> | null;
   /**
+   * §51.0.S (S155 batch 3) — engines that declare `(state × message)`
+   * arms (gate the `.advance` message-plane routing) + the resolved
+   * message-variant set per engine (stamps the plane at codegen).
+   * Forwarded into the EmitExprContext so `emit-expr.ts:emitCall`'s
+   * plane router can decide state vs message at `.advance(.X)` sites.
+   */
+  enginesWithMessageArms?: Set<string> | null;
+  engineMessageVariants?: Map<string, Set<string>> | null;
+  /**
    * Emission boundary. "server" swaps DOM-oriented lowerings for their
    * server-context equivalents (e.g. `lift <expr>` in a server-fn body
    * becomes `return <expr>;` instead of a `_scrml_lift(() =>
@@ -651,6 +660,10 @@ function _makeExprCtx(opts: EmitLogicOpts): EmitExprContext {
     // runtime history-restore. Onclick context goes through
     // emit-event-wiring.ts:exprCtxExtras which already includes this.
     enginesWithHistory: opts.enginesWithHistory ?? null,
+    // §51.0.S (S155 batch 3) — forward the message-plane routing inputs so
+    // `emit-expr.ts:emitCall` can stamp the `.advance(.X)` plane.
+    enginesWithMessageArms: opts.enginesWithMessageArms ?? null,
+    engineMessageVariants: opts.engineMessageVariants ?? null,
     // §51.0.F (Option A comprehensive engine-routing) — forward the engine
     // binding-info map so `emit-expr.ts:emitAssign` can dispatch
     // `@<engineCell> = <expr>` writes through the canonical write-guard at
@@ -2356,6 +2369,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         ...(opts.enginesWithIdleWatchdog ? { enginesWithIdleWatchdog: opts.enginesWithIdleWatchdog } : {}),
         ...(opts.enginesWithInternalRules ? { enginesWithInternalRules: opts.enginesWithInternalRules } : {}),
         ...(opts.enginesWithHistory ? { enginesWithHistory: opts.enginesWithHistory } : {}),
+        ...(opts.enginesWithMessageArms ? { enginesWithMessageArms: opts.enginesWithMessageArms } : {}),
+        ...(opts.engineMessageVariants ? { engineMessageVariants: opts.engineMessageVariants } : {}),
         ...(opts.machineBindings ? { machineBindings: opts.machineBindings } : {}),
       } as any);
 

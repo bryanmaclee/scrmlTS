@@ -137,6 +137,55 @@ interface EngineStateChildEntry {
   effectRaw?: string | null;
   /** `<onTransition>` element children of this state-child. Empty when none. */
   onTransitionElements?: OnTransitionEntryShape[];
+  // ---- §51.0.B.1 (B1) — state-child payload bindings ----
+  /** Payload-binding declarations from the state-child opener (§51.0.B.1).
+   *  `{kind:"positional",name}` / `{kind:"named",field,name}`. Used by the
+   *  §51.0.S message-arm dispatch table to bind the STATE payload (e.g. `id`
+   *  from `.Dragging(id)`) into the arm-body fn scope. Empty/absent when the
+   *  state-child has no payload bindings (unit variant). */
+  payloadBindings?: Array<
+    | { kind: "positional"; name: string }
+    | { kind: "named"; field: string; name: string }
+  >;
+  // ---- §51.0.S NEW (S155 batch 3 — #14 event-payload-transition) ----
+  /** §51.0.S.2.3 — the leading `(state × message)` arms declared inside this
+   *  state-child body (`| .Variant(binding) :> body`). Empty/absent when the
+   *  state-child declares no message arms. Mirrors `MessageArmEntry` in
+   *  `compiler/src/symbol-table.ts`; batch 3 consumes these for the message-
+   *  dispatch arm table (`emitEngineMessageArmTable`). */
+  messageArms?: MessageArmEntryShape[];
+}
+
+/**
+ * §51.0.S (S155 batch 3) — message-arm entry shape (mirrors `MessageArmEntry`
+ * in `compiler/src/symbol-table.ts`, kept local per the EngineRuleForm-mirror
+ * convention above). Produced by `parseEngineStateChildren` → carried on each
+ * state-child's `messageArms`.
+ */
+interface MessageArmEntryShape {
+  /** PascalCase message-variant ident (no leading dot), OR `"_"` for the
+   *  `| _ :>` wildcard arm. */
+  variantName: string;
+  /** TRUE iff `variantName === "_"`. */
+  isWildcard: boolean;
+  /** Raw text inside the pattern's `(...)` payload-binding list. */
+  payloadBindingsRaw?: string;
+  /** Structured message-payload bindings (§18.7 / §51.0.B.1). Used to bind the
+   *  MESSAGE payload (e.g. `col` from `.Drop(col)`) into the arm-body fn scope.
+   *  Same shape as the state-child opener bindings. */
+  payloadBindings?: Array<
+    | { kind: "positional"; name: string }
+    | { kind: "named"; field: string; name: string }
+  >;
+  /** The arm-arrow glyph the source used. */
+  armArrow?: ":>" | "=>" | "->";
+  /** The arm body verbatim — a bare target expression (`.Dragging(id)`) OR a
+   *  block `{ effect-statements; .Target }` (with the braces retained). */
+  bodyRaw: string;
+  /** TRUE iff `bodyRaw` is a brace-delimited block; FALSE iff bare target. */
+  isBlockBody: boolean;
+  spanStart?: number;
+  spanEnd?: number;
 }
 
 interface EngineMetadata {
@@ -159,6 +208,16 @@ interface EngineMetadata {
    *  PASS 11. Tree-shake control: codegen emits the watchdog config + arming
    *  only when this is non-null. */
   idleWatchdog?: { after: string; to: string; rawOffset: number } | null;
+  /** §51.0.S (S155) — the engine's `accepts=MsgType` message-enum type name,
+   *  resolved by SYM PASS 11 (batch 2). `null`/absent when the engine declares
+   *  no `accepts=`. Used by the message-arm dispatch table to resolve message-
+   *  payload field names against the message enum. */
+  acceptsType?: string | null;
+  /** §51.0.S (S155) — the resolved variant names of the `accepts=` message
+   *  enum (batch 2, SYM PASS 11). Used to STAMP the `.advance(.X)` plane at
+   *  codegen: a literal bare-variant in this set dispatches the message plane
+   *  (§51.0.G.1 / §51.0.S.2.5). Empty/absent when no `accepts=`. */
+  messageVariants?: string[];
   // ... Wave-4 follow-on fields ignored here.
 }
 
@@ -308,6 +367,18 @@ export function engineTimersTableName(varName: string): string {
  */
 export function engineIdleWatchdogName(varName: string): string {
   return `__scrml_engine_${varName}_idle`;
+}
+
+/**
+ * §51.0.S (S155 batch 3 — #14 event-payload-transition) — Compute the per-
+ * engine MESSAGE-ARM dispatch-table const name. Format:
+ * `__scrml_engine_<varName>_msg_arms`. Sibling to the transitions / timers /
+ * idle tables; emitted ONLY when the engine declares at least one
+ * `(state × message)` arm (tree-shake — engines without message arms emit no
+ * const, and the codegen routes `.advance` calls to the state plane).
+ */
+export function engineMessageArmTableName(varName: string): string {
+  return `__scrml_engine_${varName}_msg_arms`;
 }
 
 /**
@@ -671,6 +742,472 @@ export function emitEngineTransitionTable(meta: EngineMetadata): string[] {
   lines.push(`});`);
 
   return lines;
+}
+
+/**
+ * §51.0.S (S155 batch 3) — Parse the declared payload-field names of an enum
+ * type from the file AST. Returns `Map<variantName, fieldNames[]>` or `null`
+ * when the type is not a resolvable `:enum`. Shared by the message-arm table
+ * emitter to resolve BOTH state-payload field names (against the engine's
+ * `for=` enum) AND message-payload field names (against the `accepts=` enum).
+ *
+ * Mirrors the inline `variantFields` parser in `emitEngineBodyRenderForFile`
+ * (which only resolves the `for=` enum); factored here so the message plane
+ * can resolve its own enum the same way without a codegen→symbol-table dep.
+ */
+function parseEnumVariantFieldsForType(
+  fileAST: any,
+  typeName: string | null | undefined,
+): Map<string, string[]> | null {
+  if (!fileAST || typeof typeName !== "string" || typeName.length === 0) return null;
+  const typeDecls = (fileAST as any).typeDecls ?? (fileAST as any).ast?.typeDecls;
+  if (!Array.isArray(typeDecls)) return null;
+  for (const td of typeDecls) {
+    if (!td || td.kind !== "type-decl") continue;
+    if (td.name !== typeName) continue;
+    if (td.typeKind !== "enum") return null;
+    const out = new Map<string, string[]>();
+    let body = (td.raw || "").trim();
+    if (body.startsWith("{")) body = body.slice(1);
+    if (body.endsWith("}")) body = body.slice(0, -1);
+    body = body.trim();
+    if (!body) return out;
+    // Strip a trailing transitions { ... } block (state enums may carry one).
+    let vsection = body;
+    {
+      let depth = 0;
+      for (let i = 0; i < body.length; i++) {
+        const ch = body[i]!;
+        if (ch === "(" || ch === "[" || ch === "{") { depth++; continue; }
+        if (ch === ")" || ch === "]" || ch === "}") { depth--; continue; }
+        if (depth === 0 && body.slice(i).startsWith("transitions")) {
+          const after = body.slice(i + 11).trimStart();
+          if (after.startsWith("{")) { vsection = body.slice(0, i).trim(); break; }
+        }
+      }
+    }
+    const segments: string[] = [];
+    {
+      let depth = 0;
+      let buf = "";
+      for (let i = 0; i < vsection.length; i++) {
+        const ch = vsection[i]!;
+        if (ch === "(" || ch === "[" || ch === "{") { depth++; buf += ch; continue; }
+        if (ch === ")" || ch === "]" || ch === "}") { depth--; buf += ch; continue; }
+        if (depth === 0 && (ch === "\n" || ch === "," || ch === "|")) {
+          if (buf.trim()) segments.push(buf.trim());
+          buf = "";
+          continue;
+        }
+        buf += ch;
+      }
+      if (buf.trim()) segments.push(buf.trim());
+    }
+    for (const seg of segments) {
+      let text = seg.trim();
+      if (text.startsWith(".")) text = text.slice(1).trim();
+      const parenIdx = text.indexOf("(");
+      if (parenIdx < 0) {
+        const rendersIdx = text.indexOf(" renders ");
+        const name = rendersIdx >= 0 ? text.slice(0, rendersIdx).trim() : text;
+        if (/^[A-Z][A-Za-z0-9_]*$/.test(name)) out.set(name, []);
+        continue;
+      }
+      const name = text.slice(0, parenIdx).trim();
+      const closeParen = text.lastIndexOf(")");
+      const fieldList = closeParen > parenIdx ? text.slice(parenIdx + 1, closeParen).trim() : "";
+      const fields: string[] = [];
+      if (fieldList) {
+        let d = 0;
+        let fbuf = "";
+        const parts: string[] = [];
+        for (let j = 0; j < fieldList.length; j++) {
+          const ch = fieldList[j]!;
+          if (ch === "(" || ch === "[" || ch === "{") { d++; fbuf += ch; continue; }
+          if (ch === ")" || ch === "]" || ch === "}") { d--; fbuf += ch; continue; }
+          if (d === 0 && ch === ",") {
+            if (fbuf.trim()) parts.push(fbuf.trim());
+            fbuf = "";
+            continue;
+          }
+          fbuf += ch;
+        }
+        if (fbuf.trim()) parts.push(fbuf.trim());
+        for (const part of parts) {
+          const colon = part.indexOf(":");
+          if (colon >= 0) {
+            const fn = part.slice(0, colon).trim();
+            if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(fn)) fields.push(fn);
+          }
+        }
+      }
+      if (/^[A-Z][A-Za-z0-9_]*$/.test(name)) out.set(name, fields);
+    }
+    return out;
+  }
+  return null;
+}
+
+/**
+ * §51.0.S (S155 batch 3) — Resolve payload-binding declarations into JS prelude
+ * lines that destructure the binding locals out of a payload source object
+ * (`_stateData` for state bindings, `_msgData` for message bindings).
+ *
+ * Positional bindings resolve their field name by DECLARATION ORDER against the
+ * variant's declared fields (§51.0.B.1 — position-determined, not name-
+ * determined). Named bindings name the field directly. When the field schema is
+ * unavailable, positional bindings fall back to the local name as the key
+ * (legacy heuristic — works when adopter chose matching local names).
+ */
+function emitPayloadBindingPrelude(
+  bindings:
+    | Array<{ kind: "positional"; name: string } | { kind: "named"; field: string; name: string }>
+    | undefined,
+  declaredFields: string[] | null,
+  sourceVar: string,
+): string[] {
+  const lines: string[] = [];
+  if (!Array.isArray(bindings) || bindings.length === 0) return lines;
+  for (let i = 0; i < bindings.length; i++) {
+    const b = bindings[i]!;
+    let field: string;
+    if (b.kind === "named") {
+      field = b.field;
+    } else if (declaredFields && i < declaredFields.length) {
+      field = declaredFields[i]!;
+    } else {
+      field = b.name;
+    }
+    lines.push(
+      `var ${b.name} = ${sourceVar} ? ${sourceVar}[${JSON.stringify(field)}] : null;`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * §51.0.S (S155 batch 3) — Lower ONE `(state × message)` arm body into a JS
+ * arm fn `function (_stateData, _msgData) { <bindings>; <effects>; return
+ * <target>; }`.
+ *
+ * The arm body is either a bare target expression (`.Dragging(id)`) or a block
+ * `{ effect-statements; .Target }` (§51.0.S.2.3). In both cases the FINAL
+ * expression is the resolved target state; preceding statements are effects.
+ *
+ * Lowering mirrors `emitEngineOpenerEffect`: re-parse the body through BS+TAB so
+ * multi-statement bodies + `!{}` handlers become real AST statements, then lower
+ * the effect statements via `emitLogicBody` (with `insideFunctionBody: true` so
+ * `@cell = …` reassignments emit a clean `_scrml_reactive_set` WITHOUT a
+ * `_scrml_init_set` reset-thunk, and engine-aware so `@engine = .X` writes route
+ * through the rule= guard). The final expression is emitted as `return <expr>`.
+ *
+ * Both payload planes are in scope: state-payload bindings (the `.Dragging(id)`
+ * state binding, §51.0.B.1) are pulled from `_stateData`; message-payload
+ * bindings (the `.Drop(col)` message binding, §18.7) from `_msgData`.
+ */
+function emitMessageArmBodyFn(
+  arm: MessageArmEntryShape,
+  stateBindings:
+    | Array<{ kind: "positional"; name: string } | { kind: "named"; field: string; name: string }>
+    | undefined,
+  stateFields: string[] | null,
+  msgFields: string[] | null,
+  emitOpts: import("./emit-logic.ts").EmitLogicOpts,
+): string {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const logic = require("./emit-logic.ts") as {
+    emitLogicBody: (nodes: any[], opts: any) => string[];
+  };
+
+  // STATE payload prelude (the current state's `.Dragging(id)` binding).
+  const statePrelude = emitPayloadBindingPrelude(stateBindings, stateFields, "_stateData");
+  // MESSAGE payload prelude (the dispatched message's `.Drop(col)` binding).
+  const msgPrelude = emitPayloadBindingPrelude(arm.payloadBindings, msgFields, "_msgData");
+
+  // Re-parse the arm body. For a block body, strip the surrounding `{ }` (the
+  // parser retains them); for a bare target, use the body verbatim.
+  let inner = (arm.bodyRaw || "").trim();
+  if (arm.isBlockBody && inner.startsWith("{") && inner.endsWith("}")) {
+    inner = inner.slice(1, -1).trim();
+  }
+
+  let stmts: any[] | null = null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const bs = require("../block-splitter.js") as {
+      runBlockSplitter: (i: { filePath: string; source: string }) => any;
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const tab = require("../ast-builder.js") as { buildAST: (bsOut: any) => any };
+    const wrapped = "${\n" + inner + "\n}";
+    const bsOut = bs.runBlockSplitter({ filePath: "__msg_arm__.scrml", source: wrapped });
+    const built = tab.buildAST(bsOut);
+    const nodes: any[] = built?.ast?.nodes ?? [];
+    for (const n of nodes) {
+      if (n?.kind === "logic" && Array.isArray(n.body) && n.body.length > 0) { stmts = n.body; break; }
+      if (Array.isArray(n?.body) && n.body.length > 0) { stmts = n.body; break; }
+      if (Array.isArray(n?.children) && n.children.length > 0) { stmts = n.children; break; }
+    }
+  } catch (_e) {
+    stmts = null;
+  }
+
+  const bodyLines: string[] = [...statePrelude, ...msgPrelude];
+
+  if (stmts && stmts.length > 0) {
+    // The LAST statement is the target expression; preceding ones are effects.
+    const effectNodes = stmts.slice(0, stmts.length - 1);
+    const targetNode = stmts[stmts.length - 1];
+    if (effectNodes.length > 0) {
+      const effectLines = logic.emitLogicBody(effectNodes, {
+        ...emitOpts,
+        boundary: "client",
+        insideFunctionBody: true,
+      });
+      for (const l of effectLines) bodyLines.push(l);
+    }
+    // Lower the target expression alone, then convert the trailing
+    // `<expr>;` into `return <expr>;`. emitLogicBody emits a bare-expr as
+    // `<expr>;` — strip the trailing `;` and prefix `return `.
+    const targetEmitted = logic
+      .emitLogicBody([targetNode], { ...emitOpts, boundary: "client", insideFunctionBody: true })
+      .join("\n")
+      .trim();
+    const targetExpr = targetEmitted.endsWith(";")
+      ? targetEmitted.slice(0, -1).trim()
+      : targetEmitted;
+    bodyLines.push(`return ${targetExpr};`);
+  } else {
+    // Defensive: re-parse failed. Fall back to the single-expression rewrite of
+    // the whole (bare) body as the target — a malformed multi-statement body
+    // surfaces a loud downstream JS parse error rather than silently dropping.
+    bodyLines.push(`return ${rewriteHookExprText(inner)};`);
+  }
+
+  const indented = bodyLines.map((l) => `    ${l}`).join("\n");
+  return `function (_stateData, _msgData) {\n${indented}\n  }`;
+}
+
+/**
+ * §51.0.S (S155 batch 3 — #14 event-payload-transition) — Emit the per-engine
+ * MESSAGE-ARM dispatch-table const for one engine.
+ *
+ * Shape (only emitted when `engineHasMessageArms(meta)` is true):
+ *   const __scrml_engine_dragPhase_msg_arms = Object.freeze({
+ *     "Idle": {
+ *       "Start": function (_stateData, _msgData) { ...; return "Dragging"; },
+ *     },
+ *     "Dragging": {
+ *       "Drop": function (_stateData, _msgData) {
+ *                  var id  = _stateData ? _stateData["id"]  : undefined;
+ *                  var col = _msgData   ? _msgData["col"]   : undefined;
+ *                  _scrml_reactive_set("tasks", taskMovedTo(_scrml_reactive_get("tasks"), id, col));
+ *                  return "Idle";
+ *                },
+ *       "End":  function (_stateData, _msgData) { return "Idle"; },
+ *     },
+ *   });
+ *
+ * Keyed by from-state tag, then message-variant tag, to an arm fn. A `"_"`
+ * inner key is the wildcard arm (§51.0.S.2.4). States with no message arms are
+ * absent from the table. The runtime helper `_scrml_engine_dispatch_message`
+ * (runtime-template.js) consumes this table.
+ *
+ * @param meta — the engine's `engineMeta`
+ * @param decl — the engine-decl (for `fileAST` field-name resolution)
+ * @param fileAST — the file AST (resolves enum field names for both planes)
+ */
+/**
+ * §51.0.S.2.7 (S155 batch 3) — Extract the STATIC resolved-target variant name
+ * from a message-arm body, or `null` when the target is not a static literal
+ * (`@<engineVar>` self-target, a computed expression, etc.). The arm body's
+ * FINAL expression is the target (§51.0.S.2.3): a bare-target arm is the whole
+ * body; a block arm's final expression after the effects.
+ *
+ * Recognized static targets: a literal bare-variant `.Variant` (optionally a
+ * payload constructor `.Variant(args)`) or a qualified `Enum.Variant`. Returns
+ * the PascalCase variant name. Non-literal finals (`@<var>`, calls, ternaries)
+ * return `null` — those are runtime-validated (§51.0.S.2.7 "runtime otherwise").
+ */
+function extractStaticArmTarget(arm: MessageArmEntryShape): string | null {
+  let inner = (arm.bodyRaw || "").trim();
+  if (arm.isBlockBody && inner.startsWith("{") && inner.endsWith("}")) {
+    inner = inner.slice(1, -1).trim();
+  }
+  // The final expression is everything after the last top-level `;`.
+  // (Effects are `;`-separated statements; the trailing expr is the target.)
+  let depth = 0;
+  let lastSemi = -1;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i]!;
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") depth--;
+    else if (ch === ";" && depth === 0) lastSemi = i;
+  }
+  let finalExpr = (lastSemi >= 0 ? inner.slice(lastSemi + 1) : inner).trim();
+  // `.Variant` / `.Variant(args)` — bare-dot literal.
+  let m = finalExpr.match(/^\.\s*([A-Z][A-Za-z0-9_]*)\s*(\(|$)/);
+  if (m) return m[1]!;
+  // `Enum.Variant` / `Enum.Variant(args)` — qualified literal.
+  m = finalExpr.match(/^[A-Za-z_$][A-Za-z0-9_$]*\.\s*([A-Z][A-Za-z0-9_]*)\s*(\(|$)/);
+  if (m) return m[1]!;
+  return null;
+}
+
+/**
+ * §51.0.S.2.7 — Is `targetTag` a legal transition from a state whose `rule=` is
+ * `rule`? Mirrors the runtime `_scrml_engine_check_transition` for the static
+ * compile-time leg. A self-target (`targetTag === fromTag`) is ALWAYS legal
+ * (§51.0.F.1 idempotent self-write no-op) regardless of the rule= listing.
+ */
+function isArmTargetRuleLegal(fromTag: string, targetTag: string, rule: EngineRuleForm): boolean {
+  if (fromTag === targetTag) return true; // §51.0.F.1 self-target no-op
+  switch (rule.kind) {
+    case "wildcard": return true;
+    case "single": return rule.target === targetTag;
+    case "multi": return Array.isArray(rule.targets) && rule.targets.indexOf(targetTag) !== -1;
+    // absent / legacy-arrow / parse-error → no legal external target. B15 has
+    // already diagnosed legacy-arrow / parse-error shapes; absent = terminal.
+    default: return false;
+  }
+}
+
+export function emitEngineMessageArmTable(
+  meta: EngineMetadata,
+  fileAST: any,
+  errors?: import("./errors.ts").CGError[],
+): string[] {
+  const sc = meta.stateChildren;
+  if (!Array.isArray(sc) || sc.length === 0) return [];
+  if (!engineHasMessageArms(meta)) return [];
+
+  const tableName = engineMessageArmTableName(meta.varName);
+  const lines: string[] = [];
+
+  // Resolve the field-name schemas for both planes ONCE per engine.
+  const stateFieldsMap = parseEnumVariantFieldsForType(fileAST, meta.forType);
+  const msgFieldsMap = parseEnumVariantFieldsForType(fileAST, meta.acceptsType);
+
+  // Build the file-level engine-aware emit opts so `@engine = .X` / `@cell = …`
+  // writes inside arm bodies lower correctly (mirrors emitEngineOpenerEffect's
+  // opts assembly).
+  const engineBindings = buildEngineBindingsMap(fileAST);
+  const engineVarNames = collectEngineVarNames(fileAST);
+  const enginesWithHooks = collectEnginesWithHooks(fileAST);
+  const enginesWithOnTimeout = collectEnginesWithOnTimeout(fileAST);
+  const enginesWithIdleWatchdog = collectEnginesWithIdleWatchdog(fileAST);
+  const enginesWithInternalRules = collectEnginesWithInternalRules(fileAST);
+  const enginesWithHistory = collectEnginesWithHistory(fileAST);
+  const emitOpts = {
+    boundary: "client" as const,
+    ...(engineBindings ? { engineBindings } : {}),
+    ...(engineVarNames.size > 0 ? { engineVarNames } : {}),
+    ...(enginesWithHooks.size > 0 ? { enginesWithHooks } : {}),
+    ...(enginesWithOnTimeout.size > 0 ? { enginesWithOnTimeout } : {}),
+    ...(enginesWithIdleWatchdog.size > 0 ? { enginesWithIdleWatchdog } : {}),
+    ...(enginesWithInternalRules.size > 0 ? { enginesWithInternalRules } : {}),
+    ...(enginesWithHistory.size > 0 ? { enginesWithHistory } : {}),
+  };
+
+  lines.push(`// §51.0.S message-arm dispatch table for engine ${meta.varName}: ${meta.forType} × ${meta.acceptsType ?? "?"}`);
+  lines.push(`const ${tableName} = Object.freeze({`);
+
+  const stateEntries: string[] = [];
+  for (const child of sc) {
+    if (!child || typeof child.tag !== "string" || child.tag.length === 0) continue;
+    const arms = Array.isArray(child.messageArms) ? child.messageArms : [];
+    if (arms.length === 0) continue; // state with no message arms — absent
+    const stateTag = child.tag;
+    const stateFields = stateFieldsMap?.get(stateTag) ?? null;
+
+    const armEntries: string[] = [];
+    for (const arm of arms) {
+      if (!arm || typeof arm.variantName !== "string" || arm.variantName.length === 0) continue;
+      const msgKey = arm.isWildcard ? "_" : arm.variantName;
+      // §51.0.S.2.7 — COMPILE-TIME arm-target rule= validation (static leg).
+      // When the arm's resolved target is a static literal AND the from-state
+      // rule= is known, validate the target against the from-state contract
+      // (reusing E-ENGINE-INVALID-TRANSITION — messages do NOT launder an
+      // illegal transition). A non-literal / self-target / `@<var>` final expr
+      // is validated at RUNTIME by the delegated `_scrml_engine_advance`.
+      if (errors) {
+        const staticTarget = extractStaticArmTarget(arm);
+        if (staticTarget !== null && !isArmTargetRuleLegal(stateTag, staticTarget, child.rule)) {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { CGError } = require("./errors.ts") as { CGError: any };
+          errors.push(new CGError(
+            "E-ENGINE-INVALID-TRANSITION",
+            `E-ENGINE-INVALID-TRANSITION: message-arm \`| .${arm.isWildcard ? "_" : arm.variantName} :> ... .${staticTarget}\` ` +
+            `in state-child \`<${stateTag}>\` of engine \`${meta.varName}\` resolves a target ` +
+            `(\`.${staticTarget}\`) the from-state's \`rule=\` contract does not permit. ` +
+            `Messages are a typed way to compute target + effect (§51.0.S.2.7); they do NOT ` +
+            `launder an illegal transition. Either add \`.${staticTarget}\` to \`<${stateTag} rule=...>\` ` +
+            `or change the arm's resolved target.`,
+            { file: (fileAST && fileAST.filePath) || "", start: 0, end: 0, line: 1, col: 1 },
+          ));
+        }
+      }
+      const msgFields = arm.isWildcard ? null : (msgFieldsMap?.get(arm.variantName) ?? null);
+      const fn = emitMessageArmBodyFn(arm, child.payloadBindings, stateFields, msgFields, emitOpts);
+      armEntries.push(`    ${JSON.stringify(msgKey)}: ${fn}`);
+    }
+    if (armEntries.length === 0) continue;
+    stateEntries.push(`  ${JSON.stringify(stateTag)}: {\n${armEntries.join(",\n")}\n  }`);
+  }
+
+  lines.push(stateEntries.join(",\n"));
+  lines.push(`});`);
+  return lines;
+}
+
+/**
+ * §51.0.S (S155 batch 3) — Does this engine declare any `(state × message)`
+ * arm? Inspects `engineMeta.stateChildren[].messageArms`. Tree-shake control:
+ * when false, codegen emits NO `__scrml_engine_<varName>_msg_arms` const and
+ * the `.advance` plane-router never reaches the message path for this engine.
+ */
+export function engineHasMessageArms(meta: EngineMetadata): boolean {
+  const sc = meta.stateChildren;
+  if (!Array.isArray(sc) || sc.length === 0) return false;
+  for (const child of sc) {
+    if (child && Array.isArray(child.messageArms) && child.messageArms.length > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * §51.0.S (S155 batch 3) — Collect the set of engine var names in the file that
+ * declare message arms. Threaded into the emit ctx so the `.advance` plane-
+ * router (emit-expr.ts) can decide between the state and message planes.
+ */
+export function collectEnginesWithMessageArms(fileAST: unknown): Set<string> {
+  const out = new Set<string>();
+  for (const decl of collectC12EngineDecls(fileAST)) {
+    const meta = decl._record?.engineMeta;
+    if (meta && typeof meta.varName === "string" && meta.varName.length > 0 && engineHasMessageArms(meta)) {
+      out.add(meta.varName);
+    }
+  }
+  return out;
+}
+
+/**
+ * §51.0.S (S155 batch 3) — Map of engine var name → resolved `accepts=` message-
+ * variant set. Threaded into the emit ctx so the `.advance` plane-router can
+ * STAMP the plane at codegen: a literal bare-variant `.X` whose name is in the
+ * engine's message-variant set dispatches the message plane (§51.0.G.1).
+ * Engines without `accepts=` (or with an empty resolved set) are absent.
+ */
+export function collectEngineMessageVariants(fileAST: unknown): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const decl of collectC12EngineDecls(fileAST)) {
+    const meta = decl._record?.engineMeta;
+    if (!meta || typeof meta.varName !== "string" || meta.varName.length === 0) continue;
+    const mv = Array.isArray(meta.messageVariants) ? meta.messageVariants : [];
+    if (mv.length === 0) continue;
+    out.set(meta.varName, new Set(mv));
+  }
+  return out;
 }
 
 /**
@@ -1280,7 +1817,7 @@ export function emitEngineOpenerEffectsForFile(fileAST: any): string[] {
  * Returns an empty array when there are no in-scope engines (lets the
  * caller skip a section header without checking length).
  */
-export function emitEngineSubstrate(fileAST: any): string[] {
+export function emitEngineSubstrate(fileAST: any, errors?: import("./errors.ts").CGError[]): string[] {
   const decls = collectC12EngineDecls(fileAST);
   if (decls.length === 0) return [];
 
@@ -1312,6 +1849,12 @@ export function emitEngineSubstrate(fileAST: any): string[] {
     // Tree-shake: both empty when no state-child carries `history`.
     const historyMapLines = emitEngineHistoryMap(meta, decl);
     const historyCellLines = emitEngineHistoryCellInits(meta, decl);
+    // §51.0.S (S155 batch 3) — per-engine MESSAGE-ARM dispatch table.
+    // Sibling to the transitions / timers / idle / history tables;
+    // emitted BEFORE the cell init so the `.advance` message-plane call
+    // sites can reference the const. Empty when the engine declares no
+    // `(state × message)` arm (tree-shake).
+    const msgArmLines = emitEngineMessageArmTable(meta, fileAST, errors);
     const cellLines = emitEngineVariantCellInit(meta);
     if (
       tableLines.length === 0 &&
@@ -1320,6 +1863,7 @@ export function emitEngineSubstrate(fileAST: any): string[] {
       idleLines.length === 0 &&
       historyMapLines.length === 0 &&
       historyCellLines.length === 0 &&
+      msgArmLines.length === 0 &&
       cellLines.length === 0
     ) continue;
     if (lines.length > 0) lines.push("");
@@ -1328,6 +1872,7 @@ export function emitEngineSubstrate(fileAST: any): string[] {
     for (const l of timersLines) lines.push(l);
     for (const l of idleLines) lines.push(l);
     for (const l of historyMapLines) lines.push(l);
+    for (const l of msgArmLines) lines.push(l);
     for (const l of cellLines) lines.push(l);
     for (const l of historyCellLines) lines.push(l);
     // §51.0.D mount-position marker. The engine renders at its declaration
@@ -1566,7 +2111,45 @@ function buildEngineArms(
       payloadBindings = extractPayloadBindingsFromAttrs(attrs);
       payloadFieldNames = undefined;
     }
-    const body = filterRenderableChildren(match.children ?? []);
+    // §51.0.S (S155 batch 3) — strip the leading `(state × message)` arm region
+    // from the renderable body. The parser retains the arm text in the state-
+    // child body (it slices the render body via `renderBodyStart` rather than
+    // mutating bodyRaw), so the leading text child still carries the raw arm
+    // syntax (`| .Start(id) :> .Dragging(id)` …). Without this strip the body-
+    // render emitter would render the arm SOURCE as literal HTML text. We
+    // re-run `parseMessageArms` on the leading text child's value to recover
+    // `renderBodyStart`, then trim the arm prefix off that text node so only
+    // the post-arm render body survives.
+    const scMsgArms = Array.isArray((sc as any).messageArms) ? (sc as any).messageArms : [];
+    const rawChildren = (match.children ?? []).slice();
+    if (scMsgArms.length > 0 && rawChildren.length > 0) {
+      const lead = rawChildren[0];
+      if (lead && lead.kind === "text") {
+        const textField =
+          typeof lead.value === "string" ? "value"
+          : typeof lead.text === "string" ? "text"
+          : typeof lead.raw === "string" ? "raw"
+          : null;
+        if (textField) {
+          const leadText: string = lead[textField];
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { parseMessageArms } = require("../engine-statechild-parser.ts") as {
+              parseMessageArms: (b: string) => { arms: unknown[]; renderBodyStart: number };
+            };
+            const parsed = parseMessageArms(leadText);
+            if (parsed.renderBodyStart > 0 && parsed.renderBodyStart <= leadText.length) {
+              // Replace the leading text node with one whose value is only the
+              // post-arm render body (clone so we don't mutate shared AST).
+              rawChildren[0] = { ...lead, [textField]: leadText.slice(parsed.renderBodyStart) };
+            }
+          } catch (_e) {
+            // Defensive: leave the body unchanged if re-parse fails.
+          }
+        }
+      }
+    }
+    const body = filterRenderableChildren(rawChildren);
     // A5-7 Wave 2.4 (§51.0.Q.1, Bug #2) — composite state-child post-mount JS.
     // On outer-entry into a composite state-child (one whose body contains a
     // nested `<engine>`), per spec §51.0.Q.1: "the inner engine is
@@ -2234,6 +2817,82 @@ export function emitEngineAdvanceCall(
   // `false` for internal — gate the post-commit hook fire on that boolean.
   // IIFE keeps the wrap valid in any expression position (statement, sub-expr,
   // arg position, etc.). Tree-shaken when hasHooks is false (or undefined).
+  if (hasHooks === true) {
+    const fnName = engineHookFiringFunctionName(varName);
+    const varKey = JSON.stringify(varName);
+    return `(() => { const __scrml_engine_from = _scrml_reactive_get(${varKey}); const __scrml_engine_external = ${baseCall}; if (__scrml_engine_external) ${fnName}(__scrml_engine_from, _scrml_reactive_get(${varKey})); })()`;
+  }
+  return baseCall;
+}
+
+/**
+ * §51.0.S (S155 batch 3 — #14 event-payload-transition) — Emit the
+ * `.advance(.MsgVariant)` MESSAGE-plane dispatch call for a known engine
+ * variable that declares message arms.
+ *
+ * Sibling to `emitEngineAdvanceCall` (the STATE plane). The codegen plane stamp
+ * (emit-expr.ts) routes here when the `.advance` argument is a message-enum
+ * variant (§51.0.G.1 / §51.0.S.2.5). Lowers to:
+ *
+ *   _scrml_engine_dispatch_message("dragPhase", <msgExpr>,
+ *       __scrml_engine_dragPhase_msg_arms, __scrml_engine_dragPhase_transitions,
+ *       <timers?>, <idle?>, <internal?>, <history?>)
+ *
+ * The runtime helper finds the current state's arm for the message, runs its
+ * body (effects), resolves the target, and transitions via `_scrml_engine_advance`
+ * (reusing ALL §51.0.F.1 machinery + the §51.0.R handled-message idle reset).
+ *
+ * Arg threading mirrors `emitEngineAdvanceCall`: the transitions table is
+ * always passed (position 4); timers / idle / internal / history are passed
+ * positionally with `null`-padding when an earlier optional is absent, so the
+ * positions align with `_scrml_engine_dispatch_message`'s signature
+ *   (varName, msg, armTable, table, timersTable, idleEntry, internalTable, historyMap).
+ *
+ * The hook-firing wrap (capture-pre + fire-hooks-post) is identical to the
+ * state-plane advance: when the engine has hooks, wrap in an IIFE that reads
+ * the from-variant, calls the dispatch, and fires hooks iff the dispatch
+ * returned `true` (an external transition occurred). A same-state arm returns
+ * `false` (no transition → no hook fire) but its effect body already ran inside
+ * the dispatch, and the idle watchdog was reset per §51.0.R.
+ */
+export function emitEngineMessageDispatchCall(
+  varName: string,
+  msgExpr: string,
+  hasHooks?: boolean,
+  hasOnTimeout?: boolean,
+  hasIdle?: boolean,
+  hasInternal?: boolean,
+  hasHistory?: boolean,
+): string {
+  const armTableName = engineMessageArmTableName(varName);
+  const tableName = engineTransitionTableName(varName);
+
+  // Position-padded optional args (mirrors emitEngineAdvanceCall). The
+  // dispatch_message signature places timersTable at position 5, idleEntry 6,
+  // internalTable 7, historyMap 8 (1-based incl. varName/msg/armTable/table).
+  const timersArg = hasOnTimeout === true ? `, ${engineTimersTableName(varName)}` : ``;
+  let idleArg = ``;
+  if (hasIdle === true) {
+    idleArg = timersArg === `` ? `, null, ${engineIdleWatchdogName(varName)}` : `, ${engineIdleWatchdogName(varName)}`;
+  }
+  let internalArg = ``;
+  if (hasInternal === true) {
+    const internalName = engineInternalTransitionTableName(varName);
+    if (timersArg === `` && idleArg === ``) internalArg = `, null, null, ${internalName}`;
+    else if (idleArg === ``) internalArg = `, null, ${internalName}`;
+    else internalArg = `, ${internalName}`;
+  }
+  let historyArg = ``;
+  if (hasHistory === true) {
+    const historyName = engineHistoryMapName(varName);
+    if (timersArg === `` && idleArg === `` && internalArg === ``) historyArg = `, null, null, null, ${historyName}`;
+    else if (idleArg === `` && internalArg === ``) historyArg = `, null, null, ${historyName}`;
+    else if (internalArg === ``) historyArg = `, null, ${historyName}`;
+    else historyArg = `, ${historyName}`;
+  }
+
+  const baseCall = `_scrml_engine_dispatch_message(${JSON.stringify(varName)}, ${msgExpr}, ${armTableName}, ${tableName}${timersArg}${idleArg}${internalArg}${historyArg})`;
+
   if (hasHooks === true) {
     const fnName = engineHookFiringFunctionName(varName);
     const varKey = JSON.stringify(varName);

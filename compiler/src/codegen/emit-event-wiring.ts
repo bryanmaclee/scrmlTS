@@ -11,6 +11,8 @@ import {
   collectEnginesWithIdleWatchdog,
   collectEnginesWithInternalRules,
   collectEnginesWithHistory,
+  collectEnginesWithMessageArms,
+  collectEngineMessageVariants,
 } from "./emit-engine.ts";
 import type { ExprNode } from "../types/ast.ts";
 import type { EncodingContext } from "./type-encoding.ts";
@@ -332,6 +334,11 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
   const enginesWithIdleWatchdog = collectEnginesWithIdleWatchdog(ctx.fileAST);
   const enginesWithInternalRules = collectEnginesWithInternalRules(ctx.fileAST);
   const enginesWithHistory = collectEnginesWithHistory(ctx.fileAST);
+  // §51.0.S (S155 batch 3) — message-plane routing inputs for `.advance`
+  // calls inside event-handler bodies (the worked-example dispatch site:
+  // `ondrop=@dragPhase.advance(.Drop(col))`).
+  const enginesWithMessageArms = collectEnginesWithMessageArms(ctx.fileAST);
+  const engineMessageVariants = collectEngineMessageVariants(ctx.fileAST);
   const engineRewriteCtx: EngineRewriteCtx | null =
     engineBindings != null || engineVarNames.size > 0
       ? {
@@ -343,6 +350,9 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
             enginesWithIdleWatchdog: enginesWithIdleWatchdog.size > 0 ? enginesWithIdleWatchdog : null,
             enginesWithInternalRules: enginesWithInternalRules.size > 0 ? enginesWithInternalRules : null,
             enginesWithHistory: enginesWithHistory.size > 0 ? enginesWithHistory : null,
+            // §51.0.S (S155 batch 3) — message-plane routing inputs.
+            enginesWithMessageArms: enginesWithMessageArms.size > 0 ? enginesWithMessageArms : null,
+            engineMessageVariants: engineMessageVariants.size > 0 ? engineMessageVariants : null,
             // §51.0.F (Option A) — forward engine binding-info so nested
             // expression contexts (lambda body / ternary RHS / call args /
             // compound exprs) inside event-handler bodies route engine

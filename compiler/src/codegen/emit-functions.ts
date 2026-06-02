@@ -435,7 +435,7 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
   // C13 (§51.0.F + §51.0.G): mirror machineBindings wiring for new <engine>
   // form. Function bodies that write to engine variables or call .advance()
   // need both maps threaded through the same emit path.
-  const { buildEngineBindingsMap, collectEngineVarNames, collectEnginesWithHooks, collectEnginesWithOnTimeout, collectEnginesWithIdleWatchdog, collectEnginesWithInternalRules, collectEnginesWithHistory } = require("./emit-engine.ts");
+  const { buildEngineBindingsMap, collectEngineVarNames, collectEnginesWithHooks, collectEnginesWithOnTimeout, collectEnginesWithIdleWatchdog, collectEnginesWithInternalRules, collectEnginesWithHistory, collectEnginesWithMessageArms, collectEngineMessageVariants } = require("./emit-engine.ts");
   const engineBindings = buildEngineBindingsMap(ctx.fileAST);
   const engineVarNames: Set<string> = collectEngineVarNames(ctx.fileAST);
   // B17.4 (§51.0.H): the subset of engines that have at least one effect=/
@@ -460,6 +460,10 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
   // engine var). Threaded so .advance() and direct-write call sites inside
   // function bodies get the history-map identifier as the trailing arg.
   const enginesWithHistory: Set<string> = collectEnginesWithHistory(ctx.fileAST);
+  // §51.0.S (S155 batch 3) — message-plane routing inputs for `.advance`
+  // calls inside function bodies.
+  const enginesWithMessageArms: Set<string> = collectEnginesWithMessageArms(ctx.fileAST);
+  const engineMessageVariants: Map<string, Set<string>> = collectEngineMessageVariants(ctx.fileAST);
   const lines: string[] = [];
 
   // Map from original function name → generated var name.
@@ -782,6 +786,8 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
           ...(enginesWithIdleWatchdog.size > 0 ? { enginesWithIdleWatchdog } : {}),
           ...(enginesWithInternalRules.size > 0 ? { enginesWithInternalRules } : {}),
           ...(enginesWithHistory.size > 0 ? { enginesWithHistory } : {}),
+          ...(enginesWithMessageArms.size > 0 ? { enginesWithMessageArms } : {}),
+          ...(engineMessageVariants.size > 0 ? { engineMessageVariants } : {}),
         },
         errors,
         filePath,
@@ -823,6 +829,8 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
       ...(enginesWithIdleWatchdog.size > 0 ? { enginesWithIdleWatchdog } : {}),
       ...(enginesWithInternalRules.size > 0 ? { enginesWithInternalRules } : {}),
       ...(enginesWithHistory.size > 0 ? { enginesWithHistory } : {}),
+      ...(enginesWithMessageArms.size > 0 ? { enginesWithMessageArms } : {}),
+      ...(engineMessageVariants.size > 0 ? { engineMessageVariants } : {}),
     };
     for (let i = 0; i < body.length; i++) {
       const stmt = body[i];
@@ -968,6 +976,8 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
         ...(enginesWithIdleWatchdog.size > 0 ? { enginesWithIdleWatchdog } : {}),
         ...(enginesWithInternalRules.size > 0 ? { enginesWithInternalRules } : {}),
         ...(enginesWithHistory.size > 0 ? { enginesWithHistory } : {}),
+        ...(enginesWithMessageArms.size > 0 ? { enginesWithMessageArms } : {}),
+        ...(engineMessageVariants.size > 0 ? { engineMessageVariants } : {}),
         ...(_returnTypeAnnotation ? { returnTypeAnnotation: _returnTypeAnnotation, enclosingFnName: name } : {}),
       };
       const shortcutLines = emitFnShortcutBody(body, fnOpts, fnKind, hasRetType);
@@ -1021,7 +1031,7 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
       // S89 §13.2 Sub-Phase B Step 3 — thread calleeMap + exportRegistry so
       // the auto-await classifier inside scheduleStatements covers stdlib
       // Promise<T> callees alongside server functions.
-      const scheduled = scheduleStatements(body, fnNode, routeMap, depGraph, filePath, errors, machineBindings, engineBindings, engineVarNames, enginesWithHooks, _returnTypeAnnotation, name, enginesWithOnTimeout, enginesWithIdleWatchdog, enginesWithInternalRules, enginesWithHistory, _calleeMap, _exportRegistry);
+      const scheduled = scheduleStatements(body, fnNode, routeMap, depGraph, filePath, errors, machineBindings, engineBindings, engineVarNames, enginesWithHooks, _returnTypeAnnotation, name, enginesWithOnTimeout, enginesWithIdleWatchdog, enginesWithInternalRules, enginesWithHistory, enginesWithMessageArms, engineMessageVariants, _calleeMap, _exportRegistry);
       for (const line of scheduled) {
         lines.push(`  ${line}`);
       }

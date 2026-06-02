@@ -3425,6 +3425,84 @@ function _scrml_engine_direct_set(varName, target, table, timersTable, idleEntry
 }
 
 // ---------------------------------------------------------------------------
+// 51.0.S engine message dispatch — S155 batch 3 (#14 event-payload-transition)
+// ---------------------------------------------------------------------------
+// Runtime backbone for \`@<engineVar>.advance(.MsgVariant)\` — the message-plane
+// dispatch path (51.0.S.2.5). The codegen STAMPS the plane (state vs message)
+// at compile time per 51.0.G.1, so a message-plane \`.advance\` lowers to a call
+// to THIS helper instead of \`_scrml_engine_advance\`.
+//
+// armTable shape (compile-time-baked per engine — see emit-engine.ts
+// \`emitEngineMessageArmTable\`). Keyed by from-state tag, then message tag, to
+// an arm fn of (stateData, msgData) returning the resolved target state. The
+// \`"_"\` key is the wildcard arm (51.0.S.2.4). A state with no message arms is
+// absent from the table.
+//
+// Semantics (51.0.S.3):
+//   - The matched arm body ALWAYS runs (effects are the message's purpose) --
+//     even when the resolved target equals the current state.
+//   - The state-change machinery (onTransition / history / onTimeout) fires
+//     iff the resolved target differs from the current state -- achieved by
+//     delegating the transition to \`_scrml_engine_advance\`, which no-ops the
+//     self-target case per 51.0.F.1.
+//   - THE ONE DIVERGENCE (51.0.R handled-message reset): the \`<onIdle>\`
+//     watchdog resets EVEN on a same-state arm (a handled message is activity,
+//     not silence). \`_scrml_engine_advance\` skips the idle reset on a
+//     self-target no-op, so this helper force-resets it after a no-op commit.
+//   - A message dispatched to a state with NO arm for it is a runtime no-op
+//     (51.0.S.2.6) -- no effect, no transition, no idle reset.
+//
+// Returns the boolean \`_scrml_engine_advance\` returned (true = external
+// transition fired, false = self-target no-op / no arm) so the codegen
+// hook-firing wrap can gate the post-commit fire-hooks call on it.
+function _scrml_engine_dispatch_message(
+  varName, msg, armTable, table, timersTable, idleEntry, internalTable, historyMap
+) {
+  if (armTable == null) return false;
+  // Resolve the dispatched message's tag + payload data. Messages are ordinary
+  // enum values: unit variants are bare strings; payload variants are
+  // \`{ variant, data }\` tagged-objects per 51.3.2 (same shape as state values).
+  var msgTag = _scrml_engine_variant_tag(msg);
+  var msgData = (msg != null && typeof msg === "object" && msg.data && typeof msg.data === "object") ? msg.data : null;
+  // The CURRENT engine state -- its tag selects the per-state arm map; its data
+  // provides the state-payload binding (\`id\` from \`.Dragging(id)\`, 51.0.B.1).
+  var current = _scrml_reactive_get(varName);
+  var currentTag = _scrml_engine_variant_tag(current);
+  var stateData = (current != null && typeof current === "object" && current.data && typeof current.data === "object") ? current.data : null;
+  // Find the arm for this (state, message). No arm for the current state, or no
+  // arm for this message (and no wildcard) -> no-op (51.0.S.2.6). The
+  // exhaustiveness check (51.0.S.2.4) guarantees a state WITH any arms covers
+  // the full message set or carries a wildcard, so the only no-op-reachable
+  // case is a state that declared NO arms at all.
+  var stateArms = armTable[currentTag];
+  if (stateArms == null || typeof stateArms !== "object") return false;
+  var armFn = stateArms[msgTag];
+  if (typeof armFn !== "function") armFn = stateArms["_"]; // 51.0.S.2.4 wildcard
+  if (typeof armFn !== "function") return false; // no arm -> no-op
+  // Run the arm body (effects ALWAYS run, 51.0.S.3) and resolve the target.
+  // The arm fn receives (stateData, msgData) so both payload planes are in
+  // scope; its return value is the resolved target state.
+  var target = armFn(stateData, msgData);
+  // Transition through the canonical advance helper -- it validates against the
+  // from-state rule= (51.0.S.2.7 -> E-ENGINE-INVALID-TRANSITION), fires
+  // onTransition / history / onTimeout iff target !== current, and resets onIdle
+  // on a real transition. Self-target -> no-op (returns false), and we force the
+  // idle reset below per 51.0.R handled-message reset.
+  var external = _scrml_engine_advance(
+    varName, target, table, timersTable, idleEntry, internalTable, historyMap
+  );
+  // 51.0.R handled-message reset (the 51.0.S.3 divergence): a handled message
+  // resets the idle watchdog EVEN on a same-state arm. \`_scrml_engine_advance\`
+  // skips the reset on a self-target no-op, so re-assert it here when the arm
+  // resolved the current state (external === false) and the engine has an
+  // \`<onIdle>\` watchdog.
+  if (external === false && idleEntry != null) {
+    _scrml_engine_reset_idle_watchdog(varName, idleEntry, table);
+  }
+  return external;
+}
+
+// ---------------------------------------------------------------------------
 // §51.0.M onTimeout runtime — A5-4 engine state-child timer arm/clear
 // ---------------------------------------------------------------------------
 // Runtime support for the <onTimeout after=DURATION to=.Variant/> element.
