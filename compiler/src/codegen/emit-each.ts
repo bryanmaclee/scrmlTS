@@ -70,7 +70,7 @@ import type { EngineRewriteCtx } from "./emit-control-flow.ts";
 // to lower (`_scrml_reactive_get`). When the file declares no engines the
 // carrier is null and the handler path is byte-identical to pre-fix.
 // ---------------------------------------------------------------------------
-interface EachEngineCtx {
+export interface EachEngineCtx {
   /** For the assign form (`@engine = .X`) — rewriteBlockBody write-guard ctx. */
   engineRewriteCtx: EngineRewriteCtx | null;
   /** For the advance form (`@engine.advance(.X)`) — EmitExprContext spread. */
@@ -1084,8 +1084,11 @@ function emitEachReconcileLines(
  * The collect* inputs MUST come from the SAME processed `fileAST` the codegen
  * stage feeds emit-event-wiring (engine vars are registered by the name
  * resolver upstream; a raw buildAST AST yields an empty engineVarNames set).
+ *
+ * Bug 65 (S157) — EXPORTED + SHARED with emit-lift.js so the Tier-0
+ * `${for…lift}` path threads the IDENTICAL engine ctx (no duplicated lowering).
  */
-function buildEachEngineCtx(fileAST: any): EachEngineCtx | null {
+export function buildEachEngineCtx(fileAST: any): EachEngineCtx | null {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const eng = require("./emit-engine.ts") as {
     buildEngineBindingsMap: (a: unknown) => Map<string, unknown> | null;
@@ -1153,8 +1156,11 @@ function buildEachEngineCtx(fileAST: any): EachEngineCtx | null {
  * Two engine shapes (mirrors emit-event-wiring.ts:412-486):
  *   - `@engine.advance(.X)` (CallExpr) → emitExprField(C13 arm) → state/message plane.
  *   - `@engine = .X` (AssignExpr)      → rewriteBlockBody(engineRewriteCtx) → write-guard.
+ *
+ * Bug 65 (S157) — EXPORTED + SHARED with emit-lift.js: the Tier-0
+ * `${for…lift}` per-item handler reuses this SAME interceptor (no fork).
  */
-function emitEngineHandlerBody(preRewritten: string, engineCtx: EachEngineCtx): string | null {
+export function emitEngineHandlerBody(preRewritten: string, engineCtx: EachEngineCtx): string | null {
   const engineVarNames = engineCtx.engineVarNames;
   if (!engineVarNames || engineVarNames.size === 0) return null;
 

@@ -9,6 +9,117 @@ import { isDestructurePattern, emitDestructurePatternText } from "./emit-destruc
 import { detectPredicateShapeBind } from "./predicate-bind-detector.js";
 
 // ---------------------------------------------------------------------------
+// Bug 65 (S157) — Tier-0 `${for…lift}` engine-transition handler lowering.
+//
+// SIBLING of Bug 62 (the Tier-1 `<each>` fix in emit-each.ts). A lifted event
+// handler that calls `@engine.advance(.X)` or assigns `@engine = .X` used to be
+// lowered through `emitExprField` with NO engine codegen ctx, so the call
+// resolved against the bare reactive cell:
+//   `_scrml_reactive_get("phase").advance("Active")`
+// `_scrml_reactive_get("phase")` returns the engine's bare variant STRING (no
+// `.advance` method) → `TypeError` on click. Compile exits 0 and `node --check`
+// passes — a SILENT miscompile (distinct from Bug 62's loud E-CODEGEN-INVALID-JS).
+//
+// The fix THREADS the file's engine codegen ctx (`EachEngineCtx`, built ONCE via
+// the shared `buildEachEngineCtx` from emit-each.ts) down to the lifted-handler
+// emitters and routes engine references through the SAME canonical machinery the
+// each path uses — NO duplicated `.advance` logic:
+//   - `.advance(.X)` → emitExprField C13 arm → `_scrml_engine_advance(...)`
+//                      (state plane) / `_scrml_engine_dispatch_message(...)`
+//                      (message plane, §51.0.G.1 — `accepts=` engines).
+//   - `@engine = .X` → rewriteBlockBody(engineRewriteCtx) → `_scrml_engine_direct_set(...)`.
+// Tree-shaken: when the file declares no engine the ctx is null and every
+// handler emission is byte-identical to pre-fix.
+//
+// emit-each.ts loads its cross-module deps via `require()` (no eager static-
+// import cycle); mirror that here so emit-lift ↔ emit-each stays init-order safe.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the per-file engine codegen ctx for Tier-0 lift handlers. Shares the
+ * Bug 62 helper — returns null when the file declares no `<engine>` (tree-shake).
+ *
+ * @param {any} fileAST — the SAME processed file AST the codegen stage feeds the
+ *   non-lift path (engine vars are registered by the name resolver upstream).
+ * @returns {object|null} the EachEngineCtx carrier, or null.
+ */
+function buildLiftEngineCtx(fileAST) {
+  if (!fileAST) return null;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const each = require("./emit-each.ts");
+  if (!each || typeof each.buildEachEngineCtx !== "function") return null;
+  return each.buildEachEngineCtx(fileAST);
+}
+
+/**
+ * Bug 65 (S157) — assemble the `EachEngineCtx` carrier from engine codegen
+ * extras ALREADY threaded through the codegen opts (the non-lift path computes
+ * `engineVarNames` / `engineBindings` / `enginesWith*` / `engineMessage*` from
+ * the file AST upstream and threads them via emit-logic). This is a thin
+ * RE-PACK adapter — it does NOT re-walk the AST and does NOT duplicate any
+ * `.advance` lowering (that lives in the SHARED `emitEngineHandlerBody`). The
+ * carrier shape mirrors `buildEachEngineCtx`'s output exactly so the shared
+ * interceptor consumes it identically.
+ *
+ * Returns null when the file declares no engine (no `engineVarNames` AND no
+ * `engineBindings`) → tree-shaken, byte-identical pre-fix emission.
+ *
+ * @param {object} extras — the engine ctx extras from codegen opts.
+ * @returns {object|null} the EachEngineCtx carrier, or null.
+ */
+export function buildLiftEngineCtxFromExtras(extras) {
+  if (!extras) return null;
+  const engineVarNames = extras.engineVarNames ?? null;
+  const engineBindings = extras.engineBindings ?? null;
+  if ((!engineVarNames || engineVarNames.size === 0) &&
+      (!engineBindings || engineBindings.size === 0)) {
+    return null;
+  }
+  // Mirror buildEachEngineCtx's exprCtxExtras spread (already gated to null
+  // when empty by the emit-logic `...(opts.X ? {X} : {})` threading).
+  const exprCtxExtras = {
+    engineVarNames: engineVarNames,
+    enginesWithHooks: extras.enginesWithHooks ?? null,
+    enginesWithOnTimeout: extras.enginesWithOnTimeout ?? null,
+    enginesWithIdleWatchdog: extras.enginesWithIdleWatchdog ?? null,
+    enginesWithInternalRules: extras.enginesWithInternalRules ?? null,
+    enginesWithHistory: extras.enginesWithHistory ?? null,
+    enginesWithMessageArms: extras.enginesWithMessageArms ?? null,
+    engineMessageVariants: extras.engineMessageVariants ?? null,
+    engineBindings: engineBindings,
+  };
+  return {
+    engineRewriteCtx: { engineBindings, exprCtxExtras },
+    engineExprCtxExtras: exprCtxExtras,
+    engineVarNames: (engineVarNames && engineVarNames.size > 0) ? engineVarNames : null,
+  };
+}
+
+/**
+ * Lower one lifted event-handler expression that may reference an engine var.
+ * Delegates to the SHARED `emitEngineHandlerBody` (emit-each.ts) so the Tier-0
+ * lift path and the Tier-1 each path agree byte-for-byte on engine lowering.
+ *
+ * @param {string} rawHandlerText — the handler expression source (e.g.
+ *   `@phase.advance(.Active)` or `@phase = .Active`). For lift handlers the
+ *   engine var is file-scope (not iter-local), so the `@engineVar` sigil is
+ *   intact in the raw source — no iter-scope prelowering is required here.
+ * @param {object|null} engineCtx — the EachEngineCtx carrier (null = no engines).
+ * @returns {string|null} the lowered JS statement (NO trailing `;`), or null
+ *   when the handler is NOT a recognised engine transition (caller keeps its
+ *   existing non-engine emission — no regression).
+ */
+function tryLowerLiftEngineHandler(rawHandlerText, engineCtx) {
+  if (!engineCtx || typeof rawHandlerText !== "string" || rawHandlerText.length === 0) {
+    return null;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const each = require("./emit-each.ts");
+  if (!each || typeof each.emitEngineHandlerBody !== "function") return null;
+  return each.emitEngineHandlerBody(rawHandlerText, engineCtx);
+}
+
+// ---------------------------------------------------------------------------
 // Render keyword rewriter (§16.6)
 // ---------------------------------------------------------------------------
 
@@ -409,7 +520,7 @@ function splitTagSegments(s) {
  * @param {Array<{name: string, value: string|null}>} attrs
  * @returns {string[]}
  */
-function emitSetAttrs(elVar, attrs) {
+function emitSetAttrs(elVar, attrs, engineCtx = null) {
   const lines = [];
   for (const attr of attrs) {
     if (attr.value === null) {
@@ -494,6 +605,17 @@ function emitSetAttrs(elVar, attrs) {
       // BUG-6 fix: event attributes like onclick, ondblclick, onsubmit
       // must use addEventListener, not setAttribute
       const eventName = attr.name.replace(/^on/, "");
+      // Bug 65 (S157) — engine transition `@engine.advance(.X)` / `@engine = .X`
+      // in a lifted handler: lower through the SHARED engine machinery (state /
+      // message plane / direct-set) BEFORE the generic emitExprField path, which
+      // has no engine ctx and would emit `_scrml_reactive_get(...).advance(...)`
+      // on the bare variant string (silent TypeError on click). Null engineCtx
+      // (engine-free file) skips this — byte-identical to pre-fix.
+      const engineLoweredAttr = tryLowerLiftEngineHandler(String(attr.value ?? "").trim(), engineCtx);
+      if (engineLoweredAttr !== null) {
+        lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${engineLoweredAttr}; });`);
+        continue;
+      }
       // SPEC §5.2.2 normative: `onclick=fn()` SHALL emit
       // `function(event) { fn(); }` — `fn` is invoked with the user's
       // declared args, NOT auto-threaded `event`. The pre-S96 LIFT-4 fix
@@ -610,7 +732,7 @@ function emitSetContent(elVar, parts) {
  * @param {string[]} lines — accumulator for JS lines
  * @returns {string} — the variable name of the created element
  */
-export function emitCreateElementFromMarkup(node, lines) {
+export function emitCreateElementFromMarkup(node, lines, engineCtx = null) {
   const tag = node.tag ?? node.tagName ?? "div";
   const attrs = node.attributes ?? node.attrs ?? [];
   const children = node.children ?? [];
@@ -722,6 +844,10 @@ export function emitCreateElementFromMarkup(node, lines) {
     } else if (val.kind === "string-literal") {
       lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${JSON.stringify(val.value)});`);
     } else if (val.kind === "variable-ref") {
+      // Bug 65 (S157) — a bare `@engineVar` reference is NOT an engine transition
+      // (no `.advance` / no assign); it stays a plain handler ref. Engine
+      // transitions arrive as `call-ref` (`.advance(.X)`) or `expr` (`@e = .X` /
+      // `@e.advance(.X)`), handled below. No engine path needed here.
       const varName = (val.name || "").replace(/^@/, "");
       const rewritten = emitExprField(val.exprNode, varName, { mode: "client" });
       if (/^on[a-z]/.test(name)) {
@@ -743,8 +869,18 @@ export function emitCreateElementFromMarkup(node, lines) {
       const rewrittenName = emitExprField(null, val.name, { mode: "client" });
       if (/^on[a-z]/.test(name)) {
         const eventName = name.replace(/^on/, "");
+        // Bug 65 (S157) — engine `.advance(.X)` parses as a call-ref
+        // `{ name:"@engine.advance", args:[".X"] }`. Reconstruct the call text and
+        // route it through the SHARED engine machinery (state / message plane);
+        // otherwise the plain-call emission stands (no regression to fn-call handlers).
+        const callTextForEngine = `${val.name}(${(val.args || []).map((a) => String(a).trim()).join(", ")})`;
+        const engineLoweredCall = tryLowerLiftEngineHandler(callTextForEngine, engineCtx);
+        if (engineLoweredCall !== null) {
+          lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${engineLoweredCall}; });`);
+        } else {
         const callExpr = `${rewrittenName}(${rewrittenArgs})`;
         lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${callExpr}; });`);
+        }
       } else {
         const callExpr = `${rewrittenName}(${rewrittenArgs})`;
         lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, String(${callExpr} ?? ""));`);
@@ -758,6 +894,18 @@ export function emitCreateElementFromMarkup(node, lines) {
       const raw = val.raw ?? val.propsDecl ?? "";
       if (/^on[a-z]/.test(name)) {
         const eventName = name.replace(/^on/, "");
+        // Bug 65 (S157) — engine transition `${@engine.advance(.X)}` (CallExpr) /
+        // `${@engine = .X}` (AssignExpr) in a lifted handler: lower through the
+        // SHARED engine machinery (state / message plane / direct-set) BEFORE the
+        // generic emitExprField path, which has no engine ctx and would emit
+        // `_scrml_reactive_get(...).advance(...)` against the bare variant string
+        // (silent TypeError on click — `node --check` passes). Null engineCtx
+        // (engine-free file) skips this — byte-identical to pre-fix.
+        const engineLoweredExpr = tryLowerLiftEngineHandler(String(raw).trim(), engineCtx);
+        if (engineLoweredExpr !== null) {
+          lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${engineLoweredExpr}; });`);
+          continue;
+        }
         // S140 Bug 59 — when this onevent value is a synth arrow-string with
         // NO structured exprNode (the emit-table-for per-row checkbox onchange
         // builds `{ kind:"expr", raw:"(evt) => { … }" }` directly), routing the
@@ -818,7 +966,7 @@ export function emitCreateElementFromMarkup(node, lines) {
           lines.push(`${elVar}.appendChild(document.createTextNode(${JSON.stringify(text)}));`);
         }
       } else if (child.kind === "markup") {
-        const childVar = emitCreateElementFromMarkup(child, lines);
+        const childVar = emitCreateElementFromMarkup(child, lines, engineCtx);
         lines.push(`${elVar}.appendChild(${childVar});`);
       } else if (child.kind === "logic") {
         // Logic block in markup — dispatch each body node by kind:
@@ -1151,6 +1299,9 @@ export function hasFragmentedLiftBody(body) {
  */
 export function emitForStmtWithContainer(forNode, containerElVar, opts = {}) {
   const lines = [];
+  // Bug 65 (S157) — engine codegen ctx threaded to inner lifted handlers
+  // (null = engine-free file → tree-shaken, byte-identical pre-fix emission).
+  const engineCtx = opts.engineCtx ?? null;
   // A5 (2026-05-17) — destructuring LHS: render structured pattern to JS text.
   let varName;
   if (isDestructurePattern(forNode.variable)) {
@@ -1216,7 +1367,7 @@ export function emitForStmtWithContainer(forNode, containerElVar, opts = {}) {
     for (const child of body) {
       if (!child) continue;
       if (child.kind === 'lift-expr') {
-        const code = emitLiftExpr(child, { containerVar: tmpContainerVar });
+        const code = emitLiftExpr(child, { containerVar: tmpContainerVar, engineCtx });
         if (code) {
           for (const line of code.split('\n')) lines.push('  ' + line);
         }
@@ -1254,7 +1405,7 @@ export function emitForStmtWithContainer(forNode, containerElVar, opts = {}) {
     if (!child) continue;
     if (child.kind === 'lift-expr') {
       // Route inner lift to the container element — NOT to _scrml_lift() globally
-      const code = emitLiftExpr(child, { containerVar: containerElVar });
+      const code = emitLiftExpr(child, { containerVar: containerElVar, engineCtx });
       if (code) {
         for (const line of code.split('\n')) lines.push('  ' + line);
       }
@@ -1299,6 +1450,8 @@ export function emitForStmtWithContainer(forNode, containerElVar, opts = {}) {
  */
 export function emitIfStmtWithContainer(ifNode, containerElVar, opts = {}) {
   const lines = [];
+  // Bug 65 (S157) — engine codegen ctx threaded to inner lifted handlers.
+  const engineCtx = opts.engineCtx ?? null;
   const cond = ifNode.condition ?? ifNode.test ?? "true";
   const rewrittenCond = emitExprField(ifNode.condExpr, cond, { mode: "client" });
 
@@ -1308,7 +1461,7 @@ export function emitIfStmtWithContainer(ifNode, containerElVar, opts = {}) {
     for (const child of arr) {
       if (!child) continue;
       if (child.kind === 'lift-expr') {
-        const code = emitLiftExpr(child, { containerVar: containerElVar });
+        const code = emitLiftExpr(child, { containerVar: containerElVar, engineCtx });
         if (code) for (const line of code.split('\n')) out.push('  ' + line);
       } else if (child.kind === 'for-stmt') {
         const code = emitForStmtWithContainer(child, containerElVar, opts);
@@ -1361,6 +1514,9 @@ export function emitConsolidatedLift(body, opts = {}) {
 
   const containerVar = opts.containerVar ?? null;
   const directReturn = opts.directReturn ?? false;
+  // Bug 65 (S157) — engine codegen ctx for lifted engine-transition handlers
+  // (null = engine-free file → tree-shaken, byte-identical pre-fix emission).
+  const engineCtx = opts.engineCtx ?? null;
 
   // Pre-statements (before the lift)
   const preStatements = [];
@@ -1377,7 +1533,7 @@ export function emitConsolidatedLift(body, opts = {}) {
     const liftExpr = firstLift.expr;
     if (liftExpr.kind === "markup" && liftExpr.node) {
       const lines = [];
-      const rootVar = emitCreateElementFromMarkup(liftExpr.node, lines);
+      const rootVar = emitCreateElementFromMarkup(liftExpr.node, lines, engineCtx);
       const factoryBody = lines.join("\n    ");
       let factoryCode;
       if (directReturn) {
@@ -1451,7 +1607,7 @@ export function emitConsolidatedLift(body, opts = {}) {
         pendingAttrName = trailingMatch[1].replace(/\s*-\s*/g, "-");
       }
       const attrs = parseAttrs(cleanAttrsStr);
-      const attrLines = emitSetAttrs(elVar, attrs);
+      const attrLines = emitSetAttrs(elVar, attrs, engineCtx);
       for (const l of attrLines) lines.push(l);
     }
     const parent = currentParent();
@@ -1627,7 +1783,7 @@ export function emitConsolidatedLift(body, opts = {}) {
           const attrPart = firstTagIdx === -1 ? expr : expr.slice(0, firstTagIdx);
           const remainder = firstTagIdx === -1 ? "" : expr.slice(firstTagIdx);
           const attrs = parseAttrs(attrPart);
-          const attrLines = emitSetAttrs(elEntry.varName, attrs);
+          const attrLines = emitSetAttrs(elEntry.varName, attrs, engineCtx);
           for (const l of attrLines) lines.push(l);
           pendingAttrName = null;
           if (remainder.trim()) {
@@ -1669,7 +1825,7 @@ export function emitConsolidatedLift(body, opts = {}) {
           const attrPart = firstTagIdx === -1 ? expr : expr.slice(0, firstTagIdx);
           const remainder = firstTagIdx === -1 ? "" : expr.slice(firstTagIdx);
           const attrs = parseAttrs(attrPart);
-          const attrLines = emitSetAttrs(elEntry.varName, attrs);
+          const attrLines = emitSetAttrs(elEntry.varName, attrs, engineCtx);
           for (const l of attrLines) lines.push(l);
           pendingAttrName = null;
           if (remainder.trim()) {
@@ -1737,7 +1893,7 @@ export function emitConsolidatedLift(body, opts = {}) {
         // Apply the attribute to the current element using the existing attr/event emitter
         const syntheticAttrsStr = attrName + " = " + attrValue;
         const attrs = parseAttrs(syntheticAttrsStr);
-        const attrLines = emitSetAttrs(elEntry.varName, attrs);
+        const attrLines = emitSetAttrs(elEntry.varName, attrs, engineCtx);
         for (const l of attrLines) lines.push(l);
         pendingAttrName = null;
 
@@ -1760,7 +1916,7 @@ export function emitConsolidatedLift(body, opts = {}) {
       // currentParent() returns that element. Route lift-exprs there, not globally.
       const parent = currentParent();
       if (parent) {
-        const code = emitForStmtWithContainer(child, parent);
+        const code = emitForStmtWithContainer(child, parent, { engineCtx });
         if (code) lines.push(code);
       } else {
         const code = emitLogicNode(child, opts);
@@ -1812,12 +1968,14 @@ export function emitLiftExpr(node, opts = {}) {
   if (!node || !node.expr) return "";
 
   const containerVar = opts.containerVar ?? null;
+  // Bug 65 (S157) — engine codegen ctx for lifted engine-transition handlers.
+  const engineCtx = opts.engineCtx ?? null;
   const liftExpr = node.expr;
 
   if (liftExpr.kind === "markup" && liftExpr.node) {
     // Full markup AST node — walk recursively and emit createElement chains
     const lines = [];
-    const rootVar = emitCreateElementFromMarkup(liftExpr.node, lines);
+    const rootVar = emitCreateElementFromMarkup(liftExpr.node, lines, engineCtx);
     const factoryBody = lines.join("\n  ");
     if (containerVar) {
       return `${containerVar}.appendChild((() => {\n  ${factoryBody}\n  return ${rootVar};\n})());`;

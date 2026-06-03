@@ -2382,7 +2382,27 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       }
       // S96 Issue C — thread fnBodyRegistry so emitForStmt's reactive-iterable
       // predicate can detect transitive @-refs through fn-call iterables.
-      return emitForStmt(node, { dbVar: opts.dbVar, declaredNames: opts.declaredNames, insideFunctionBody: opts.insideFunctionBody, fnBodyRegistry: opts.fnBodyRegistry, boundary: opts.boundary, channelOwnedCells: opts.channelOwnedCells });
+      // Bug 65 (S157) — thread engine codegen extras so a lifted engine-transition
+      // handler inside `${for…lift}` lowers through the SHARED each machinery
+      // (mirrors the if-stmt dispatch above; for-stmt previously dropped them →
+      // silent `_scrml_reactive_get(...).advance(...)` miscompile).
+      return emitForStmt(node, {
+        dbVar: opts.dbVar,
+        declaredNames: opts.declaredNames,
+        insideFunctionBody: opts.insideFunctionBody,
+        fnBodyRegistry: opts.fnBodyRegistry,
+        boundary: opts.boundary,
+        channelOwnedCells: opts.channelOwnedCells,
+        ...(opts.engineBindings ? { engineBindings: opts.engineBindings } : {}),
+        ...(opts.engineVarNames ? { engineVarNames: opts.engineVarNames } : {}),
+        ...(opts.enginesWithHooks ? { enginesWithHooks: opts.enginesWithHooks } : {}),
+        ...(opts.enginesWithOnTimeout ? { enginesWithOnTimeout: opts.enginesWithOnTimeout } : {}),
+        ...(opts.enginesWithIdleWatchdog ? { enginesWithIdleWatchdog: opts.enginesWithIdleWatchdog } : {}),
+        ...(opts.enginesWithInternalRules ? { enginesWithInternalRules: opts.enginesWithInternalRules } : {}),
+        ...(opts.enginesWithHistory ? { enginesWithHistory: opts.enginesWithHistory } : {}),
+        ...(opts.enginesWithMessageArms ? { enginesWithMessageArms: opts.enginesWithMessageArms } : {}),
+        ...(opts.engineMessageVariants ? { engineMessageVariants: opts.engineMessageVariants } : {}),
+      } as any);
 
     case "while-stmt":
       // §32 array accumulator: same pattern as for-stmt above.

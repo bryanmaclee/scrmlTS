@@ -1,7 +1,7 @@
 import { genVar } from "./var-counter.ts";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { emitLogicNode, emitLogicBody } from "./emit-logic.js";
-import { hasFragmentedLiftBody, emitConsolidatedLift, emitLiftExpr, emitIfStmtWithContainer, emitForStmtWithContainer } from "./emit-lift.js";
+import { hasFragmentedLiftBody, emitConsolidatedLift, emitLiftExpr, emitIfStmtWithContainer, emitForStmtWithContainer, buildLiftEngineCtxFromExtras } from "./emit-lift.js";
 import { emitTransitionGuard } from "./emit-machines.ts";
 import { emitStringFromTree } from "../expression-parser.ts";
 import { iterableHasReactiveRefs, type FunctionBodyRegistry } from "./reactive-deps.ts";
@@ -354,9 +354,24 @@ export function emitIfStmt(node: any, opts: IfOpts = {}): string {
  */
 export function emitForStmt(
   node: any,
-  opts?: { dbVar?: string; declaredNames?: Set<string>; insideFunctionBody?: boolean; fnBodyRegistry?: FunctionBodyRegistry | null; boundary?: "client" | "server"; channelOwnedCells?: Set<string> | null },
+  opts?: { dbVar?: string; declaredNames?: Set<string>; insideFunctionBody?: boolean; fnBodyRegistry?: FunctionBodyRegistry | null; boundary?: "client" | "server"; channelOwnedCells?: Set<string> | null;
+    // Bug 65 (S157) — engine codegen extras for lifted engine-transition
+    // handlers (`@engine.advance(.X)` / `@engine = .X` inside `${for…lift}`).
+    // The if-stmt dispatch already threads these (emit-logic.ts:2358); the
+    // for-stmt dispatch now threads them too (emit-logic.ts:2385) so the
+    // lift path can lower engine refs through the SHARED each machinery.
+    engineVarNames?: Set<string> | null; engineBindings?: Map<string, any> | null;
+    enginesWithHooks?: Set<string> | null; enginesWithOnTimeout?: Set<string> | null;
+    enginesWithIdleWatchdog?: Set<string> | null; enginesWithInternalRules?: Set<string> | null;
+    enginesWithHistory?: Set<string> | null; enginesWithMessageArms?: Set<string> | null;
+    engineMessageVariants?: Map<string, Set<string>> | null },
 ): string {
   const lines: string[] = [];
+  // Bug 65 (S157) — assemble the engine codegen ctx ONCE from the threaded
+  // extras so lifted engine-transition handlers lower through the SHARED each
+  // machinery (`emitEngineHandlerBody`). Null when the file declares no engine
+  // (tree-shaken — lifted-handler emission is byte-identical to pre-fix).
+  const _liftEngineCtx = buildLiftEngineCtxFromExtras(opts ?? {});
   // A5 (2026-05-17) — `node.variable` may be a structured DestructurePattern.
   // Render it back to JS source for the for-of LHS. String-form passes through
   // unchanged (`item`, `entry`, etc.).
@@ -438,7 +453,7 @@ export function emitForStmt(
 
     if (hasFragmentedLiftBody(body)) {
       // Pass continueBehavior:"return" so continue-stmts in pre-statements emit `return;`
-      const liftCode = emitConsolidatedLift(body, { directReturn: true, continueBehavior: "return" });
+      const liftCode = emitConsolidatedLift(body, { directReturn: true, continueBehavior: "return", engineCtx: _liftEngineCtx });
       if (liftCode) {
         for (const line of liftCode.split("\n")) {
           lines.push(`  ${line}`);
@@ -449,7 +464,7 @@ export function emitForStmt(
       lines.push(`  const ${tmpContainerVar} = document.createDocumentFragment();`);
       for (const child of body) {
         if (child && child.kind === "lift-expr") {
-          const code = emitLiftExpr(child, { containerVar: tmpContainerVar });
+          const code = emitLiftExpr(child, { containerVar: tmpContainerVar, engineCtx: _liftEngineCtx });
           if (code) {
             for (const line of code.split("\n")) {
               lines.push(`  ${line}`);
@@ -459,7 +474,7 @@ export function emitForStmt(
           // LIFT-5 fix: if-stmt that may contain lift-expr children must route
           // those inner lifts to tmpContainerVar instead of the global ambient
           // _scrml_lift_target (which is null when the reconciler calls this factory).
-          const code = emitIfStmtWithContainer(child, tmpContainerVar, { continueBehavior: "return" });
+          const code = emitIfStmtWithContainer(child, tmpContainerVar, { continueBehavior: "return", engineCtx: _liftEngineCtx });
           if (code) {
             for (const line of code.split("\n")) {
               lines.push(`  ${line}`);
@@ -467,7 +482,7 @@ export function emitForStmt(
           }
         } else if (child && child.kind === "for-stmt") {
           // LIFT-5 fix: nested for-stmt that may contain lift-expr children.
-          const code = emitForStmtWithContainer(child, tmpContainerVar, { continueBehavior: "return" });
+          const code = emitForStmtWithContainer(child, tmpContainerVar, { continueBehavior: "return", engineCtx: _liftEngineCtx });
           if (code) {
             for (const line of code.split("\n")) {
               lines.push(`  ${line}`);
@@ -509,7 +524,7 @@ export function emitForStmt(
   const body: any[] = node.body ?? [];
 
   if (hasFragmentedLiftBody(body)) {
-    const liftCode = emitConsolidatedLift(body);
+    const liftCode = emitConsolidatedLift(body, { engineCtx: _liftEngineCtx });
     if (liftCode) {
       lines.push(`  ${liftCode}`);
     }
