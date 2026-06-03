@@ -1,0 +1,11 @@
+type Line:struct = { n: int, text: string }
+<lines>: Line[] = []
+function setA() { @lines = [{ n: 1, text: "alpha" }, { n: 2, text: "beta" }] }
+function setB() { @lines = [{ n: 9, text: "GAMMA" }, { n: 8, text: "DELTA" }] }
+<div>
+  <button onclick=setA()>A</button>
+  <button onclick=setB()>B</button>
+  ${ for (let ln of @lines) {
+    lift <div class:hot=(ln.n > 5)><span class="ln">${ln.n}</span> ${ln.text}</div>
+  } }
+</div>

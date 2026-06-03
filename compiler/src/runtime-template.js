@@ -1243,6 +1243,36 @@ function _scrml_reconcile_list(container, newItems, keyFn, createFn) {
   // nothing); the each effect re-runs this once the cell-init fires. Also covers a
   // non-array value defensively. Without this, the newItems.length read below throws.
   if (!Array.isArray(newItems)) newItems = [];
+
+  // Bug 64 (S159) — per-item content reactivity on reconcile. Build a fresh
+  // key->item map on EVERY pass (before any fast-path bail) so per-item effects
+  // (live-keyed text / class: / attr interpolation, created inside createFn)
+  // resolve the CURRENT item for their create-time key via
+  // _scrml_resolve_item(container, key). Without this, a same-key reconcile
+  // (array-replace with stable ids, reorder, or the B2 no-op bail) leaves those
+  // effects reading a create-time snapshot item — stale content. The map build
+  // is O(n) per ACTUAL reconcile pass (same order as the diff itself) and does
+  // NOT re-create nodes; Fast-path-B2 below still bails on a no-op.
+  // Compute the key for every item ONCE here (the only keyFn pass for this
+  // reconcile call). The map build, the B2 same-order check, and the LIS path
+  // all reuse this \`newKeys\` array instead of re-invoking keyFn — so the total
+  // keyFn-call count is exactly N per pass, not 2N/3N.
+  const _prevItemMap = container._scrml_item_by_key;
+  const newLen = newItems.length;
+  const newKeys = new Array(newLen);
+  const _itemMap = new Map();
+  for (let _k = 0; _k < newLen; _k++) {
+    const _kk = keyFn(newItems[_k], _k);
+    newKeys[_k] = _kk;
+    _itemMap.set(_kk, newItems[_k]);
+  }
+  container._scrml_item_by_key = _itemMap;
+  // Re-fire per-item effects subscribed to this container's item slot so reused
+  // nodes resolve the new item BY KEY. Skip the very first pass (no prior map):
+  // createFn below creates each effect, which runs once on creation. On an
+  // array-replace / reorder the array CELL change already re-ran the list effect
+  // (which called us); this trigger propagates that to the per-item effects.
+  if (_prevItemMap !== undefined) _scrml_trigger(container, "_scrml_items");
   // Fast path: clear all — avoid iterating old nodes one by one
   if (newItems.length === 0) {
     if (__SCRML_PERF) {
@@ -1280,7 +1310,7 @@ function _scrml_reconcile_list(container, newItems, keyFn, createFn) {
       for (let i = 0; i < newItems.length; i++) {
         const node = createFn(newItems[i], i);
         if (!node) continue; // createFn returned undefined (filtered item)
-        node._scrml_key = keyFn(newItems[i], i);
+        node._scrml_key = newKeys[i];
         const __t_dw = __SCRML_PERF_NOW();
         container.appendChild(node);
         __SCRML_PERF.dom_write.ms += __SCRML_PERF_NOW() - __t_dw;
@@ -1291,7 +1321,7 @@ function _scrml_reconcile_list(container, newItems, keyFn, createFn) {
     for (let i = 0; i < newItems.length; i++) {
       const node = createFn(newItems[i], i);
       if (!node) continue; // createFn returned undefined (filtered item)
-      node._scrml_key = keyFn(newItems[i], i);
+      node._scrml_key = newKeys[i];
       container.appendChild(node);
     }
     return;
@@ -1309,7 +1339,7 @@ function _scrml_reconcile_list(container, newItems, keyFn, createFn) {
     for (const child of container.childNodes) {
       if (child._scrml_key === undefined) continue;
       if (i >= newItems.length) { sameOrder = false; break; }
-      if (keyFn(newItems[i], i) !== child._scrml_key) { sameOrder = false; break; }
+      if (newKeys[i] !== child._scrml_key) { sameOrder = false; break; }
       i++;
     }
     if (sameOrder && i === newItems.length) {
@@ -1317,10 +1347,6 @@ function _scrml_reconcile_list(container, newItems, keyFn, createFn) {
       return;
     }
   }
-
-  const newLen = newItems.length;
-  const newKeys = new Array(newLen);
-  for (let i = 0; i < newLen; i++) newKeys[i] = keyFn(newItems[i], i);
 
   const newKeySet = new Set(newKeys);
   // Remove nodes whose keys are no longer present
@@ -1401,6 +1427,44 @@ function _scrml_reconcile_list(container, newItems, keyFn, createFn) {
       __SCRML_PERF.reconcile_list.count++;
     }
   }
+}
+
+/**
+ * Bug 64 (S159) — resolve the CURRENT item for a reconciled list node by its
+ * stable create-time key. Per-item content bindings (live-keyed text / class: /
+ * attr interpolation) call this on every effect run instead of closing over the
+ * create-time \`item\` argument, so a same-key reconcile (array-replace with
+ * stable ids, or reorder) reflects the new data for that key.
+ *
+ * The \`_scrml_track(container, "_scrml_items")\` read establishes a dependency on
+ * the container's item slot: \`_scrml_reconcile_list\` triggers it after rebuilding
+ * the key->item map, so this effect re-fires and re-resolves. Reading a field of
+ * the resolved item (through the reactive Proxy) ALSO subscribes the effect to
+ * that field, so an in-place field mutation re-fires it directly — no reconcile
+ * needed. Returns null if the key is gone (the node is being removed).
+ *
+ * @param {HTMLElement} container — the reconcile wrapper holding _scrml_item_by_key
+ * @param {*} key — the node's create-time key (keyFn output)
+ * @returns {*} the live item for that key, or null (canonical absence)
+ */
+function _scrml_resolve_item(container, key) {
+  _scrml_track(container, "_scrml_items");
+  const _m = container._scrml_item_by_key;
+  // Canonical compiled-output absence is null (SPEC §42.5) — never the JS
+  // \`undefined\` keyword. The per-item effect guards with \`=== null\` (the
+  // W-CG-UNDEFINED-INTERPOLATION lint forbids \`undefined\` in emitted JS).
+  if (!_m) return null;
+  const _v = _m.get(key);
+  if (_v === undefined) return null;
+  // Return the item as a deep-reactive Proxy so the per-item effect's field
+  // reads (\`item.label\`, \`item.active\`) go through the get trap and subscribe to
+  // \`(rawItem, field)\` — making in-place field mutation (\`@coll[i].f = x\`) re-
+  // fire the effect. _items passed to _scrml_reconcile_list is the RAW cell value
+  // (reactive wrapping is lazy), so without this wrap the stored item is raw and
+  // field reads never trap. _scrml_deep_reactive is identity-stable per backing
+  // object (proxy cache), so subscriptions + mutation triggers target the same
+  // raw object.
+  return _scrml_deep_reactive(_v);
 }
 
 /**

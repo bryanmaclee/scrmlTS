@@ -306,8 +306,11 @@ function renderTemplateChildToJs(
       // `:`-shorthand body — single-expression body becomes textContent.
       // Rewrite `@.` to iterVar so `<li : @.name>` → `item.name`.
       const exprRewritten = rewriteContextualSigil(shorthandExpr, iterVarName);
-      // Cast result to string for textContent assignment.
-      lines.push(`${indent}${elVar}.textContent = String(${exprRewritten});`);
+      // Cast result to string for textContent assignment. Bug 64 (S159) —
+      // live-keyed under a reconcile ctx so same-key reconcile reflects new data.
+      for (const _l of maybeWrapEachPerItemEffect(
+        [`${indent}${elVar}.textContent = String(${exprRewritten});`], iterVarName, indent,
+      )) lines.push(_l);
     } else if (Array.isArray((child as any).children) && (child as any).children.length > 0) {
       // Bare-body — recurse into children.
       const innerFragVar = `_scrml_frag_${nextLocalId()}`;
@@ -360,7 +363,21 @@ function renderTemplateChildToJs(
     // of the factory closure).
     let rewritten = rewriteContextualSigil(inner, iterVarName);
     rewritten = rewriteAtCellAccess(rewritten);
-    lines.push(`${indent}${fragmentVar}.appendChild(document.createTextNode(String(${rewritten})));`);
+    // Bug 64 / R28-1c (S159) — inside a reconciled per-item factory, make this
+    // `${...}` interpolation LIVE-KEYED: a stable text node + a live-keyed
+    // effect that re-resolves the item by key on every reconcile (and tracks
+    // item-field reads for in-place mutation). Outside a reconcile ctx (or for a
+    // binding not reading the active iter var) this is the unchanged static append.
+    if (currentEachReconcileCtx() && currentEachReconcileCtx()!.iterVar === iterVarName) {
+      const _tnVar = `_scrml_each_tn_${nextLocalId()}`;
+      lines.push(`${indent}const ${_tnVar} = document.createTextNode("");`);
+      lines.push(`${indent}${fragmentVar}.appendChild(${_tnVar});`);
+      for (const _l of maybeWrapEachPerItemEffect(
+        [`${indent}${_tnVar}.textContent = String(${rewritten});`], iterVarName, indent,
+      )) lines.push(_l);
+    } else {
+      lines.push(`${indent}${fragmentVar}.appendChild(document.createTextNode(String(${rewritten})));`);
+    }
     return;
   }
 
@@ -594,7 +611,12 @@ function renderTemplateAttrToJs(
       cond = "false";
     }
     if (!cond) cond = "false";
-    lines.push(`${indent}${elVar}.classList.toggle(${JSON.stringify(className)}, !!(${cond}));`);
+    // Bug 64 / R28-1c (S159) — was a BARE classList.toggle (sibling-gap #1: not
+    // even field-mutation reactive). Now live-keyed so class: re-evaluates on
+    // array-replace / reorder / in-place field mutation, matching Tier-0.
+    for (const _l of maybeWrapEachPerItemEffect(
+      [`${indent}${elVar}.classList.toggle(${JSON.stringify(className)}, !!(${cond}));`], iterVarName, indent,
+    )) lines.push(_l);
     return;
   }
 
@@ -650,19 +672,27 @@ function renderTemplateAttrToJs(
   }
 
   // ---- (3) ${...} interpolation / @.field value → setAttribute value ------
+  // Bug 64 / R28-1c (S159) — per-item attr interpolation is live-keyed too so
+  // an attr value bound to item data refreshes on reconcile (matches Tier-0).
   if (valKind === "expr") {
     const expr = rewriteIterValueExpr(String(val.raw ?? ""), iterVarName);
-    lines.push(`${indent}${elVar}.setAttribute(${JSON.stringify(aName)}, String(${expr}));`);
+    for (const _l of maybeWrapEachPerItemEffect(
+      [`${indent}${elVar}.setAttribute(${JSON.stringify(aName)}, String(${expr}));`], iterVarName, indent,
+    )) lines.push(_l);
     return;
   }
   if (valKind === "variable-ref") {
     const expr = rewriteIterValueExpr(String(val.name ?? ""), iterVarName);
-    lines.push(`${indent}${elVar}.setAttribute(${JSON.stringify(aName)}, String(${expr}));`);
+    for (const _l of maybeWrapEachPerItemEffect(
+      [`${indent}${elVar}.setAttribute(${JSON.stringify(aName)}, String(${expr}));`], iterVarName, indent,
+    )) lines.push(_l);
     return;
   }
   if (valKind === "call-ref") {
     const expr = rewriteIterValueExpr(`${String(val.name ?? "")}(${serializeCallArgs(val, iterVarName)})`, iterVarName);
-    lines.push(`${indent}${elVar}.setAttribute(${JSON.stringify(aName)}, String(${expr}));`);
+    for (const _l of maybeWrapEachPerItemEffect(
+      [`${indent}${elVar}.setAttribute(${JSON.stringify(aName)}, String(${expr}));`], iterVarName, indent,
+    )) lines.push(_l);
     return;
   }
 
@@ -909,6 +939,66 @@ function resetLocalIdCounter(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Bug 64 / R28-1c (S159) — Tier-1 `<each>` per-item content reactivity on
+// reconcile. Mirrors the Tier-0 (emit-lift.js) live-keyed model so BOTH tiers
+// end on ONE per-item binding shape.
+//
+// `_scrml_reconcile_list` reuses DOM nodes for same-key items and bails the B2
+// fast path without re-running the per-item factory, so per-item TEXT and class:
+// bindings that closed over the create-time iter var showed stale content on
+// array-replace / reorder. Worse, the Tier-1 class: lowered to a BARE
+// `classList.toggle` with NO effect at all — not even field-mutation reactive.
+//
+// Fix: while emitting an each per-item factory body, a reconcile ctx is active
+// on this stack. Per-item TEXT + class:/attr bindings then wrap in a live-keyed
+// `_scrml_effect` that re-resolves the CURRENT item for the node's create-time
+// key via `_scrml_resolve_item(<mount>, <keyVar>)`, rebinds the iter var, then
+// evaluates the binding. The resolver read tracks the mount's item slot
+// (reconcile triggers it → array-replace/reorder re-fire) and item-field reads
+// through the Proxy subscribe the effect (→ in-place field mutation re-fires).
+// ---------------------------------------------------------------------------
+
+interface EachReconcileCtx {
+  mountVar: string;   // the _scrml_reconcile_list container (resolve target)
+  keyVar: string;     // the per-item create-time key local
+  iterVar: string;    // the iteration variable name
+}
+
+// Codegen is synchronous + single-threaded → a module-level stack is safe.
+const _eachReconcileCtxStack: EachReconcileCtx[] = [];
+function pushEachReconcileCtx(ctx: EachReconcileCtx): void { _eachReconcileCtxStack.push(ctx); }
+function popEachReconcileCtx(): void { _eachReconcileCtxStack.pop(); }
+function currentEachReconcileCtx(): EachReconcileCtx | null {
+  const n = _eachReconcileCtxStack.length;
+  return n > 0 ? _eachReconcileCtxStack[n - 1] : null;
+}
+
+/**
+ * Wrap a per-item binding's JS body lines in a live-keyed `_scrml_effect` IF a
+ * reconcile ctx is active for the iter var the binding reads; otherwise return
+ * the body unchanged. The `iterVarName` argument must match the active ctx
+ * (nested eaches push their own ctx; the binding belongs to the innermost).
+ *
+ * The wrapper rebinds the iter var to the live item (resolved by the node's
+ * create-time key) before running the body, so the body's `<iter>.field` reads
+ * hit the live Proxy. A `=== null` guard (canonical absence, SPEC §42.5) skips
+ * the body when the key is gone.
+ */
+function maybeWrapEachPerItemEffect(bodyLines: string[], iterVarName: string, indent: string): string[] {
+  const ctx = currentEachReconcileCtx();
+  if (!ctx || ctx.iterVar !== iterVarName) return bodyLines;
+  const out: string[] = [];
+  out.push(`${indent}_scrml_effect(() => {`);
+  out.push(`${indent}  let ${ctx.iterVar} = _scrml_resolve_item(${ctx.mountVar}, ${ctx.keyVar});`);
+  out.push(`${indent}  if (${ctx.iterVar} === null) return;`);
+  // Re-indent body lines +2 so the wrapped statement nests cleanly inside the
+  // effect (the caller passes them at the binding's own indent).
+  for (const l of bodyLines) out.push("  " + l);
+  out.push(`${indent}});`);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Key inference + extraction
 // ---------------------------------------------------------------------------
 
@@ -1056,6 +1146,13 @@ function emitEachReconcileLines(
   lines.push(`${indent}  (${iterVarName}, ${iterIdxName}) => ${keyFnBody},`);
   lines.push(`${indent}  (${iterVarName}, ${iterIdxName}) => {`);
   lines.push(`${indent}    const _itemFrag = document.createDocumentFragment();`);
+  // Bug 64 / R28-1c (S159) — capture this node's create-time key (the SAME
+  // expression the keyFn above uses) so per-item text/class bindings can
+  // re-resolve the LIVE item by key on every reconcile. Push a reconcile ctx so
+  // those bindings (emitted by renderTemplate*ToJs below) become live-keyed.
+  const _eachKeyVar = `_scrml_each_key_${nextLocalId()}`;
+  lines.push(`${indent}    const ${_eachKeyVar} = ${keyFnBody};`);
+  pushEachReconcileCtx({ mountVar, keyVar: _eachKeyVar, iterVar: iterVarName });
 
   // Walk template children — produce DOM-build JS.
   const templateLines: string[] = [];
@@ -1063,6 +1160,7 @@ function emitEachReconcileLines(
     renderTemplateChildToJs(child, iterVarName, iterIdxName, "_itemFrag", templateLines, `${indent}    `, engineCtx);
   }
   for (const l of templateLines) lines.push(l);
+  popEachReconcileCtx();
 
   lines.push(`${indent}    return _itemFrag.firstChild;`);
   lines.push(`${indent}  }`);

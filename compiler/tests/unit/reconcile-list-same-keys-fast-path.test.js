@@ -278,7 +278,7 @@ describe("§7 bulk create from empty — pre-existing bulk fast-path wins; B2 no
   });
 });
 
-describe("§8 keyFn invocation count — B2 calls keyFn once per matched item, bails on mismatch", () => {
+describe("§8 keyFn invocation count — Bug 64 (S159): one keyFn pass per reconcile (map build); B2/LIS reuse the precomputed keys", () => {
   test("same-order hit: keyFn called N times total (B2 fast-path), not 2N", () => {
     const rt = createRuntime();
     const { container } = makeContainerWithKeyedChildren([1, 2, 3, 4, 5]);
@@ -288,11 +288,13 @@ describe("§8 keyFn invocation count — B2 calls keyFn once per matched item, b
 
     rt._scrml_reconcile_list(container, newItems, keyFn, () => null);
 
-    // B2 calls keyFn once per item until last; LIS path would call N more times at line 1295
+    // Bug 64 (S159): keyFn is invoked exactly ONCE per item in the up-front
+    // key/map build pass (N=5). B2 same-order check reuses the precomputed
+    // newKeys[] (no extra keyFn calls) and bails — total 5, not 2N.
     expect(keyFnCalls).toBe(5);
   });
 
-  test("mismatch at position 2: keyFn called 3 times (positions 0, 1, 2 before bail)", () => {
+  test("mismatch at position 2: keyFn still called N=5 times (single map-build pass; B2 + LIS reuse the keys)", () => {
     const rt = createRuntime();
     const { container } = makeContainerWithKeyedChildren([1, 2, 3, 4, 5]);
     const newItems = [{ id: 1 }, { id: 2 }, { id: 99 }, { id: 4 }, { id: 5 }];
@@ -305,9 +307,10 @@ describe("§8 keyFn invocation count — B2 calls keyFn once per matched item, b
 
     rt._scrml_reconcile_list(container, newItems, keyFn, createFn);
 
-    // B2: 3 calls before mismatch detection (positions 0, 1, 2 — 0+1 match, 2 fails)
-    // LIS path then runs: lines 1294-1295 call keyFn N more times = 5 more.
-    // Total: 3 + 5 = 8 calls.
-    expect(keyFnCalls).toBe(8);
+    // Bug 64 (S159): keyFn runs ONCE per item in the up-front key/map build
+    // pass (N=5). The B2 same-order check reuses newKeys[] and bails at
+    // position 2 (no keyFn calls); the LIS path also reuses newKeys[] (no
+    // recompute). Total: 5, not the pre-fix 3 (B2) + 5 (LIS) = 8.
+    expect(keyFnCalls).toBe(5);
   });
 });

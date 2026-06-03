@@ -1,0 +1,11 @@
+type Line:struct = { id: string, n: int, text: string }
+<lines>: Line[] = []
+function setA() { @lines = [{ id: "a", n: 1, text: "alpha" }, { id: "b", n: 2, text: "beta" }] }
+function setB() { @lines = [{ id: "a", n: 9, text: "GAMMA" }, { id: "b", n: 8, text: "DELTA" }] }
+<div>
+  <button onclick=setA()>A</button>
+  <button onclick=setB()>B</button>
+  <each in=@lines as ln key=@.id>
+    <div class:hot=(@.n > 5)><span class="ln">${@.n}</span> ${@.text}</div>
+  </each>
+</div>

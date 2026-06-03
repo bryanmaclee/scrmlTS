@@ -274,9 +274,11 @@ describe("R25-Bug-40 §6 — positive control (regression guard)", () => {
 </program>`;
     const { errors, clientJs } = compileToOutputs(src, "bug40-bare");
     expect(errors).toEqual([]);
-    // Bare-body path emits createTextNode (logic interpolation).
+    // Bare-body path. Bug 64 (S159): the `${@.name}` interpolation is now LIVE-
+    // KEYED — a stable text node + `textContent = String(...)` inside the per-
+    // item effect. The semantic invariant (@.name → _scrml_each_item.name) holds.
     expect(clientJs).toMatch(/document\.createElement\("li"\)/);
-    expect(clientJs).toMatch(/createTextNode\(String\(_scrml_each_item\.name\)\)/);
+    expect(clientJs).toMatch(/\.textContent = String\(_scrml_each_item\.name\)/);
   });
 });
 

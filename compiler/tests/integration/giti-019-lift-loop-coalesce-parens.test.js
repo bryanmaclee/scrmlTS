@@ -103,9 +103,12 @@ describe("GITI-019 §1: lift-loop interpolation with || emits valid JS", () => {
   test("inner expr is parenthesized before the coalesce guard", () => {
     const result = compileSource("repro.scrml", REPRO_SOURCE);
     const client = clientJsFor(result, "repro.scrml");
-    // The fixed form: parens wrap the source expr; the broken form had none.
-    expect(client).toContain('createTextNode(String((e.description || "(no message)") ?? ""))');
-    // Guard against regression to the illegal form.
+    // Bug 64 (S159): reactive ${for...lift} per-item text is now LIVE-KEYED —
+    // the interpolation drives a stable text node's textContent inside an
+    // _scrml_effect (not a one-shot createTextNode). The GITI-019 invariant is
+    // unchanged: the source expr is parenthesized before the `?? ""` coalesce.
+    expect(client).toContain('textContent = String((e.description || "(no message)") ?? "")');
+    // Guard against regression to the illegal unparenthesized `||` + `??` mix.
     expect(client).not.toContain('String(e.description || "(no message)" ?? "")');
   });
 });
@@ -134,7 +137,9 @@ describe("GITI-019 §2: lift-loop interpolation with && also parenthesizes", () 
     const client = clientJsFor(result, "repro-and.scrml");
     expect(typeof client).toBe("string");
     expect(isValidEsm(client).ok).toBe(true);
-    expect(client).toContain('createTextNode(String((e.description && "has-value") ?? ""))');
+    // Bug 64 (S159): live-keyed per-item text — same parenthesized invariant,
+    // now on a textContent assignment inside the per-item effect.
+    expect(client).toContain('textContent = String((e.description && "has-value") ?? "")');
   });
 });
 

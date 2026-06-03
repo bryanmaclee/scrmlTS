@@ -1,7 +1,7 @@
 import { genVar } from "./var-counter.ts";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { emitLogicNode, emitLogicBody } from "./emit-logic.js";
-import { hasFragmentedLiftBody, emitConsolidatedLift, emitLiftExpr, emitIfStmtWithContainer, emitForStmtWithContainer, buildLiftEngineCtxFromExtras } from "./emit-lift.js";
+import { hasFragmentedLiftBody, emitConsolidatedLift, emitLiftExpr, emitIfStmtWithContainer, emitForStmtWithContainer, buildLiftEngineCtxFromExtras, pushLiftReconcileCtx, popLiftReconcileCtx } from "./emit-lift.js";
 import { emitTransitionGuard } from "./emit-machines.ts";
 import { emitStringFromTree } from "../expression-parser.ts";
 import { iterableHasReactiveRefs, type FunctionBodyRegistry } from "./reactive-deps.ts";
@@ -458,6 +458,13 @@ export function emitForStmt(
     lines.push(`_scrml_lift(${wrapperVar});`);
 
     lines.push(`function ${createFnVar}(${varName}, _scrml_idx) {`);
+    // Bug 64 (S159) — capture this node's create-time key + push a reconcile
+    // ctx so per-item text/class bindings (emitted by the lift body below)
+    // become live-keyed effects that re-resolve the item by key each reconcile.
+    // MUST mirror the keyFn passed to _scrml_reconcile_list below (id-or-index).
+    const keyVar = genVar("item_key");
+    lines.push(`  const ${keyVar} = ${varName}?.id != null ? ${varName}.id : _scrml_idx;`);
+    pushLiftReconcileCtx({ wrapperVar, keyVar, iterVar: varName });
 
     if (hasFragmentedLiftBody(body)) {
       // Pass continueBehavior:"return" so continue-stmts in pre-statements emit `return;`
@@ -509,6 +516,7 @@ export function emitForStmt(
       }
       lines.push(`  return ${tmpContainerVar}.firstChild;`);
     }
+    popLiftReconcileCtx();
     lines.push(`}`);
 
     lines.push(`function ${renderFn}() {`);

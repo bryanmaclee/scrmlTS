@@ -9,6 +9,69 @@ import { isDestructurePattern, emitDestructurePatternText } from "./emit-destruc
 import { detectPredicateShapeBind } from "./predicate-bind-detector.js";
 
 // ---------------------------------------------------------------------------
+// Bug 64 (S159) — Tier-0 per-item content reactivity on reconcile.
+//
+// When a reactive `${for…lift}` is lowered to `_scrml_reconcile_list`, the
+// createFn builds each item's DOM ONCE. Per-item interpolated TEXT and class:
+// bindings used to close over the create-time iter var (the factory arg), which
+// is dead after creation. On a same-key reconcile (array-replace with stable
+// ids, reorder, or the B2 no-op bail) the node is REUSED and never rebuilt, so
+// those bindings showed stale content.
+//
+// Fix: while emitting a createFn body, a reconcile ctx is active on this stack.
+// Per-item bindings are then wrapped in a live-keyed `_scrml_effect` that, on
+// every run, re-resolves the CURRENT item for the node's create-time key via
+// `_scrml_resolve_item(<wrapper>, <keyVar>)`, rebinds the iter var to it, then
+// evaluates the original binding body. The resolver read tracks the wrapper's
+// item slot (reconcile triggers it → array-replace/reorder re-fire), and any
+// item-field read through the Proxy subscribes the effect directly (→ in-place
+// field mutation re-fires it). This matches the Tier-1 (emit-each.ts) model so
+// both tiers end on ONE live-keyed per-item binding shape.
+// ---------------------------------------------------------------------------
+
+// Stack of active reconcile contexts (codegen is synchronous + single-threaded,
+// so a module-level stack is safe — same pattern as the shared genVar counter).
+// Each entry: { wrapperVar, keyVar, iterVar } — the reconcile wrapper element
+// var, the per-item key local, and the iteration variable name.
+const _scrml_lift_reconcile_ctx_stack = [];
+
+export function pushLiftReconcileCtx(ctx) { _scrml_lift_reconcile_ctx_stack.push(ctx); }
+export function popLiftReconcileCtx() { _scrml_lift_reconcile_ctx_stack.pop(); }
+function currentLiftReconcileCtx() {
+  const n = _scrml_lift_reconcile_ctx_stack.length;
+  return n > 0 ? _scrml_lift_reconcile_ctx_stack[n - 1] : null;
+}
+
+/**
+ * Wrap a per-item binding's JS body in a live-keyed `_scrml_effect` IF a
+ * reconcile ctx is active; otherwise return the body lines unchanged (a lift
+ * outside a reconciled list, or a non-reactive plain `for`).
+ *
+ * `bodyLines` is an array of JS statements (already referencing the iter var).
+ * The wrapper rebinds the iter var to the live item before running the body, so
+ * the body's `item.field` reads hit the live Proxy.
+ *
+ * @param {string[]} bodyLines — JS statements forming the binding body
+ * @returns {string[]} — either the wrapped effect lines or bodyLines unchanged
+ */
+function maybeWrapLiftPerItemEffect(bodyLines) {
+  const ctx = currentLiftReconcileCtx();
+  if (!ctx) return bodyLines;
+  const out = [];
+  out.push(`_scrml_effect(() => {`);
+  // Re-resolve the live item by this node's create-time key; bail if the key is
+  // gone (node being removed) so the body never reads a field off `undefined`.
+  out.push(`  let ${ctx.iterVar} = _scrml_resolve_item(${ctx.wrapperVar}, ${ctx.keyVar});`);
+  // Canonical absence is null (SPEC §42.5) — the W-CG-UNDEFINED-INTERPOLATION
+  // lint forbids the `undefined` keyword in emitted JS. _scrml_resolve_item
+  // returns null when the key is gone (node being removed).
+  out.push(`  if (${ctx.iterVar} === null) return;`);
+  for (const l of bodyLines) out.push('  ' + l);
+  out.push(`});`);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Bug 65 (S157) — Tier-0 `${for…lift}` engine-transition handler lowering.
 //
 // SIBLING of Bug 62 (the Tier-1 `<each>` fix in emit-each.ts). A lifted event
@@ -647,7 +710,18 @@ function emitSetAttrs(elVar, attrs, engineCtx = null) {
       const className = attr.name.slice(6);
       const raw = (attr.value ?? "").trim();
       const condExpr = emitExprField(null, raw, { mode: "client" });
-      lines.push(`_scrml_effect(() => { ${elVar}.classList.toggle(${JSON.stringify(className)}, !!(${condExpr})); });`);
+      // Bug 64 (S159) — inside a reconciled per-item factory, make class: LIVE-
+      // KEYED (re-resolve the item by key on every reconcile; track item-field
+      // reads for in-place mutation). Outside a reconcile ctx, the original
+      // bare _scrml_effect wrap stands (byte-identical to pre-fix).
+      {
+        const _toggleStmt = `${elVar}.classList.toggle(${JSON.stringify(className)}, !!(${condExpr}));`;
+        if (currentLiftReconcileCtx()) {
+          for (const l of maybeWrapLiftPerItemEffect([_toggleStmt])) lines.push(l);
+        } else {
+          lines.push(`_scrml_effect(() => { ${_toggleStmt} });`);
+        }
+      }
     } else if (/^on[a-z]/.test(attr.name)) {
       // BUG-6 fix: event attributes like onclick, ondblclick, onsubmit
       // must use addEventListener, not setAttribute
@@ -768,6 +842,19 @@ function emitSetContent(elVar, parts) {
     }
   }
   tpl += "`";
+  // Bug 64 (S159) — inside a reconciled per-item factory, make interpolated
+  // text LIVE-KEYED: create the text node once, then drive its textContent from
+  // a live-keyed effect (re-resolves the item by key on every reconcile + tracks
+  // item-field reads for in-place mutation). Outside a reconcile ctx this is the
+  // unchanged static append.
+  if (currentLiftReconcileCtx()) {
+    const tnVar = genVar('lift_tn');
+    const out = [];
+    out.push(`const ${tnVar} = document.createTextNode("");`);
+    out.push(`${elVar}.appendChild(${tnVar});`);
+    for (const l of maybeWrapLiftPerItemEffect([`${tnVar}.textContent = ${tpl};`])) out.push(l);
+    return out;
+  }
   return [`${elVar}.appendChild(document.createTextNode(${tpl}));`];
 }
 
@@ -882,7 +969,18 @@ export function emitCreateElementFromMarkup(node, lines, engineCtx = null, scope
         const rewrittenName = emitExprField(null, val.name, { mode: "client" });
         condExpr = `${rewrittenName}(${rawArgs})`;
       }
-      lines.push(`_scrml_effect(() => { ${elVar}.classList.toggle(${JSON.stringify(className)}, !!(${condExpr})); });`);
+      // Bug 64 (S159) — inside a reconciled per-item factory, make class: LIVE-
+      // KEYED (re-resolve the item by key on every reconcile; track item-field
+      // reads for in-place mutation). Outside a reconcile ctx, the original
+      // bare _scrml_effect wrap stands (byte-identical to pre-fix).
+      {
+        const _toggleStmt = `${elVar}.classList.toggle(${JSON.stringify(className)}, !!(${condExpr}));`;
+        if (currentLiftReconcileCtx()) {
+          for (const l of maybeWrapLiftPerItemEffect([_toggleStmt])) lines.push(l);
+        } else {
+          lines.push(`_scrml_effect(() => { ${_toggleStmt} });`);
+        }
+      }
       continue;
     }
 
@@ -1060,7 +1158,17 @@ export function emitCreateElementFromMarkup(node, lines, engineCtx = null, scope
               // explicit parens (e.g. `a || b ?? ""` is a SyntaxError). Wrapping the
               // inner expr unconditionally is safe for every shape and is the simplest
               // lowering. Scope: lift-loop/markup-embedded text interpolation only.
-              lines.push(`${elVar}.appendChild(document.createTextNode(String((${rewritten}) ?? "")));`);
+              // Bug 64 (S159) — inside a reconciled per-item factory, make this
+              // `${...}` interpolation LIVE-KEYED (stable text node + live-keyed
+              // effect). Outside a reconcile ctx, unchanged static append.
+              if (currentLiftReconcileCtx()) {
+                const tnVar = genVar('lift_tn');
+                lines.push(`const ${tnVar} = document.createTextNode("");`);
+                lines.push(`${elVar}.appendChild(${tnVar});`);
+                for (const l of maybeWrapLiftPerItemEffect([`${tnVar}.textContent = String((${rewritten}) ?? "");`])) lines.push(l);
+              } else {
+                lines.push(`${elVar}.appendChild(document.createTextNode(String((${rewritten}) ?? "")));`);
+              }
             } else if (logicChild.kind === "lift-expr") {
               // Nested ${ lift <inner/> } inside markup — route to current element
               const code = emitLiftExpr(logicChild, { containerVar: elVar });
@@ -1423,6 +1531,12 @@ export function emitForStmtWithContainer(forNode, containerElVar, opts = {}) {
 
     lines.push(`function ${createFnVar}(${varName}, _scrml_idx) {`);
     lines.push(`  const ${tmpContainerVar} = document.createDocumentFragment();`);
+    // Bug 64 (S159) — capture this node's create-time key so per-item bindings
+    // (text / class:) can re-resolve the LIVE item by key on every reconcile.
+    // MUST mirror the keyFn passed to _scrml_reconcile_list below (id-or-index).
+    const keyVar = genVar('item_key');
+    lines.push(`  const ${keyVar} = ${varName}?.id != null ? ${varName}.id : _scrml_idx;`);
+    pushLiftReconcileCtx({ wrapperVar, keyVar, iterVar: varName });
 
     for (const child of body) {
       if (!child) continue;
@@ -1447,6 +1561,7 @@ export function emitForStmtWithContainer(forNode, containerElVar, opts = {}) {
       }
     }
 
+    popLiftReconcileCtx();
     lines.push(`  return ${tmpContainerVar}.firstChild;`);
     lines.push(`}`);
 
