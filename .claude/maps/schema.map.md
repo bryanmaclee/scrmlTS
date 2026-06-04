@@ -1,10 +1,10 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-06-03T21:31:18Z  commit: 97fe2199
+# updated: 2026-06-03T22:40:00Z  commit: f9d4b0f1
 
 Authoritative AST type source: `compiler/src/types/ast.ts` (1983L+, TypeScript).
 IR types: `compiler/src/codegen/ir.ts` (253 lines).
-Type-system internals: `compiler/src/type-system.ts` (17374L — internal interfaces, not exported).
+Type-system internals: `compiler/src/type-system.ts` (17436L — internal interfaces, not exported).
 Symbol-table exports: `compiler/src/symbol-table.ts` (11280L — `MessageArmEntry`, `PayloadBinding`, `EngineStateChildEntry`).
 Enum-subset shared recognizer: `compiler/src/enum-subset-refinement.ts` (143L — `EnumSubsetParse`, `parseEnumSubsetAnnotation`).
 
@@ -188,7 +188,7 @@ TildeState: "uninitialized" | "initialized"
 
 ---
 
-## Emit-Each Internal Types  [compiler/src/codegen/emit-each.ts — S156-S158]
+## Emit-Each Internal Types  [compiler/src/codegen/emit-each.ts — S156-S159]
 
 ### EachEngineCtx  [emit-each.ts:73]
 engineRewriteCtx: EngineRewriteCtx | null — for assign form (`@engine = .X`); passed to `rewriteBlockBody`
@@ -201,9 +201,11 @@ Exported; re-used by emit-lift.js `buildLiftEngineCtx`/`buildLiftEngineCtxFromEx
 ### EachReconcileCtx  [emit-each.ts:961]
 mountVar: string — the `_scrml_reconcile_list` container var (the `_scrml_resolve_item` target)
 keyVar: string — the per-item create-time key local (captured as `item?.id != null ? item.id : _scrml_idx`)
-iterVar: string — the iteration variable name (matched by `maybeWrapEachPerItemEffect`)
+iterVar: string — the iteration variable name (matched by `maybeWrapEachPerItemEffect` and `maybeWrapEachPerItemHandler`)
 
 **S158 (Bug 64/R28-1c):** Module-level stack `_eachReconcileCtxStack: EachReconcileCtx[]`. `pushEachReconcileCtx` is called inside `emitEachReconcileLines` after the `_scrml_reconcile_list(...)` call; `popEachReconcileCtx` after the createFn body. Sibling shape in emit-lift.js: `_scrml_lift_reconcile_ctx_stack` with `pushLiftReconcileCtx`/`popLiftReconcileCtx`.
+
+**S159 (Bug 73):** The same `EachReconcileCtx` (read via `currentEachReconcileCtx()`) is also checked by `maybeWrapEachPerItemHandler` / `iterScopeReferencedInHandler` to decide whether to prepend the fire-time resolver prelude inside per-item event handler bodies. The Tier-0 sibling reads the Tier-0 stack via `currentLiftReconcileCtx()`.
 
 ---
 
@@ -242,7 +244,7 @@ Whitespace-tolerant parser for `"EnumName oneOf([.A,.B])"` / `"notIn([.C])"` ann
 ---
 
 ## Tags
-#scrmlts #map #schema #ast #types #compiler #ir #protect-analyzer #match-arm #enum-subset #message-dispatch #predicated-type #each-reconcile-ctx #each-engine-ctx #s154 #s155 #s156 #s157 #s158 #bug64 #bug71 #r28-1c
+#scrmlts #map #schema #ast #types #compiler #ir #protect-analyzer #match-arm #enum-subset #message-dispatch #predicated-type #each-reconcile-ctx #each-engine-ctx #s154 #s155 #s156 #s157 #s158 #s159 #bug64 #bug71 #bug73 #r28-1c
 
 ## Links
 - [primary.map.md](./primary.map.md)

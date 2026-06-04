@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-06-03T21:31:18Z  commit: 97fe2199
+# updated: 2026-06-03T22:40:00Z  commit: f9d4b0f1
 
 scrml's own language error model is values-not-exceptions (SPEC §19.1 — no try/catch, no throw).
 The compiler itself surfaces structured CGError objects to the caller; it never throws on bad input.
@@ -13,7 +13,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 - All other codes → result.errors (fatal, CLI exits 1)
 - Cross-stream helper required when asserting on W-*/I-* codes in tests (see diagnostic-stream-partition memory note)
 
-## Error Code Families (379+ distinct codes in compiler source)
+## Error Code Families (380+ distinct codes in compiler source)
 
 | Family | Count | Description |
 |--------|-------|-------------|
@@ -26,6 +26,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-CHANNEL-* | ~10 | Channel declaration errors |
 | E-CLOSURE-* | 2 | Closure scope errors |
 | E-CODEGEN-INVALID-JS | 1 | Emitted-JS parse-gate invariant (default-ON, S142): emitted JS fails `node --check`. S153 closed two false-fire classes; S157 Bug 70: gate SUPPRESSED when compilation already has a prior fatal error (api.js `hasPriorFatalError` check) — codegen-of-invalid-source after an E-SYNTAX-064 is EXPECTED, not a compiler defect |
+| E-COLON-SHORTHAND-ON-VOID | 1 | **(S159 NEW — §4.14 / §34)** A void HTML element (`input`, `br`, `hr`, SVG `rect`/`circle`/`line`/`path`/`polyline`/`polygon`, etc.) carries a `:`-shorthand body (`<input : @val>`). A void element has no content model; bind via an ATTRIBUTE instead (e.g. `<input bind:value=@x/>`). Fired by type-system.ts `markup` visitor when `closerForm === "shorthand"` and `getElementShape(tag).isVoid === true` [type-system.ts:5004]. Fatal. |
 | E-COMPONENT-* | ~15 | Component definition/usage errors |
 | E-CONTRACT-* | 4 | Server-fn contract errors: E-CONTRACT-001 (static literal fails predicate), E-CONTRACT-001-RT (runtime boundary), E-CONTRACT-002 (named shape not in registry; also: enum-subset error marker at decl-site, S156), E-CONTRACT-003 (predicate refs external reactive var) |
 | E-CPS-* | 6 | CPS async planner errors (idempotency, multibatch reorder/machine-crossing) |
@@ -33,7 +34,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-CTX-* | 2 | Context errors (E-CTX-001: unclosed block; E-CTX-003: shorthand confusion) |
 | E-DECL-NEEDS-INITIALIZER | 1 | (S152) — non-array typed-decl with no RHS; only `T[]` typed-array decls may omit RHS (default `[]` per §6.2 Shape 4) [ast-builder.js:4236] |
 | E-DERIVED-* | 7 | Derived-value errors (circular-dep, engine-no-initial/rules/write, value-mutate) |
-| E-DG-* | 2 | Dependency graph errors — E-DG-002 false-positive fix: credits lambda-body @var reads + `<match on=@cell>` block-form headers [dependency-graph.ts]; Bug 60 (S157): render-by-tag tag-name structural-read credit added (cells consumed ONLY through render-by-tag no longer fire E-DG-002) |
+| E-DG-* | 2 | Dependency graph errors — E-DG-002 false-positive fix: credits lambda-body @var reads + `<match on=@cell>` block-form headers [dependency-graph.ts]; Bug 60 (S157): render-by-tag tag-name structural-read credit added (cells consumed ONLY through render-by-tag no longer fire E-DG-002); S159: `<span : @label>` body synthesis in ast-builder.js clears the prior false-fire for cells consumed via `:`-shorthand |
 | E-EACH-ITER-SHAPE | 1 | Each iteration shape errors: missing-or-both `of`/`in` attrs [ast-builder.js] |
 | E-ENGINE-* | ~20 | Engine declaration errors (incl. E-ENGINE-010: `given` guard in type-level transitions block); +4 NEW S154-S155 codes (see Key New Codes below) |
 | E-ENGINE-ACCEPTS-NOT-ENUM | 1 | **(S154-S155 NEW)** `<engine for=T accepts=MsgType>` — `MsgType` is not a declared `:enum` type (or is absent from typeDecls). Fired at SYM PASS 11 in symbol-table.ts [symbol-table.ts:5939] |
@@ -63,8 +64,8 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-SQL-* | ~8 | SQL context errors |
 | E-STMT-* | 43 | Native-parser statement grammar codes (§34.1) |
 | E-SWITCH-FORBIDDEN | 1 | `switch` keyword in scrml source |
-| E-SYNTAX-* | ~11 | Syntax errors (E-SYNTAX-042..044: null/undefined in source; **E-SYNTAX-064 NEW S157**: `@.` contextual sigil used outside an `<each>` body scope — replaces the false E-SCOPE-001 / confusing E-CODEGEN-INVALID-JS on that class) |
-| E-SYNTAX-064 | 1 | **(S157 NEW/PROMOTED)** `@.` or `@.field` used outside an `<each>` body scope (§17.7.3). Fired at two sites: (1) TS markup-attr-value walk when `value.name` starts with `@.` and `!inEachBodyScope()` [type-system.ts:7434]; (2) TS `visitAttr` for variable-ref attr values [type-system.ts:6643]. Replaces the cascade to E-SCOPE-001 or E-CODEGEN-INVALID-JS on the same class. |
+| E-SYNTAX-* | ~11 | Syntax errors (E-SYNTAX-042..044: null/undefined in source; **E-SYNTAX-064 NEW S157**: `@.` contextual sigil used outside an `<each>` body scope — replaces the false E-SCOPE-001 / confusing E-CODEGEN-INVALID-JS on that class; S159 R3: extended to shorthand-body positions) |
+| E-SYNTAX-064 | 1 | **(S157 NEW/PROMOTED; S159 R3 extended)** `@.` or `@.field` used outside an `<each>` body scope (§17.7.3). Fired at three sites: (1) TS markup-attr-value walk when `value.name` starts with `@.` and `!inEachBodyScope()` [type-system.ts:7434]; (2) TS `visitAttr` for variable-ref attr values [type-system.ts:6643]; (3) S159 R3: `:`-shorthand body positions outside any `<each>` body scope (e.g. `<li : @.name>` not inside an `<each>`) [type-system.ts:5016+]. Replaces the cascade to E-SCOPE-001 or E-CODEGEN-INVALID-JS on the same class. |
 | E-TEST-* | 6 | Test block errors (E-TEST-001..006) |
 | E-TIMEOUT-* | 2 | Engine timeout errors |
 | E-TYPE-* | ~20 | Type system errors (E-TYPE-001 dormancy fix for object-literal lifecycle, S151 C4); **E-TYPE-063** used by Bug 63 (S157) for invalid `.advance(.V)` variant at markup handler-attr position |
@@ -96,7 +97,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | I-MATCH-PROMOTABLE | 1 | Info: match eligible for engine promotion (§56) |
 | I-PARSER-NATIVE-SHADOW | 1 | Info: native parser shadows live-pipeline result |
 
-## Key New / Changed Codes Since Watermark c665714c (S154-S158)
+## Key New / Changed Codes Since Watermark c665714c (S154-S159)
 
 ### S154 — #14 event-payload-transition (parser batch 1)
 No new diagnostics; existing codes extended. `accepts=MsgType` is recorded verbatim on the AST; the typer batch 2 (S155) owns the resolution diagnostic.
@@ -121,6 +122,11 @@ No new diagnostics; existing codes extended. `accepts=MsgType` is recorded verba
 ### S158 — Bug 64 / R28-1c per-item content reactivity + Bug 72 completion
 - Bug 64/R28-1c: NO new error codes. The failure mode was stale content (no compiler error). Fix is purely codegen + runtime (EachReconcileCtx stack + _scrml_resolve_item).
 - Bug 72 completion: see S157 — fully closed between S157 (ast-builder bare-@ branch) and the runtime-template / emit-each changes landing here.
+
+### S159 — Bug 73 (per-item handler live-keying) + S154 ruling (a) HTML `:`-shorthand content-model
+- **E-COLON-SHORTHAND-ON-VOID** (NEW) — void HTML element carries `:`-shorthand body; rejected because void elements have no content model (§4.14 / §34). Fired by type-system.ts `markup` visitor [type-system.ts:5004]. Fatal. `<input bind:value=@x/>` is the correct pattern.
+- **E-SYNTAX-064** (extended — S159 R3) — now also fires at `:`-shorthand body positions where the body references `@.` outside any `<each>` body scope. E.g. `<li : @.name>` written as a top-level element (not inside `<each>`) fires E-SYNTAX-064 rather than falling through to E-CODEGEN-INVALID-JS.
+- Bug 73: NO new error code. The failure mode was stale handler data (no compiler error — the handler silently fired against the create-time snapshot). Fix is purely codegen (`maybeWrapEachPerItemHandler` / `maybeWrapLiftPerItemHandler` / `maybeWrapLiftCallableHandler`).
 
 ## Fix Notes
 
@@ -238,6 +244,42 @@ captured as `item?.id != null ? item.id : _scrml_idx` (mirrors `_scrml_reconcile
 `maybeWrapLiftPerItemEffect` wraps per-item bindings identically. Both tiers end on ONE live-keyed
 per-item binding shape.
 
+### Bug 73 — per-item EVENT HANDLER live-keying (S159 — CLOSED)
+Sibling-gap #2 of Bug 64. Per-item event handlers in BOTH tiers closed over the CREATE-TIME iter
+var. On same-key reconcile the handler fired with stale data even after Bug 64 fixed display bindings.
+Fix is DISTINCT from Bug 64: handlers do NOT use `_scrml_effect` (no reactive subscription); instead,
+a fire-time re-resolution prelude is prepended inside the existing `function(event) { ... }` body.
+
+**Tier-1 (emit-each.ts):**
+`iterScopeReferencedInHandler(handlerBody, iterVarName)` — gates the wrap by token-scanning the
+handler body (string/regex literals blanked via `blankStringAndRegexLiterals` to prevent false
+matches on iter-var names inside literals). `maybeWrapEachPerItemHandler(handlerBody, iterVarName)`:
+when a reconcile ctx is active AND the scan finds the iter var, prepends:
+  `let <iterVar> = _scrml_resolve_item(<mount>, <keyVar>); if (<iterVar> === null) return;`
+Global handlers and literal-only bodies stay byte-identical (scan returns false → no prelude).
+
+**Tier-0 (emit-lift.js):**
+`maybeWrapLiftPerItemHandler(handlerBody)` — function-body handler shape (a): same prelude pattern.
+`maybeWrapLiftCallableHandler(arrowText)` — callable-direct shape (b): produces a FULL wrapper
+`function(event) { let <iterVar> = _scrml_resolve_item(...); if (...) return; (<arrowText>)(event); }`
+so the wrapper's `let` lexically shadows the arrow's free `<iterVar>` reference. Returns null when
+no wrap applies (byte-identical to pre-fix). Both shapes gate on the shared `_liftIterScopeReferenced`
+(delegates to `iterScopeReferencedInHandler` from emit-each.ts via `require()`).
+
+### S154 ruling (a) — HTML `:`-shorthand content-model (S159 — CLOSED)
+`<span : @label>` previously parsed but emitted an empty `<span></span>` (expression dropped) and
+the cell false-fired `E-DG-002` ("declared but never consumed"). Three-part fix:
+(1) `ast-builder.js` (`buildBlock`): non-void, non-component, non-`@.`-sigil HTML elements with a
+`:`-shorthand body now get body children synthesized via re-parse of `<tag>BODY</tag>` — byte-identical
+to the explicit bare-body form. Expression body → `${expr}` interpolation; `"..."` display-text
+literal → unquoted display text (interior `${...}` preserved). Synthesis skips void, component, and
+`@.`-sigil bodies (those paths have separate owners or E-COLON-SHORTHAND-ON-VOID / E-SYNTAX-064).
+(2) `block-splitter.js`: the `shorthand && !selfClosing` branch is placed BEFORE the void/self-closing
+short-circuit so `<void : expr>` reaches the type-system guard rather than being silently classified
+self-closing.
+(3) `type-system.ts`: `E-COLON-SHORTHAND-ON-VOID` guard (fatal) at the markup visitor; R3 extension
+of E-SYNTAX-064 to `@.`-sigil shorthand bodies outside an `<each>` scope.
+
 ### (d)-A enum-subset refinement (S156, 4 batches)
 **Batch 1 (type-system.ts):** `parseEnumSubsetRefinement()` calls the shared `parseEnumSubsetAnnotation()`
 from `enum-subset-refinement.ts`; `makeEnumSubsetPredicatedType()` materializes a `PredicatedType` with
@@ -273,7 +315,7 @@ errorBoundary compile support: `compiler/src/codegen/emit-error-boundary.ts` (32
 fallback markup + per-variant renders; paired with host-JS try/catch backstop (§19.6.8 C-hybrid).
 
 ## Tags
-#scrmlts #map #error #diagnostics #CGError #compiler #W-MATCH-ARROW-LEGACY #E-PA-002 #E-DG-002 #E-DECL-NEEDS-INITIALIZER #E-CODEGEN-INVALID-JS #E-ENGINE-STATE-CHILD-MISSING #E-SCOPE-001 #E-ENGINE-ACCEPTS-NOT-ENUM #E-ENGINE-MSG #E-MATCH-SUBSET-DEAD-ARM #E-SYNTAX-064 #W-EACH #each-in-dynamic-context #source-map #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #r28-1c #per-item-reactivity #s152 #s153 #s154 #s155 #s156 #s157 #s158
+#scrmlts #map #error #diagnostics #CGError #compiler #W-MATCH-ARROW-LEGACY #E-PA-002 #E-DG-002 #E-DECL-NEEDS-INITIALIZER #E-CODEGEN-INVALID-JS #E-ENGINE-STATE-CHILD-MISSING #E-SCOPE-001 #E-ENGINE-ACCEPTS-NOT-ENUM #E-ENGINE-MSG #E-MATCH-SUBSET-DEAD-ARM #E-SYNTAX-064 #E-COLON-SHORTHAND-ON-VOID #W-EACH #each-in-dynamic-context #source-map #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #s152 #s153 #s154 #s155 #s156 #s157 #s158 #s159 #colon-shorthand-html
 
 ## Links
 - [primary.map.md](./primary.map.md)

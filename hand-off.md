@@ -1,67 +1,66 @@
-# scrmlTS — Session 159 (CLOSE)
+# scrmlTS — Session 160 (OPEN)
 
 **Date:** 2026-06-03
-**Previous:** `handOffs/hand-off-163.md` (= S158 CLOSE).
-**Next-session pickup:** rotate THIS file → `handOffs/hand-off-164.md` at next OPEN.
-**Profile:** opened **A (FULL)** ("read pa.md and start session"; no signal → default A). User then: "1" (continue the autonomous bug-fix arc, S157/S158-mode) → "Build S154 (a)" (AskUserQuestion) → "Wrap + push".
+**Previous:** `handOffs/hand-off-164.md` (= S159 CLOSE).
+**Next-session pickup:** rotate THIS file → `handOffs/hand-off-165.md` at next OPEN.
+**Profile:** opened **A (FULL)** ("read pa.md and start session"; no signal → default A).
 
 ---
 
-## 🏁 S159 CLOSE — Bug 73 RESOLVED + S154 ruling (a) spec+impl COMPLETE (autonomous arc + 1 user steer)
+## S160 IN FLIGHT — S154 (b)/(c) build arc (autonomous + push authorized)
 
-Ran an autonomous bug arc under the S157/S158-mode standing commit-auth grant: Bug 73 (the last clean MED codegen bug) R26-reverse-verified → fixed → landed. Then the clean-codegen supply was empirically EXHAUSTED (C6 obvious shapes compile clean; rest of MED is design-calls/features/deferred), so PA surfaced the fork; user steered to **Build S154 (a)** (the ratified-but-unbuilt `:`-shorthand-on-HTML ruling). Landed (a) spec → codegen end-to-end. Both fixes via Phase-0-survey-STOP gate (S158 pattern) + S67 file-delta + PA independent dual-R26 (S138) + S147 coherence.
+**Direction (S160):** user picked "finish S154 (b)/(c)". All micro-rulings collected (see OPEN-QUESTIONS #1 below — FULLY RULED). Process: **draft → reviewer gate → land**; autonomy: **full autonomous arc + push** (commits+push authorized for this arc; surface only on real failure).
 
-### Sync / repo state at CLOSE
-- **scrmlTS:** clean, HEAD `6b62ffb7`, `origin/main` **0/4** → **pushed this wrap** (4 PA commits). `3621d6a1` (session-start docs + maps) · `588b9399` (Bug 73) · `1fb9823f` (S154(a) spec) · `6b62ffb7` (S154(a) codegen).
-- **scrml-support:** clean, **0/0** (synced at open, NO writes this session — S159 was pure execution, no new durable user-voice directive). Verify at next open.
-- **Tests at close:** `bun run test` **22,874 pass / 0 fail / 220 skip / 1 todo** (S158 baseline 22,846; **+28** = Bug73 +10 [actually folded] / S154(a) +18). NB: `bun run test` (full+browser) can flake 2 parity-TIMING tests (07-admin-dashboard, 27-type-derived-table — pre-existing, pass 1005/0 in isolation, no `:`-shorthand/handler content → unaffected by S159); the reliable gate is `bun test compiler/tests/`.
-- **Hooks:** config B (pre-commit + post-commit + pre-push). S100 path-discipline hook held (+ NEW finding below).
-- **Inbox:** EMPTY. **Worktrees:** cleaned at each landing — main only.
-- **Version:** on top of v0.7.0 (pkg.json unchanged; no tag — bug-fix + ratified-feature impl).
-- **Maps:** refreshed THIS session to `97fe2199` (commit `3621d6a1`). Now 3 commits stale (Bug73 emit-each/emit-lift `588b9399`; S154(a) ast-builder/block-splitter/type-system/emit-html `6b62ffb7`). **Refresh before the next compiler-source dispatch.**
-
-### known-gaps §0 state at CLOSE
-- **HIGH 0. MED 10** (Bug 73 filed+resolved same session → net unchanged from S158's 10). No new gaps filed. C6 + C4 surfaced as likely stale-resolved (see process notes).
+**Progress (crash-recovery state):**
+- DRAFTS WRITTEN: `../scrml-support/archive/spec-drafts/no-rhs-typed-decl-defaults-S160-DRAFT.md` (c) + `colon-shorthand-inside-opener-S160-DRAFT.md` (b).
+- 3 background agents running: maps refresh (`a440fa5b53ef9c100`) + (c) reviewer (`a9d79d2b7abd27211`) + (b) reviewer (`a9975532b038ad6b5`, general-purpose-as-reviewer — `scrml-language-design-reviewer` NOT loadable this session, substitution flagged to user). Reviewers write `*-REVIEW.md` + return verdict.
+- NEXT: process reviews → apply rev-2 changes → land SPEC (c first, then b) → dispatch compiler impl (isolation:worktree, full F4/S99/S136/S138/S147 discipline) → R26/test verify → land → push → wrap.
+- (c) is contained (§6.2/§14.12/§34/ast-builder/type-system). (b) is grammar reconciliation + 43 SPEC-example migration + after-`>` deprecation W-lint (ZERO adopter corpus migration). Build sequence: c then b.
 
 ---
 
-## DONE this session (S159)
+## S160 OPEN — caught up; awaiting direction
 
-1. **Bug 73 (MED) RESOLVED `588b9399`** — per-item EVENT HANDLERS in a reconciled list closed over the create-time item (display↔handler divergence on same-key reuse; Bug-64 sibling-gap #2). R26-reverse-VERIFIED at HEAD both tiers BEFORE dispatch. Fix (reuses Bug 64 `_scrml_resolve_item` plumbing, NO runtime additions): a handler that READS the iter var re-resolves the live item by key AT FIRE TIME (`let <iter> = _scrml_resolve_item(<w>,<key>); if (<iter>===null) return; <body>`) — NOT an `_scrml_effect` wrap. `emit-each.ts` `maybeWrapEachPerItemHandler` + exported `iterScopeReferencedInHandler` + `blankStringAndRegexLiterals` (literal-blanked `\b<iterVar>\b` token scan); `emit-lift.js` `maybeWrapLiftPerItemHandler` (function-body) + `maybeWrapLiftCallableHandler` (callable-direct INLINE-SHADOW). 10 Tier-0 sites + 1 Tier-1; `bind:*` excluded. +6 tests + 1 coupled. PA dual-R26: both tiers live-keyed, global + literal-false-positive (`note("it works")` w/ iterVar `it`) stay plain.
+Full Profile-A session-start complete: pa.md (full) + PRIMER (full) + SPEC-INDEX (full) + master-list §0 + S159 hand-off + user-voice tail (S152/S154/S155/S156/S158). Git sync clean. Inbox empty.
 
-2. **S154 ruling (a) (design-build) — spec+impl COMPLETE.** `:`-shorthand body on a lowercase HTML element follows the element's content model.
-   - **SPEC `1fb9823f`** (PA-direct): §4.14 HTML-element content-model rule (non-void renders byte-identical to `<tag>${expr}</tag>`; void rejects) + NEW §34 `E-COLON-SHORTHAND-ON-VOID` (authority = `html-elements.js isVoid`, no separate list) + worked example; SPEC-INDEX regen (+16L → 31,494).
-   - **CODEGEN `6b62ffb7`** (dispatch): Approach (a) AST-synthesis — ast-builder re-parses a reconstructed `<tag>BODY</tag>` through block-splitter+buildBlock (byte-identical) → emit-html/DG/TS handle the synthesized child unchanged (DG recursion clears the E-DG-002 false-fire). §4.18 code-default body: expression → `${expr}` (value); `"..."` → unquoted display text. Void reject = block-splitter reorder (`shorthand && !selfClosing` precedes the void short-circuit) + type-system guard. Scope: lowercase HTML only; components + engine/match `:`-shorthand + each per-item UNTOUCHED. **BONUS (R3):** closed a latent gap — a `:`-shorthand-BODY `@.` outside an `<each>` was silently swallowed (E-SYNTAX-064 fired only for attr-value/lift-embedded `@.` per S157 Bug 70); now fires. +18 tests + 1 coupled budget bump. PA dual-R26 (a-f): byte-identity, E-DG-002 gone, void→reject (`<input>`+SVG `<circle>`), each-per-item untouched, outside-each E-SYNTAX-064, component untouched.
+### Sync / repo state at OPEN
+- **scrmlTS:** clean, HEAD `f9d4b0f1`, `origin/main` **0/0** (pushed at S159 wrap).
+- **scrml-support:** clean, **0/0**. No writes pending.
+- **Inbox:** EMPTY. **Worktrees:** main only.
+- **Version:** on top of **v0.7.0** (pkg.json unchanged since S143 cut).
+- **Hooks:** config B (pre-commit + post-commit + pre-push). S100 path-discipline hook active.
+- **Maps:** `97fe2199` (commit `3621d6a1`) — **3 commits stale** (Bug 73 `588b9399` emit-each/emit-lift; S154(a) `6b62ffb7` ast-builder/block-splitter/type-system/emit-html; spec `1fb9823f`). **REFRESH before next compiler-source dispatch.**
+
+### known-gaps §0 at OPEN
+- **HIGH 0. MED 10.** No new gaps. C6 + C4 surfaced likely-stale-resolved (see S159 carry).
 
 ---
 
-## OPEN QUESTIONS TO SURFACE IMMEDIATELY (S159 CLOSE)
+## OPEN QUESTIONS TO SURFACE (carried from S159 CLOSE)
 
-1. **S154 (b)/(c) — RATIFIED S154, NOT YET BUILT (a) is now DONE; (b)/(c) need user MICRO-RULINGS before build:**
-   - **(b) `:` inside-opener canonical everywhere.** RATIFIED S154. **2 unruled micro-grammar sub-Qs:** (i) no-space `:@thing` (current grammar requires whitespace after `:` — E-PARSE-001; does max-terseness drop it?); (ii) self-close `/>` + `:`-shorthand vs E-CLOSER-001 (is `<span :@thing />` a forbidden closer, or distinct?).
-   - **(c) no-RHS typed-decl → canonical empty else `not`.** RATIFIED S154. **3 impl sub-Qs:** exact empty-default table (esp. enum→`not`, bool→`false`); `not`-init on a non-`|not` typed cell engaging the §42 absence + §14.12 lifecycle (`<x>: User` → `(not to User)`-shaped? confirm intended); E-DECL-NEEDS-INITIALIZER's fate (retire vs narrow).
-2. **Bug 64 sibling-gap #1 (function-body reactive-write-dropped)** — was NOT-REPRODUCED S158 (not filed); re-trigger only if a narrower shape surfaces.
-3. **DD candidate (S155, parked) — UNANSWERED across S155-S159:** self-tree-shaking compiler build-story (§58+§47+self-host). Is "the whole dependency code issue" = the `bun link` full-toolchain friction?
-4. **scrml-site notice sent** this wrap (Bug 73 handler-staleness fix + S154(a) `:`-shorthand-HTML now renders — both change codegen output shape). Watch for reply.
-5. **Maps refresh** overdue (3 commits stale — Bug73 + S154(a) reshaped emit-each/emit-lift/ast-builder/block-splitter/type-system/emit-html).
+1. **S154 (b)/(c) — FULLY RULED S160 (all micro-Qs closed via AskUserQuestion); BUILD PENDING.**
+   - **(b) `:` inside-opener canonical EVERYWHERE** (HTML · `<each>` · match arms · engine state-children — user re-confirmed full Pillar-5 uniformity S160 *with the engine-arm readability cost visible*; previewed after-`>` vs inside-opener Mario). after-`>` form → DEPRECATED (W-lint, match-`:>` precedent); migrate the **43 after-`>` SPEC worked-example lines** (engine + match) to inside-opener — **adopter `.scrml` corpus has ZERO after-`>` uses**, so migration is SPEC-examples-only, zero adopter impact. (b-i) after-`:` whitespace **NOT required** — `:@thing` legal (SPEC §4.14 only mandates BEFORE-`:` ws, line 979/983; impl-verify the parser doesn't demand after-`:` ws). (b-ii) `/>` stays **E-CLOSER-001** (already SPEC, line 979/982) — canonical tersest = `<span :@thing>` (no closer; `/>` is redundant + contradictory). Build: §4.14/§51.0.I/§18.0.1 reconcile to inside-opener + §51.0.B Mario example + 43 examples migrate + §34 +1 W-lint row for after-`>` deprecation + parser flip (engine state-child + match-arm accept inside-opener; angleDepth handles embedded-markup body `>`) + emit deprecation lint.
+   - **(c) no-RHS typed-decl → canonical-empty-else-`not`** (supersedes E-DECL-NEEDS-INITIALIZER). Canonical empties: `int`/`number`/`float`→`0`, `string`→`""`, `bool`→`false`, `T[]`→`[]` (Shape 4 shipped S152), `map`/`{}`-object→`{}`. struct+enum (no canonical empty) → **`not`** (NO recursive zero-fill, NO auto-first-variant). `not`-init **engages §14.12 lifecycle** → `(not to T)`-shaped (starts absent; E-TYPE-001 on pre-assignment read; clears after first write). **RETIRE** E-DECL-NEEDS-INITIALIZER (§34 row + §6.2 error text — sole trigger now always resolves; ~1-session lifespan, zero corpus uses, clean cut). Build: §6.2 Shape 4 generalize + §14.12 cross-ref + §34 retire + ast-builder/type-system (synthesize canonical-empty defaults; `not`-init + lifecycle for no-empty types; stop firing E-DECL-NEEDS-INITIALIZER).
+2. **S154 #14 (event-payload-transition) + (d)-A (enum-subset) — SPEC LANDED S154 + IMPL COMPLETE S155/S156.** [S160 correction — DONE, not pending; an S160-OPEN stale-read framed them as unbuilt.] #14: parser/typer/codegen 3-batch `6667b664`/`c6f323f0`/`a9ce4c3a`, wrapped `118db71d` (S155). (d)-A: 4-batch `bfc50545`/`7a3c018f`/`0097d5b0`/`71be8f5f`, wrapped `57edc794` (S156). PRIMER §13.7 `dA-b1` row is STALE (shows batches 2/3 deferred; they landed S156 — fix at next primer pass). **Deferred SIBLING tails (bigger, design-gated, NOT part of ratified #14/(d)-A scope):** per-instance engines `<engine per=@expr>` (needs DD) · server-boundary CPS (Ext 3 conditional-tier unbuilt) · enum-subset engine `for=` (§53.15.7) · return-type subset enforcement (pre-existing parser gap).
+3. **Bug 64 sibling-gap #1 (function-body reactive-write-dropped)** — NOT-REPRODUCED S158; re-trigger only if a narrower shape surfaces.
+4. **DD candidate (S155, parked, unanswered S155-S159):** self-tree-shaking compiler build-story (§58+§47+self-host). Confirm-pending: is "the whole dependency code issue" = `bun link` full-toolchain friction?
+5. **scrml-site notice sent S159** (Bug 73 handler-staleness + S154(a) `:`-shorthand-HTML render — both change codegen output shape). Watch `handOffs/incoming/` for reply.
+6. **Self-demo scrml.dev website (S148, STRATEGIC):** F1 (pre-computed-static vs in-browser-live) + F2 (SourceMap-v3 vs custom-bidirectional) debate is carry-forward; 2 experts forged (`source-map-provenance-expert` + `in-browser-compilation-expert`). NB website now lives in sibling repo `scrml-site` (extracted S154, own PA) — scrmlTS is purely the language.
 
 ## CARRY-FORWARD (backlog)
-- Bug backlog (MED 10): Bug 1 Tailwind residuals · V-kill READ-side · MCP V0 deferrals · Generator policy (design-call) · L19 multi-statement-handler (design-call) · A5 freeze-extension (adoption-watch) · R28-1d (NOT-REPRODUCED S147) · **R28-8 (design-call: extend §14.10 vs canon-fix §4.8)** · C6 (likely stale-resolved — see notes) · Bug 14 MCP-partial.
-- **C6 + C4 currency:** §R27 C4 row shows OPEN but C4 was RESOLVED S151 as R28-5 (STALE row — fix at next currency pass). C6 (`bind:value=@synth.field` E-SCOPE-001 in engine state-child): the obvious shapes (plain compound bind:value + isValid read in an engine state-child) compile CLEAN at HEAD — likely stale-resolved by post-S141 engine-state-child + synth-scope work; formal NOT-REPRODUCED needs dev-4's exact gauntlet-r27 formFor source.
-- #2f native-parser each/match structural promotion (M5-swap precondition).
-- S154 carry: body-split/CPS debt · #5 lint FPs · #6 cross-file client imports · #7 MCP flip · per= per-instance engines (needs DD) · 6NZ caps stray.
+- **Bug backlog (MED 10):** Bug 1 Tailwind residuals · V-kill READ-side · MCP V0 deferrals · Generator policy (design-call) · L19 multi-statement-handler (design-call) · A5 freeze-extension (adoption-watch) · R28-1d (NOT-REPRODUCED S147) · **R28-8 (design-call: extend §14.10 vs canon-fix §4.8)** · C6 (likely stale-resolved) · Bug 14 MCP-partial.
+- **C6 + C4 currency:** §R27 C4 row shows OPEN but C4 RESOLVED S151 as R28-5 (STALE row — fix at next currency pass). C6 (`bind:value=@synth.field` E-SCOPE-001 in engine state-child): obvious shapes compile CLEAN at HEAD — likely stale-resolved; formal NOT-REPRODUCED needs dev-4's gauntlet-r27 formFor source.
+- **#2f native-parser each/match structural promotion** (M5-swap precondition; witnessed twice S153).
+- **Native parser charter B** (M2.4 + MK2 next; multi-quarter arc).
+- S154 carry: body-split/CPS debt (Ext 3 conditional-tier + Ext 2 loop-aware unbuilt) · #5 lint FPs (W-DEAD-FUNCTION / I-FN-PROMOTABLE) · #6 cross-file client imports · #7 MCP flip · per= per-instance engines (needs DD) · 6NZ caps stray.
 
 ## pa.md directives in force
 - Rules R1–R5. `---` answer-delimiter (S152). Profile A/B (S156). `full wrap` / 88% floor (S139). Working-style: largest ratified target, autonomous, park-on-input, surface only on real failure / needed design ruling.
-- Dispatch discipline ALL held: S88 explicit isolation · F4 startup-verify · S112 merge-startup (both arcs — worktrees branch from session-start `97fe2199`/`1fb9823f`, `git merge main` ff'd cleanly) · S99/S126 Bash-edit + no-`cd` · S136 BRIEF.md archival (all 4 dispatches: Bug73 Phase-0+Phase-1, S154a Phase-0+Phase-1) · S138 R26/dual-verify (every landing, both directions) · S147 branch-leak coherence (every landing 0/N, no leak). `--no-verify` forbidden (no slips this session).
-- **Phase-0-survey-STOP gate** (S158 pattern) used on BOTH arcs (Bug 73 + S154a) — agent surveys + STOPs before the heavy edit; PA reviews + greenlights or escalates. Worked cleanly; the survey caught real design sub-decisions (Bug 73: which handler sites to wrap + literal-false-positive; S154a: parse-capture-vs-drop + the §4.18 code-default refinement PA corrected).
-- Canonical dev-agent `scrml-js-codegen-engineer`. SendMessage agent-resume NOT available → Phase-0-STOPped agents continued via FRESH dispatch carrying the analysis (both arcs).
-
-## Process notes (S159) — NEW LESSON
-- **CWD-drift-POST-dispatch (NEW, banked to memory `feedback_cwd_reset_post_dispatch`):** after an `isolation:worktree` Agent dispatch, the PA's Bash shell CWD can drift INTO the dispatched worktree. The S100 path-discipline hook then (correctly) REJECTS the PA's *legitimate* main-side Write/Edit as a leak (it keys on CWD-in-worktree). Fired twice this session (writing BRIEF-phase1.md for Bug 73; writing BRIEF.md for S154a). **Mitigation: PA SHALL `cd /home/bryan-maclee/scrmlMaster/scrmlTS && pwd` before ANY main-side Write/Edit after an isolation:worktree dispatch** (extends the S90 CWD-reset rule from before-dispatch to after-dispatch). Workaround when it fires: reset CWD + write via Bash heredoc (Bash isn't hook-gated). Zero work lost both times.
-- **`bun run test` flakes 2 parity-timing tests** (07-admin-dashboard, 27-type-derived-table) — pre-existing, pass 1005/0 in isolation, no S159-relevant content. The pre-push hook runs the full suite; if it flakes these, RE-RUN (do not `--no-verify`). Reliable gate: `bun test compiler/tests/`.
-- **AST-synthesis as a fix pattern (S154a):** re-parsing a reconstructed equivalent source (`<tag>BODY</tag>`) through the SAME parse path the canonical form takes = byte-identity by construction + reuses all downstream passes (emit/DG/TS) with zero emit-side change. Cleaner than hand-crafting AST nodes. Banked as a technique.
-- **R26 reverse-direction earned its keep again:** Bug 73 (verified the symptom reproduced both tiers before dispatch); C6 (verified the obvious shapes do NOT reproduce → likely stale-resolved, did not dispatch a fix).
+- Dispatch discipline: S88 explicit isolation · F4 startup-verify · S112 merge-startup · S99/S126 Bash-edit + no-`cd` · S136 BRIEF.md archival · S138 R26/dual-verify (both directions) · S147 branch-leak coherence · S67 file-delta. `--no-verify` forbidden (commit + push gates).
+- **CWD-drift-POST-dispatch (S159 lesson, memory `feedback_cwd_reset_post_dispatch`):** after an `isolation:worktree` dispatch the PA shell CWD can drift INTO the worktree → S100 hook rejects legit main-side writes. Mitigation: `cd /home/bryan-maclee/scrmlMaster/scrmlTS && pwd` before ANY main-side Write/Edit after a dispatch; Bash-heredoc workaround if it fires.
+- **Phase-0-survey-STOP gate** (S158 pattern): agent surveys + STOPs before the heavy edit; PA reviews + greenlights/escalates. Used cleanly on Bug 73 + S154(a).
+- **`bun run test` flakes 2 parity-timing tests** (07-admin-dashboard, 27-type-derived-table — pre-existing, pass 1005/0 in isolation). RE-RUN on pre-push flake (do not `--no-verify`). Reliable gate: `bun test compiler/tests/`.
+- Canonical dev-agent `scrml-js-codegen-engineer`. SendMessage agent-resume NOT available → continue Phase-0-STOPped agents via FRESH dispatch carrying the analysis.
 
 ## Tags
-#session-159 #CLOSE #profile-a-full-start #autonomous-bug-arc #bug73-resolved #s154a-spec-impl-complete #phase-0-stop-gate #cwd-drift-post-dispatch-lesson #r26-both-directions #pushed
+#session-160 #OPEN #profile-a-full-start #caught-up #awaiting-direction #s154-bc-pending-rulings #s154-14-da-spec-landed-impl-pending #maps-3-stale
