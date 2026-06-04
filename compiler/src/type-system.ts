@@ -224,6 +224,16 @@ interface UnionType {
 interface AsIsType {
   kind: "asIs";
   constraint: ResolvedType | null;
+  // R28-8 (§14.10) — localized bare-variant inference recovery sidecar.
+  // When a `:struct` field clause carries a trailing validator (e.g.
+  // `category: Category req`), the struct-body resolver lowers the field to
+  // `asIs` (the trailing `req` defeats the registry lookup). This optional
+  // field carries the field's TRUE base type (the enum / enum-subset / named
+  // type) recovered from the raw clause, so the bare-variant inference walker
+  // (`inferBareVariantsWithStructNav`) can resolve `.News` against `Category`
+  // WITHOUT changing the `asIs` kind every other `structType.fields` consumer
+  // reads (formFor / schemaFor / tableFor / type-encoding stay byte-identical).
+  bareVariantBase?: ResolvedType;
 }
 
 interface UnknownType {
@@ -1198,10 +1208,117 @@ function parseStructBody(raw: string, typeRegistry: Map<string, ResolvedType>): 
 
     if (!fieldName || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(fieldName)) continue;
 
-    fields.set(fieldName, resolveTypeExpr(typeExpr, typeRegistry));
+    const resolvedField = resolveTypeExpr(typeExpr, typeRegistry);
+    // R28-8 (§14.10) — when the field clause carried a trailing validator the
+    // resolver lowered it to `asIs` (the trailing `req` / `length(...)` etc.
+    // defeats the registry lookup). Recover the field's TRUE base type from the
+    // raw clause and stash it on the `asIs` sidecar so the bare-variant
+    // inference walker can resolve `.News` against `Category` — WITHOUT changing
+    // the `asIs` kind any other `structType.fields` consumer reads. A nullable
+    // validated field (`Category req | not`) resolves to a `[asIs, not]` union
+    // (resolveTypeExpr splits the top-level `|` first), so the asIs member
+    // ALSO gets the sidecar; the walker substitutes it inside the union too.
+    annotateBareVariantBaseFromRawClause(resolvedField, typeExpr, typeRegistry);
+    fields.set(fieldName, resolvedField);
   }
 
   return fields;
+}
+
+/**
+ * R28-8 (§14.10) — recover the base type a `:struct` field clause REFERENCES
+ * when a trailing validator forced the resolver to drop the field to `asIs`,
+ * and stash it on the `asIs` node's `bareVariantBase` sidecar.
+ *
+ * The struct-body resolver (`resolveTypeExpr`) lowers `category: Category req`
+ * to `asIs` (the trailing `req` defeats every typed branch). The bare-variant
+ * inference walker then has no enum context for `{ category: .News }` and fires
+ * E-VARIANT-AMBIGUOUS. This is the SAME asIs-drop the schemaFor path works
+ * around with `_schemaForRecoverEnumSubset` + leading-token recovery — but the
+ * inference path had no such recovery. Rather than fix the resolver at the root
+ * (which regresses the formFor `baseTypeName` computation + the asIs-gated
+ * schemaFor / tableFor recovery + the type-encoding signature — R28-8 Phase-0
+ * survey), we recover the type HERE and read it ONLY in the inference walker.
+ *
+ * Recovery order mirrors the resolver's own precedence:
+ *   1. enum-SUBSET (with a trailing validator stripped) — keep
+ *      `Role oneOf([.Admin,.Editor]) req` as the SUBSET `PredicatedType` (whose
+ *      bare-variant resolution the walker's predicated-branch handles), NOT the
+ *      bare base enum. Mirrors `_schemaForRecoverEnumSubset`.
+ *   2. leading type-token after stripping trailing validators — resolve through
+ *      the registry. Catches `Category req` → enum `Category`, `Status req
+ *      length(...)` → whatever `Status` is, and primitive bases (`string req`).
+ *
+ * Only attaches the sidecar when the recovered type carries enum context
+ * (enum, or enum-subset `PredicatedType`) — a recovered primitive / struct
+ * never hosts a bare variant, so there is nothing for the walker to resolve and
+ * the sidecar stays absent (the asIs no-context branch keeps firing for a stray
+ * `.V` in a `string req` field, which is the correct E-VARIANT-AMBIGUOUS).
+ *
+ * Mutates `resolvedField` in place. No-op when the field already resolved to a
+ * concrete type (the un-validated `category: Category` case never reaches asIs)
+ * or when the clause references no enum.
+ */
+function annotateBareVariantBaseFromRawClause(
+  resolvedField: ResolvedType,
+  clauseRaw: string,
+  typeRegistry: Map<string, ResolvedType>,
+): void {
+  // Bare asIs field (`Category req`) — the common case.
+  if (resolvedField.kind === "asIs") {
+    const base = recoverEnumBaseFromValidatedClause(clauseRaw, typeRegistry);
+    if (base) (resolvedField as AsIsType).bareVariantBase = base;
+    return;
+  }
+  // Nullable validated field (`Category req | not`) — resolveTypeExpr split the
+  // top-level `|` first, so the field is a `[asIs, not]` union. Recover the
+  // asIs member's base from the union's NON-`not` clause portion.
+  if (resolvedField.kind === "union") {
+    const u = resolvedField as UnionType;
+    const asIsMember = u.members.find(m => m.kind === "asIs") as AsIsType | undefined;
+    if (!asIsMember) return;
+    // The non-`not` portion of the raw clause is everything up to the top-level
+    // `| not`. splitTopLevel keeps `oneOf([.A, .B])` intact (paren-depth aware).
+    const parts = splitTopLevel(clauseRaw, ["|"]);
+    const basePortion = (parts.length > 0 ? parts[0] : clauseRaw).trim();
+    const base = recoverEnumBaseFromValidatedClause(basePortion, typeRegistry);
+    if (base) asIsMember.bareVariantBase = base;
+  }
+}
+
+/**
+ * R28-8 — isolate the enum / enum-subset a validated field clause references.
+ * Returns the recovered enum / enum-subset `ResolvedType`, or null when the
+ * clause references no enum (primitive / struct / unknown base). The leading
+ * token is stripped of trailing validators before the registry lookup; the
+ * enum-subset operator is recognised even with a trailing validator via the
+ * shared `_schemaForRecoverEnumSubset` slice-to-close-paren scan.
+ */
+function recoverEnumBaseFromValidatedClause(
+  clauseRaw: string,
+  typeRegistry: Map<string, ResolvedType>,
+): ResolvedType | null {
+  const clause = clauseRaw.trim();
+  if (!clause) return null;
+  // 1. enum-subset (with optional trailing validator) — keep the SUBSET, not
+  //    the bare base enum. `_schemaForRecoverEnumSubset` slices the clause up
+  //    to the subset operator's close paren then runs the canonical recognizer.
+  const subset = _schemaForRecoverEnumSubset(clause, typeRegistry);
+  if (subset) return subset;
+  // 2. leading type-token after stripping trailing validators. The first
+  //    space-separated token IS the type reference (`Category req` → `Category`,
+  //    `Status req length(<=4)` → `Status`). A `?` sugar suffix is trimmed so
+  //    `Category?` recovers `Category` (the nullability composes via the union
+  //    member path; the variant set is identical either way).
+  const m = /^([A-Za-z_$][A-Za-z0-9_$]*)\??/.exec(clause);
+  if (!m) return null;
+  const tokenName = m[1];
+  const resolved = typeRegistry.get(tokenName);
+  // Only enum bases host a bare variant. A primitive / struct / state base
+  // never resolves a `.Variant`, so leave the sidecar absent (the asIs
+  // no-context E-VARIANT-AMBIGUOUS is then correct for a stray `.V`).
+  if (resolved && resolved.kind === "enum") return resolved;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -8234,7 +8351,15 @@ function inferBareVariantsWithStructNav(
         } else if (prop.key && typeof prop.key === "object" && (prop.key as { kind?: string }).kind === "ident" && typeof (prop.key as { name?: string }).name === "string") {
           fieldName = (prop.key as { name: string }).name;
         }
-        const fieldType = fieldName !== null ? structType.fields.get(fieldName) ?? null : null;
+        const rawFieldType = fieldName !== null ? structType.fields.get(fieldName) ?? null : null;
+        // R28-8 (§14.10) — when the field clause carried a trailing validator
+        // the struct-body resolver dropped its type to `asIs` (or a `[asIs,not]`
+        // union for the nullable form), stashing the recovered enum / enum-subset
+        // base on the `asIs` sidecar. Substitute that base HERE so the descent
+        // resolves `.News` against `Category` instead of hitting the no-context
+        // E-VARIANT-AMBIGUOUS branch. Every OTHER consumer still reads the raw
+        // `asIs` field type — this substitution is local to the inference walker.
+        const fieldType = refineFieldTypeForBareVariant(rawFieldType);
         // Recurse on the value with the field's type — fieldType may be
         // null for unknown fields (writer typo or shape drift), in which
         // case the leaf-flat walker still runs with null context per
@@ -8270,6 +8395,46 @@ function inferBareVariantsWithStructNav(
   // Any other contextType (enum / union / asIs / null / primitive) — the
   // flat walker is sufficient. There's no per-position refinement.
   inferBareVariantsInExpr(exprNode, contextType, span, errors);
+}
+
+/**
+ * R28-8 (§14.10) — substitute a validated struct field's recovered enum /
+ * enum-subset base for its `asIs` placeholder, LOCAL to the bare-variant
+ * inference walker. The struct-body resolver drops a field carrying a trailing
+ * validator (`category: Category req`) to `asIs`, stashing the true base on the
+ * `bareVariantBase` sidecar (`annotateBareVariantBaseFromRawClause`). Every
+ * other `structType.fields` consumer keeps reading the raw `asIs`; the walker
+ * reads the sidecar so the descent has real enum context.
+ *
+ * Two shapes carry the sidecar:
+ *   - bare asIs field (`Category req`)        → return the recovered base.
+ *   - `[asIs, not]` union (`Category req | not`, nullable validated) → rebuild
+ *     the union with the asIs member replaced by its base, so the walker's
+ *     union branch sees a real enum member (and `.News` resolves; an unknown
+ *     `.Newz` fires E-TYPE-063, not E-VARIANT-AMBIGUOUS).
+ *
+ * Returns the input unchanged for every other shape (a concrete field type, a
+ * sidecar-less asIs from a primitive validated field, null for unknown fields).
+ */
+function refineFieldTypeForBareVariant(fieldType: ResolvedType | null): ResolvedType | null {
+  if (!fieldType) return fieldType;
+  if (fieldType.kind === "asIs") {
+    const base = (fieldType as AsIsType).bareVariantBase;
+    return base ?? fieldType;
+  }
+  if (fieldType.kind === "union") {
+    const u = fieldType as UnionType;
+    let substituted = false;
+    const members = u.members.map(m => {
+      if (m.kind === "asIs" && (m as AsIsType).bareVariantBase) {
+        substituted = true;
+        return (m as AsIsType).bareVariantBase!;
+      }
+      return m;
+    });
+    return substituted ? { kind: "union", members } : fieldType;
+  }
+  return fieldType;
 }
 
 /**
