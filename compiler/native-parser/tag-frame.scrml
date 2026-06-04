@@ -352,11 +352,18 @@ ${
     // STRUCTURAL-ELEMENT REGISTRY (SPEC §4.15 + §24.4).
     //
     // The closed name-set the TagKind calculation consults to decide
-    // ScrmlStructural. SPEC §4.15 + §24.4 are the NORMATIVE registry —
-    // both register exactly these SEVEN scrml-defined structural
-    // elements:
+    // ScrmlStructural. SPEC §4.15 + §24.4 register SEVEN scrml-defined
+    // structural elements:
     //   engine / match / errors / onTransition / onTimeout / onIdle /
     //   page.
+    //
+    // `<each>` is the EIGHTH (added here): SPEC §17.7 / §18.5.6 (S130
+    // HU-1 ratification) normatively name `<each>` "the `<each>`
+    // structural element" — it "joins `<match>` / `<engine>` as a
+    // markup-tree structural element." The §4.15 / §24.4 registry tables
+    // were never amended to add it (SPEC-registry GAP); the native
+    // registry follows §17.7's normative intent. The §4.15/§24.4 row
+    // amendment is tracked SPEC follow-up. REPORTED to PA.
     //
     // NOTE — discrepancy surfaced at MK2.1 (REPORTED to PA). The MK2.1
     // brief's registry list named NINE elements — the seven above PLUS
@@ -378,6 +385,7 @@ ${
     export const STRUCTURAL_ELEMENTS = Object.freeze({
         engine:       true,
         match:        true,
+        each:         true,
         errors:       true,
         onTransition: true,
         onTimeout:    true,
@@ -781,13 +789,19 @@ ${
                     // scanning for the outer opener terminator.
                     angleDepth = angleDepth - 1
                     p = p + 1
-                } else if (ch == ":" && bracketDepth == 0 && colonAt < 0 && p > attrRegionStart && isOpenerWhitespace(source.charAt(p - 1))) {
+                } else if (ch == ":" && bracketDepth == 0 && colonAt < 0 && p > attrRegionStart && isOpenerWhitespace(source.charAt(p - 1)) && !colonIntroducesDirectiveAttr(source, p, len)) {
                     // M6.6.b.1 — `:`-shorthand discriminator (SPEC §4.14
                     // line 969 mandatory whitespace requirement). The
                     // `:` is at depth 0 outside any string, preceded by
                     // whitespace, and we haven't yet seen one in this
                     // opener. Record the position; continue scanning
                     // (the body terminates at the opener's `>`).
+                    //
+                    // #2f — NOT when the `:` introduces a `:`-prefixed
+                    // DIRECTIVE attribute (`:let={...}` / `:value=expr`):
+                    // that is an attribute, not a shorthand body (mirrors
+                    // the LIVE BS self-closing directive recognition). See
+                    // colonIntroducesDirectiveAttr.
                     colonAt = p
                     p = p + 1
                 } else if (ch == "<" && colonAt >= 0 && bracketDepth == 0 && p + 1 < len && (isTagNameStart(source.charAt(p + 1)) || source.charAt(p + 1) == "/")) {
@@ -994,6 +1008,49 @@ ${
     // isAttrNameStart — CALCULATION (predicate). A char that may begin
     // an attribute name: ASCII letter, `_`, or `@` — mirrors the live
     // `[A-Za-z_@]` name-start test.
+    // colonIntroducesDirectiveAttr — CALCULATION (predicate). After a
+    // candidate `:`-shorthand introducer at `colonPos`, decide whether the
+    // `:` actually begins a `:`-PREFIXED DIRECTIVE ATTRIBUTE (`:let={...}`,
+    // `:value=expr`) rather than a `:`-shorthand display body. A directive
+    // attr is `:` + (optional ws) + a SIMPLE attr-name run + (optional ws) +
+    // a single `=` (NOT `==` / `=>` — expression operators in a real
+    // shorthand body). The `tableFor`/`formFor` slot callback `<column
+    // :let={(row) => ...}/>` is the witness; the LIVE BS treats it as a
+    // self-closing directive opener, NOT a `:`-shorthand body. (#2f)
+    fn colonIntroducesDirectiveAttr(source, colonPos, limit) {
+        let q = colonPos + 1
+        while (q < limit && isOpenerWhitespace(source.charAt(q))) {
+            q = q + 1
+        }
+        const startCh = source.charAt(q)
+        if (startCh != "_" && !isAsciiLetter(startCh)) return false
+        q = q + 1
+        while (q < limit) {
+            const c = source.charAt(q)
+            if (c == "_" || c == "-") {
+                q = q + 1
+            } else {
+                const cc = c.charCodeAt(0)
+                if (cc >= 48 && cc <= 57) {
+                    q = q + 1
+                } else {
+                    if (isAsciiLetter(c)) {
+                        q = q + 1
+                    } else {
+                        break
+                    }
+                }
+            }
+        }
+        while (q < limit && isOpenerWhitespace(source.charAt(q))) {
+            q = q + 1
+        }
+        if (source.charAt(q) != "=") return false
+        const after = source.charAt(q + 1)
+        if (after == "=" || after == ">") return false
+        return true
+    }
+
     fn isAttrNameStart(ch) {
         if (ch == "_" || ch == "@") return true
         return isAsciiLetter(ch)

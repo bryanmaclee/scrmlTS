@@ -132,12 +132,12 @@
     "SPAN-COORD": 163
   },
   "examples/07-admin-dashboard.scrml": {
-    "COUNT-LENGTH": 3,
+    "COUNT-LENGTH": 2,
     "EXTRA-FIELD": 9,
     "FIELD-SHAPE": 13,
     "KIND-NAME": 2,
     "MISSING-FIELD": 32,
-    "SPAN-COORD": 111
+    "SPAN-COORD": 113
   },
   "examples/08-chat.scrml": {
     "COUNT-LENGTH": 3,
@@ -581,11 +581,11 @@
     "SPAN-COORD": 20
   },
   "examples/27-type-derived-table.scrml": {
-    "COUNT-LENGTH": 3,
+    "COUNT-LENGTH": 2,
     "EXTRA-FIELD": 6,
     "FIELD-SHAPE": 14,
     "MISSING-FIELD": 25,
-    "SPAN-COORD": 66
+    "SPAN-COORD": 68
   },
   "samples/admin-panel.scrml": {
     "COUNT-LENGTH": 6,

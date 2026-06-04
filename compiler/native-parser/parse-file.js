@@ -72,10 +72,11 @@
 // one id space (the discipline collect-hoisted.js + translate-stmt.js document
 // in their headers).
 
-import { parseMarkupTrace, liftBareBlocks } from "./parse-markup.js";
+import { parseMarkupTrace, liftBareBlocks, parseLogicBodyBestEffort } from "./parse-markup.js";
 import { collectHoisted, isEngineBlock, synthEngineDecl } from "./collect-hoisted.js";
 import { translateStmtList } from "./translate-stmt.js";
 import { isStateBlock } from "./parse-state-body.js";
+import { isVoidElementName } from "./tag-frame.js";
 
 // =============================================================================
 // nativeParseFile — the C1 entry point. Parse `source` with the native parser,
@@ -274,6 +275,23 @@ function mapOneBlock(block, idGen, source, errors) {
         // file-level pass here. No double-count.)
         return synthEngineNode(block, idGen, source);
     }
+    if (kind === "Markup" && isEachBlock(block)) {
+        // #2f native-each structural-promotion. The native parser models an
+        // `<each in=@items as item>...</each>` element as a plain `Markup`
+        // block (TagKind.ScrmlStructural after the registry add; pre-promotion
+        // it fell through to `synthMarkupNode` and silently mis-compiled —
+        // `as item` parsed as stray HTML attrs (W-ATTR-001) + no iteration
+        // scope (E-SCOPE-001) + bare `el.textContent = item`). The LIVE
+        // pipeline emits an `each-block` ASTNode (ast-builder.js L11841 /
+        // L12091-L12105); native must mirror that placement so the shared
+        // codegen (`compiler/src/codegen/emit-each.ts`) consumes the SAME node.
+        //
+        // Routed BEFORE the state-block check is unnecessary — `each` is not a
+        // state-form keyword and a `< each>` opener (space → StateOpener) is
+        // claimed here by the name-based `isEachBlock` gate, exactly as
+        // `<match>` / `< match>` both resolve at `isMatchBlock` above.
+        return synthEachBlockNode(block, idGen, source, errors);
+    }
     if (kind === "Markup") {
         return synthMarkupNode(block, idGen, source, errors);
     }
@@ -349,20 +367,127 @@ function mapOneBlock(block, idGen, source, errors) {
 function synthMarkupNode(block, idGen, source, errors) {
     const tag = typeof block.name === "string" ? block.name : "";
     const children = mapBlocksToNodes(block.children, idGen, source, errors);
-    const closerForm = (block.closerForm !== undefined && block.closerForm !== null)
-        ? block.closerForm
-        : "";
-    return {
+
+    // #2f sub-unit (d) — `:`-SHORTHAND BODY (GENERAL FIX). The tag-frame
+    // tokenizer captures the post-`:` body on a `:`-shorthand opener (`<li :
+    // @item.name>` / `<span : @label>`) as `block.colonShorthandBody` (the
+    // verbatim body text, leading whitespace stripped; null otherwise). The
+    // generic markup synth PREVIOUSLY DROPPED it — so a standalone `<span :
+    // @label>` lost its body (children:0, selfClosing:true) AND a `:`-shorthand
+    // per-item template child inside an `<each>` reached emit-each.ts with no
+    // body text. The shared codegen's authoritative `:`-shorthand path
+    // (emit-each.ts L271-L281; ast-builder.js L12126-L12136 field names) reads
+    // `closerForm === "shorthand"` + `shorthandBodyRaw`; map the captured body
+    // to exactly those fields so BOTH the each per-item case and the standalone
+    // case render correctly under native. ADDITIVE — when no `:`-shorthand body
+    // was captured, the node is byte-identical to the pre-fix shape.
+    const hasShorthandBody = typeof block.colonShorthandBody === "string";
+    const closerForm = hasShorthandBody
+        ? "shorthand"
+        : ((block.closerForm !== undefined && block.closerForm !== null)
+            ? block.closerForm
+            : "");
+
+    const node = {
         id: stampId(idGen),
         kind: "markup",
         tag,
         attrs: Array.isArray(block.attrs) ? block.attrs : [],
         children,
-        selfClosing: block.closerForm === undefined || block.closerForm === null,
+        // A `:`-shorthand opener is NOT self-closing — its body is the post-`:`
+        // expression (codegen renders it as the element's single-expression
+        // body). Only a true void / `/>` opener with no shorthand body is a leaf.
+        selfClosing: !hasShorthandBody
+            && (block.closerForm === undefined || block.closerForm === null),
         closerForm,
         isComponent: isUpperInitial(tag),
         span: block.span !== undefined ? block.span : null,
     };
+    if (hasShorthandBody) {
+        node.shorthandBodyRaw = block.colonShorthandBody;
+        // #2f sub-unit (d) — STANDALONE `:`-shorthand BODY-CHILD SYNTHESIS
+        // (mirrors the LIVE S159 §4.14 content-model rule, ast-builder.js
+        // L12238-L12340). Setting `shorthandBodyRaw` alone is sufficient for the
+        // `<each>` PER-ITEM consumer (emit-each.ts reads `shorthandBodyRaw`
+        // directly, path (a) L271-L281). But a STANDALONE non-void HTML element
+        // (`<span : @label>`) is rendered by emit-html, which iterates
+        // `children` — with no body child it emits an EMPTY `<span></span>` (the
+        // pre-S159 symptom). The LIVE pipeline SYNTHESIZES the body child so the
+        // element renders `<span>${@label}</span>`; we mirror that here.
+        //
+        // Guards (S159 R1/R3/R5):
+        //   - lowercase HTML element only (`!isUpperInitial` → not a component;
+        //     PascalCase component `:`-shorthand is a separate §4.15 concern).
+        //   - NON-void (`!isVoidElementName`) — a void element rejects a
+        //     `:`-shorthand body (type-system E-COLON-SHORTHAND-ON-VOID); no
+        //     synthesis.
+        //   - children already empty — never displace authored children.
+        //   - NOT a `@.` contextual-sigil body — `<li : @.name>` is the §17.7
+        //     `<each>` per-item form, OWNED by emit-each (reads `shorthandBodyRaw`
+        //     + ignores children). Synthesizing a child here would feed the
+        //     iteration-scope rewriter a child it does not expect, and a bare
+        //     `@.` outside any `<each>` must still surface E-SYNTAX-064.
+        const bodyRaw = block.colonShorthandBody;
+        const referencesContextualSigil = /(^|[^@\w.])@\./.test(" " + bodyRaw);
+        if (bodyRaw.length > 0
+            && !isUpperInitial(tag)
+            && !isVoidElementName(tag)
+            && children.length === 0
+            && !referencesContextualSigil) {
+            // Body interpretation (§4.18): a `"..."` display-text literal
+            // (§4.18.3) renders its UNQUOTED content; any other body is an
+            // EXPRESSION rendered as its VALUE (interpolated form). The native
+            // logic-body parser (`parseLogicBodyBestEffort`) + the A1 bridge
+            // (`translateStmtList`) produce the SAME `bare-expr`-carrying `logic`
+            // node the native parser produces for a real `${expr}` interpolation
+            // — emit-html reads its `exprNode` and renders correctly (verified:
+            // a plain `<p>${@label}</p>` is byte-identical native-vs-default).
+            const trimmed = bodyRaw.trim();
+            const isDisplayLiteral = trimmed.length >= 2
+                && trimmed.charAt(0) === '"'
+                && trimmed.charAt(trimmed.length - 1) === '"';
+            const exprText = isDisplayLiteral
+                // Display literal — strip quotes (§4.18.3) + unescape the three
+                // display-text escapes; an interior `${...}` is a genuine
+                // interpolation preserved verbatim. Wrap in a `"..."` so the
+                // native logic-body parser re-recognizes it as a display literal.
+                ? '"' + trimmed.slice(1, -1) + '"'
+                : bodyRaw;
+            // parseLogicBodyBestEffort forwards any body-parse diagnostics via
+            // `pushDiagnostic(ctx, ...)`, which dereferences `ctx.diagnostics` —
+            // so a non-null ctx WITH a diagnostics slot is required (a literal
+            // `null` crashes when the synthesized body itself produces a parse
+            // error). We pass a THROWAWAY ctx and DISCARD its diagnostics: the
+            // synthesized `:`-shorthand sugar is not the canonical diagnostic
+            // locus — the equivalent explicit bare-body form is (mirroring the
+            // live R1 `_synthErrors` discard, ast-builder.js L12316-L12319).
+            // A parse failure must never block FileAST assembly.
+            let liveBody = [];
+            try {
+                const throwawayCtx = { diagnostics: [] };
+                const nativeStmts = parseLogicBodyBestEffort(exprText, throwawayCtx, 0, 1, 1);
+                liveBody = translateStmtList(nativeStmts, idGen);
+            } catch (_synthErr) {
+                // Defensive: degrade to the no-child shape (pre-S159 behavior)
+                // rather than crash the whole parse — survivable + test-visible.
+                liveBody = [];
+            }
+            if (Array.isArray(liveBody) && liveBody.length > 0) {
+                const childLogic = {
+                    id: stampId(idGen),
+                    kind: "logic",
+                    body: liveBody,
+                    imports: [],
+                    exports: [],
+                    typeDecls: [],
+                    components: [],
+                    span: block.span !== undefined ? block.span : null,
+                };
+                children.push(childLogic);
+            }
+        }
+    }
+    return node;
     // M6.5.b.5 (Class F) — `openerHadSpaceAfterLt` + the P3a re-export markers
     // are NOT stamped at this synth site. Live stamps them in `buildBlock`
     // (ast-builder.js L11036/L11040-41) for BLOCK-PATH markup ONLY; live OMITS
@@ -506,6 +631,18 @@ function isMatchBlock(block) {
     return block.name === "match";
 }
 
+// isEachBlock — calculation (predicate). True iff `block` is a native `Markup`
+// block named "each" — i.e. an `<each ...>` / `< each ...>` element. The
+// `<each>` element is the SPEC §17.7 / §18.5.6 Tier 1 iteration structural
+// element (S130 HU-1); routed to `each-block` ASTNode in `mapOneBlock`. As with
+// `isMatchBlock`, the name is the authoritative gate — both `<each>`
+// (ScrmlStructural) and `< each>` (StateOpener) resolve here.
+function isEachBlock(block) {
+    if (block === undefined || block === null) return false;
+    if (block.kind !== "Markup") return false;
+    return block.name === "each";
+}
+
 // synthMatchBlockNode — SYNTHESIZE a live `MatchBlockNode` (ast-builder.js
 // L10688) from a native `Markup` block named "match". The native attrs already
 // carry `for=` and `on=` as parsed AttrNode values; bodyChildren is the native
@@ -637,6 +774,189 @@ function collectArmsRaw(block, source) {
     if (lo < 0 || hi < 0 || lo > hi) return "";
     if (lo < 0 || hi > source.length) return "";
     return source.slice(lo, hi).trim();
+}
+
+// =============================================================================
+// EACH BLOCK — SPEC §17.7 / §18.5.6 (#2f native-each structural-promotion).
+//
+// An `<each in=@coll as item key=expr>...</each>` (collection) or
+// `<each of=N as item>...</each>` (count) element is the Tier 1 iteration
+// structural element (S130 HU-1). The LIVE pipeline emits it as a dedicated
+// `each-block` ASTNode (ast-builder.js L11841 / literal L12091-L12105); native
+// must mirror that placement so the shared codegen (emit-each.ts) consumes the
+// SAME node from BOTH pipelines.
+//
+// THE LIVE SHAPE — `each-block` carries (ast-builder.js L12091-L12105):
+//   { id, kind: "each-block", iterShape, inExprRaw, ofExprRaw, asName,
+//     keyExprRaw, bodyChildren, templateChildren, emptyChild, bodyRaw, span,
+//     openerHadSpaceAfterLt }
+// NO `children` field — the deep walk follows `templateChildren` (per-item
+// markup) + `emptyChild`; `bodyChildren` is the full walkable mirror.
+//
+//   iterShape   — "in" | "of" | null. Exactly one of in=/of= is required at
+//                 the type-system layer; ast-builder records what was present
+//                 and tie-breaks BOTH-present to "in" (PASS surfaces the
+//                 conflict). We mirror that tie-break (ast-builder.js L12010).
+//   inExprRaw   — raw text after `in=` (null when shape is "of" / absent).
+//   ofExprRaw   — raw text after `of=` (null when shape is "in" / absent).
+//   asName      — bareword iteration-variable name (`as item` → "item"), or
+//                 null. The native attr tokenizer lands `as item` as TWO
+//                 absent-valued bareword attrs (`as` then `item`) — asName is
+//                 the attr immediately following the `as` bareword.
+//   keyExprRaw  — raw text after `key=` (null → codegen infers).
+//   bodyChildren— the native children array (FULL walkable mirror, includes
+//                 the `<empty>` sub-element). Verbatim recurse via
+//                 mapBlocksToNodes (the same recursion synthMarkupNode uses).
+//   templateChildren — bodyChildren minus the first `<empty>` markup child
+//                 (the per-item template).
+//   emptyChild  — the first markup child with tag "empty", or null.
+//   bodyRaw     — raw body-text fallback (matches match-block.armsRaw shape).
+//   openerHadSpaceAfterLt — true iff `< each` (StateOpener); mirrors live.
+//
+// KEY ENABLER (easier than the live path): the native parser already parsed
+// the each body STRUCTURALLY — `block.children` is a clean walkable array
+// (`[text, <li> markup, text, <empty> markup, text]`). No raw-body re-split
+// (the live path's `_splitBlocksForP2Form1`) is needed; we partition the
+// existing children + read the already-parsed opener attrs.
+// =============================================================================
+
+// readEachIterRaw — read an each opener attribute (`in` / `of` / `key`) as its
+// verbatim source slice, or null when absent. Mirrors `readOnExprRaw`'s
+// span-slice + typed-payload fallback so a complex expression
+// (`in=@items.filter(c => c.active)`) is captured in its original syntactic
+// form — exactly the live `_captureAttrValue` raw text. An `absent`-valued
+// bareword (e.g. a stray `in` with no `=`) folds to null.
+function readEachIterRaw(attrs, source, attrName) {
+    for (const attr of attrs) {
+        if (attr === undefined || attr === null) continue;
+        if (attr.name !== attrName) continue;
+        const value = attr.value;
+        if (value === undefined || value === null) return null;
+        if (value.kind === "absent") return null;
+        const span = value.span;
+        if (span !== undefined && span !== null
+            && typeof span.start === "number" && typeof span.end === "number"
+            && typeof source === "string"
+            && span.start >= 0 && span.end <= source.length
+            && span.start <= span.end) {
+            return source.slice(span.start, span.end);
+        }
+        // Span unavailable — fall back to the typed-payload text (mirrors
+        // readOnExprRaw). variable-ref/call-ref carry `.name`; expr `.raw`;
+        // string-literal `.value`.
+        if ((value.kind === "variable-ref" || value.kind === "call-ref")
+            && typeof value.name === "string") {
+            return value.name;
+        }
+        if (value.kind === "expr" && typeof value.raw === "string") {
+            return value.raw;
+        }
+        if (value.kind === "string-literal" && typeof value.value === "string") {
+            return value.value;
+        }
+        return null;
+    }
+    return null;
+}
+
+// readAsName — read the `as name` iteration-variable bareword. The native attr
+// tokenizer lands `as item` as TWO absent-valued bareword attrs in order:
+// `as` (the keyword) immediately followed by `item` (the name). asName is the
+// NAME of the attr immediately following the `as` bareword. Null when there is
+// no `as` attr, or `as` is the last attr (degenerate `<each in=@x as>` —
+// surfaced downstream). The positional adjacency is guaranteed by the opener
+// tokenizer: `as` and its name are consecutive barewords (verified across
+// adjacent and non-adjacent attr orderings, e.g. `in=@x key=@y.id as item`).
+function readAsName(attrs) {
+    for (let i = 0; i < attrs.length; i++) {
+        const attr = attrs[i];
+        if (attr === undefined || attr === null) continue;
+        if (attr.name !== "as") continue;
+        const next = attrs[i + 1];
+        if (next === undefined || next === null) return null;
+        return typeof next.name === "string" && next.name !== "" ? next.name : null;
+    }
+    return null;
+}
+
+// collectEachBodyRaw — the raw body text of an each block (between the opener
+// `>` and the `</each>` closer), trimmed. Reuses the same first-child/last-child
+// span bracketing as `collectArmsRaw` (the match-block precedent). Matches the
+// live `each-block.bodyRaw` shape (ast-builder.js L12089 — trimmed body text,
+// closer excluded). Empty body → "".
+function collectEachBodyRaw(block, source) {
+    return collectArmsRaw(block, source);
+}
+
+// synthEachBlockNode — SYNTHESIZE a live `each-block` ASTNode (ast-builder.js
+// L12091-L12105) from a native `Markup` block named "each". The native attrs
+// already carry `in=`/`of=`/`key=` as parsed AttrNode values + `as item` as two
+// bareword attrs; `block.children` is the already-walkable body. The shared
+// codegen (emit-each.ts) consumes this node unchanged.
+function synthEachBlockNode(block, idGen, source, errors) {
+    const attrs = Array.isArray(block.attrs) ? block.attrs : [];
+
+    // iter expressions — verbatim source slices (the live raw forms).
+    const inExprRaw = readEachIterRaw(attrs, source, "in");
+    const ofExprRaw = readEachIterRaw(attrs, source, "of");
+    const keyExprRaw = readEachIterRaw(attrs, source, "key");
+
+    // asName — the `as name` bareword (two-attr `as` + name shape).
+    const asName = readAsName(attrs);
+
+    // iterShape: "in" | "of" | null. Exactly one of in=/of= is required at the
+    // type-system layer; we record what was present and tie-break BOTH-present
+    // to "in" — the live ast-builder discipline (L12010-L12013). PASS surfaces
+    // missing-or-both as E-EACH-ITER-SHAPE.
+    let iterShape;
+    if (inExprRaw !== null && ofExprRaw === null) iterShape = "in";
+    else if (ofExprRaw !== null && inExprRaw === null) iterShape = "of";
+    else if (inExprRaw !== null && ofExprRaw !== null) iterShape = "in";
+    else iterShape = null;
+
+    // bodyChildren — the full walkable body, recursively mapped to live
+    // ASTNodes (the same recursion synthMarkupNode uses). This re-enters
+    // mapOneBlock for every body child, so a per-item `<li : @.name>` is mapped
+    // via synthMarkupNode (which now carries its `:`-shorthand body, sub-unit
+    // (d)) and a nested `<each>` / `<match>` inside the template is itself
+    // promoted — closing the each-inside-match-arm + nested-each coupling.
+    const bodyChildren = mapBlocksToNodes(block.children, idGen, source, errors);
+
+    // Partition bodyChildren → templateChildren + emptyChild. The first markup
+    // child whose tag is "empty" is the empty-branch render; everything else is
+    // the per-item template (the live partition — ast-builder.js L12064-L12072).
+    let emptyChild = null;
+    const templateChildren = [];
+    for (const child of bodyChildren) {
+        if (child !== null && child !== undefined
+            && child.kind === "markup"
+            && (child.tag === "empty" || child.name === "empty")
+            && emptyChild === null) {
+            emptyChild = child;
+        } else {
+            templateChildren.push(child);
+        }
+    }
+
+    const bodyRaw = collectEachBodyRaw(block, source);
+
+    return {
+        id: stampId(idGen),
+        kind: "each-block",
+        iterShape,
+        inExprRaw,
+        ofExprRaw,
+        asName,
+        keyExprRaw,
+        bodyChildren,
+        templateChildren,
+        emptyChild,
+        bodyRaw,
+        span: block.span !== undefined ? block.span : null,
+        // A `< each` opener (space after `<`) is classified TagKind.StateOpener;
+        // `<each>` is ScrmlStructural. Mirrors the match/engine/state stamp.
+        openerHadSpaceAfterLt: block.tagKind === "StateOpener",
+    };
 }
 
 // synthTextNode — SYNTHESIZE a live `TextNode` (ast.ts:249) from a native

@@ -96,12 +96,23 @@ export function initialTagFrame() {
 }
 
 // ===========================================================================
-// STRUCTURAL-ELEMENT REGISTRY (SPEC §4.15 + §24.4).
+// STRUCTURAL-ELEMENT REGISTRY (SPEC §4.15 + §24.4 + §17.7 / §18.5.6).
 //
 // The closed name-set the TagKind calculation consults to decide
-// ScrmlStructural. SPEC §4.15 + §24.4 are the NORMATIVE registry — both
-// register exactly these SEVEN scrml-defined structural elements:
+// ScrmlStructural. SPEC §4.15 + §24.4 register SEVEN scrml-defined
+// structural elements:
 //   engine / match / errors / onTransition / onTimeout / onIdle / page.
+//
+// `<each>` is the EIGHTH (added here): SPEC §17.7 / §18.5.6 (S130 HU-1
+// ratification, line ~10458/~10474) normatively name `<each>` "the
+// `<each>` structural element" and state it "joins `<match>` / `<engine>`
+// / `<channel>` / `<schema>` as a markup-tree structural element." The
+// §4.15 + §24.4 REGISTRY TABLES were never amended to add `<each>` when it
+// was ratified (a SPEC-registry GAP — §17.7 ratifies the element but the
+// §4.15/§24.4 enumerations omit it). The native registry follows §17.7's
+// normative intent (the element IS structural); the §4.15/§24.4 table
+// amendment is tracked SPEC follow-up (one row each, like the §38 channel
+// note below). REPORTED to PA at the native-each promotion dispatch.
 //
 // NOTE — discrepancy surfaced at MK2.1 (REPORTED to PA). The MK2.1 brief's
 // registry list named NINE elements — the seven above PLUS `channel` and
@@ -121,6 +132,7 @@ export function initialTagFrame() {
 export const STRUCTURAL_ELEMENTS = Object.freeze({
     engine:       true,
     match:        true,
+    each:         true,
     errors:       true,
     onTransition: true,
     onTimeout:    true,
@@ -489,13 +501,23 @@ export function tokenizeOpener(cursor, ltAnchor) {
                 p = p + 1;
             } else if (ch === ":" && bracketDepth === 0 && colonAt < 0
                        && p > attrRegionStart
-                       && isOpenerWhitespace(source.charAt(p - 1))) {
+                       && isOpenerWhitespace(source.charAt(p - 1))
+                       && !colonIntroducesDirectiveAttr(source, p, len)) {
                 // M6.6.b.1 — `:`-shorthand discriminator (SPEC §4.14 line
                 // 969 mandatory whitespace requirement). The `:` is at
                 // depth 0 outside any string, preceded by whitespace, and
                 // we haven't yet seen one in this opener. Record the
                 // position; continue scanning (the body terminates at the
                 // opener's `>`).
+                //
+                // #2f — NOT when the `:` introduces a `:`-prefixed DIRECTIVE
+                // attribute (`:let={...}` slot callback / `:value=expr`): that
+                // is an attribute, not a shorthand body. The LIVE BS treats
+                // `<column :let={...}/>` as a self-closing directive opener;
+                // the native recognizer must agree (otherwise it captures the
+                // render-prop callback as a phantom `:`-shorthand body, which
+                // the synthMarkupNode body-child synthesis would then
+                // mis-render). See colonIntroducesDirectiveAttr.
                 colonAt = p;
                 p = p + 1;
             } else if (ch === "<" && colonAt >= 0 && bracketDepth === 0
@@ -778,6 +800,47 @@ function isAttrWildcardValueStart(ch, next) {
     if (ch !== "*") return false;
     if (next === "" || next === ">" || next === "/") return true;
     return isAttrWhitespace(next);
+}
+
+// colonIntroducesDirectiveAttr — calculation (predicate). After a candidate
+// `:`-shorthand introducer at `colonPos`, decide whether the `:` actually
+// begins a `:`-PREFIXED DIRECTIVE ATTRIBUTE (`:let={...}`, `:value=expr`,
+// `:key={...}`) rather than a `:`-shorthand display body. A directive attr is
+// `:` + (optional ws) + a SIMPLE attr-name run + (optional ws) + `=` (a single
+// `=`, NOT `==` / `=>` — those are expression operators inside a real
+// shorthand body like `<span : a == b>`). The `tableFor`/`formFor` slot
+// callback `<column :let={(row) => ...}/>` is the witnessing shape (S130 §41.16
+// render-prop) — the LIVE BS treats it as a self-closing directive opener
+// (closerForm "self-closing"), NOT a `:`-shorthand body; the native recognizer
+// must agree or it captures the callback as a phantom shorthand body. The
+// attr-name run is the SIMPLE form only (letters/digits/`_`/`-`); a `.` /
+// `(` / `@`-leading run is an EXPRESSION (a shorthand body), not an attr name,
+// so it is NOT treated as a directive.
+function colonIntroducesDirectiveAttr(source, colonPos, limit) {
+    let q = colonPos + 1;
+    // Optional whitespace after `:` (SPEC §4.14 — after-`:` ws is optional).
+    while (q < limit && isOpenerWhitespace(source.charAt(q))) q = q + 1;
+    // A SIMPLE attr-name run: ASCII letter / `_` start (NOT `@` — a leading
+    // `@` is a reactive-ref EXPRESSION, the canonical shorthand body shape).
+    const startCh = source.charAt(q);
+    if (startCh !== "_" && !isAsciiLetter(startCh)) return false;
+    q = q + 1;
+    while (q < limit) {
+        const c = source.charAt(q);
+        // Plain attr-name chars only — letters/digits/`_`/`-`. A `.` / `(` /
+        // `:` / `@` ends the simple-name run (those mark an expression body).
+        if (c === "_" || c === "-") { q = q + 1; continue; }
+        const cc = c.charCodeAt(0);
+        if (cc >= 48 && cc <= 57) { q = q + 1; continue; }
+        if (isAsciiLetter(c)) { q = q + 1; continue; }
+        break;
+    }
+    // Optional whitespace, then a single `=` (NOT `==` / `=>`).
+    while (q < limit && isOpenerWhitespace(source.charAt(q))) q = q + 1;
+    if (source.charAt(q) !== "=") return false;
+    const after = source.charAt(q + 1);
+    if (after === "=" || after === ">") return false; // `==` / `=>` operators
+    return true;
 }
 
 // isAttrNameStart — calculation (predicate). A char that may begin an
