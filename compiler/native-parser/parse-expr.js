@@ -2977,21 +2977,36 @@ function currentTokenLine(cursor) {
     return tok.span.line;
 }
 
-// --- isAtArmBoundary — IS the cursor at a newline-then-arm-pattern boundary
-// while inside a match-arm body? M6.5.b.1 — consulted by the postfix-chain
+// --- isAtArmBoundary — IS the cursor at a next-arm-pattern boundary while
+// inside a match-arm body? M6.5.b.1 + F3 — consulted by the postfix-chain
 // Dot/DoubleColon/BareVariant guards to decide whether to STOP rather than
-// greedy-consume into the next arm. Three conjuncts:
+// greedy-consume into the next arm. Two conjuncts:
 //   (a) inMatchArmBody flag is set (we're inside an arm body)
-//   (b) current token is on a LATER source line than the prev token (newline
-//       between them — the ASI-style boundary)
-//   (c) the upcoming sequence looks like an arm pattern.
+//   (b) the upcoming sequence looks like an arm pattern — i.e. peekStartsArmPattern.
+//
+// F3 (native-match-arm-same-line) — the original M6.5.b.1 form ALSO required a
+// NEWLINE between the previous token and the current one (an ASI-style gate),
+// so it only stopped at newline-SEPARATED arms. That left SAME-LINE arms
+// (`.Idle => "idle" .Busy => "busy"`, the canonical compact form the legacy
+// BS+Acorn path parses) broken: with no newline before `.Busy`, the postfix
+// chain greedy-consumed `.Busy` as member access on the prior body, firing
+// E-EXPR-MATCH-PATTERN + an unclosed-brace cascade.
+//
+// The newline gate is REDUNDANT given peekStartsArmPattern: that predicate is
+// ARROW-ANCHORED — every shape it recognizes (`.Variant`, `::Variant`, `else`,
+// `_`, `is .V`, `not …`, `Qual.Variant`) requires a following arm-arrow
+// (`=>`/`:>`/`->`) within a bounded, depth-aware (scanPastPayloadParen) window
+// AND an UPPERCASE variant name. A lowercase `.field` member-access
+// CONTINUATION is therefore NOT recognized as a boundary (no arrow follows the
+// member), so dropping the newline requirement does NOT mis-classify member
+// access, object literals, nested matches, or call/payload parens. This guard
+// fires only at the TOP of parsePostfixChain's loop (cursor at a postfix-
+// operator candidate token), so the post-`.` Ident positions that
+// peekStartsArmPattern can over-accept in isolation are never the cursor here.
+// Same-line and newline arms build the SAME match AST and emit identical JS.
 export function isAtArmBoundary(ctx) {
     if (ctx.inMatchArmBody !== true) return false;
     const cursor = ctx.cursor;
-    const prev = prevTokenLine(cursor);
-    const curr = currentTokenLine(cursor);
-    if (prev === 0 || curr === 0) return false;
-    if (curr <= prev) return false;
     return peekStartsArmPattern(cursor);
 }
 

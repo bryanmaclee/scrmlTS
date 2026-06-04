@@ -5039,10 +5039,10 @@
   "samples/compilation-tests/match-001-nested-with-call.scrml": {
     "COUNT-LENGTH": 3,
     "EXTRA-FIELD": 11,
-    "FIELD-SHAPE": 5,
+    "FIELD-SHAPE": 7,
     "KIND-NAME": 2,
     "MISSING-FIELD": 28,
-    "SPAN-COORD": 15
+    "SPAN-COORD": 19
   },
   "samples/compilation-tests/match-002-block-form-arm-swap.scrml": {
     "COUNT-LENGTH": 2,
