@@ -1048,7 +1048,7 @@ Each `:`-shorthand body here is a display-text literal (§4.18.3). `"Loading… 
 
 ### 4.15 Scrml-defined structural elements (registered at the block-grammar layer)
 
-**Added:** 2026-05-04 — registers the v0.next scrml-defined elements that the block splitter and tokenizer recognise alongside HTML elements. These are NOT HTML elements; the element registry (§24) distinguishes them and routes them to their owning sections for behavioural semantics. Updated 2026-05-10 (S77 + S78) for `<onTimeout>` (§51.0.M), `<onIdle>` (§51.0.R). Updated 2026-05-12 (v0.3 Wave 1) for `<page>` (§40). Updated 2026-05-20 (S111 — quoted-text model) — `<engine>` / `<match>` body-form notes mark their state-child / arm bodies as code-default bodies (§4.18).
+**Added:** 2026-05-04 — registers the v0.next scrml-defined elements that the block splitter and tokenizer recognise alongside HTML elements. These are NOT HTML elements; the element registry (§24) distinguishes them and routes them to their owning sections for behavioural semantics. Updated 2026-05-10 (S77 + S78) for `<onTimeout>` (§51.0.M), `<onIdle>` (§51.0.R). Updated 2026-05-12 (v0.3 Wave 1) for `<page>` (§40). Updated 2026-05-20 (S111 — quoted-text model) — `<engine>` / `<match>` body-form notes mark their state-child / arm bodies as code-default bodies (§4.18). Updated 2026-06-04 (S162) for `<each>` (§17.7) — closes the §4.15/§24.4 registry gap: `<each>` is normatively structural per §17.7 / §18.5.6 (S130 HU-1) but had been omitted from these registry enumerations; the native parser registered it at the #2f each-promotion landing.
 
 **The registered structural elements:**
 
@@ -1056,6 +1056,7 @@ Each `:`-shorthand body here is a display-text literal (§4.18.3). `"Loading… 
 |---|---|---|---|
 | `<engine>` | §51.0 | `for=Type` (required), `initial=.Variant`, `var=name`, `derived=expr` | bare-body (state-children); each state-child body is a **code-default body** (§4.18 — S111) |
 | `<match>` | §18.0.1 | `for=Type` (required), `on=expr` | bare-body (variant arms); each arm body is a **code-default body** (§4.18 — S111) |
+| `<each>` (S130 HU-1) | §17.7 | `in=expr` OR `of=expr` (exactly one required), `as name` (optional), `key=expr` (optional) | per-item template (markup) + optional `<empty>` sub-element; `:`-shorthand single-expr per-item body (§4.14) |
 | `<errors>` | §55.8 | `of=expr` (required), `all` (boolean) | optional bare-body (override template) — free-text body (plain markup, NOT code-default) |
 | `<onTransition>` | §51.0.H | `to=Variant`, `from=Variant`, `once` (boolean), `if=expr` | bare-body (effect statements) or `:`-shorthand |
 | `<onTimeout>` (S67; `name=` S79) | §51.0.M | `after=DURATION` (required), `to=.Variant` (required), `name=IDENT` (optional, S79 — addressable for `cancelTimer`) | self-closing only |
@@ -1064,11 +1065,11 @@ Each `:`-shorthand body here is a display-text literal (§4.18.3). `"Loading… 
 
 **Normative statements:**
 
-- The block splitter SHALL classify openers `<engine`, `<match>`, `<errors`, `<onTransition`, `<onTimeout`, `<onIdle`, and `<page` (no whitespace between `<` and the identifier — they follow the canonical no-space convention; the convention precedes NR-authoritative routing per §4.3) as scrml-defined structural elements.
+- The block splitter SHALL classify openers `<engine`, `<match>`, `<each`, `<errors`, `<onTransition`, `<onTimeout`, `<onIdle`, and `<page` (no whitespace between `<` and the identifier — they follow the canonical no-space convention; the convention precedes NR-authoritative routing per §4.3) as scrml-defined structural elements.
 - These element names SHALL NOT be treated as HTML elements. The HTML element registry (§24) excludes them; the scrml structural-element registry includes them.
 - (S111 — quoted-text model.) The state-child bodies of `<engine>` and the arm bodies of `<match>` are **code-default bodies** (§4.18.1) — a bare run in those bodies is code; display text is a `"..."` display-text literal (§4.18.3). The `<errors>` override-template body and any plain-markup element body are free-text bodies. The `<page>` body is a distinct **third** body-mode — `default-logic` (§40.8) — neither code-default nor free-text; the §4.18 split does not classify it. The body-mode of a structural element's body is fixed by the element kind per §4.18.
 - Attribute slots listed above are recognised at parse time. Unknown attributes on these elements emit `W-ATTR-001` (attribute allowlist warning, §3.3 / VP-1) and may escalate to error in stricter modes.
-- Component names (PascalCase user types) and these scrml-defined element names are disjoint — registering a user component named `engine`, `match`, `errors`, `onTransition`, `onTimeout`, `onIdle`, or `page` is `E-NAME-COLLIDES-RESERVED` (the names are reserved structural-element identifiers).
+- Component names (PascalCase user types) and these scrml-defined element names are disjoint — registering a user component named `engine`, `match`, `each`, `errors`, `onTransition`, `onTimeout`, `onIdle`, or `page` is `E-NAME-COLLIDES-RESERVED` (the names are reserved structural-element identifiers).
 - These element names are ONLY recognised in their owning loci; e.g., `<onTransition>` is grammatical only as a child of `<engine>`; `<onTimeout>` is grammatical only as a child of an engine state-child; `<onIdle>` is grammatical only at engine root (sibling of state-children); `<page>` is grammatical only as a child of `<program>` in multi-page apps. Use outside the owning locus is `E-STRUCTURAL-ELEMENT-MISPLACED` or the element's specific misplacement code (e.g. `E-IDLE-MISPLACED` per §51.0.R).
 - `<page>` SHALL NOT carry a `route=` attribute. Routing in scrml is filesystem-inferred (per Pillar 3 — compiler owns the wiring; cross-ref §47.9.2 path-preserve emission); a `route=` attr on `<page>` is `E-PAGE-ROUTE-ATTR-FORBIDDEN` (doubly forbidden: it both regresses against filesystem inference AND collides with the existing nested-program `route=` per §4.12.2). The allowed attribute set on `<page>` is exactly the four PER-ROUTE concerns — `db=`, `auth=`, `csrf=`, `ratelimit=` — and any other attribute fires `E-PAGE-INVALID-ATTR` with guidance toward the markup-element alternative or moving the attribute to `<program>` (app-wide concerns).
 
@@ -1076,7 +1077,7 @@ Each `:`-shorthand body here is a display-text literal (§4.18.3). `"Loading… 
 
 - `<engine>` shape, attributes, semantics: §51.0 (full behavioural definition).
 - `<match>` shape and Tier 1 semantics: §18.0.1.
-- `<errors>` shape, default rendering, body override: §55.8.
+- `<each>` shape, the four canonical iteration shapes, `<empty>` sub-element, inferred `key=`, `@.` contextual sigil: §17.7. (Like `<match>`, `<each>` is a markup-tree structural element — grammatical anywhere markup goes; it is NOT locus-restricted, so it is absent from the owning-locus restriction above.)
 - `<onTransition>` shape, attribute legality, firing rules: §51.0.H.
 - `<onTimeout>` shape, attribute legality, firing rules: §51.0.M (S67 amendment).
 - `<onIdle>` shape, attribute legality, firing rules: §51.0.R (S77 amendment).
@@ -15506,7 +15507,7 @@ The HTML elements `<pre>` and `<code>` are **raw-content elements** at the scrml
 
 ### 24.4 Scrml-defined structural elements (Stage 0b D4 — registry distinction)
 
-**Added:** 2026-05-04 — registers the v0.next scrml-defined structural elements alongside the HTML element registry. These are NOT HTML elements; the registry distinguishes them. Updated 2026-05-10 (S77 + S78) for `<onTimeout>` (§51.0.M), `<onIdle>` (§51.0.R). Updated 2026-05-12 (v0.3 Wave 1) for `<page>` (§40).
+**Added:** 2026-05-04 — registers the v0.next scrml-defined structural elements alongside the HTML element registry. These are NOT HTML elements; the registry distinguishes them. Updated 2026-05-10 (S77 + S78) for `<onTimeout>` (§51.0.M), `<onIdle>` (§51.0.R). Updated 2026-05-12 (v0.3 Wave 1) for `<page>` (§40). Updated 2026-06-04 (S162) for `<each>` (§17.7 — registry catch-up; cross-ref §4.15).
 
 **Registered scrml structural elements:**
 
@@ -15514,6 +15515,7 @@ The HTML elements `<pre>` and `<code>` are **raw-content elements** at the scrml
 |---|---|---|
 | `<engine>` | §51.0 | State-machine declaration; renders state-child bodies dispatched on current variant |
 | `<match>` | §18.0.1 | Block-form match declaration; emits one selected arm body |
+| `<each>` (S130 HU-1) | §17.7 | Structural iteration: `in=` (collection) or `of=` (count); per-item template + optional `<empty>` fallback; markup-tree element (grammatical anywhere markup goes — not locus-restricted) |
 | `<errors>` | §55.8 | Auto-renders validator errors per cell or rollup |
 | `<onTransition>` | §51.0.H | Cross-state effect handler; child of `<engine>` only |
 | `<onTimeout>` (S67) | §51.0.M | Per-state-child time-driven transition declaration; child of an engine state-child only |
@@ -15523,7 +15525,7 @@ The HTML elements `<pre>` and `<code>` are **raw-content elements** at the scrml
 **Normative statements:**
 
 - The HTML element registry (§24.1) SHALL NOT include these names. They are scrml-defined structural elements with their own owning-section semantics (cross-ref §4.15).
-- The compiler SHALL NOT apply HTML attribute validation (§24.2) to these elements. Each scrml structural element has its own attribute slot catalog defined in its owning section (§51.0 for `<engine>`, §18.0.1 for `<match>`, §55.8 for `<errors>`, §51.0.H for `<onTransition>`, §51.0.M for `<onTimeout>`, §51.0.R for `<onIdle>`, §40 for `<page>`).
+- The compiler SHALL NOT apply HTML attribute validation (§24.2) to these elements. Each scrml structural element has its own attribute slot catalog defined in its owning section (§51.0 for `<engine>`, §18.0.1 for `<match>`, §17.7 for `<each>`, §55.8 for `<errors>`, §51.0.H for `<onTransition>`, §51.0.M for `<onTimeout>`, §51.0.R for `<onIdle>`, §40 for `<page>`).
 - These element names SHALL NOT be valid component names. Defining `const engine = <article>` (lowercase) or `const Engine = <div>` is `E-NAME-COLLIDES-RESERVED` — the names are reserved scrml structural-element identifiers. The same applies to `page` / `Page`.
 - The unified state-type registry (§15.15) routes these names per their NR `resolvedCategory`: `<engine>` → `engine`, `<match>` → a dedicated category, `<errors>` → a dedicated category, `<onTransition>` → resolved relative to its parent `<engine>`, `<onTimeout>` → resolved relative to its parent engine state-child, `<onIdle>` → resolved relative to its parent `<engine>`, `<page>` → resolved relative to its parent `<program>`.
 - Validation pass VP-1 (§3.3 attribute allowlist) registers the per-element attribute catalogs for these structural elements in `compiler/src/attribute-registry.js` (cross-ref Stage 3.3 contract).
@@ -15532,6 +15534,7 @@ The HTML elements `<pre>` and `<code>` are **raw-content elements** at the scrml
 - §4.15 — block-grammar registration (the structural elements' grammar surface).
 - §51.0 — engine semantics.
 - §18.0.1 — match block-form semantics.
+- §17.7 — `<each>` iteration semantics.
 - §55.8 — `<errors>` element semantics.
 - §51.0.M — `<onTimeout>` semantics (S67 amendment).
 - §51.0.R — `<onIdle>` semantics (S77 amendment).
