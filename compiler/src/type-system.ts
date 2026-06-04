@@ -14097,6 +14097,14 @@ function processFile(
         fileSpan,
       );
     }
+
+    // S160 Shape 4 (§6.2 / §34 E-REFINEMENT-NO-DEFAULT) — a refinement-typed
+    // no-RHS cell (`<x>: number(>0)`) synthesized its base canonical-empty in
+    // ast-builder (flagged `refinementNoRhsBase`). Statically evaluate the §53
+    // predicate on that synthesized literal: VIOLATES → hard error (a refined
+    // type with no predicate-satisfying canonical empty cannot be auto-defaulted);
+    // SATISFIES → the synthesized empty stands (no error).
+    runRefinementNoRhsDefaultCheck(lifecycleTopNodes, errors, fileSpan);
   }
 
   // §51.9 — After annotation, collect the reactive → machine bindings that
@@ -16121,6 +16129,13 @@ interface FnReturnLifecycleSpec {
   // Empty strings for presence-progression.
   preVariantName: string;
   postVariantName: string;
+  // S160 Shape 4 (§6.2 / §14.12.3) — set when this presence spec was SYNTHESIZED
+  // from a no-RHS typed cell whose type has no canonical empty (`<user>: User`).
+  // The developer wrote no `(not to T)` annotation; the cell defaulted to `not`
+  // and acquired the lifecycle IMPLICITLY. The E-TYPE-001 message on a
+  // pre-transition read of such a cell names that the lifecycle was synthesized
+  // from the no-RHS declaration (§14.12.3 normative wording).
+  synthesizedFromNoRhs?: boolean;
 }
 
 type FnReturnLifecycleMap = Map<string, FnReturnLifecycleSpec>;
@@ -16592,6 +16607,17 @@ function checkLifecycleBindingAccess(
         // E-TYPE-001 — pre-transition presence-progression access
         const preLabel = formatTypeForDiagnostic(spec.preType);
         const postLabel = formatTypeForDiagnostic(spec.postType);
+        // S160 Shape 4 (§14.12.3) — when the `(not to T)` lifecycle was
+        // SYNTHESIZED from a no-RHS typed declaration (the developer wrote no
+        // annotation), the message SHALL name that the lifecycle was synthesized
+        // from the no-RHS declaration, so the adopter understands why a cell they
+        // never annotated has a presence lifecycle.
+        const synthNote = (spec as FnReturnLifecycleSpec).synthesizedFromNoRhs
+          ? `\n  This \`(not to ${postLabel})\` lifecycle was SYNTHESIZED from the no-RHS typed declaration ` +
+            `\`<${binding}>: ${postLabel}\` (Shape 4, §6.2): the type has no canonical empty, so the cell ` +
+            `defaulted to \`not\` and acquired the lifecycle implicitly. Assign a \`${postLabel}\`-shaped value ` +
+            `(or discriminate via \`given\` / \`is not\` / \`match\`) before this read.`
+          : "";
         errors.push(new TSError(
           "E-TYPE-001",
           `E-TYPE-001: binding \`${binding}\` has lifecycle annotation \`(${preLabel} to ${postLabel})\` ` +
@@ -16600,7 +16626,7 @@ function checkLifecycleBindingAccess(
           `the binding is still in the pre-transition state (\`${preLabel}\`).\n` +
           `  Resolution: discriminate the binding via \`given ${binding} => { ... }\`, ` +
           `\`if (${binding} is not) return\` early-return, or \`match ${binding} { not => ..., given ${binding} => ... }\` ` +
-          `before this read. See SPEC §14.12.6.1.`,
+          `before this read. See SPEC §14.12.6.1.` + synthNote,
           span,
         ));
       } else {
@@ -17150,6 +17176,36 @@ function buildCellValueLifecycleMap(
 
             map.set(cellName, { ...spec, initIsPostType, resetState });
           }
+        } else if (
+          (n as ASTNodeLike).implicitNotLifecycle === true &&
+          !engineCellNames.has(cellName) &&
+          typeof typeAnnotation === "string" &&
+          typeAnnotation.trim().length > 0
+        ) {
+          // S160 Shape 4 (§6.2 / §14.12.3) — a no-RHS typed cell whose type has
+          // no canonical empty (a bare `:struct` / `:enum` / opaque / date /
+          // timestamp) defaulted to `not` and acquired an IMPLICIT `(not to T)`
+          // lifecycle. The developer wrote no annotation, so `typeAnnotation`
+          // here is the bare post-type `T` (e.g. `User`), NOT a `(A to B)` form.
+          // Synthesize the presence spec by reusing parseLifecycleReturnAnnotation
+          // on the equivalent EXPLICIT annotation `(not to T)` — this gives the
+          // walker the same discrimination + assignment + reset transitions the
+          // explicit `<user>: (not to User) = not` form gets, for free (§14.12.3).
+          const synthAnnotation = `(not to ${typeAnnotation.trim()})`;
+          const spec = parseLifecycleReturnAnnotation(synthAnnotation, typeRegistry);
+          if (spec) {
+            // The synthesized init is `not` (Shape 4): the cell starts `pre`.
+            // A read before a T-shaped assignment fires E-TYPE-001 (§14.12.3);
+            // reset re-evaluates the synthesized `not` init → reverts to `pre`
+            // exactly as for the explicit `<user>: (not to User) = not` form
+            // (§6.8.3 No-RHS implicit-`(not to T)` cell reset note).
+            map.set(cellName, {
+              ...spec,
+              synthesizedFromNoRhs: true,
+              initIsPostType: false,
+              resetState: "pre",
+            });
+          }
         }
       }
 
@@ -17162,6 +17218,94 @@ function buildCellValueLifecycleMap(
 
   visit(topNodes);
   return map;
+}
+
+/**
+ * S160 Shape 4 (§6.2 / §34 E-REFINEMENT-NO-DEFAULT) — static refinement-default
+ * check for no-RHS refinement-typed cells.
+ *
+ * A no-RHS refinement-typed cell (`<x>: number(>0)`) synthesizes its base
+ * canonical-empty in ast-builder (`init: "0"`) and flags the node with
+ * `refinementNoRhsBase: "<base>"`. This walk re-derives that synthesized
+ * canonical-empty literal and statically evaluates the §53 predicate on it:
+ *   - VIOLATES (`number(>0)` → `0` fails `>0`)  → fire E-REFINEMENT-NO-DEFAULT
+ *     (a refined type with no predicate-satisfying canonical empty cannot be
+ *     auto-defaulted; require an explicit initializer).
+ *   - SATISFIES (`number(>=0)` → `0` passes `>=0`) → no error; the synthesized
+ *     canonical-empty stands.
+ *   - UNDETERMINABLE (predicate references named shape / external — returns null
+ *     from evaluatePredicateOnLiteral) → no static error; the value rides forward
+ *     and is checked at the existing §53 assignment/contract sites.
+ *
+ * Reuses the §53 predicate infra (parsePredicateExpr + evaluatePredicateOnLiteral),
+ * mirroring checkPredicateLiteral's static-evaluation shape so the diagnostic is
+ * wired like its sibling §53 codes (E-CONTRACT-001).
+ */
+function runRefinementNoRhsDefaultCheck(
+  topNodes: ASTNodeLike[],
+  errors: TSError[],
+  fileSpan: Span,
+): void {
+  if (!Array.isArray(topNodes) || topNodes.length === 0) return;
+
+  // The synthesized base canonical-empty literal VALUE for a base primitive,
+  // matching ast-builder's canonicalEmptyFor(). `number`/`int`/`integer` → 0
+  // (numeric); `string` → "" (the empty string). bool has no refinement form.
+  function canonicalEmptyValue(base: string): number | string | null {
+    switch (base) {
+      case "int": case "integer": case "number": return 0;
+      case "string": return "";
+      default: return null;
+    }
+  }
+
+  function visit(nodes: ASTNodeLike[]): void {
+    for (const n of nodes) {
+      if (!n || typeof n !== "object") continue;
+      if (n.kind === "function-decl") continue;
+      if (n.kind === "state-decl") {
+        const base = (n as ASTNodeLike).refinementNoRhsBase as string | undefined;
+        const typeAnnotation = (n as ASTNodeLike).typeAnnotation as string | undefined;
+        if (typeof base === "string" && typeof typeAnnotation === "string") {
+          const baseValue = canonicalEmptyValue(base);
+          // Extract the predicate raw — the inner text of the top-level
+          // `(...)` immediately following the base type (`number(>0)` → `>0`).
+          const tAnno = typeAnnotation.trim();
+          const open = tAnno.indexOf("(");
+          if (baseValue !== null && open >= 0 && tAnno.endsWith(")")) {
+            const predicateRaw = tAnno.slice(open + 1, -1).trim();
+            const pred = parsePredicateExpr(predicateRaw);
+            // External-ref / named-shape predicates evaluate to null (undeterminable)
+            // — let the existing §53 sites handle them; no static no-default error.
+            const result = pred.hasExternalRef
+              ? null
+              : evaluatePredicateOnLiteral(pred, baseValue);
+            if (result === false) {
+              const cellName = typeof n.name === "string" ? n.name : "<cell>";
+              const emptyLabel = typeof baseValue === "string" ? '""' : String(baseValue);
+              errors.push(new TSError(
+                "E-REFINEMENT-NO-DEFAULT",
+                `E-REFINEMENT-NO-DEFAULT: refinement-typed state-cell \`<${cellName}>: ${tAnno}\` ` +
+                `has no RHS, and its base canonical-empty (\`${emptyLabel}\`) VIOLATES the refinement ` +
+                `predicate \`(${predicateRaw})\`. A refined type with no predicate-satisfying canonical ` +
+                `empty cannot be auto-defaulted (Shape 4, §6.2). ` +
+                `Resolution: provide an explicit initializer (e.g. \`<${cellName}>: ${tAnno} = ...\`). ` +
+                `Refinement types whose canonical empty SATISFIES the predicate (\`number(>=0)\` → \`0\`) ` +
+                `get the canonical empty with no error. See SPEC §6.2 Shape 4 / §53 / §34.`,
+                (n as ASTNodeLike).span as Span ?? fileSpan,
+              ));
+            }
+          }
+        }
+      }
+      for (const key of ["body", "children", "nodes", "ast", "bodyChildren"]) {
+        const val = (n as Record<string, unknown>)[key];
+        if (Array.isArray(val)) visit(val as ASTNodeLike[]);
+      }
+    }
+  }
+
+  visit(topNodes);
 }
 
 /**

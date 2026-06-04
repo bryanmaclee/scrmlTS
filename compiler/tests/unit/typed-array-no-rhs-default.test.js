@@ -1,24 +1,43 @@
 /**
- * typed-array-no-rhs-default.test.js — SPEC §6.2 Shape 4 (S152)
+ * typed-array-no-rhs-default.test.js — SPEC §6.2 Shape 4 (S152 array; S160 generalized)
  *
- * Typed-array state-cell declaration with NO right-hand-side defaults to `[]`.
- * Non-array typed declaration with no RHS is E-DECL-NEEDS-INITIALIZER.
+ * Typed state-cell declaration with NO right-hand-side (`<x>: T`). Generalized
+ * S160 (§6.2 Shape 4): defaults to the type's CANONICAL EMPTY where one exists
+ * (int/integer/number→0, bool/boolean→false, string→"", T[]→[]); to `not` (with
+ * an implicit `(not to T)` lifecycle, §14.12.3) where the type is a bare `T` with
+ * no canonical empty (named :struct / :enum / date / timestamp / opaque); to `not`
+ * (NO lifecycle) where the type already admits absence (`T | not` / `T?`); a
+ * refinement-typed cell (`number(>0)`) synthesizes its base canonical-empty and
+ * checks it against the §53 predicate (SATISFIES → use; VIOLATES → E-REFINEMENT-
+ * NO-DEFAULT). E-DECL-NEEDS-INITIALIZER is RETIRED for the plain-cell case and now
+ * survives ONLY for the const-derived no-RHS sub-case (a derived-with-no-expression
+ * error, NOT Shape 4 per §6.2).
  *
  *   §1  AST: no-RHS array decl (top-level)        → state-decl, init "[]", array initExpr
  *   §2  AST: no-RHS array decl (<state> block)    → same shape, nested in compound
  *   §3  AST: explicit `= []` array decl           → unchanged (regression guard)
  *   §4  AST: no-RHS primitive array (number[])    → defaults to []
  *   §5  AST: no-RHS multi-dim array (Todo[][])    → defaults to []
- *   §6  AST: no-RHS non-array (int)               → E-DECL-NEEDS-INITIALIZER
- *   §7  AST: no-RHS non-array (string)            → E-DECL-NEEDS-INITIALIZER
- *   §8  AST: no-RHS non-array struct (User)       → E-DECL-NEEDS-INITIALIZER
- *   §9  AST: no-RHS non-array (int) in <state>    → E-DECL-NEEDS-INITIALIZER
+ *   §6  AST: no-RHS non-array (int)               → 0, NO error (S160 inversion)
+ *   §7  AST: no-RHS non-array (string)            → "", NO error (S160 inversion)
+ *   §8  AST: no-RHS non-array struct (User)       → not + implicitNotLifecycle, NO error
+ *   §9  AST: no-RHS non-array (int) in <state>    → 0, NO error (S160 inversion)
  *   §10 Codegen: no-RHS array emits _scrml_reactive_set(name, ...[])
  *   §11 Codegen: no-RHS array + reset → _scrml_init_set(name, () => [])
  *   §12 Codegen: no-RHS array output IDENTICAL to explicit `= []`
- *   §13 Compile: non-array no-RHS surfaces E-DECL-NEEDS-INITIALIZER in result.errors
+ *   §13 Compile: scalar no-RHS does NOT surface E-DECL-NEEDS-INITIALIZER (S160 inversion)
  *   §14 Runtime (happy-dom): empty defaulted array renders empty list (no crash)
  *   §15 Runtime (happy-dom): subsequent @todos = [...] write populates the list
+ *   ── S160 generalization coverage ──
+ *   §16 AST: canonical-empty synth — int→0, integer→0, number→0, bool→false, boolean→false, string→""
+ *   §17 AST: bare-T no-canonical-empty → not + implicitNotLifecycle (struct/enum/date/timestamp/opaque)
+ *   §18 AST: union/optional (`T | not` / `not | T` / `T?`) → not, NO implicitNotLifecycle marker
+ *   §19 AST: refinement SATISFIES (number(>=0)→0) → 0, refinementNoRhsBase set, NO error
+ *   §20 AST: const-derived no-RHS (`const <x>: int`) → E-DECL-NEEDS-INITIALIZER (sub-case preserved)
+ *   §21 Compile: bare-T read-before-assign → E-TYPE-001 (implicit lifecycle); pass after assignment
+ *   §22 Compile: bare-T pass after presence-discrimination (`given` / `is not`)
+ *   §23 Compile: union `T | not` no-RHS → no E-TYPE-001 (not inhabits the type)
+ *   §24 Compile: refinement VIOLATES (number(>0)→0) → E-REFINEMENT-NO-DEFAULT; SATISFIES (>=0) → none
  */
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
@@ -115,24 +134,40 @@ describe("§6.2 Shape 4 — typed-array no-RHS default to [] (AST)", () => {
     expect(errorCodes(tab)).not.toContain("E-DECL-NEEDS-INITIALIZER");
   });
 
-  test("§6 no-RHS non-array (int) → E-DECL-NEEDS-INITIALIZER", () => {
+  test("§6 no-RHS non-array (int) → 0, NO E-DECL-NEEDS-INITIALIZER (S160 inversion)", () => {
     const tab = parse("<program>\n<x>: int\n</program>");
-    expect(errorCodes(tab)).toContain("E-DECL-NEEDS-INITIALIZER");
+    const x = collectStateDecls(tab).find((d) => d.name === "x");
+    expect(x).toBeTruthy();
+    expect(x.init).toBe("0");
+    expect(x.implicitNotLifecycle).toBeUndefined();
+    expect(errorCodes(tab)).not.toContain("E-DECL-NEEDS-INITIALIZER");
   });
 
-  test("§7 no-RHS non-array (string) → E-DECL-NEEDS-INITIALIZER", () => {
+  test("§7 no-RHS non-array (string) → \"\", NO E-DECL-NEEDS-INITIALIZER (S160 inversion)", () => {
     const tab = parse("<program>\n<name>: string\n</program>");
-    expect(errorCodes(tab)).toContain("E-DECL-NEEDS-INITIALIZER");
+    const name = collectStateDecls(tab).find((d) => d.name === "name");
+    expect(name).toBeTruthy();
+    expect(name.init).toBe('""');
+    expect(name.implicitNotLifecycle).toBeUndefined();
+    expect(errorCodes(tab)).not.toContain("E-DECL-NEEDS-INITIALIZER");
   });
 
-  test("§8 no-RHS non-array struct (User) → E-DECL-NEEDS-INITIALIZER", () => {
+  test("§8 no-RHS non-array struct (User) → not + implicitNotLifecycle, NO E-DECL (S160 inversion)", () => {
     const tab = parse("<program>\n<u>: User\n</program>");
-    expect(errorCodes(tab)).toContain("E-DECL-NEEDS-INITIALIZER");
+    const u = collectStateDecls(tab).find((d) => d.name === "u");
+    expect(u).toBeTruthy();
+    expect(u.init).toBe("not");
+    expect(u.implicitNotLifecycle).toBe(true);
+    expect(u.typeAnnotation).toBe("User");
+    expect(errorCodes(tab)).not.toContain("E-DECL-NEEDS-INITIALIZER");
   });
 
-  test("§9 no-RHS non-array (int) inside <state> block → E-DECL-NEEDS-INITIALIZER", () => {
+  test("§9 no-RHS non-array (int) inside <state> block → 0, NO E-DECL (S160 inversion)", () => {
     const tab = parse("<program>\n<state>\n<x>: int\n</state>\n</program>");
-    expect(errorCodes(tab)).toContain("E-DECL-NEEDS-INITIALIZER");
+    const x = collectStateDecls(tab).find((d) => d.name === "x");
+    expect(x).toBeTruthy();
+    expect(x.init).toBe("0");
+    expect(errorCodes(tab)).not.toContain("E-DECL-NEEDS-INITIALIZER");
   });
 });
 
@@ -187,12 +222,12 @@ describe("§6.2 Shape 4 — codegen", () => {
     }
   });
 
-  test("§13 non-array no-RHS surfaces E-DECL-NEEDS-INITIALIZER in result.errors", () => {
+  test("§13 scalar no-RHS does NOT surface E-DECL-NEEDS-INITIALIZER (S160 inversion)", () => {
     const src = `<program>\n  <count>: int\n  <view><p>\${@count}</p></view>\n</program>`;
     const { dir, result } = compileToTmp(src, "scalar");
     try {
       const codes = (result.errors || []).map((e) => e.code);
-      expect(codes).toContain("E-DECL-NEEDS-INITIALIZER");
+      expect(codes).not.toContain("E-DECL-NEEDS-INITIALIZER");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -277,6 +312,192 @@ describe("§6.2 Shape 4 — runtime (happy-dom)", () => {
       globalThis.__scrml_reactive_set__("todos", [{ text: "a" }, { text: "b" }]);
       const items = Array.from(document.querySelectorAll("p"));
       expect(items.length).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// S160 generalization — §6.2 Shape 4 for ALL typed cells (not just arrays).
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("§6.2 Shape 4 — S160 canonical-empty synthesis (AST)", () => {
+  test("§16 canonical-empty synth — int/integer/number→0, bool/boolean→false, string→\"\"", () => {
+    const cases = [
+      ["int", "0"],
+      ["integer", "0"],
+      ["number", "0"],
+      ["bool", "false"],
+      ["boolean", "false"],
+      ["string", '""'],
+    ];
+    for (const [ty, expected] of cases) {
+      const tab = parse(`<program>\n<c>: ${ty}\n</program>`);
+      const c = collectStateDecls(tab).find((d) => d.name === "c");
+      expect(c, `decl for ${ty}`).toBeTruthy();
+      expect(c.init, `init for ${ty}`).toBe(expected);
+      expect(c.implicitNotLifecycle, `no lifecycle marker for ${ty}`).toBeUndefined();
+      expect(c.refinementNoRhsBase, `no refinement flag for ${ty}`).toBeUndefined();
+      expect(errorCodes(tab)).not.toContain("E-DECL-NEEDS-INITIALIZER");
+    }
+  });
+
+  test("§17 bare-T no-canonical-empty → not + implicitNotLifecycle", () => {
+    // Named struct, enum, registered string-shaped primitives, opaque type.
+    for (const ty of ["User", "Phase", "date", "timestamp", "OpaqueThing"]) {
+      const tab = parse(`<program>\n<c>: ${ty}\n</program>`);
+      const c = collectStateDecls(tab).find((d) => d.name === "c");
+      expect(c, `decl for ${ty}`).toBeTruthy();
+      expect(c.init, `init for ${ty}`).toBe("not");
+      expect(c.implicitNotLifecycle, `lifecycle marker for ${ty}`).toBe(true);
+      expect(errorCodes(tab)).not.toContain("E-DECL-NEEDS-INITIALIZER");
+    }
+  });
+
+  test("§18 union/optional → not, NO implicitNotLifecycle marker", () => {
+    for (const ty of ["User | not", "not | User", "string?", "User | not"]) {
+      const tab = parse(`<program>\n<c>: ${ty}\n</program>`);
+      const c = collectStateDecls(tab).find((d) => d.name === "c");
+      expect(c, `decl for ${ty}`).toBeTruthy();
+      expect(c.init, `init for ${ty}`).toBe("not");
+      // `not` inhabits the type — NO implicit lifecycle (reads do not fire E-TYPE-001).
+      expect(c.implicitNotLifecycle, `no marker for ${ty}`).toBeUndefined();
+      expect(errorCodes(tab)).not.toContain("E-DECL-NEEDS-INITIALIZER");
+    }
+  });
+
+  test("§19 refinement SATISFIES (number(>=0)→0) → 0 + refinementNoRhsBase, NO error", () => {
+    const tab = parse("<program>\n<n>: number(>=0)\n</program>");
+    const n = collectStateDecls(tab).find((d) => d.name === "n");
+    expect(n).toBeTruthy();
+    expect(n.init).toBe("0");
+    expect(n.refinementNoRhsBase).toBe("number");
+    expect(errorCodes(tab)).not.toContain("E-DECL-NEEDS-INITIALIZER");
+  });
+
+  test("§20 const-derived no-RHS (`const <x>: int`) → E-DECL-NEEDS-INITIALIZER (sub-case preserved)", () => {
+    const tab = parse("<program>\nconst <x>: int\n</program>");
+    expect(errorCodes(tab)).toContain("E-DECL-NEEDS-INITIALIZER");
+  });
+});
+
+describe("§6.2 Shape 4 — S160 implicit-(not to T) lifecycle + refinement (compile)", () => {
+  function codesOf(result) {
+    return (result.errors || []).map((e) => e.code);
+  }
+
+  test("§21 bare-T read-before-assign → E-TYPE-001; pass after assignment", () => {
+    // Read-before-assign: `<u>: User` then `@u.name` read with no assignment.
+    const failSrc =
+      `type User { name: string }\n` +
+      `<program>\n  <u>: User\n  <view><p>\${@u.name}</p></view>\n</program>`;
+    const fail = compileToTmp(failSrc, "u1");
+    try {
+      const c = codesOf(fail.result);
+      expect(c).toContain("E-TYPE-001");
+      expect(c).not.toContain("E-DECL-NEEDS-INITIALIZER");
+    } finally {
+      rmSync(fail.dir, { recursive: true, force: true });
+    }
+
+    // After a T-shaped assignment, the read is post-transitioned → no E-TYPE-001.
+    const passSrc =
+      `type User { name: string }\n` +
+      `<program>\n  <u>: User\n` +
+      `  ${"${"}\n    @u = make()\n    print(@u.name)\n  }\n` +
+      `  function make() -> User { return { name: "x" } }\n` +
+      `</program>`;
+    const pass = compileToTmp(passSrc, "u2");
+    try {
+      expect(codesOf(pass.result)).not.toContain("E-TYPE-001");
+    } finally {
+      rmSync(pass.dir, { recursive: true, force: true });
+    }
+  });
+
+  test("§22 bare-T pass after presence-discrimination (`if (@u is not) return`)", () => {
+    const src =
+      `type User { name: string }\n` +
+      `<program>\n  <u>: User\n` +
+      `  function show() {\n    if (@u is not) return\n    print(@u.name)\n  }\n` +
+      `</program>`;
+    const { dir, result } = compileToTmp(src, "u3");
+    try {
+      // Discrimination IS transition for presence-progression (§14.12.6.1).
+      expect(codesOf(result)).not.toContain("E-TYPE-001");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("§23 union `T | not` no-RHS → no E-TYPE-001 (not inhabits the type)", () => {
+    const src =
+      `type User { name: string }\n` +
+      `<program>\n  <u>: User | not\n  <view><p>\${@u}</p></view>\n</program>`;
+    const { dir, result } = compileToTmp(src, "u4");
+    try {
+      // A cell that legitimately holds `not` — no implicit lifecycle, no E-TYPE-001.
+      expect(codesOf(result)).not.toContain("E-TYPE-001");
+      expect(codesOf(result)).not.toContain("E-DECL-NEEDS-INITIALIZER");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("§24 refinement VIOLATES (number(>0)→0) → E-REFINEMENT-NO-DEFAULT; SATISFIES (>=0) → none", () => {
+    const violate = compileToTmp(
+      `<program>\n  <n>: number(>0)\n  <view><p>\${@n}</p></view>\n</program>`,
+      "r1",
+    );
+    try {
+      expect(codesOf(violate.result)).toContain("E-REFINEMENT-NO-DEFAULT");
+    } finally {
+      rmSync(violate.dir, { recursive: true, force: true });
+    }
+
+    const satisfy = compileToTmp(
+      `<program>\n  <n>: number(>=0)\n  <view><p>\${@n}</p></view>\n</program>`,
+      "r2",
+    );
+    try {
+      const c = codesOf(satisfy.result);
+      expect(c).not.toContain("E-REFINEMENT-NO-DEFAULT");
+      expect(c).not.toContain("E-DECL-NEEDS-INITIALIZER");
+    } finally {
+      rmSync(satisfy.dir, { recursive: true, force: true });
+    }
+  });
+
+  test("§25 reset reverts the synthesized not-init to pre → post-reset read re-fires E-TYPE-001", () => {
+    // §6.8.3 No-RHS implicit-(not to T) cell reset note: reset re-evaluates the
+    // synthesized `not` init → reverts the per-access state to pre, re-firing
+    // E-TYPE-001 on a subsequent read (identical to the explicit
+    // `<u>: (not to User) = not` form).
+    const src =
+      `type User { name: string }
+` +
+      `<program>
+  <u>: User
+` +
+      `  function go() {
+` +
+      `    @u = make()
+` +
+      `    print(@u.name)
+` +     // OK — post-transitioned
+      `    reset(@u)
+` +
+      `    print(@u.name)
+` +     // E-TYPE-001 — reverted to pre
+      `  }
+` +
+      `  function make() -> User { return { name: "x" } }
+` +
+      `</program>`;
+    const { dir, result } = compileToTmp(src, "u5");
+    try {
+      expect(codesOf(result)).toContain("E-TYPE-001");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

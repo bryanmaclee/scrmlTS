@@ -3645,6 +3645,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
    * Returns the annotation string (e.g. "number(>0 && <10000)[valid_x]",
    * "{a:number,b:string}[]") or null.
    */
+  // S160 — statement/decl-starting keywords that can NEVER appear at top level
+  // inside a type annotation (§7.5 type-expr grammar has no statement keywords).
+  // Used by collectTypeAnnotation to STOP a no-RHS type-annotation scan at the
+  // next-sibling statement boundary (the no-RHS path has no `=` terminator).
+  // EXCLUDES the type-shape/lifecycle keywords `not` / `lin` and the contextual
+  // `to` (an IDENT) so `(not to User)` / `lin T` annotations survive intact.
+  const TYPE_BOUNDARY_KEYWORDS = new Set([
+    "function", "fn", "server", "lift", "const", "let", "type", "import",
+    "export", "return", "if", "else", "for", "while", "match", "given",
+    "partial", "do", "switch", "class", "public", "env", "when", "broadcast",
+    "navigate", "use", "using", "transaction", "fail", "cleanup", "upload",
+    "reset", "disconnect",
+  ]);
+
   function collectTypeAnnotation() {
     if (peek().text !== ':') return null;
     consume(); // consume ':'
@@ -3710,6 +3724,18 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // followed by a sibling decl `<y>` or a compound close `</...>`).
         // Stopping here keeps the type string clean (`T[]`, not `T[]</state>`)
         // so the no-RHS array-default detection (Shape 4) sees a trailing `[]`.
+        break;
+      } else if (t.kind === 'KEYWORD' && atTopLevel() && TYPE_BOUNDARY_KEYWORDS.has(t.text)) {
+        // S160 — stop at a top-level statement/decl-starting KEYWORD. The scrml
+        // type-expr grammar (§7.5) contains NO statement keywords; a top-level
+        // `function` / `server` / `const` / `if` / `match` / `return` / etc.
+        // is therefore the BOUNDARY of the annotation, not part of the type.
+        // Without this, a no-RHS typed decl (`<u>: User`) whose next sibling is
+        // a statement (`function show() { ... }`) GREEDILY swallowed the whole
+        // statement into the type string (the `{` opened brace-depth and the
+        // scan ran to EOF). The lifecycle keywords `not` / `lin` and the
+        // contextual `to` (an IDENT, not a KEYWORD) are NOT in the boundary set,
+        // so `(not to User)` and `lin`-typed annotations are unaffected.
         break;
       } else {
         parts.push(t.text);
@@ -4230,31 +4256,146 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         i = cursorBeforeConsume;
         return null;
       }
-      // ─── S152 Shape 4 — typed-decl with no `=` (no RHS) ───
-      // SPEC §6.2 Shape 4: a typed-array decl (`<todos>: Todo[]`) MAY omit the
-      // RHS and defaults to `[]` (a DEFINED empty array per §42.1.1). A NON-array
-      // typed decl with no RHS is E-DECL-NEEDS-INITIALIZER (§34) — closing the
-      // silent-`undefined` hole where the decl was previously dropped to an
-      // html-fragment with no init and no diagnostic.
+      // ─── Shape 4 — typed-decl with no `=` (no RHS) ─── (S152 array; S160 generalized)
+      // SPEC §6.2 Shape 4: a typed decl (`<x>: T`) MAY omit the RHS. It defaults
+      // to the type's canonical empty/zero DEFINED value where one exists
+      // (int/integer/number→0, bool/boolean→false, string→"", T[]→[]); to `not`
+      // (with an implicit `(not to T)` lifecycle, §14.12) where the type is a
+      // bare `T` with no canonical empty (named :struct, :enum, date/timestamp,
+      // opaque/custom); to `not` (NO lifecycle) where the type already admits
+      // absence (`T | not` / `T?`). Refinement-typed forms synth the base
+      // canonical-empty and defer the SATISFIES/VIOLATES decision (E-REFINEMENT-
+      // NO-DEFAULT) to type-system, which has the §53 predicate evaluator.
+      // The retired E-DECL-NEEDS-INITIALIZER survives ONLY for the const-derived
+      // sub-case (`const <x>: T` no RHS) — that is a derived-with-no-expression
+      // error, explicitly NOT covered by Shape 4 (§6.2). Preserving an error
+      // there closes the silent-`undefined`→html-fragment hole (S152).
       if (peek().kind !== "PUNCT" || peek().text !== "=") {
+        const declSpan = spanOf(startTok, peek());
+        const litSpan = declSpan
+          ? { file: filePath, start: declSpan.start, end: declSpan.end, line: declSpan.line, col: declSpan.col }
+          : { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+
         // Array type annotation ends in `[]` (refinement-type predicate forms
         // like `string(pattern(...))` are NON-array; their bracket-bearing args
         // are parenthesised, never a trailing `[]`).
         const isArrayType = /\[\s*\]\s*$/.test(typeAnnotation);
+
+        // const-derived no-RHS is NOT Shape 4 (§6.2): a derived cell requires an
+        // expression. (The array form historically synthesizes `[]` even for
+        // const; that behavior is preserved unchanged below.)
+        if (isConst && !isArrayType) {
+          errors.push(new TABError(
+            "E-DECL-NEEDS-INITIALIZER",
+            `Derived cell \`const <${name}>: ${typeAnnotation}\` has no expression. A derived (\`const\`) cell requires an initializer expression (e.g. \`const <${name}>: ${typeAnnotation} = ...\`); the no-RHS canonical-empty/\`not\` default (§6.2 Shape 4) applies to plain reactive cells only.`,
+            spanOf(startTok, peek()) || { file: filePath, start: 0, end: 0, line: 1, col: 1 },
+          ));
+          i = cursorBeforeConsume;
+          return null;
+        }
+
+        // Classify the bare type STRING to pick the synthesized initial value.
+        // ast-builder has no full type resolution; primitives with a canonical
+        // empty are syntactically detectable. Everything else non-array →
+        // `not`-init (the absence of a canonical empty is the deciding factor;
+        // struct-vs-enum-vs-opaque distinction is irrelevant to the `not`
+        // choice). Union/optional (`T | not` / `T?`) → `not`-init, NO lifecycle.
+        // Refinement (`int(>0)` etc.) → synth base canonical-empty; type-system
+        // performs the §53 predicate check (E-REFINEMENT-NO-DEFAULT).
+        const tAnno = typeAnnotation.trim();
+
+        // Union admitting absence (`T | not`, `not | T`) or optional (`T?`).
+        // Top-level `|`/`?` only — refinement parens shield inner `|`. A simple
+        // paren-depth scan keeps this robust against `Enum oneOf([.A, .B])`-style
+        // args (their `|` would be inside `(`).
+        let admitsAbsence = false;
+        {
+          let depth = 0;
+          for (let k = 0; k < tAnno.length; k++) {
+            const ch = tAnno[k];
+            if (ch === "(" || ch === "[" || ch === "{") depth++;
+            else if (ch === ")" || ch === "]" || ch === "}") depth--;
+            else if (depth === 0 && ch === "?") admitsAbsence = true;
+            else if (depth === 0 && ch === "|") {
+              // top-level union — does any arm equal `not`?
+              const arms = (function () {
+                const out = [];
+                let d = 0, start = 0;
+                for (let j = 0; j <= tAnno.length; j++) {
+                  const c = tAnno[j];
+                  if (j === tAnno.length || (d === 0 && c === "|")) {
+                    out.push(tAnno.slice(start, j).trim());
+                    start = j + 1;
+                  } else if (c === "(" || c === "[" || c === "{") d++;
+                  else if (c === ")" || c === "]" || c === "}") d--;
+                }
+                return out;
+              })();
+              if (arms.some((a) => a === "not")) admitsAbsence = true;
+            }
+          }
+        }
+
+        // Refinement form: a base type immediately followed by a top-level
+        // `(...)` predicate — e.g. `number(>0)`, `string(pattern(...))`,
+        // `int(>=0)`. Captures the base type so we can synth its canonical empty.
+        const refMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.test(tAnno) && tAnno.endsWith(")")
+          ? tAnno.match(/^([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/)
+          : null;
+
+        // Canonical-empty literal for a base primitive type name, or null when
+        // the type has no canonical empty.
+        function canonicalEmptyFor(baseName) {
+          switch (baseName) {
+            case "int": case "integer": case "number": return "0";
+            case "bool": case "boolean": return "false";
+            case "string": return '""';
+            default: return null;
+          }
+        }
+
+        // Decide the synthesized init text + whether to engage the implicit
+        // `(not to T)` lifecycle (bare-T with no canonical empty).
+        let initText = null;       // synthesized init source text
+        let implicitNotLifecycle = false;
+        let refinementBase = null; // when set, type-system runs the §53 check
+
+        if (isArrayType) {
+          initText = "[]";         // handled by the dedicated array branch below
+        } else if (admitsAbsence) {
+          initText = "not";        // union/optional — `not` inhabits the type, no lifecycle
+        } else if (refMatch) {
+          // Refinement-typed. Synth the base canonical-empty (if the base has
+          // one) and let type-system fire E-REFINEMENT-NO-DEFAULT on violation.
+          const baseEmpty = canonicalEmptyFor(refMatch[1]);
+          if (baseEmpty !== null) {
+            initText = baseEmpty;
+            refinementBase = refMatch[1];
+          } else {
+            // Refinement over a no-canonical-empty base (rare) → `not` + lifecycle.
+            initText = "not";
+            implicitNotLifecycle = true;
+          }
+        } else {
+          const empty = canonicalEmptyFor(tAnno);
+          if (empty !== null) {
+            initText = empty;      // primitive canonical empty (0 / false / "")
+          } else {
+            initText = "not";      // bare-T no canonical empty → not + implicit lifecycle
+            implicitNotLifecycle = true;
+          }
+        }
+
         if (isArrayType) {
           // Synthesize the `[]` default. Build the node directly here — the
           // standard dispatch below expects a `=` to have been consumed and an
-          // RHS to collect; the no-RHS array form has neither.
-          const declSpan = spanOf(startTok, peek());
-          const arrSpan = declSpan
-            ? { file: filePath, start: declSpan.start, end: declSpan.end, line: declSpan.line, col: declSpan.col }
-            : { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          // RHS to collect; the no-RHS array form has neither. (Unchanged S152.)
           const node = {
             id: ++counter.next,
             kind: "state-decl",
             name,
             init: "[]",
-            initExpr: { kind: "array", span: arrSpan, elements: [] },
+            initExpr: { kind: "array", span: litSpan, elements: [] },
             structuralForm: true,
             isConst: !!isConst,
             shape: "plain",
@@ -4266,7 +4407,6 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             typeAnnotation,
             span: declSpan,
           };
-          // S79 reactivity attrs (debounced=/throttled=) compose with Shape 4.
           let _reactivity;
           if (scan.debouncedRaw !== null && scan.debouncedRaw !== undefined) {
             _reactivity = _reactivity || {};
@@ -4283,16 +4423,53 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           }
           return node;
         }
-        // Non-array typed decl with no RHS — fire E-DECL-NEEDS-INITIALIZER and
-        // decline (return null). The decl is surfaced as an error; declining
-        // prevents a half-built node from reaching downstream stages.
-        errors.push(new TABError(
-          "E-DECL-NEEDS-INITIALIZER",
-          `State-cell declaration \`<${name}>: ${typeAnnotation}\` has a non-array type annotation but no initializer. Only typed-array declarations (\`<${name}>: T[]\`) default to \`[]\`; non-array typed cells require an explicit initializer (e.g. \`<${name}>: ${typeAnnotation} = ...\`).`,
-          spanOf(startTok, peek()) || { file: filePath, start: 0, end: 0, line: 1, col: 1 },
-        ));
-        i = cursorBeforeConsume;
-        return null;
+
+        // Non-array Shape 4 — synthesize the scalar/`not` init. The codegen
+        // already emits `not`→null, 0→0, ""→"", false→false from `init`/`initExpr`.
+        const node = {
+          id: ++counter.next,
+          kind: "state-decl",
+          name,
+          init: initText,
+          initExpr: safeParseExprToNode(initText, litSpan.start),
+          structuralForm: true,
+          isConst: !!isConst,
+          shape: "plain",
+          defaultExpr: scan.defaultExprRaw
+            ? safeParseExprToNode(scan.defaultExprRaw, scan.defaultExprSpan?.start ?? 0)
+            : null,
+          pinned: !!scan.pinned,
+          ...(scan.server ? { isServer: true } : {}),
+          typeAnnotation,
+          // S160 Shape 4 — marker consumed by type-system's cell-value lifecycle
+          // tracker: a no-RHS bare-`T` cell with no canonical empty defaulted to
+          // `not` and acquires an IMPLICIT `(not to T)` lifecycle. The E-TYPE-001
+          // message on a pre-transition read names that the lifecycle was
+          // synthesized from the no-RHS declaration (§6.2 / §14.12.3).
+          ...(implicitNotLifecycle ? { implicitNotLifecycle: true } : {}),
+          // S160 Shape 4 — marker consumed by type-system for the refinement
+          // static check: the base canonical-empty was synthesized; type-system
+          // evaluates the §53 predicate on it and fires E-REFINEMENT-NO-DEFAULT
+          // if it VIOLATES (no auto-default for a refined type with no
+          // predicate-satisfying canonical empty).
+          ...(refinementBase ? { refinementNoRhsBase: refinementBase } : {}),
+          span: declSpan,
+        };
+        let _reactivity2;
+        if (scan.debouncedRaw !== null && scan.debouncedRaw !== undefined) {
+          _reactivity2 = _reactivity2 || {};
+          _reactivity2.debounced = parseAfterDuration(scan.debouncedRaw);
+        }
+        if (scan.throttledRaw !== null && scan.throttledRaw !== undefined) {
+          _reactivity2 = _reactivity2 || {};
+          _reactivity2.throttled = parseAfterDuration(scan.throttledRaw);
+        }
+        if (_reactivity2) node.reactivity = _reactivity2;
+        if (scan.validators && scan.validators.length > 0) {
+          decorateValidatorsWithExprNodes(scan.validators, filePath);
+          node.validators = scan.validators;
+        }
+        return node;
       }
       consume(); // consume `=`
       // Fall through to the standard markup-RHS / expression-RHS dispatch
