@@ -1,6 +1,6 @@
 # test.map.md
 # project: scrmlts
-# updated: 2026-06-03T22:40:00Z  commit: f9d4b0f1
+# updated: 2026-06-04T12:45:00Z  commit: 9f01f6cd
 
 ## Test Framework
 Runner: bun test (built-in Bun test runner)
@@ -14,7 +14,7 @@ Full suite at S159 close: 22,856 pass / 0 fail / 220 skip (~886 files counted by
 
 | Category | Location | Count |
 |----------|----------|-------|
-| Unit | compiler/tests/unit/ | ~604 files |
+| Unit | compiler/tests/unit/ | ~623 files |
 | Browser (DOM) | compiler/tests/browser/ | ~32 files |
 | Conformance | compiler/tests/conformance/ | ~40 files |
 | Integration | compiler/tests/integration/ | ~30 files |
@@ -22,7 +22,7 @@ Full suite at S159 close: 22,856 pass / 0 fail / 220 skip (~886 files counted by
 | LSP | compiler/tests/lsp/ | ~8 files |
 | Self-host | compiler/tests/self-host/ | ~5 files |
 | CLI commands | compiler/tests/commands/ | ~5 files |
-| **Total** | compiler/tests/ | **~880+ .test.js files** |
+| **Total** | compiler/tests/ | **~886 .test.js files** |
 
 ## S153 New Test Files (each-in-dynamic-context sweep)
 
@@ -73,6 +73,13 @@ Full suite at S159 close: 22,856 pass / 0 fail / 220 skip (~886 files counted by
 | compiler/tests/browser/each-per-item-handler-live-keying-bug73.browser.test.js | Runtime: Tier-1 + Tier-0 array-replace-same-key handler fires with live item, not create-time snapshot; in-place field mutation handler fires with live data; global handler after removal skips correctly (happy-dom). 6 tests. |
 | compiler/tests/unit/each-block.test.js | Updated for S159 Bug 73 per-item handler emit shape |
 
+## S160 New Test Files (S154 rulings (b) and (c))
+
+| File | Covers |
+|------|--------|
+| compiler/tests/unit/colon-shorthand-inside-opener-s154b.test.js | S154 ruling (b): inside-opener `:`-shorthand is canonical; after-`>` placement detected and emits `W-COLON-SHORTHAND-LEGACY-PLACEMENT` (info-level); both engine state-child and `<match>` arm paths covered; `rewriteColonShorthandPlacement()` migrates legacy arms correctly; `migrate --fix` output verified. |
+| compiler/tests/unit/typed-array-no-rhs-default.test.js | S154 ruling (c): no-RHS typed decl Shape 4 — primitive types synthesize canonical-empty (`0`/`false`/`""`); bare named type synthesizes `not` init with implicit `(not to T)` lifecycle; `T[]` still synthesizes `[]`; refinement-typed no-RHS: SATISFIES predicate → no error, VIOLATES → E-REFINEMENT-NO-DEFAULT; `const` no-RHS non-array → E-DECL-NEEDS-INITIALIZER (preserved); union-admitting-absence → `not` with no lifecycle. |
+
 ## Fixtures & Factories
 
 | Path | Contents |
@@ -102,9 +109,13 @@ Parser conformance tests compare live-pipeline (block-splitter + ast-builder) ou
 native-parser output for a large corpus; parity gaps are tracked in the within-node allowlist.
 Bug 73 emit-shape tests assert the resolver-prelude pattern in the emitted JS and complement the
 happy-dom browser tests that verify the runtime live-keying effect.
+S160 ruling (b) tests cover both the `W-COLON-SHORTHAND-LEGACY-PLACEMENT` detection path (info-level,
+so cross-stream helper required) and the `rewriteColonShorthandPlacement()` migrate output.
+S160 ruling (c) tests cover the full Shape 4 dispatch matrix including the refinement-predicate
+SATISFIES/VIOLATES/UNDETERMINABLE trichotomy and the `synthesizedFromNoRhs` lifecycle note path.
 
 ## Tags
-#scrmlts #map #test #bun #conformance #parser-parity #happy-dom #each-in-dynamic-context #per-item-reactivity #live-keyed #bug64 #bug65 #bug72 #bug73 #colon-shorthand-html #s153 #s154 #s155 #s156 #s157 #s158 #s159
+#scrmlts #map #test #bun #conformance #parser-parity #happy-dom #each-in-dynamic-context #per-item-reactivity #live-keyed #bug64 #bug65 #bug72 #bug73 #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #s153 #s154 #s155 #s156 #s157 #s158 #s159 #s160
 
 ## Links
 - [primary.map.md](./primary.map.md)

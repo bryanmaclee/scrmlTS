@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-06-03T22:40:00Z  commit: f9d4b0f1
+# updated: 2026-06-04T12:45:00Z  commit: 9f01f6cd
 
 scrml's own language error model is values-not-exceptions (SPEC §19.1 — no try/catch, no throw).
 The compiler itself surfaces structured CGError objects to the caller; it never throws on bad input.
@@ -13,7 +13,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 - All other codes → result.errors (fatal, CLI exits 1)
 - Cross-stream helper required when asserting on W-*/I-* codes in tests (see diagnostic-stream-partition memory note)
 
-## Error Code Families (380+ distinct codes in compiler source)
+## Error Code Families (382+ distinct codes in compiler source)
 
 | Family | Count | Description |
 |--------|-------|-------------|
@@ -32,7 +32,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-CPS-* | 6 | CPS async planner errors (idempotency, multibatch reorder/machine-crossing) |
 | E-CTRL-* | 6 | Control flow errors |
 | E-CTX-* | 2 | Context errors (E-CTX-001: unclosed block; E-CTX-003: shorthand confusion) |
-| E-DECL-NEEDS-INITIALIZER | 1 | (S152) — non-array typed-decl with no RHS; only `T[]` typed-array decls may omit RHS (default `[]` per §6.2 Shape 4) [ast-builder.js:4236] |
+| E-DECL-NEEDS-INITIALIZER | 1 | (S152/S160) — `const <x>: T` derived cell with no RHS (§6.2); S160 ruling (c): plain reactive no-RHS typed decls synthesize canonical-empty/`not` init and NO LONGER fire this code; the code survives ONLY for the `const`-derived sub-case [ast-builder.js] |
 | E-DERIVED-* | 7 | Derived-value errors (circular-dep, engine-no-initial/rules/write, value-mutate) |
 | E-DG-* | 2 | Dependency graph errors — E-DG-002 false-positive fix: credits lambda-body @var reads + `<match on=@cell>` block-form headers [dependency-graph.ts]; Bug 60 (S157): render-by-tag tag-name structural-read credit added (cells consumed ONLY through render-by-tag no longer fire E-DG-002); S159: `<span : @label>` body synthesis in ast-builder.js clears the prior false-fire for cells consumed via `:`-shorthand |
 | E-EACH-ITER-SHAPE | 1 | Each iteration shape errors: missing-or-both `of`/`in` attrs [ast-builder.js] |
@@ -57,6 +57,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-NAME-* | 1 | Name collision with reserved identifier |
 | E-PA-* | ~7 | protect-analyzer errors — E-PA-002 false-positive fix: `extractCreateTableStatements` now generic cycle-safe deep-walk [protect-analyzer.ts] |
 | E-PARSEVARIANT-* | ~3 | parseVariant API errors |
+| E-REFINEMENT-NO-DEFAULT | 1 | **(S160 NEW — §6.2 / §34)** A no-RHS refinement-typed cell (`<x>: number(>0)`) whose synthesized base canonical-empty (`0`) VIOLATES the predicate (fails `>0`). The type has no predicate-satisfying canonical empty and cannot be auto-defaulted; an explicit initializer is required. Fired by `runRefinementNoRhsDefaultCheck()` in type-system.ts after lifecycle-map build [type-system.ts:~17287]. Fatal. |
 | E-REPLAY-* | 3 | Engine replay errors |
 | E-RESET-* | 1 | Reset target errors |
 | E-RI-* | ~3 | Route inference errors |
@@ -68,7 +69,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-SYNTAX-064 | 1 | **(S157 NEW/PROMOTED; S159 R3 extended)** `@.` or `@.field` used outside an `<each>` body scope (§17.7.3). Fired at three sites: (1) TS markup-attr-value walk when `value.name` starts with `@.` and `!inEachBodyScope()` [type-system.ts:7434]; (2) TS `visitAttr` for variable-ref attr values [type-system.ts:6643]; (3) S159 R3: `:`-shorthand body positions outside any `<each>` body scope (e.g. `<li : @.name>` not inside an `<each>`) [type-system.ts:5016+]. Replaces the cascade to E-SCOPE-001 or E-CODEGEN-INVALID-JS on the same class. |
 | E-TEST-* | 6 | Test block errors (E-TEST-001..006) |
 | E-TIMEOUT-* | 2 | Engine timeout errors |
-| E-TYPE-* | ~20 | Type system errors (E-TYPE-001 dormancy fix for object-literal lifecycle, S151 C4); **E-TYPE-063** used by Bug 63 (S157) for invalid `.advance(.V)` variant at markup handler-attr position |
+| E-TYPE-* | ~20 | Type system errors (E-TYPE-001 dormancy fix for object-literal lifecycle, S151 C4); **E-TYPE-063** used by Bug 63 (S157) for invalid `.advance(.V)` variant at markup handler-attr position; **S160**: E-TYPE-001 message extended with synthesis note when lifecycle was implied by a no-RHS typed decl (§14.12.3) |
 | E-USE-* | ~5 | `use` declaration errors |
 | E-VALIDATOR-* | ~5 | Validator circular-dep / inline-dynamic |
 | E-WRITE-NOT-IN-LOGIC-CONTEXT | 1 | Write attempt outside logic context |
@@ -78,6 +79,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | W-AUTH-CONTENT-NOT-GATED | 1 | `<auth role="X">` gates JS-mount only, NOT served HTML content [auth-graph.ts:627] |
 | W-BATCH-* | 1 | SQL batch warnings |
 | W-CG-* | ~10 | Code generator warnings (W-CG-001: top-level suppression; chunk warnings) |
+| W-COLON-SHORTHAND-LEGACY-PLACEMENT | 1 | **(S160 NEW — §4.14 / §51.0.I / §18.0.1)** An engine state-child or `<match>` arm uses the legacy after-`>` colon placement (`<Idle> : expr`) instead of the canonical inside-opener form (`<Idle : expr>`). Info-level (W- prefix → result.warnings). Emitted at two sites in symbol-table.ts: engine state-child scan [symbol-table.ts:6035] and match-arm scan [symbol-table.ts:11045]. Includes `migrate --fix` suggestion; `rewriteColonShorthandPlacement()` in migrate.js applies the AST-driven rewrite. |
 | W-DEPRECATED-* | 2 | Deprecation warnings |
 | W-EACH-KEY-001 | 1 | Info-level lint: `<each in=@cell>` has no inferable per-item `.id` key [lint-w-each-key.js] |
 | W-EACH-PROMOTABLE | 1 | Info-level lint: `${ for (let x of @cell) { lift ... } }` is promotable to `<each>` form [lint-w-each-promotable.js] |
@@ -97,7 +99,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | I-MATCH-PROMOTABLE | 1 | Info: match eligible for engine promotion (§56) |
 | I-PARSER-NATIVE-SHADOW | 1 | Info: native parser shadows live-pipeline result |
 
-## Key New / Changed Codes Since Watermark c665714c (S154-S159)
+## Key New / Changed Codes Since Watermark c665714c (S154-S160)
 
 ### S154 — #14 event-payload-transition (parser batch 1)
 No new diagnostics; existing codes extended. `accepts=MsgType` is recorded verbatim on the AST; the typer batch 2 (S155) owns the resolution diagnostic.
@@ -127,6 +129,17 @@ No new diagnostics; existing codes extended. `accepts=MsgType` is recorded verba
 - **E-COLON-SHORTHAND-ON-VOID** (NEW) — void HTML element carries `:`-shorthand body; rejected because void elements have no content model (§4.14 / §34). Fired by type-system.ts `markup` visitor [type-system.ts:5004]. Fatal. `<input bind:value=@x/>` is the correct pattern.
 - **E-SYNTAX-064** (extended — S159 R3) — now also fires at `:`-shorthand body positions where the body references `@.` outside any `<each>` body scope. E.g. `<li : @.name>` written as a top-level element (not inside `<each>`) fires E-SYNTAX-064 rather than falling through to E-CODEGEN-INVALID-JS.
 - Bug 73: NO new error code. The failure mode was stale handler data (no compiler error — the handler silently fired against the create-time snapshot). Fix is purely codegen (`maybeWrapEachPerItemHandler` / `maybeWrapLiftPerItemHandler` / `maybeWrapLiftCallableHandler`).
+
+### S160 — S154 rulings (b) and (c)
+
+**Ruling (b) — inside-opener `:`-shorthand canonical; deprecate after-`>` placement:**
+- **W-COLON-SHORTHAND-LEGACY-PLACEMENT** (NEW, info-level) — an engine state-child or `<match>` arm uses the deprecated after-`>` colon placement (`<Idle> : expr`) instead of the canonical inside-opener form (`<Idle : expr>`). Fires at two sites in symbol-table.ts: engine state-child PASS 11/20 when `sc.legacyColonPlacement === true` [symbol-table.ts:6035]; match-arm PASS 20 when `arm.legacyColonPlacement === true` [symbol-table.ts:11045]. W- prefix → result.warnings (non-fatal). `bun scrml migrate --fix` rewrites via `rewriteColonShorthandPlacement()` in migrate.js (AST-driven, string-/paren-/`${}`-aware).
+- Both parsers (`engine-statechild-parser.ts`, `match-statechild-parser.ts`) now expose `legacyColonPlacement: boolean` on every arm entry. `native-walker/engine-statechild-walker.ts` exposes `legacyColonPlacement: false` for interface parity (native parser always emits canonical form).
+
+**Ruling (c) — no-RHS typed-decl defaults (Shape 4 generalized):**
+- **E-REFINEMENT-NO-DEFAULT** (NEW) — a no-RHS refinement-typed cell (`<x>: number(>0)`) cannot be auto-defaulted because its synthesized base canonical-empty (`0`) violates the predicate. Fired by `runRefinementNoRhsDefaultCheck()` in type-system.ts [type-system.ts:~17287]. Fatal. When the predicate is SATISFIED (`>=0` with `0`) or UNDETERMINABLE (named-shape predicate), no error fires.
+- **E-DECL-NEEDS-INITIALIZER** (scope narrowed) — S160 ruling (c) narrows this code to the `const`-derived no-RHS sub-case only. Plain reactive no-RHS typed decls (`<x>: User`) now synthesize canonical-empty or `not` init instead of firing this code.
+- **E-TYPE-001** (message extended) — when the `(not to T)` lifecycle on a cell was SYNTHESIZED from a no-RHS typed declaration (the developer wrote no annotation), the E-TYPE-001 message now appends a synthesis note (§14.12.3): "This `(not to T)` lifecycle was SYNTHESIZED from the no-RHS typed declaration `<x>: T` (Shape 4, §6.2): the type has no canonical empty, so the cell defaulted to `not` and acquired the lifecycle implicitly." Controlled by `FnReturnLifecycleSpec.synthesizedFromNoRhs?: boolean` propagated from `buildCellValueLifecycleMap`.
 
 ## Fix Notes
 
@@ -280,6 +293,32 @@ self-closing.
 (3) `type-system.ts`: `E-COLON-SHORTHAND-ON-VOID` guard (fatal) at the markup visitor; R3 extension
 of E-SYNTAX-064 to `@.`-sigil shorthand bodies outside an `<each>` scope.
 
+### S154 ruling (b) — inside-opener `:`-shorthand canonical; after-`>` deprecated (S160)
+`engine-statechild-parser.ts` + `match-statechild-parser.ts` — both parsers now detect the after-`>`
+placement (`<Idle> : expr`) as legacy and mark each arm entry with `legacyColonPlacement: true`. The
+inside-opener form (`<Idle : expr>`) is canonical (§4.14 / §51.0.I / §18.0.1). `symbol-table.ts`
+emits `W-COLON-SHORTHAND-LEGACY-PLACEMENT` (info-level) for every legacy arm (two sites: engine +
+match). `commands/migrate.js` `rewriteColonShorthandPlacement(source, filePath)` — AST-driven
+`--fix` rule: drives the live front-end, locates legacy arms via parser `legacyColonPlacement` flags,
+applies `rewriteColonPlacementInBody` string-precise splice right-to-left (string-/paren-/`${}`-aware
+opener-`>` boundary scan). Fail-safe: re-finds the original body at its recorded offset before splicing.
+
+### S154 ruling (c) — no-RHS typed-decl defaults / Shape 4 generalized (S160)
+`ast-builder.js` — Shape 4 generalized (§6.2). A plain reactive no-RHS typed decl (`<x>: T`)
+now synthesizes a canonical initial value rather than firing `E-DECL-NEEDS-INITIALIZER`:
+- Primitives: `int`/`integer`/`number` → `0`; `bool`/`boolean` → `false`; `string` → `""`.
+- Arrays (`T[]`) → `[]` (pre-existing S152 behavior).
+- Bare named types (named `:struct`, `:enum`, opaque, date, timestamp) → `not` init + `implicitNotLifecycle: true` flag.
+- Unions admitting absence (`T | not`, `T?`) → `not` init, NO lifecycle flag.
+- Refinement-typed (`int(>0)`) → synths base canonical-empty + `refinementNoRhsBase` flag.
+- `const` no-RHS (non-array) → E-DECL-NEEDS-INITIALIZER (preserved — derived cells need an expression).
+`TYPE_BOUNDARY_KEYWORDS` stop-set added to `collectTypeAnnotation` for the no-RHS scan path, preventing
+greedy swallow of the next sibling statement into the type string.
+`type-system.ts` — `buildCellValueLifecycleMap`: handles `implicitNotLifecycle` → synthesizes `(not to T)`
+spec with `synthesizedFromNoRhs: true`; `checkLifecycleBindingAccess`: extends E-TYPE-001 message
+with synthesis note; `runRefinementNoRhsDefaultCheck()`: fires `E-REFINEMENT-NO-DEFAULT` when predicate
+is VIOLATED on synthesized base canonical-empty (invoked from `processFile` at lifecycle-map phase).
+
 ### (d)-A enum-subset refinement (S156, 4 batches)
 **Batch 1 (type-system.ts):** `parseEnumSubsetRefinement()` calls the shared `parseEnumSubsetAnnotation()`
 from `enum-subset-refinement.ts`; `makeEnumSubsetPredicatedType()` materializes a `PredicatedType` with
@@ -315,7 +354,7 @@ errorBoundary compile support: `compiler/src/codegen/emit-error-boundary.ts` (32
 fallback markup + per-variant renders; paired with host-JS try/catch backstop (§19.6.8 C-hybrid).
 
 ## Tags
-#scrmlts #map #error #diagnostics #CGError #compiler #W-MATCH-ARROW-LEGACY #E-PA-002 #E-DG-002 #E-DECL-NEEDS-INITIALIZER #E-CODEGEN-INVALID-JS #E-ENGINE-STATE-CHILD-MISSING #E-SCOPE-001 #E-ENGINE-ACCEPTS-NOT-ENUM #E-ENGINE-MSG #E-MATCH-SUBSET-DEAD-ARM #E-SYNTAX-064 #E-COLON-SHORTHAND-ON-VOID #W-EACH #each-in-dynamic-context #source-map #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #s152 #s153 #s154 #s155 #s156 #s157 #s158 #s159 #colon-shorthand-html
+#scrmlts #map #error #diagnostics #CGError #compiler #W-MATCH-ARROW-LEGACY #E-PA-002 #E-DG-002 #E-DECL-NEEDS-INITIALIZER #E-CODEGEN-INVALID-JS #E-ENGINE-STATE-CHILD-MISSING #E-SCOPE-001 #E-ENGINE-ACCEPTS-NOT-ENUM #E-ENGINE-MSG #E-MATCH-SUBSET-DEAD-ARM #E-SYNTAX-064 #E-COLON-SHORTHAND-ON-VOID #W-COLON-SHORTHAND-LEGACY-PLACEMENT #E-REFINEMENT-NO-DEFAULT #W-EACH #each-in-dynamic-context #source-map #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #shape4-no-rhs #s152 #s153 #s154 #s155 #s156 #s157 #s158 #s159 #s160 #colon-shorthand-html #colon-shorthand-canonical
 
 ## Links
 - [primary.map.md](./primary.map.md)

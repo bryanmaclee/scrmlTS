@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-06-03T22:40:00Z  commit: f9d4b0f1
+# updated: 2026-06-04T12:45:00Z  commit: 9f01f6cd
 
 ## Entry Points
 compiler/bin/scrml.js — CLI binary registered as `scrml`; thin Bun launcher
@@ -20,12 +20,12 @@ compiler/src/types/  — pure TypeScript declarations: ast.ts (1983L+ AST node s
 compiler/src/reachability/  — reachability sub-passes (5 component passes, entry-points, gate-classifier, outer-fixpoint)
 compiler/src/validators/  — attribute validation and lint passes: ast-walk.ts, attribute-allowlist.ts, attribute-interpolation.ts, lint-async-user-source.ts, lint-try-catch.ts, post-ce-invariant.ts
 compiler/src/native-parser-canary/  — canary harness for native-parser pipeline parity checks
-compiler/src/native-walker/  — walker utilities for native-parser output traversal; engine-statechild-walker.ts updated S154 to expose `messageArms` array on state-child walk results
+compiler/src/native-walker/  — walker utilities for native-parser output traversal; engine-statechild-walker.ts updated S154 to expose `messageArms` array + S160 ruling (b) to expose `legacyColonPlacement: false` default on state-child walk results
 compiler/native-parser/  — bootstrap native parser (.js + .scrml paired files); replaces block-splitter+ast-builder at M5-swap. NOTE (S153 hard M5-swap precondition): does NOT promote `<each>`/`<match>` to structural each-block/match-block nodes (leaves them as generic `markup tag="each"`); two S153 fixes route around it via legacy BS+TAB
-compiler/tests/  — 869+ .test.js files total across all categories
-compiler/tests/unit/  — unit tests covering individual compiler passes; +13 S154-S158 files; +2 S159 files (per-item-handler-live-keying-bug73.test.js + html-colon-shorthand-content-model-s159.test.js)
+compiler/tests/  — 886+ .test.js files total across all categories
+compiler/tests/unit/  — unit tests covering individual compiler passes; +13 S154-S158 files; +2 S159 files (per-item-handler-live-keying-bug73.test.js + html-colon-shorthand-content-model-s159.test.js); **+2 S160 files** (colon-shorthand-inside-opener-s154b.test.js + typed-array-no-rhs-default.test.js)
 compiler/tests/integration/  — full compile-to-output verification tests
-compiler/tests/browser/  — browser runtime tests via happy-dom (31 files; +5 S157-S159: each-per-item-reactivity-bug64, each-in-tier0-lift-bug72, render-by-tag-nested-compound-bug60, lift-engine-advance-bug65, each-per-item-handler-live-keying-bug73)
+compiler/tests/browser/  — browser runtime tests via happy-dom (32 files; +5 S157-S159: each-per-item-reactivity-bug64, each-in-tier0-lift-bug72, render-by-tag-nested-compound-bug60, lift-engine-advance-bug65, each-per-item-handler-live-keying-bug73)
 compiler/tests/conformance/  — conformance tests for E-/W-/I- code surface; +1 S155: conf-engine-message-dispatch-s155.test.js
 compiler/tests/parser-conformance*.test.js  — 10 native-parser parity test files at tests/ root; parser-conformance-within-node-allowlist.json updated S156
 compiler/tests/lsp/  — LSP protocol tests (completions, hover, code-actions, diagnostics, workspace)
@@ -42,7 +42,7 @@ e2e/  — Playwright end-to-end tests (tests/, fixtures/, playwright.config.ts)
 benchmarks/  — performance comparison suites (fullstack-react, fullstack-scrml, todomvc-* variants, sql-batching, llm-efficiency)
 samples/  — compilation-test samples and gauntlet suites (individual files not enumerated)
 docs/  — project documentation: changelog, known-gaps, tutorial, adopter guides, design-ratification logs
-docs/changes/  — per-dispatch progress.md + BRIEF.md archives (~106+ change directories; +9 S154-S156 dispatch dirs; +4 S157-S158 dispatch dirs; +2 S159 dispatch dirs: s154a-colon-shorthand-html-2026-06-03, bug-73-per-item-handler-live-keying-2026-06-03)
+docs/changes/  — per-dispatch progress.md + BRIEF.md archives (~108+ change directories; +9 S154-S156 dispatch dirs; +4 S157-S158 dispatch dirs; +2 S159 dispatch dirs; **+2 S160 dispatch dirs**: s154b-colon-shorthand-inside-opener-2026-06-03, s154c-no-rhs-typed-defaults-2026-06-03)
 docs/heads-up/  — design-ratification decision logs (spec-consolidation, iteration-design, lifecycle-annotation, const-deep-freeze)
 docs/audits/  — historical audit artifacts and findings trackers
 docs/articles/  — dev.to articles and outreach content
@@ -54,13 +54,13 @@ scratch/  — throwaway working files
 ## Key S154-S159 Source Changes (since watermark c665714c)
 
 ### S154 — #14 event-payload-transition (parser batch 1: engine-statechild-parser)
-- compiler/src/engine-statechild-parser.ts (2418L) — `accepts=MsgType` attribute recognized on `<engine>` opener; per-state message-arm lexer (`parseMessageArms()`) recognizes `| .Variant(bindings) :> body` form; produces `MessageArmEntry[]` array on each state-child result; `renderBodyStart` offset accounts for the message-arm prefix. Engine-decls with message arms wired into typer batch 2 via `EngineStateChildEntry.messageArms`.
+- compiler/src/engine-statechild-parser.ts (2418L at S154) — `accepts=MsgType` attribute recognized on `<engine>` opener; per-state message-arm lexer (`parseMessageArms()`) recognizes `| .Variant(bindings) :> body` form; produces `MessageArmEntry[]` array on each state-child result; `renderBodyStart` offset accounts for the message-arm prefix. Engine-decls with message arms wired into typer batch 2 via `EngineStateChildEntry.messageArms`.
 - compiler/src/native-walker/engine-statechild-walker.ts — `messageArms` field exposed on state-child walk results to give the native-walker parity with the live-pipeline parser.
 - compiler/src/types/ast.ts — `EngineDeclNode.acceptsType?: string | null` field added (§51.0.S.2.2); records raw identifier from `accepts=MsgType` opener attribute verbatim for typer resolution.
 
 ### S155 — #14 event-payload-transition (typer batch 2 + codegen batch 3)
-- compiler/src/symbol-table.ts (11280L) — SYM PASS 11 resolves `acceptsType` against `fileAst.typeDecls`; fires `E-ENGINE-ACCEPTS-NOT-ENUM` when the type is absent or non-`:enum`; PASS 20 block-form `<match>` exhaustiveness now carries `E-MATCH-SUBSET-DEAD-ARM`; per-state message-arm exhaustiveness fires `E-ENGINE-MSG-ARM-NOT-EXHAUSTIVE` and `E-ENGINE-MSG-WITHOUT-ACCEPTS`. Exports `MessageArmEntry` interface and `EngineStateChildEntry.messageArms`.
-- compiler/src/type-system.ts (17070L) — two-plane `.advance(.X)` resolution (§51.0.G.1): state-plane via `_scrml_engine_advance`, message-plane via `_scrml_engine_dispatch_message`; `parseEnumSubsetRefinement()` materializes `PredicatedType` with `subsetVariants: Set<string>` for `Role oneOf([.A,.B])` / `notIn([...])` (§53.15.1); three-zone exhaustiveness pass for enum-subset `<match>` (§18.8.1 / §18.0.1): in-subset arms, out-of-subset dead arms (→ `E-MATCH-SUBSET-DEAD-ARM`), absent arms; `E-ENGINE-MSG-UNKNOWN` fires when `.advance(.X)` targets a variant in NEITHER the state plane NOR the message plane.
+- compiler/src/symbol-table.ts (11280L at S155) — SYM PASS 11 resolves `acceptsType` against `fileAst.typeDecls`; fires `E-ENGINE-ACCEPTS-NOT-ENUM` when the type is absent or non-`:enum`; PASS 20 block-form `<match>` exhaustiveness now carries `E-MATCH-SUBSET-DEAD-ARM`; per-state message-arm exhaustiveness fires `E-ENGINE-MSG-ARM-NOT-EXHAUSTIVE` and `E-ENGINE-MSG-WITHOUT-ACCEPTS`. Exports `MessageArmEntry` interface and `EngineStateChildEntry.messageArms`.
+- compiler/src/type-system.ts (17070L at S155) — two-plane `.advance(.X)` resolution (§51.0.G.1): state-plane via `_scrml_engine_advance`, message-plane via `_scrml_engine_dispatch_message`; `parseEnumSubsetRefinement()` materializes `PredicatedType` with `subsetVariants: Set<string>` for `Role oneOf([.A,.B])` / `notIn([...])` (§53.15.1); three-zone exhaustiveness pass for enum-subset `<match>` (§18.8.1 / §18.0.1): in-subset arms, out-of-subset dead arms (→ `E-MATCH-SUBSET-DEAD-ARM`), absent arms; `E-ENGINE-MSG-UNKNOWN` fires when `.advance(.X)` targets a variant in NEITHER the state plane NOR the message plane.
 - compiler/src/codegen/emit-engine.ts (4398L) — `emitEngineMessageArmTable()` (§51.0.S batch 3): emits per-engine `__scrml_engine_<varName>_arm_table` keyed by (from-state-tag, message-tag); `engineMessageArmTableName()`, `engineHasMessageArms()`, `collectEnginesWithMessageArms()`, `collectEngineMessageVariants()` exported for threading into emit-each and emit-event-wiring; `parseEnumVariantFieldsForType()` resolves payload-binding field names at codegen time.
 - compiler/src/runtime-template.js (+78L at S155) — `_scrml_engine_dispatch_message(varName, msg, armTable, table, timersTable, idleEntry, internalTable, historyMap)` runtime helper (§51.0.S.2); resolves message tag + payload, dispatches to per-state arm fn, calls `_scrml_engine_advance` for the target transition, handles idle-reset on handled message.
 
@@ -90,11 +90,11 @@ scratch/  — throwaway working files
 
 #### Bug 72 — nested `<each>` inside Tier-0 `${for…lift}` (S158 fix, landed here)
 - compiler/src/codegen/emit-lift.js — `tryEmitNestedLiftEach(eachMarkupNode, scopeVar, fragmentVar, engineCtx)` routes a `{kind:"markup", tag:"each"}` child through `emit-each.emitNestedEachFromMarkup`, emitting inline reconcile JS. Pre-fix: `parseLiftTag` (ast-builder.js) produces generic `markup` nodes recursively and never promotes `<each>` → the literal `<each>` DOM element was emitted and the inner `@.` sigil leaked raw → E-CODEGEN-INVALID-JS.
-- compiler/src/ast-builder.js (13897L) — `_parseLiftAttrValue` bare-`@` branch: a `PUNCT "@"` token (the `<each>`-contextual `@.` sigil) is now collected as a balanced `@...` token run and returned as an `{kind:"expr"}` value, keeping the lift on the structured `{kind:"markup"}` path. Pre-fix: the `@` fell through to `return null`, forcing the whole tag to the string-fallback path which lost the structured each routing.
+- compiler/src/ast-builder.js (13897L at S157) — `_parseLiftAttrValue` bare-`@` branch: a `PUNCT "@"` token (the `<each>`-contextual `@.` sigil) is now collected as a balanced `@...` token run and returned as an `{kind:"expr"}` value, keeping the lift on the structured `{kind:"markup"}` path. Pre-fix: the `@` fell through to `return null`, forcing the whole tag to the string-fallback path which lost the structured each routing.
 
 #### Match-exhaustiveness arc (S157) — ast-builder.js + type-system.ts
 - compiler/src/ast-builder.js — Bug 71 (S157): derived `const <x> = match @cell { ... }` exhaustiveness: dual-parse hook — `collectExpr()` first (reactive emit unchanged), then `parseOneMatchAsExpr` builds a structural match-expr on the same token range as a pure typer side-field; `annotateNodes`' state-decl walker visits it for exhaustiveness (E-TYPE-020). Bug 67: `return match expr { ... }` match-as-expr hook mirroring let/const hooks. Both hooks attach `matchExpr` to the AST node for the typer's exhaustiveness pass.
-- compiler/src/type-system.ts (17374L) — Bug 63: bare-variant `.advance(.V)` checking extended to markup event-handler attribute positions (`onclick=@phase.advance(.V)`); `handlerAttrToExprNode` synthesizes equivalent ExprNode for both bare call-ref and interpolation forms; routes both through `inferReactiveSiteBareVariants` → E-TYPE-063 on invalid variants / two-plane resolution for `accepts=`-bearing engines. Bug 67 (S157): `return match expr { ... }` → exhaustiveness via `checkMatchDiagnostics`. Bug 71 (S157): derived `const <x> = match @cell { ... }` → exhaustiveness check wired via dual-parse side-field. E-SYNTAX-064 (`@.` outside `<each>` body scope) upgraded from fall-through to explicit diagnostic at both the attr-walk site and the markup-attr-value walk site — suppresses the confusing E-CODEGEN-INVALID-JS downstream.
+- compiler/src/type-system.ts (17374L at S157) — Bug 63: bare-variant `.advance(.V)` checking extended to markup event-handler attribute positions (`onclick=@phase.advance(.V)`); `handlerAttrToExprNode` synthesizes equivalent ExprNode for both bare call-ref and interpolation forms; routes both through `inferReactiveSiteBareVariants` → E-TYPE-063 on invalid variants / two-plane resolution for `accepts=`-bearing engines. Bug 67 (S157): `return match expr { ... }` → exhaustiveness via `checkMatchDiagnostics`. Bug 71 (S157): derived `const <x> = match @cell { ... }` → exhaustiveness check wired via dual-parse side-field. E-SYNTAX-064 (`@.` outside `<each>` body scope) upgraded from fall-through to explicit diagnostic at both the attr-walk site and the markup-attr-value walk site — suppresses the confusing E-CODEGEN-INVALID-JS downstream.
 
 #### S157 emit-client.ts + api.js
 - compiler/src/codegen/emit-client.ts (2427L) — minor Bug 64/65 binding-threading adjustments; no new exports.
@@ -103,7 +103,7 @@ scratch/  — throwaway working files
 ### S158 — Bug 64/R28-1c per-item content reactivity on reconcile + Bug 72 (see also S157 above)
 
 #### Bug 64 / R28-1c — live-keyed per-item content reactivity
-- compiler/src/codegen/emit-each.ts (1634L) — **Bug 64 fix (Tier-1)**:
+- compiler/src/codegen/emit-each.ts (1634L at S158) — **Bug 64 fix (Tier-1)**:
   `EachReconcileCtx { mountVar, keyVar, iterVar }` interface; module-level `_eachReconcileCtxStack: EachReconcileCtx[]`; `pushEachReconcileCtx`/`popEachReconcileCtx`/`currentEachReconcileCtx` functions. `maybeWrapEachPerItemEffect(bodyLines, iterVarName, indent)` checks the active ctx: when the iter var matches, wraps the body in a `_scrml_effect(() => { let iterVar = _scrml_resolve_item(mount, keyVar); if (iterVar === null) return; ... })` so TEXT and class: bindings re-resolve the live item each reconcile. Called at every per-item TEXT-binding and class: binding emission site in `renderTemplateChildToJs` and `renderTemplateAttrToJs`. `pushEachReconcileCtx` is pushed in `emitEachReconcileLines` after the `_scrml_reconcile_list(...)` call; popped after the createFn body.
 - compiler/src/codegen/emit-control-flow.ts (2013L) — **Bug 64 fix (Tier-0 control-flow path)**: `pushLiftReconcileCtx` called inside the `for`-loop `createFn` builder with `{ wrapperVar, keyVar: keyVar, iterVar: varName }` (key captured as `item?.id != null ? item.id : _scrml_idx`, mirroring the `_scrml_reconcile_list` keyFn); `popLiftReconcileCtx` called after the createFn body. Engine ctx threaded into all `emitConsolidatedLift` / `emitLiftExpr` / `emitIfStmtWithContainer` / `emitForStmtWithContainer` calls inside the body.
 - compiler/src/runtime-template.js (3760L) — **Bug 64 runtime support**: `_scrml_reconcile_list` now builds a fresh key→item `Map` on EVERY reconcile pass (`container._scrml_item_by_key`) and calls `_scrml_trigger(container, "_scrml_items")` (skipping the very first pass) to re-fire per-item effects after the map is rebuilt. `_scrml_resolve_item(container, key)` reads `container._scrml_item_by_key`, tracks `(container, "_scrml_items")` via `_scrml_track`, and returns the live item wrapped in `_scrml_deep_reactive` (so field reads through the Proxy subscribe the per-item effect); returns `null` (canonical absence, SPEC §42.5) when the key is gone.
@@ -111,11 +111,11 @@ scratch/  — throwaway working files
 ### S159 — Bug 73 (per-item handler live-keying) + S154 ruling (a) HTML `:`-shorthand content-model
 
 #### Bug 73 — Tier-1 + Tier-0 per-item EVENT HANDLER live-keying (sibling-gap #2 of Bug 64)
-- compiler/src/codegen/emit-each.ts (1634L → **1742L**) — **Bug 73 fix (Tier-1)**:
+- compiler/src/codegen/emit-each.ts (1634L at S158 → **1742L** at S159) — **Bug 73 fix (Tier-1)**:
   `blankStringAndRegexLiterals(code)` lightweight lexer that blanks literal contents before identifier scan (prevents false matches on iter-var names inside string/regex literals).
   `iterScopeReferencedInHandler(handlerBody, iterVarName)` — exported token-scan gate: `\b<iterVar>\b` over blanked code; used by both tiers to decide whether a handler body reads the iter var.
   `maybeWrapEachPerItemHandler(handlerBody, iterVarName)` — when a reconcile ctx is active AND the handler reads `iterVarName`, prepends `let <iterVar> = _scrml_resolve_item(<mount>, <keyVar>); if (<iterVar> === null) return;` INSIDE the existing `function(event) { ... }` body (NOT wrapped in `_scrml_effect` — handlers have no reactive subscription; re-resolve only on fire). Called in `renderTemplateAttrToJs` at the event-handler branch after building `handlerBody`. Global handlers and literal-only bodies stay byte-identical to pre-fix.
-- compiler/src/codegen/emit-lift.js (2205L → **2318L**) — **Bug 73 fix (Tier-0)**:
+- compiler/src/codegen/emit-lift.js (2205L at S157 → **2318L** at S159) — **Bug 73 fix (Tier-0)**:
   `_liftIterScopeReferenced(handlerBody, iterVarName)` — delegates to `iterScopeReferencedInHandler` (emit-each.ts, via `require`) with a plain word-boundary fallback if the export is unavailable.
   `maybeWrapLiftPerItemHandler(handlerBody)` — function-body handler shape (a): prepends the re-resolution prelude inside the handler body when the ctx is active and the body reads the iter var.
   `maybeWrapLiftCallableHandler(arrowText)` — callable-direct handler shape (b): inlines the arrow inside a wrapper `function(event) { let <iterVar> = _scrml_resolve_item(...); ... (<arrowText>)(event); }` so the wrapper's `let` lexically shadows the arrow's free `<iterVar>` reference. Returns null when no wrap applies (caller emits the arrow directly — byte-identical to pre-fix). Edge: if the arrow's param name collides with `iterVar`, the param shadows the `let` (harmless miss — documented, not special-cased).
@@ -123,8 +123,52 @@ scratch/  — throwaway working files
 #### S154 ruling (a) — HTML-element `:`-shorthand content-model rule (SPEC §4.14 / §34)
 - compiler/SPEC.md — §4.14 amended: a NON-VOID lowercase HTML element with a `:`-shorthand body (`<span : @label>`) renders the expression as its single-expression body, byte-identical to `<span>${@label}</span>`. A VOID element (`<input>`, `<br>`, SVG `<rect>`, etc.) REJECTS `:`-shorthand with `E-COLON-SHORTHAND-ON-VOID`. §34 +1 row `E-COLON-SHORTHAND-ON-VOID`. SPEC.md total 31,494L. SPEC-INDEX.md sections-table regenerated.
 - compiler/src/block-splitter.js (2950L) — **R4a**: the `shorthand && !selfClosing` branch is now placed BEFORE the `selfClosing || VOID_ELEMENTS.has(lowerTagName)` short-circuit (previously, a void element with a `:`-shorthand body like `<br : x>` was classified as self-closing and its body was swallowed). Now `<void : expr>` is correctly classified `closerForm:"shorthand"` so it reaches the type-system guard.
-- compiler/src/ast-builder.js (13897L → **14003L**) — **R1**: `buildBlock()` synthesizes the body child for a non-void, non-component, non-`@.`-sigil HTML element with a `:`-shorthand body. Synthesis re-parses a reconstructed `<tag>BODY</tag>` source through the same block-splitter+buildBlock path — guaranteeing byte-identity. Expression body → interpolated `${expr}` form; `"..."` display-text literal → unquoted display text (interior `${...}` preserved). `@.` contextual-sigil bodies (`<li : @.name>`) are EXCLUDED from synthesis (owned by emit-each; outside-each misuse still reaches E-SYNTAX-064).
-- compiler/src/type-system.ts (17374L → **17436L**) — **R4b**: `E-COLON-SHORTHAND-ON-VOID` guard: at the `markup` case of the type-check visitor, when `closerForm === "shorthand"` and `getElementShape(tag).isVoid === true`, fires `E-COLON-SHORTHAND-ON-VOID` (fatal). **R3**: `@.` contextual-sigil body outside an `<each>` scope — the existing E-SYNTAX-064 fire site extended to cover shorthand-body positions; a `<li : @.name>` written outside an `<each>` body now fires E-SYNTAX-064 instead of falling through to E-CODEGEN-INVALID-JS.
+- compiler/src/ast-builder.js (13897L at S157 → **14003L** at S159) — **R1**: `buildBlock()` synthesizes the body child for a non-void, non-component, non-`@.`-sigil HTML element with a `:`-shorthand body. Synthesis re-parses a reconstructed `<tag>BODY</tag>` source through the same block-splitter+buildBlock path — guaranteeing byte-identity. Expression body → interpolated `${expr}` form; `"..."` display-text literal → unquoted display text (interior `${...}` preserved). `@.` contextual-sigil bodies (`<li : @.name>`) are EXCLUDED from synthesis (owned by emit-each; outside-each misuse still reaches E-SYNTAX-064).
+- compiler/src/type-system.ts (17374L at S157 → **17436L** at S159) — **R4b**: `E-COLON-SHORTHAND-ON-VOID` guard: at the `markup` case of the type-check visitor, when `closerForm === "shorthand"` and `getElementShape(tag).isVoid === true`, fires `E-COLON-SHORTHAND-ON-VOID` (fatal). **R3**: `@.` contextual-sigil body outside an `<each>` scope — the existing E-SYNTAX-064 fire site extended to cover shorthand-body positions; a `<li : @.name>` written outside an `<each>` body now fires E-SYNTAX-064 instead of falling through to E-CODEGEN-INVALID-JS.
+
+## Key S160 Source Changes (S154 rulings (b) and (c))
+
+### S160 ruling (b) — inside-opener `:`-shorthand canonical; deprecate after-`>` placement (f7c540c8)
+
+- compiler/src/engine-statechild-parser.ts (**2491L**) — S160: after-`>` colon placement (`<Idle> : expr`) is now detected as LEGACY and deprecated; inside-opener placement (`<Idle : expr>`) is canonical (§4.14 / §51.0.I / §18.0.1). Each parsed arm entry now carries `legacyColonPlacement: boolean` (true when the after-`>` form was used). `parseMessageArms()` extended to detect the same distinction. `openerStart` offset is recorded per arm for use by `rewriteColonShorthandPlacement()` in migrate.js.
+- compiler/src/match-statechild-parser.ts (**631L**) — S160: `MatchArmEntry.legacyColonPlacement?: boolean` field added; the after-`>` `:` form is detected and marked; inside-opener `:` is canonical. `parseMatchArms()` exports the same `legacyColonPlacement` flag per arm.
+- compiler/src/native-walker/engine-statechild-walker.ts — S160: `legacyColonPlacement: false` default added to the state-child walk result shape (native-parser always emits canonical inside-opener form; the field is present for interface parity with the live-pipeline parser).
+- compiler/src/symbol-table.ts (**11341L**) — S160 ruling (b): emits **`W-COLON-SHORTHAND-LEGACY-PLACEMENT`** (info-level, W- prefix → result.warnings) at two sites: (1) PASS 11 / PASS 20 engine state-child scan when `sc.legacyColonPlacement === true` [symbol-table.ts:6035]; (2) PASS 20 match-block arm scan when `arm.legacyColonPlacement === true` [symbol-table.ts:11045]. Both fire for every arm using the legacy after-`>` placement; the lint includes a `migrate --fix` suggestion.
+- compiler/src/commands/migrate.js (**2600L**) — S160 ruling (b) `--fix` rule: `rewriteColonShorthandPlacement(source, filePath)` exported function — AST-driven rewrite of every legacy after-`>` arm (engine `rulesRaw` + match `armsRaw`) to the canonical inside-opener form. Uses live front-end (splitBlocks + buildAST) + statechild parsers to locate arms; `rewriteColonPlacementInBody(body, legacyArms)` does the string-precise splice (string-/paren-/`${}`-aware scan of opener `>` boundary; splices ` : expr>` right-to-left). Powers the `W-COLON-SHORTHAND-LEGACY-PLACEMENT` `bun scrml migrate --fix` path.
+
+### S160 ruling (c) — no-RHS typed-decl defaults (Shape 4 generalized) (d0d66d3e)
+
+- compiler/src/ast-builder.js (14003L at S159 → **14180L**) — S160: Shape 4 generalized (§6.2). A no-RHS typed decl (`<x>: T`) synthesizes a canonical initial value based on type string:
+  - Primitives with canonical empty: `int`/`integer`/`number` → `0`; `bool`/`boolean` → `false`; `string` → `""`.
+  - Array form (`T[]`) → `[]` (pre-existing S152 behavior, unchanged).
+  - Bare named type (`:struct`, `:enum`, opaque, date, timestamp) → `not` init + `implicitNotLifecycle: true` flag on the AST node; type-system synthesizes the `(not to T)` lifecycle.
+  - Union admitting absence (`T | not`, `T?`) → `not` init, NO lifecycle (the type already includes absence).
+  - Refinement-typed (`int(>0)`, `string(/.../)`  etc.) → synthesizes base canonical-empty (`0`, `""`, `[]`, etc.) + sets `refinementNoRhsBase` flag; type-system's `runRefinementNoRhsDefaultCheck()` validates.
+  - `const` no-RHS (non-array) → E-DECL-NEEDS-INITIALIZER (preserved from S152; derived cells require an expression).
+  - `TYPE_BOUNDARY_KEYWORDS` stop-set added to `collectTypeAnnotation` for the no-RHS path (§7.5 type-expr grammar has no statement keywords); prevents greedy swallow of next sibling statement into the type string when `=` is absent.
+- compiler/src/type-system.ts (17436L at S159 → **17580L**) — S160 ruling (c):
+  - `buildCellValueLifecycleMap` handles `implicitNotLifecycle === true` AST flag: synthesizes a `(not to T)` lifecycle spec via `parseLifecycleReturnAnnotation` with `synthesizedFromNoRhs: true` marker. Gives the walker the same discrimination + assignment + reset transitions as the explicit `<user>: (not to User) = not` form (§14.12.3).
+  - `FnReturnLifecycleSpec.synthesizedFromNoRhs?: boolean` — new optional field; propagates the synthesis origin to the diagnostic message.
+  - `checkLifecycleBindingAccess` — when `synthesizedFromNoRhs` is true, appends a synthesis note to the E-TYPE-001 message explaining the implicit lifecycle (§14.12.3 — "cell defaulted to `not` and acquired the lifecycle implicitly").
+  - `runRefinementNoRhsDefaultCheck(lifecycleTopNodes, errors, fileSpan)` — **new function** (~line 17176): walks `refinementNoRhsBase`-flagged nodes; calls `evaluatePredicateOnLiteral` on the synthesized base canonical-empty; fires **`E-REFINEMENT-NO-DEFAULT`** (fatal) when the predicate is VIOLATED (e.g. `<x>: number(>0)` synthesizes `0`, which fails `>0`); silently accepts when SATISFIED or UNDETERMINABLE.
+  - `runRefinementNoRhsDefaultCheck` invoked from the top of `processFile` at the post-lifecycle-map phase [type-system.ts:14101].
+
+#### Bare-variant inference helpers — exact locations for R28-8 dispatch
+
+The three helpers targeted by the R28-8 fix are in type-system.ts at the following lines (confirmed against HEAD `9f01f6cd`):
+
+| Helper | Definition line | Role |
+|--------|----------------|------|
+| `inferBareVariantsInExpr` | **7925** | Flat walker — resolves bare-variant idents against a single context type; entry point for enum / union / asIs / null / primitive context shapes |
+| `inferBareVariantsForStructConstructor` | **8153** | Companion — recovers struct field context from unannotated ctor form (`const bad = Post { role: .V }`); delegates to `inferBareVariantsWithStructNav` |
+| `inferBareVariantsWithStructNav` | **8199** | Struct-nav walker — descends into nested object/array literals refining per-position type; falls back to `inferBareVariantsInExpr` for non-struct/non-array leaves |
+
+**Primary call site for let/const-decl annotation path** — `~line 5820` (`if (letAnnot)` branch):
+- `inferBareVariantsWithStructNav(initExprForScope, resolvedType, letSpan, errors)` — called when a `:Type` annotation is present.
+- `inferBareVariantsForStructConstructor(...)` — called when annotation is absent but init looks like a struct constructor.
+- `inferBareVariantsInExpr(initExprForScope, null, letSpan, errors)` — called as final fallback (no annotation, not a ctor).
+
+Secondary call sites: reactive-decl annotation path ~line 6080; bare-expr statement path ~line 6263; `if`-condition path ~line 6773; `return`-expr path ~line 7030; call-arg path (`inferBareVariantsAtCallArgs`) ~line 9097.
 
 ## Ignored / Generated Paths
 node_modules/, compiler/node_modules/, dist/, compiler/dist/, compiler/native-parser/dist/,
@@ -132,7 +176,7 @@ compiler/self-host/dist/, stdlib/*/dist/, .git/, handOffs/,
 benchmarks/todomvc-react/, benchmarks/todomvc-vue/, benchmarks/todomvc-svelte/
 
 ## Tags
-#scrmlts #map #structure #compiler #cli #bun #engine-graph #source-map #each #each-in-dynamic-context #match #engine-statechild #cross-file-modules #enum-subset #message-dispatch #s154 #s155 #s156 #s157 #s158 #s159 #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #live-keyed #colon-shorthand-html
+#scrmlts #map #structure #compiler #cli #bun #engine-graph #source-map #each #each-in-dynamic-context #match #engine-statechild #cross-file-modules #enum-subset #message-dispatch #s154 #s155 #s156 #s157 #s158 #s159 #s160 #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #r28-8 #per-item-reactivity #live-keyed #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #bare-variant-inference
 
 ## Links
 - [primary.map.md](./primary.map.md)
