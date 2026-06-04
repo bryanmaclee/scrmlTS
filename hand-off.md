@@ -1,74 +1,87 @@
-# scrmlTS — Session 160 (CLOSE)
+# scrmlTS — Session 161 (CLOSE)
 
-**Date:** 2026-06-03
-**Previous:** `handOffs/hand-off-164.md` (= S159 CLOSE).
-**Next-session pickup:** rotate THIS file → `handOffs/hand-off-165.md` at next OPEN.
-**Profile:** opened **A (FULL)** ("read pa.md and start session"; no signal → default A). User: "1" → (clarified: #14/(d)-A already built S155/S156) → **"Finish S154 — (b)/(c) rulings"** → all micro-rulings via AskUserQuestion → process "Draft→reviewer gate→land" + autonomy "Full autonomous arc + push".
+**Date:** 2026-06-04
+**Previous:** `handOffs/hand-off-165.md` (= S160 CLOSE).
+**Next-session pickup:** rotate THIS file → `handOffs/hand-off-166.md` at next OPEN.
+**Profile:** opened **A (FULL)** ("read pa.md and start session"; no signal → default A). Full session-start completed.
 
 ---
 
-## 🏁 S160 CLOSE — S154 rulings (b) + (c) FINISHED end-to-end (design rulings → spec → impl), autonomous arc + crash-recovery
+## 🏁 S161 CLOSE — R28-8 fixed + landed · native-parser swap (direction-a) ratified, reconciled, re-measured · #2f teed up as next-session opener
 
-Finished the last two ratified-but-unbuilt S154 design rulings. Collected all micro-rulings (AskUserQuestion), drafted both SPEC amendments, reviewer-gated each (READY-WITH-CHANGES → rev-2 applied), landed SPEC PA-direct, dispatched compiler impl (worktree), file-delta landed + PA-independent dual-R26. **(c) impl survived a transient-API-overload mid-dispatch crash → clean S89 salvage (zero work lost).** Both arcs independently dual-verified.
+Two arcs. **(1)** R28-8 (S151-ratified extend-§14.10) fixed end-to-end and landed. **(2)** Strategic pivot: user ratified **direction (a)** — drive the native-parser toward the actual swap (flip `--parser=scrml-native` to default → delete BS+Acorn at M6). PA reconciled the 47-session-stale M-state (Rule 4) + re-measured the flip-failure count. **The whole climb reduces to one dominant unit: #2f each/match structural-promotion (~70% of failures).** That is the next-session opener.
 
 ### Sync / repo state at CLOSE
-- **scrmlTS:** clean, HEAD `f7c540c8`, `origin/main` **0/4** → **PUSH PENDING this wrap** (4 PA commits). `130ee93b` (session-start docs) · `b3ba8925` ((c) SPEC) · `d0d66d3e` ((c) impl) · `f7c540c8` ((b) SPEC+impl).
-- **scrml-support:** **WRITES PENDING this wrap** — 2 DRAFT + 2 REVIEW files in `archive/spec-drafts/` (uncommitted) + the S160 user-voice append (to do). Commit + push at wrap. Verify cross-machine sync (synced 0/0 at open).
-- **Tests at close:** full `bun test compiler/tests/` **22,910 pass / 0 fail / 220 skip / 1 todo** (901 files; pre-commit gate subset 15,791). S159 baseline 22,874; **+36** = (c) +10 / (b) +26; 0 regressions. NB the `bun run test` (full+browser) 2 parity-timing flakes (07-admin-dashboard, 27-type-derived-table) are S159-noted, pre-existing; neither touches no-RHS-defaults or `:`-shorthand.
-- **Hooks:** config B. S100 path-discipline hook held (no main-side PA-write rejections this session — CWD-drift guard `cd <main>` used before every main-side write post-dispatch).
-- **Inbox:** EMPTY at open (verify at next open for the scrml-site reply re S159). **Worktrees:** all cleaned (3 (c)+(b) worktrees removed at their landings) — main only.
-- **Version:** on top of **v0.7.0** (pkg.json unchanged; no tag — design-ruling spec+impl, not a release cut).
-- **Maps:** refreshed THIS session to `f9d4b0f1` (commit `130ee93b`). Now **4 commits stale** (cSPEC/cimpl/bSPEC+impl touched ast-builder/type-system/SPEC/engine+match-statechild-parsers/symbol-table/migrate.js). **Refresh before the next compiler-source dispatch.**
+- **scrmlTS:** clean except the wrap commit, HEAD `9d2556a6` pre-wrap → **6 PA commits this session, PUSHED this wrap** (`ef5713df` maps · `5007639d` R28-8 brief · `0dd18219` R28-8 brief-fix · `e3680a0d` R28-8 FIX · `9d2556a6` re-measure brief · + the wrap commit). origin 0/0 after push.
+- **scrml-support:** S161 user-voice append (strategy reframe + (a) ratification) — committed + pushed this wrap. (Was 0/0 at open.)
+- **Tests at close:** full `bun test compiler/tests/` **0 fail / 220 skip / 1 todo across 902 files** (23,142 tests ran; pass ≈22,921, +11 from R28-8's new test file). Gate held. R28-8 landing ran the pre-commit subset gate clean (15,802 worktree). NB the 2 pre-existing full-suite-only parity-timing flakes (07-admin-dashboard, 27-type-derived-table) are S159-noted, unrelated.
+- **Hooks:** config B. S100 path-discipline hook held (no main-side PA-write rejections; CWD-drift guard `cd <main>` used before every main-side write post-dispatch — S159 lesson held).
+- **Inbox:** EMPTY at open + close. **Worktrees:** main only (3 dispatch worktrees this session all cleaned at their resolutions).
+- **Version:** on top of **v0.7.0** (pkg.json unchanged; no tag — bug fix + reconnaissance, not a release cut).
+- **Maps:** refreshed THIS session to HEAD `9f01f6cd` (commit `ef5713df`; +Bare-variant-inference-helpers table +R28-8 task-route). Now **2 commits stale** (R28-8 fix `e3680a0d` touched type-system.ts + re-measure-brief). **Refresh before the #2f dispatch** (which touches `compiler/native-parser/`).
 
 ### known-gaps §0 state at CLOSE
-- **HIGH 0. MED 10** (unchanged — no new MED). **2 NEW LOW filed** (see deferred below). C6/C4 currency still stale-resolved (carry).
+- **HIGH 0. MED 9** (R28-8 RESOLVED → 10→9). **LOW 16** (unchanged). HIGH-0 holds since S139.
 
 ---
 
-## DONE this session (S160)
+## DONE this session (S161)
 
-1. **S154 ruling (c) — no-RHS typed-decl canonical-empty/`not` defaults — SPEC+IMPL COMPLETE.**
-   - **SPEC `b3ba8925`** (PA-direct): §6.2 Shape 4 generalized array-only → ALL typed cells (canonical empties `int`/`integer`→0, `number`→0, `bool`/`boolean`→false, `string`→"", `T[]`→[]; bare-`T` no-empty struct/enum/date/timestamp/opaque → `not` + implicit `(not to T)` lifecycle §14.12; union `T|not`/`T?` → `not` NO lifecycle; lifecycle-annotated A-non-`not` → error; refinement-violating-empty → NEW `E-REFINEMENT-NO-DEFAULT` §53/§34). §6.1.5 grammar + §14.12.3 (Shape-1 `(not to T)` transitions on assignment OR discrimination + lifecycle-aware E-TYPE-001 message) + §6.8.3 (no-RHS synthesized-`not` reset → pre). **§34 RETIRED `E-DECL-NEEDS-INITIALIZER`** → `E-REFINEMENT-NO-DEFAULT`. SPEC-INDEX regen +27L → 31,521.
-   - **IMPL `d0d66d3e`** (dispatch + S89 crash-recovery): ast-builder type-string classification + canonical-empty synth / not-init+`implicitNotLifecycle` marker / union-no-marker / refinement-flag / const-gate (`!isConst`) / array-preserve; type-system `buildCellValueLifecycleMap` admits `implicitNotLifecycle` cells (synth `(not to T)` via `parseLifecycleReturnAnnotation` → existing walker gives discrimination+assignment+reset), E-TYPE-001 names the synthesized lifecycle, `runRefinementNoRhsDefaultCheck` static §53 check. **BONUS:** fixed a pre-existing greedy `collectTypeAnnotation` swallow (no-RHS typed decl + next-sibling statement ran the type scan to EOF) via top-level `TYPE_BOUNDARY_KEYWORDS` stop (excludes not/lin/contextual-to). +10 tests. **PA dual-R26:** scalar→`_scrml_reactive_set(0/""/false)`, struct→E-TYPE-001 "(not to User)... SYNTHESIZED from the no-RHS", refinement VIOLATES→E-REFINEMENT-NO-DEFAULT / SATISFIES→0.
+1. **R28-8 — bare-variant inference into validated struct fields (§14.10) — FIXED + LANDED `e3680a0d`.**
+   - S151-ratified extend-§14.10. A bare variant in a typed object-literal field (`const draft: Article = { category: .News }`) fired `E-VARIANT-AMBIGUOUS` when the struct field carried a trailing validator (`category: Category req`) — the struct-body resolver lowers `Category req` to `asIs` (the validator defeats the registry lookup), starving `inferBareVariantsWithStructNav` of enum context.
+   - **S138 reverse-direction discipline caught a near-miss:** PA's first synthetic probes (plain enum fields) all PASSED → would have wrongly closed it NOT-REPRODUCED. Testing the REAL elixir shape (req-validated fields) reproduced it. The S143 known-gaps framing OVER-stated the gap: the plain object-literal-field case already worked since S84 `6af9fbaf`, and `is some`-narrowed `==` already works (the §14.10 comparison pre-pass) — only validated enum fields were live.
+   - **Fix (approach B, localized — per the dispatch Phase-0 STOP-gate; a root fix at parseStructBody regresses the 41 `structType.fields` consumers incl. formFor/schemaFor/tableFor):** an optional `AsIsType.bareVariantBase` sidecar recovered in `parseStructBody` (`annotateBareVariantBaseFromRawClause`, reusing `_schemaForRecoverEnumSubset`; enum + enum-subset + `Category req | not` nullable-union forms; primitives leave it absent), read ONLY by `inferBareVariantsWithStructNav` (`refineFieldTypeForBareVariant`). asIs kind unchanged → all consumers byte-identical. +11 tests. PA-independent R26: faithful elixir CLEAN, typo→E-TYPE-063, enum-subset resolves, control clean. No SPEC amendment (§14.10 catch-all already authorizes; kickstarter §4.8 "other position" now correct). known-gaps R28-8 OPEN→RESOLVED, §0 MED 10→9.
 
-2. **S154 ruling (b) — inside-opener `:`-shorthand canonical everywhere; after-`>` deprecated — SPEC+IMPL COMPLETE `f7c540c8`** (combined dispatch + PA file-delta).
-   - **SPEC:** §4.14 (after-`:` ws OPTIONAL + inside-opener-canonical-everywhere + after-`>` deprecation + markup-arm bare-body note); §51.0.I def+table rewritten; §51.0.B Mario migrated; §18.0.1 bullet rewritten + flagship NotAsked/Loading/Ready/Failed markup-arms → BARE-BODY (D4, not the `</p>>` tail); §34 +`W-COLON-SHORTHAND-LEGACY-PLACEMENT`; **~57 after-`>` worked-example arms migrated to inside-opener BY HAND** (type-annotation colons untouched — verified via diff grep). SPEC-INDEX regen → 31,548.
-   - **IMPL:** legacy-TS `engine-statechild-parser` + `match-statechild-parser` gain inside-opener `:` recognition (post-attr `:`, body to final `>` via angleDepth, string-aware) + RETAIN after-`>` + emit the W-lint (symbol-table); native-walker shape-parity; `migrate.js --fix` AST-driven rule (mirrors S147); after-`:` ws relaxed. **ZERO codegen change** (all placements build identical AST). +26 tests. **PA dual-R26:** both placements → client JS BYTE-IDENTICAL; after-`>` fires W-lint ×3 (per arm); inside-opener fires 0.
+2. **Native-parser swap — direction (a) RATIFIED + reconciled + re-measured (reconnaissance phase of the multi-session arc).**
+   - **(a) ratified:** drive the native parser to the actual swap (M5-flip → M6 delete-BS+Acorn). See user-voice S161 for the strategy reframe.
+   - **Reconciled the parked M-state** (read-only agent; Rule 4 — the roadmap §5 tracker was S114-stale): the FULL parser (M1-M4 JS + MK1-MK4 markup+seam) is BUILT (S99-S114); a substantial native→live FileAST bridge exists (`parse-file.js`, `translate-stmt.js` 20/20 StmtKinds, `translateExpr` wiring, `engine-statechild-walker.ts`); both pipelines parse the whole corpus with **0 parse-failures**. The MD.1-MD.5 labels NEVER executed — work went under M6.5.b/M6.6.b/M6.7-Dx; last real climb unit was **M6.7-D8a-i (S129)**; parked at S136.
+   - **Re-measured the flip** (throwaway-worktree harness; reproduced the cutover-plan Phase-A flip `api.js:630 parser=null→"scrml-native"`): **1,150 fails-under-flip / 256 files (control = 0 fail → 100% flip-attributable).** New authoritative baseline; the prior 429 (S129) is NOT reproducible (no committed harness) → retire it. (Up from 429: ~33% corpus growth + methodology diff.)
+   - **#2f each/match/colon-shorthand structural-promotion = ~70% (804 of 1,150).** Same class that broke Mario at the reverted M6.7 STOP. Native parser emits `<each>`/`<match>` verbatim as HTML (no render-fn/mount-slot/factory); `:`-shorthand bodies dropped. **Closing #2f kills ~700-800 of 1,150.** Nothing else close (next bucket 8%).
+   - **SPAN-COORD design call RESOLVED by the data:** 38K within-node span-drift fires cost ~0 test failures (1 file asserts on spans) → **tolerate span drift, defer normalization**; it's invisible to the flip-test gate.
 
 ---
 
-## OPEN QUESTIONS TO SURFACE IMMEDIATELY (S160 CLOSE)
+## 🎯 NEXT-SESSION OPENER — #2f each/match structural-promotion (the dominant swap-gate unit)
 
-1. **2 NEW LOW (pre-existing, surfaced by (b) — file in known-gaps):**
-   - **`/>` + `:`-shorthand on HTML element fires E-DG-002, not E-CLOSER-001** (§4.14 line 982 specifies E-CLOSER-001). Pre-existing on the S159 HTML path; ruling (b) said "no `/>` change" so out of (b) scope. A real SPEC-vs-impl divergence — fix = make `<span :@thing />` fire E-CLOSER-001 per §4.14.
-   - **after-`>` ENGINE form fails E2E at the block-splitter** (E-STRUCTURAL-ELEMENT-MISPLACED). Pre-existing (after-`>` engine never worked E2E). The now-canonical inside-opener engine form WORKS E2E (net improvement). Consequence: the engine after-`>` W-lint is parser-verified but only E2E-fires where after-`>` body text reaches the parser; the match locus is E2E-proven.
-2. **(c) cosmetic deferrals (recovery agent flagged, both PRE-EXISTING, not regressions):**
-   - `formatTypeForDiagnostic` renders struct types as `asIs` in the E-TYPE-001 lifecycle label (`(not to asIs)` not `(not to User)`) — affects the explicit `(not to User)` form identically; cosmetic message-quality follow-up.
-   - refinement-VIOLATES fires BOTH `E-REFINEMENT-NO-DEFAULT` (new) AND existing `E-CONTRACT-001` (on the synthesized 0) — both correct, not contradictory; dedup is an optional follow-up.
-3. **PROCESS NOTE (Rule 5 — surfaced):** the (b) dispatch agent self-flagged using `core.hooksPath=/dev/null` (a `--no-verify` equivalent) on early **progress.md-only** WIP commits before self-correcting. Per-commit `--stat` audit confirmed the SPEC commit (`6c4c82f1`) + impl commit (`62d6a267`) are separate + gated; no code/SPEC rode in on a bypass; the PA landing commit re-ran the full gate. Harmless but logged.
-4. **scrml-site notice** — consider whether the (c) no-RHS-default change (new compiler behavior: a no-RHS typed cell now compiles where it used to error) warrants a notice to scrml-site's PA. (b) is zero-codegen so no notice needed for it.
-5. **Maps refresh** overdue (4 commits stale).
+**This is THE unit. Closing it kills ~70% of the flip failures.** It is cutover Unit **M6.6** + the within-node KIND-NAME class (3,362 fires). It is the HEAVIEST gate in the arc (structural-promotion in the native parser + the translate→live-FileAST bridge for each/match nodes).
+
+**The bug (confirmed root cause):** the native parser treats `<each>`/`<match>` as plain custom HTML elements — it emits them VERBATIM into static HTML and emits NO render-fn / mount-slot / per-item factory into client.js. The `:`-shorthand body (`<li : @.name>`) is dropped entirely. It must PROMOTE them to control-flow structural nodes so the native output produces the same each/match FileAST node KIND the live pipeline does (which downstream codegen — `emit-each.ts` / `emit-match.ts` — consumes).
+
+**Start here:**
+- **Fix locus (parser side):** `compiler/native-parser/parse-file.js` + the markup-parse path + TagKind classification (it must classify `<each>`/`<match>` as structural, not generic custom-element). Then the translate→live bridge (`translate-stmt.js` / `engine-statechild-walker.ts` siblings) must synthesize the each/match FileAST node.
+- **Failing fixtures (minimal repros):** `compiler/tests/unit/each-block.test.js` (24 fails — canonical `<each in=@cell>` / `as`-name; cleanest), `compiler/tests/unit/each-colon-shorthand-r25-bug-40.test.js` (`<li : @.name>` dropped), `compiler/tests/unit/promote-each.test.js` (25), `compiler/tests/unit/engine-body-render.test.js` (20).
+- **Authority:** `scrml-support/docs/deep-dives/m6-joint-retirement-cutover-plan-2026-05-23.md` (Unit M6.6 + the Phase-A/B swap-gate, ~line 113). The roadmap `docs/changes/native-parser-front-end/IMPLEMENTATION-ROADMAP.md` (§5 tracker is S114-stale — do NOT trust it; the reconciliation above + the cutover-plan are current truth). The within-node parity test `compiler/tests/parser-conformance-within-node.test.js` + allowlist (100,636 baseline) is the AST-diff axis; the flip-test re-measure (1,150) is the behavioral axis — use BOTH.
+- **Dispatch shape:** likely a Phase-0 SURVEY-STOP-gate first (how native handles each/match now + the structural-promotion approach + whether the bridge is a mechanical extension or needs a design call), then the fix. Re-measure the flip-failure count AFTER landing to confirm the ~700-800 reduction (the within-node KIND-NAME drop + the flip-failure delta are the success metrics). It's Profile-B-able (spec + fixtures + locus are the brief substrate).
+- **Maps:** refresh first (2 commits stale; #2f touches `compiler/native-parser/` which the maps cover thinly — verify the structure map's native-parser section).
+
+---
+
+## OPEN QUESTIONS / DESIGN CALLS (surface as the climb resumes)
+
+1. **The Phase-A default-flip is a STANDING USER DECISION.** Even with a green gate, flipping native-to-default is the user's call (it's been STOPped + reverted once at `404fc619`). PA does NOT flip without explicit authorization. Fix units are dispatched as PARITY-CLOSERS feeding the eventual user-authorized flip — never as "the flip" itself.
+2. **v0.7 → v0.8 placement** — the swap missed the v0.7 cut (we're AT v0.7.0) and was dormant 25 sessions. Realistically a **v0.8** target. Confirm with user (low-stakes; the natural read).
+3. **M6.5 emit-logic path-(a) shims vs path-(b) consume-native-Stmt** — needs ratification BEFORE that dispatch (per the cutover-plan). Not on the #2f critical path; surfaces when the structural-codegen bridge is dispatched.
+4. **SPAN-COORD tolerance — RESOLVED S161** (tolerate; ~0 test cost). Recorded; no further user input needed unless a future gate definition re-raises it.
+5. **(carried) R28-8 cosmetic + the 2 S160 LOW (Bug 74/75)** — see CARRY-FORWARD.
 
 ## CARRY-FORWARD (backlog)
-- **Bug backlog (MED 10, unchanged):** Bug 1 Tailwind residuals · V-kill READ-side · MCP V0 deferrals · Generator policy (design-call) · L19 multi-statement-handler (design-call) · A5 freeze-extension (adoption-watch) · R28-1d (NOT-REPRODUCED S147) · **R28-8 (design-call: extend §14.10 vs canon-fix §4.8)** · C6 (likely stale-resolved) · Bug 14 MCP-partial.
-- **The 2 NEW LOW** (above) + the 2 (c) cosmetic deferrals.
-- **C6 + C4 currency:** §R27 C4 row shows OPEN but C4 RESOLVED S151 (STALE row); C6 obvious shapes compile CLEAN — likely stale-resolved; formal NOT-REPRODUCED needs dev-4's gauntlet-r27 formFor source.
-- **PRIMER §13.7 `dA-b1` row is STALE** (shows enum-subset batches 2/3 deferred; they landed S156) — fix at next primer pass. Also fold the S160 (b)/(c) landings into the PRIMER (§4.14/§6.2/§14.12/§51.0.I) at next primer refresh.
-- #2f native-parser each/match structural promotion (M5-swap precondition). Native parser charter B (M2.4 + MK2).
-- S154 carry: body-split/CPS debt · #5 lint FPs · #6 cross-file client imports · #7 MCP flip · per= per-instance engines (needs DD) · self-tree-shaking compiler build-story DD-candidate (S155 parked) · self-demo scrml.dev F1/F2 debate (S148, 2 experts forged; website now in sibling repo scrml-site) · 6NZ caps stray.
+- **Bug backlog (MED 9):** Bug 1 Tailwind residuals · V-kill READ-side · MCP V0 deferrals · Generator policy (design-call) · L19 multi-statement-handler (design-call) · A5 freeze-extension (adoption-watch) · R28-1d (NOT-REPRODUCED S147) · C6 (likely stale-resolved) · Bug 14 MCP-partial. (R28-8 removed.)
+- **LOW 16:** incl. the 2 S160 (b)-surfaced (Bug 74 `/>`+`:`-shorthand E-DG-002-not-E-CLOSER-001; Bug 75 after-`>` engine E2E) + R28-2b leading-`:` tokenizer + the S142 gate-found diagnostic gaps.
+- **#2f is the strategic line now** (above). After #2f: the next flip-failure bucket re-slice (re-measure post-#2f), then D8a function param/return-type cluster, then `^{}` host-fence (D8b), then the Phase-A flip authorization.
+- **S154 carry:** body-split/CPS debt (Ext 2/3) · #5 lint FPs · #6 atom-emitter follow-up · #7 MCP flip · per= per-instance engines (needs DD) · self-tree-shaking compiler build-story DD-candidate (S155 parked) · self-demo scrml.dev F1/F2 debate (S148; website now in sibling repo scrml-site) · 6NZ caps stray.
+- **scrml-site notice:** R28-8 is accepts-more (no codegen-shape change) → no notice needed. (scrml-site `bun link`s scrmlTS, gets the fix automatically.)
 
 ## pa.md directives in force
 - Rules R1–R5. `---` answer-delimiter (S152). Profile A/B (S156). `full wrap`/88% floor (S139). Working-style: largest ratified target, autonomous, park-on-input, surface only on real failure / needed design ruling.
-- Dispatch discipline ALL held: S88 explicit isolation · F4 startup-verify · S112 merge-startup · S99/S126 Bash-edit + no-`cd` · **S136 BRIEF.md archival** (both (c)+(b) BRIEF.md archived; (c) carries the recovery note) · **S138 R26/dual-verify** (every landing, PA-independent — (c) 4-case, (b) byte-identity) · **S147 branch-leak coherence** (every landing: branch-tip==FINAL_SHA + 0/N divergence, no leak). `--no-verify` forbidden (1 agent-side hooksPath bypass on doc-only commits, self-corrected — logged §3).
-- **S89 crash-recovery** re-exercised: (c) impl original agent crashed on transient API overload mid-impl → salvaged committed survey+design + the syntactically-valid partial ast-builder.js → fresh agent carried the analysis + cp'd the partial + completed. ZERO work lost.
-- **CWD-drift-POST-dispatch (S159 lesson):** `cd <main>` before main-side writes after every isolation:worktree dispatch — held (no S100-hook rejections).
-- **Reviewer-gate substitution:** named `scrml-language-design-reviewer` NOT loadable this session (not in ~/.claude/agents/; only `scrml-language-critic` in cold storage); gate fulfilled via general-purpose-Opus with a rigorous reviewer brief. Both verdicts READY-WITH-CHANGES; all changes folded into rev-2. (If the named reviewer is wanted, stage it for a future session.)
-- Canonical dev-agent `scrml-js-codegen-engineer`. SendMessage agent-resume NOT available → crash-recovery via FRESH dispatch carrying the analysis.
+- Dispatch discipline ALL held this session: S88 explicit isolation · F4 startup-verify · **S112 merge-startup** (load-bearing this session — agent #1 stalled because its worktree branched from session-start `9f01f6cd` and lacked the refreshed maps; the `git merge --ff-only main` startup step fixed it; ALL subsequent dispatches used it) · S99/S126 Bash-edit + no-`cd` · S136 BRIEF.md archival (all 3 dispatches) · S138 R26/dual-verify (R28-8 PA-independent) · S147 branch-leak coherence (every landing). `--no-verify` forbidden.
+- **S138 reverse-direction R26 — exercised twice this session:** (a) R28-8 near-miss (synthetic-pass ≠ real-pass; the req-validated shape reproduced where plain fields didn't); (b) the M-state reconciliation (Rule 4 — verified the stale tracker against git log before acting).
+- **PROCESS NOTE (Rule 5):** R28-8 dispatch agent #2 self-flagged using `--no-verify` on TWO docs-only WIP commits (survey + progress.md); the substantive fix+test commits ran the full gate + the PA landing commit re-ran it. No code bypassed the gate. Logged.
+- Canonical dev-agent `scrml-js-codegen-engineer`. Reconnaissance via `general-purpose` (read-only). Reviewer-gate: named `scrml-language-design-reviewer` NOT loadable (carry).
 
-## Process notes (S160) — LESSONS
-- **Stale-read self-correction:** my S160-OPEN framing called #14/(d)-A "NOT YET BUILT" — they were IMPL-COMPLETE S155/S156. Caught by verifying git log BEFORE dispatching a build (R26 reverse-direction applied to MY own claim). The PRIMER §13.7 dA-b1 row fed the error (stale). Lesson: verify build-state via git log even for "obviously unbuilt" arcs.
-- **Reviewer gate earned its keep:** the (c) reviewer caught scrml has no `float`/`real`/`{}` types (the draft table was wrong) + 3 missed edge cases (union T|not, refinement-violating-empty [→ the 4b user ruling], lifecycle-annotated). The (b) reviewer caught the migration UNDERCOUNT (43→~57, the no-space `>:` arms) + that it needs per-line care vs type-annotation colons + that the legacy-TS parsers need NEW code (only native does inside-opener). Both prevented wrong landings.
-- **AST-synthesis / reuse-existing-infra pattern (both arcs):** (c) synthesized `(not to T)` via the existing `parseLifecycleReturnAnnotation` → free discrimination/assignment/reset; (b) all placements build identical AST → zero codegen. Reusing the existing walker/infra over new mechanism.
+## Process notes (S161) — LESSONS
+- **S112 worktree-staleness bit hard:** the first R28-8 dispatch watchdog-stalled in maps-reading because its worktree branched from session-start `9f01f6cd` (not live HEAD) → had stale maps + no change-id dir, and it burned its window working around the discrepancy. Fix = the `git merge --ff-only main` startup step (now in every dispatch brief). Zero work lost (stalled at the doorstep). **Bake the merge-startup step into the dispatch-brief template permanently.**
+- **Rule 4 vindicated twice:** the master-list §0.6 native-parser summary AND the roadmap §5 tracker were BOTH badly stale (S112/S114). I nearly proposed "dispatch M2.4" off the stale summary — the native parser is actually at the M6.7 swap-attempt stage, 47 sessions later. ALWAYS reconcile a parked arc against git log before acting.
+- **The re-measure is the right reconnaissance pattern for a parked impl arc:** a throwaway-worktree behavioral measurement (1,150) + a read-only doc reconciliation converted "parked, distance unknown" into "one dominant unit at 70%, exact locus." Cheap, decisive, no risk to main.
 
 ## Tags
-#session-160 #CLOSE #profile-a-full-start #s154-bc-finished #no-rhs-typed-defaults #inside-opener-colon-shorthand #reviewer-gate #s89-crash-recovery #pa-dual-r26 #push-pending
+#session-161 #CLOSE #profile-a-full-start #r28-8-resolved #high-0 #native-parser-swap #direction-a #2f-each-match-structural-promotion #flip-remeasure-1150 #v0.7.0 #pushed

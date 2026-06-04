@@ -12,6 +12,18 @@ The trackable per-sub-step decomposition of the charter-B M-ladder. This is the 
 of the (now-superseded) quoted-text `IMPLEMENTATION-ROADMAP.md` — the single artifact
 the PA tracks the multi-quarter native-parser arc against.
 
+> ## ⚠ CURRENT STATUS — S161 (2026-06-04): ARC RESUMED — direction (a) ratified
+>
+> **The §0.6 "Status at S112 OPEN" + the §5 progress tracker below are STALE (S112 / S114).** Do NOT trust them for current state. The arc actually ran M6.5 / M6.6 / M6.7 (S119–S136) — entirely absent from §5 — then PARKED at S136 (last native-parser commit `e1269844`). Resumed S161.
+>
+> **Live state (S161 reconciliation + flip re-measure):** the full parser (M1–M4 JS + MK1–MK4 markup+seam) is BUILT; a substantial native→live FileAST bridge exists (`parse-file.js` / `nativeParseFile`, `translate-stmt.js` 20/20 StmtKinds, `translateExpr` wiring, `engine-statechild-walker.ts`); both pipelines parse the corpus with **0 parse-failures**. The MD.1–MD.5 unit labels in §3/§5 NEVER executed under those names — work landed as M6.5.b.x / M6.6.b.x / M6.7-Dx. Last real climb unit: **M6.7-D8a-i (S129)**.
+>
+> **Flip re-measure (S161, throwaway-worktree harness, `api.js:630` `parser=null → "scrml-native"`): 1,150 fails-under-flip / 256 files (control run = 0 fail → 100% flip-attributable).** This is the AUTHORITATIVE baseline. The prior "429" (S129) is non-reproducible — no flip-harness was ever committed — and is RETIRED.
+>
+> **#2f each/match/colon-shorthand structural-promotion = ~70% (804 / 1,150) — THE dominant unit and the next dispatch (this is cutover Unit M6.6 + the within-node KIND-NAME class, 3,362 fires).** Confirmed root cause: the native parser emits `<each>`/`<match>` VERBATIM as HTML (no render-fn / mount-slot / per-item factory into client.js) and DROPS `:`-shorthand bodies — it does not promote them to control-flow structural nodes. Locus: `compiler/native-parser/parse-file.js` + the markup-parse path + TagKind classification + the translate→live bridge. Minimal-repro fixtures: `compiler/tests/unit/each-block.test.js` (24 fails), `compiler/tests/unit/each-colon-shorthand-r25-bug-40.test.js`, `promote-each.test.js` (25), `engine-body-render.test.js` (20). Dispatch shape: Phase-0 SURVEY-STOP first, then fix; re-measure the flip-failure count after to confirm the ~700–800 reduction.
+>
+> **SPAN-COORD: TOLERATE** (the 38K within-node span-drift fires cost ~0 test failures — invisible to the flip-test gate; do not let the large within-node number mislead prioritization). **The Phase-A default-flip itself is a STANDING USER DECISION** (it was STOPped + reverted once at `404fc619`); the swap is a **v0.8** target. Swap-gate authority: `scrml-support/docs/deep-dives/m6-joint-retirement-cutover-plan-2026-05-23.md` (Phase A / Phase B, ~line 113). Both axes gate: the flip-test re-measure (1,150, behavioral) AND within-node parity (`parser-conformance-within-node.test.js`, AST-diff).
+
 **Authority chain (read before dispatching any milestone):**
 - `scrml-support/docs/deep-dives/scrml-native-parser-front-end-charter-2026-05-20.md` —
   charter dive (the master plan; M-ladder Q4.A, estimates Q4.B, retirement Q5).
