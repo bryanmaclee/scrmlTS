@@ -67,6 +67,12 @@ export interface MatchArmEntry {
   attrs: MatchArmAttr[];
   bodyForm: "self-closing" | "shorthand" | "bare-body";
   bodyRaw: string;            // body content (empty for self-closing)
+  /** S160 (S154 ruling (b)) — TRUE when a `"shorthand"` arm used the LEGACY
+   *  after-`>` placement (`<Variant> : expr`) rather than the canonical
+   *  inside-opener placement (`<Variant : expr>`). Both produce an identical
+   *  entry; this flag drives `W-COLON-SHORTHAND-LEGACY-PLACEMENT` (§34).
+   *  Absent / false for inside-opener shorthand, bare-body, and self-closing. */
+  legacyColonPlacement?: boolean;
   // Local byte offsets within armsRaw of the whole arm (opener through close).
   spanStart: number;
   spanEnd: number;
@@ -125,7 +131,7 @@ export function parseMatchArms(armsRaw: string): MatchParseResult {
     openerStart: number,
     nameEnd: number,
     payloadBindingsRaw: string,
-  ): { closeAt: number; selfClosing: boolean; attrs: MatchArmAttr[] } {
+  ): { closeAt: number; selfClosing: boolean; attrs: MatchArmAttr[]; insideColonAt: number } {
     const attrs: MatchArmAttr[] = [];
     let p = nameEnd;
     // If a payload `(...)` followed the name, skip past it.
@@ -134,17 +140,31 @@ export function parseMatchArms(armsRaw: string): MatchParseResult {
     }
     while (p < len) {
       // Skip whitespace
+      const pBeforeWs = p;
       while (p < len && /\s/.test(armsRaw[p])) p++;
       if (p >= len) break;
       const c = armsRaw[p];
-      if (c === ">") return { closeAt: p, selfClosing: false, attrs };
+      if (c === ">") return { closeAt: p, selfClosing: false, attrs, insideColonAt: -1 };
       if (c === "/" && p + 1 < len && armsRaw[p + 1] === ">") {
-        return { closeAt: p + 1, selfClosing: true, attrs };
+        return { closeAt: p + 1, selfClosing: true, attrs, insideColonAt: -1 };
+      }
+      // S160 (S154 ruling (b)) — INSIDE-opener `:`-shorthand body-introducer.
+      // A `:` reached at the top of the attribute scan that is preceded by at
+      // least one whitespace character (§4.14 line 983 — the disambiguator vs.
+      // a `bind:`/`on:`/`class:` namespace separator, which glues the `:` to the
+      // identifier) opens the single-expression body INSIDE the opener. The body
+      // runs to the `>` that terminates the opener; scan forward past it (string-,
+      // `${...}`-, and bracket-aware so a `>` inside a string or nested markup is
+      // opaque — the angleDepth rule, §4.13/§4.14) to find the real opener `>`.
+      if (c === ":" && p > pBeforeWs) {
+        const insideColonAt = p;
+        const closeAt = scanToOpenerClose(p + 1);
+        return { closeAt, selfClosing: false, attrs, insideColonAt };
       }
       // Read attr name
       if (!/[A-Za-z_]/.test(c)) {
         // Unexpected character — bail with what we have.
-        return { closeAt: p, selfClosing: false, attrs };
+        return { closeAt: p, selfClosing: false, attrs, insideColonAt: -1 };
       }
       const attrNameStart = p;
       while (p < len && /[A-Za-z0-9_:-]/.test(armsRaw[p])) p++;
@@ -194,7 +214,53 @@ export function parseMatchArms(armsRaw: string): MatchParseResult {
       });
     }
     // Reached EOF without `>` — caller will see this as malformed.
-    return { closeAt: p, selfClosing: false, attrs };
+    return { closeAt: p, selfClosing: false, attrs, insideColonAt: -1 };
+  }
+
+  // S160 (S154 ruling (b)) — given the position just past an inside-opener
+  // `:`-shorthand body-introducer, scan forward to the `>` that terminates the
+  // opener. The single-expression body may contain a string literal (`"...>"`),
+  // a `${...}` interpolation, or nested markup-as-value (`<p>...</p>`) whose `>`
+  // chars are NOT the opener terminator — so the scan is string-, `${}`-, and
+  // angleDepth-aware (a `<` inside the body opens a nested tag; its matching `>`
+  // is consumed at depth>0). Returns the index of the opener's terminating `>`,
+  // or `len` if none is found (malformed — the caller treats this like a missing
+  // closer).
+  function scanToOpenerClose(from: number): number {
+    let p = from;
+    let inDQ = false;
+    let inSQ = false;
+    let angleDepth = 0;
+    while (p < len) {
+      const c = armsRaw[p];
+      if (inDQ) { if (c === '"') inDQ = false; else if (c === "\\") p++; p++; continue; }
+      if (inSQ) { if (c === "'") inSQ = false; else if (c === "\\") p++; p++; continue; }
+      if (c === '"') { inDQ = true; p++; continue; }
+      if (c === "'") { inSQ = true; p++; continue; }
+      // `${...}` logic-context interpolation — consume the balanced brace block
+      // so a `>` operator inside (e.g. `${a > b ? x : y}`) is not the terminator.
+      if (c === "$" && armsRaw[p + 1] === "{") {
+        p += 2;
+        let braceDepth = 1;
+        while (p < len && braceDepth > 0) {
+          const c2 = armsRaw[p];
+          if (c2 === "{") braceDepth++;
+          else if (c2 === "}") braceDepth--;
+          p++;
+        }
+        continue;
+      }
+      // Nested markup-as-value: a `<` (not a closer `</`) opens a nested tag.
+      // Track angle depth so the nested element's own `>` does not terminate the
+      // opener; a `</...>` closer decrements at its `>`.
+      if (c === "<") { angleDepth++; p++; continue; }
+      if (c === ">") {
+        if (angleDepth > 0) { angleDepth--; p++; continue; }
+        return p; // the opener's terminating `>`
+      }
+      p++;
+    }
+    return len;
   }
 
   function scanPayloadBindings(at: number): { contentRaw: string; afterClose: number } {
@@ -406,8 +472,31 @@ export function parseMatchArms(armsRaw: string): MatchParseResult {
       continue;
     }
 
-    // Body form discrimination — check for `:`-shorthand vs bare-body.
-    // After `>`, skip horizontal whitespace (NOT newlines per §32.4-style
+    // S160 (S154 ruling (b)) — INSIDE-opener `:`-shorthand (canonical). The
+    // `:` body-introducer was found INSIDE the opener by `scanOpenerAttrs`; the
+    // single-expression body runs from one past the `:` (`insideColonAt`) to the
+    // opener's terminating `>` (`closeAt`). After-`:` whitespace is optional
+    // (§4.14) — the body text is trimmed, so `:@thing` and `: @thing` produce the
+    // same body. This is the canonical placement; the legacy after-`>` form is
+    // handled below (deprecation window, marked `legacyColonPlacement`).
+    if (openerScan.insideColonAt >= 0) {
+      const bodyRaw = armsRaw.slice(openerScan.insideColonAt + 1, openerScan.closeAt).trim();
+      arms.push({
+        variantName,
+        isWildcard,
+        payloadBindingsRaw,
+        attrs: openerScan.attrs,
+        bodyForm: "shorthand",
+        bodyRaw,
+        spanStart: armOpenerStart,
+        spanEnd: pos,
+        openerStart: armOpenerStart,
+      });
+      continue;
+    }
+
+    // Body form discrimination — check for LEGACY after-`>` `:`-shorthand vs
+    // bare-body. After `>`, skip horizontal whitespace (NOT newlines per §32.4-style
     // line-boundary semantics — `:`-shorthand fits on one line typically).
     let bodyScanPos = pos;
     while (bodyScanPos < len && (armsRaw[bodyScanPos] === " " || armsRaw[bodyScanPos] === "\t")) {
@@ -445,6 +534,8 @@ export function parseMatchArms(armsRaw: string): MatchParseResult {
         attrs: openerScan.attrs,
         bodyForm: "shorthand",
         bodyRaw,
+        // S160 (S154 ruling (b)) — this is the LEGACY after-`>` placement.
+        legacyColonPlacement: true,
         spanStart: armOpenerStart,
         spanEnd: pos,
         openerStart: armOpenerStart,

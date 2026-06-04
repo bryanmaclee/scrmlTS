@@ -981,6 +981,7 @@ TAB receives the entire lambda as a single `ExprAttrValue`.
 - A `:`-shorthand body SHALL NOT contain a statement, multiple semicolon-separated expressions, or a block. Multi-statement intent forces the bare-body form (cross-ref §5.2.2 multi-statement event-handler restriction; the same shape rule applies here).
 - The closer-presence override: if a tag uses `:`-shorthand, the absence of any closer is REQUIRED. If a writer accidentally writes `<Tag : expr></>`, this is `E-CLOSER-001` (closer present on `:`-shorthand body — choose one form).
 - Mandatory whitespace separates the last attribute (or the tag name) from the `:`. `<Tag:expr>` (no whitespace) is `E-PARSE-001` — the tokenizer treats no-space colon as part of an identifier or as a `bind:` / `class:` / `on:` namespace separator.
+- Whitespace AFTER the `:` is OPTIONAL (S160 — S154 ruling (b)). The `:` token is the body-introducer; the single expression begins at the next non-whitespace character, whether or not whitespace follows the `:`. `<span :@thing>` (no after-`:` whitespace — the tersest form) and `<span : @thing>` (with after-`:` whitespace) are identical: both introduce the `:`-shorthand body `@thing`. There is no after-`:` ambiguity — once the whitespace-preceded `:` is recognized as the body-introducer (the mandatory BEFORE-`:` whitespace is the disambiguator, above), no following token (`@`, `<`, a string literal, or a bare identifier) can retroactively re-bind the `:` as an attribute namespace separator (which requires `name:` with the colon glued AFTER the name, the opposite anchoring). Only the BEFORE-`:` whitespace is required.
 - The `:`-shorthand's `>` terminator is the standard tag-closer `>`. The `angleDepth` rule (§4.13) applies inside the expression — embedded markup is handled by tracking angle depth.
 
 **The `:`-shorthand body grammar — explicit statement (S111).** A `:`-shorthand body is a **single code-default expression**, lexically bounded on the left by the `:` token and on the right by the `>` that terminates the opener. The following are normative for the block splitter:
@@ -989,6 +990,10 @@ TAB receives the entire lambda as a single `ExprAttrValue`.
 - The `:`-shorthand body introduces **no new structural delimiter**. The `:` token is a within-opener body-introducer; the `>` is the standard tag-closer. The block splitter recognizes a `:`-shorthand body by the post-attribute `:` token inside an opener — a within-opener scan concern. No new block-grammar delimiter, and no new structural block kind, is introduced for `:`-shorthand bodies.
 - A `:`-shorthand body is a **code-default body** (§4.18.1) — its single expression is parsed in code-default mode. Because the `:`-shorthand body is bounded by the enclosing opener and is not a delimited block, code-default recognition of a `:`-shorthand body is a **sub-mode of the enclosing body's scan** (the enclosing engine / match body, itself code-default per §51.0 / §18.0.1) — it requires no separate structural block-grammar machinery. The Wave-0 spike (`scrml-support/archive/changes/quoted-text-model/SPIKE-bs-mode-flag.md` §4.7) confirms this: the `:`-shorthand body is a within-body sub-mode, not a stack frame.
 - Display text as a `:`-shorthand body SHALL be written as a `"..."` display-text literal (§4.18.3) — the display-text literal is the canonical literal form for a display-text `:`-shorthand slot. `<Idle : "Waiting…">` is the canonical form; a bare `<Idle : Waiting…>` (prose, not a valid expression) is `E-UNQUOTED-DISPLAY-TEXT` (§34 / §4.18.7).
+
+**Inside-opener placement is canonical EVERYWHERE (S160 — S154 ruling (b)).** The `:`-shorthand body opens INSIDE the tag opener — the `:` follows the last attribute, the body runs to the `>` that terminates the opener (the normative statements above) — in EVERY locus that admits the form: HTML elements (§24), `<each>` per-item (§17.7.6), match block-form arms (§18.0.1), and engine state-children (§51.0.I). This is the single canonical placement (Pillar 5 — one `:`-shorthand placement across the whole language). A LEGACY AFTER-`>` placement (`<Variant rule=... > : expr`, where the `:` follows the opener's `>` rather than preceding it) was used by older §51.0.I / §18.0.1 / §51.0.B worked examples. The after-`>` placement is **DEPRECATED**: it parses identically during the deprecation window and surfaces the info-level lint `W-COLON-SHORTHAND-LEGACY-PLACEMENT` (§34). All placements build an identical AST and emit identical output — the difference is purely the source position of the `: expr`. Resolution: move the `: expr` inside the opener, before the `>` (`<Variant rule=... : expr>`), or run `bun scrml migrate --fix` (AST-driven). End-of-window timing promotes this to a reserved `E-COLON-SHORTHAND-LEGACY-PLACEMENT`.
+
+**Prefer bare-body for multi-element markup arms (S160 doc note).** A `:`-shorthand body is for a terse SINGLE expression — display text (`<Idle : "Waiting…">`), a call (`<Idle : startGame()>`), or a single-element markup value (`<Small : <span>x</span>>`). A MULTI-element markup body (`<ul>…</ul>`, `<p class="error">…</p>`) reads more clearly as a bare-body (`<Variant><ul>…</ul></>`); the `:`-shorthand form would produce a dense `</ul>>` / `</p>>` tail. The bare-body form (§4 / §18.0.1 / §51.0.I) is the natural shape for multi-element markup arms; reserve `:`-shorthand for the single terse expression.
 
 **Loci where `:`-shorthand is legal in v0.next:**
 
@@ -8083,9 +8088,9 @@ A cell that is the **auto-declared variable of an engine declaration** (§51.0.C
 type Phase:enum = { Idle, Loading, Done }
 
 <engine for=Phase initial=.Idle>
-  <Idle    rule=.Loading>: "idle"
-  <Loading rule=.Done>:    "loading"
-  <Done>:                  "done"
+  <Idle    rule=.Loading : "idle">
+  <Loading rule=.Done : "loading">
+  <Done : "done">
 </>
 
 <phase>: (Idle to Done) = .Idle              // E-TYPE-LIFECYCLE-ON-ENGINE-CELL
@@ -10886,17 +10891,20 @@ of an enum-typed reactive cell. It is the Tier 1 wrapper of the §17.0 case-anal
 
 ```scrml
 <match for=LoadPhase [on=@loadPhase]>
-  <NotAsked>          : <p>Press to load.</p>
-  <Loading>           : <p>Loading…</p>
-  <Ready(rows)>       : <ul>${ for (let r of rows) { lift <li>${r.name}</li> } }</ul>
-  <Failed(msg)>       : <p class="error">${msg}</p>
+  <NotAsked><p>Press to load.</p></>
+  <Loading><p>Loading…</p></>
+  <Ready(rows)><ul>${ for (let r of rows) { lift <li>${r.name}</li> } }</ul></>
+  <Failed(msg)><p class="error">${msg}</p></>
 </>
 ```
 
-Each arm body above is a **code-default body** (§4.18 — S111). The `:`-shorthand bodies
-here hold markup-as-value (`<p>...</p>`, `<ul>...</ul>`) — nested markup is valid code in
-a code-default body. The `<p>` / `<li>` element bodies (`Press to load.`, `Loading…`,
-`${r.name}`) are plain-markup free-text bodies — unchanged by the quoted-text model.
+Each arm above uses the **bare-body** form (`<Variant>...</>`) — the natural shape for a
+MULTI-element / markup arm body. Each body is a **code-default body** (§4.18 — S111): the
+nested `<p>` / `<ul>` markup is valid code in a code-default body. The `<p>` / `<li>`
+element bodies (`Press to load.`, `Loading…`, `${r.name}`) are plain-markup free-text
+bodies — unchanged by the quoted-text model. (Prefer bare-body for multi-element markup
+arms; reserve the inside-opener `:`-shorthand — shown next — for a terse single
+expression / display-text / call, §4.14 doc note.)
 
 **Worked example — arm body that IS display text (S111, quoted-text model).** When an
 arm body is display text directly — not wrapped in a plain-markup element — it is a
@@ -10904,16 +10912,18 @@ arm body is display text directly — not wrapped in a plain-markup element — 
 
 ```scrml
 <match for=MarioState on=@marioState>
-  <Small> : "Small Mario"
-  <Big>   : "Big Mario"
-  <Fire>  : "Fire Mario — ${@powerCount} power-ups"
-  <Cape>  : "Caped Mario"
+  <Small : "Small Mario">
+  <Big   : "Big Mario">
+  <Fire  : "Fire Mario — ${@powerCount} power-ups">
+  <Cape  : "Caped Mario">
 </>
 ```
 
-`"Fire Mario — ${@powerCount} power-ups"` is one display-text literal carrying one
-interpolation inside it (§4.18.4). A bare `<Small> : Small Mario` (prose, not a valid
-expression) is `E-UNQUOTED-DISPLAY-TEXT` (§4.18.7).
+The `:`-shorthand body opens INSIDE the arm opener (the `:` follows the variant name /
+attributes, the body runs to the `>`; §4.14 — the single canonical placement). `"Fire
+Mario — ${@powerCount} power-ups"` is one display-text literal carrying one interpolation
+inside it (§4.18.4). A bare `<Small : Small Mario>` (prose, not a valid expression) is
+`E-UNQUOTED-DISPLAY-TEXT` (§4.18.7).
 
 - **`for=Type`** — REQUIRED. The enum type the match is over.
 - **`on=expr`** — REQUIRED when the matched-on value is not auto-implied. Auto-implied
@@ -10934,8 +10944,14 @@ expression) is `E-UNQUOTED-DISPLAY-TEXT` (§4.18.7).
   - Bare body `<Variant>...</>` — code-default body: nested tags (markup-as-value),
     `${}` interpolation, and `"..."` display-text literals. A bare prose run that is not
     a valid expression is `E-UNQUOTED-DISPLAY-TEXT` (§4.18.7).
-  - Single-expression body `<Variant> : expr` — `:`-shorthand (also code-default, §4.14);
-    a display-text `:`-shorthand body is a `"..."` display-text literal.
+  - Single-expression body `<Variant : expr>` — `:`-shorthand (also code-default, §4.14);
+    the `:` opens INSIDE the arm opener (following the variant name / attributes, body
+    running to the `>` — the single canonical placement, §4.14). A display-text
+    `:`-shorthand body is a `"..."` display-text literal. The legacy after-`>` placement
+    (`<Variant> : expr`) is DEPRECATED (`W-COLON-SHORTHAND-LEGACY-PLACEMENT`, §34) —
+    it parses identically during the window; move the `: expr` inside the opener. Prefer
+    bare-body for multi-element markup arms (`<Variant><ul>…</ul></>`); reserve
+    `:`-shorthand for a terse single expression / display-text / call (§4.14 doc note).
 - **Exhaustiveness** — the compiler verifies every variant of `Type` has a matching
   state-child OR a wildcard `<_>` catch-all is present. Otherwise: `E-MATCH-NOT-EXHAUSTIVE`.
   **Enum-subset narrowing (S154, §53.15).** When the matched-on value's declared type is an
@@ -10953,14 +10969,14 @@ value-return contexts (server logic, derivations).
 
 ```scrml
 <engine for=MarioState initial=.Small>
-  <Small rule=.Big> : "🧍"
-  <Big rule=.Small> : "🧍 🧍"
+  <Small rule=.Big : "🧍">
+  <Big rule=.Small : "🧍 🧍">
 </>
 
 <!-- Later in the same file, in a different markup region: -->
 <match for=MarioState>          <!-- on= auto-implied: @marioState (the engine var) -->
-  <Small> : <span>still small</span>
-  <Big>   : <span>now big</span>
+  <Small : <span>still small</span>>
+  <Big   : <span>now big</span>>
 </>
 ```
 
@@ -10999,10 +11015,10 @@ patterns MAY omit the type qualifier:
 
 ```scrml
 <match for=MarioState on=@marioState>
-  <Small>   : "🧍"             <!-- .Small inferred as MarioState.Small -->
-  <Big>     : "🧍 🧍"
-  <Fire>    : "🔥"
-  <Cape>    : "🦸"
+  <Small : "🧍">             <!-- .Small inferred as MarioState.Small -->
+  <Big   : "🧍 🧍">
+  <Fire  : "🔥">
+  <Cape  : "🦸">
 </>
 ```
 
@@ -11020,7 +11036,7 @@ type HealthRisk  = enum { Small, Critical }     // also has .Small
 let v: MarioState | HealthRisk = ...
 
 <match for=MarioState | HealthRisk on=v>
-  <Small> : "?"      <!-- E-VARIANT-AMBIGUOUS — could be either -->
+  <Small : "?">      <!-- E-VARIANT-AMBIGUOUS — could be either -->
 </>
 ```
 
@@ -16521,6 +16537,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-MATCH-ARM-SEPARATOR | §18.2 | A `match` arm is followed by a `,` separator. Match arms are juxtaposed (`match-arm+` per §18.2 grammar); the ONLY arm separator is the arm body's terminating `:>`-introduced arm boundary (the deprecated `=>`/`->` aliases behave identically) — arms are written one per line (newline-separated). A trailing `,` after an arm body is invalid. Resolution: remove the `,` (`.A :> x, .B :> y` → `.A :> x` / `.B :> y` on separate lines). Replaces the generic E-CODEGEN-INVALID-JS that the stray comma would otherwise surface from codegen. (Catalog addition S144 Cluster D — Bug Y; emitted by TS at `compiler/src/type-system.ts:checkMatchDiagnostics`.) | Error |
 | W-MATCH-ARROW-LEGACY | §18.2 | A `match` arm (or `!{}` error-handler arm, §19) uses a deprecated arm separator — `=>` or `->` — instead of the canonical `:>`. All three forms parse, build, and emit identically during the deprecation window; the canonical separator is `:>`. The lint is ARM-CONTEXT-SCOPED: `=>` remains fully valid as the arrow-function glyph and `->` as the `fn` return-type separator / legacy `<machine>` event-arrow — only the match / handler arm-separator position fires. Resolution: rewrite `<pattern> => <body>` / `<pattern> -> <body>` as `<pattern> :> <body>`, or run `bun scrml migrate --fix` (AST-driven; MUST NOT be a text replace, since `=>` is also the arrow-function glyph). New code SHALL use `:>`; existing samples MAY migrate at convenience. The end-of-window timing promotes this to `E-MATCH-ARROW-LEGACY` (reserved; not yet emitted). (S145 — `match-arrow-colon-canonical` deep-dive; user-voice S145; mirrors the W-LIFECYCLE-LEGACY-ARROW `->`→`to` template.) | Info |
 | W-GIVEN-ARROW-LEGACY | §42.2.3 | A standalone `given` presence-guard uses the deprecated separator `=>` instead of the canonical `:>` (`given x => { ... }` → `given x :> { ... }`). The sibling of `W-MATCH-ARROW-LEGACY` for the standalone `given`-guard context (an in-`match` `given`-arm already fires `W-MATCH-ARROW-LEGACY`). Both forms parse + resolve identically during the deprecation window; the canonical separator is `:>` (the same maps-to separator as a match arm). SCOPED to the `given`-guard separator only — the JS arrow-function `=>` is untouched. Resolution: rewrite as `given x :> { ... }`, or run `bun scrml migrate --fix` (AST-driven). The end-of-window timing promotes this to a reserved `E-GIVEN-ARROW-LEGACY` (not yet emitted). (Catalog addition S148 — Insight 33 extension; ratified via user AskUserQuestion; mirrors W-MATCH-ARROW-LEGACY.) | Info |
+| W-COLON-SHORTHAND-LEGACY-PLACEMENT | §4.14, §51.0.I, §18.0.1 | A `:`-shorthand body uses the legacy AFTER-`>` placement (`<Variant rule=... > : expr`) instead of the canonical inside-opener placement (`<Variant rule=... : expr>`). Both parse, build, and emit identically during the deprecation window; the inside-opener form is canonical across every locus (Pillar 5 — one `:`-shorthand placement: HTML elements §24, `<each>` per-item §17.7.6, match block-form arms §18.0.1, engine state-children §51.0.I). The lint is ARM / state-child-context-scoped — it fires ONLY where after-`>` was ever a legal placement (engine state-children + match arms); HTML elements and `<each>` per-item never used after-`>`, so the lint never fires there. Resolution: move the `: expr` inside the opener, before the `>`, or run `bun scrml migrate --fix` (AST-driven; MUST NOT be a text replace — a `>` can appear inside a string attribute value or a markup body). New code SHALL use the inside-opener placement; existing samples MAY migrate at convenience. The end-of-window timing promotes this to a reserved `E-COLON-SHORTHAND-LEGACY-PLACEMENT` (not yet emitted). (S160 — S154 ruling (b); mirrors the W-MATCH-ARROW-LEGACY / W-GIVEN-ARROW-LEGACY / W-LIFECYCLE-LEGACY-ARROW deprecation template.) | Info |
 | W-MATCH-VALUE-UNUSED | §48.11 | The last statement of a plain `function` (unconstrained, no `pure`/`fn`, no return-type annotation) is a value-producing `match` whose value is NOT returned (no `return`) and is therefore discarded — the function falls through to `undefined` (a plain `function` has NO implicit return per §48.11 / §7.3). This is spec-correct fall-through, but the silently-discarded value is almost always a mistake. Resolution: add `return` before the `match`, or change the declaration to `fn` / a return-typed `function` (which carry tail-expression implicit return). Does NOT fire for `return match`, `fn`/return-typed functions, a side-effect-only (block-arm) match, or a match that is not the last statement. (Catalog addition S144 Cluster D — Bug AA; emitted by CG at `compiler/src/codegen/emit-functions.ts`.) | Warning |
 | E-VARIANT-AMBIGUOUS | §14.10, §18.0.3 | Bare variant reference (e.g., `let x = .Small` or `<Small>` arm pattern) is ambiguous because the position's type is a union with multiple members declaring the variant, OR the position has no statically-known enum type context. §14.10 covers general expression positions (LHS state-decl / let / const annotations, fn params, fn return); §18.0.3 covers match-arm patterns. Qualify the variant: `TypeName.Small` / `<TypeName.Small>`. | Error |
 | E-ENGINE-INVALID-TRANSITION | §51.0.F, §51.0.G | Direct write to engine variable or `.advance()` violates the from-state's `rule=` contract. Statically rejected when from-state is known; runtime-thrown otherwise. **v0.3 Option-d carve-out:** self-writes (target equals current variant) are NO-OPS, NOT violations — see §51.0.F.1 + W-ENGINE-SELF-WRITE-DETECTED. | Runtime |
@@ -24097,7 +24114,7 @@ transition effects, and (optionally) the markup that renders for each variant.
 are **code-default bodies** (§4.18): inside a state-child body a bare run is code, and
 display text is an explicit `"..."` display-text literal (§4.18.3). This applies to every
 state-child body form — the bare body (`<Variant>...</>`) and the `:`-shorthand body
-(`<Variant> : expr` — §51.0.I). The canonical definition of the code-default body mode
+(`<Variant attrs : expr>` — inside-opener placement, §4.14 / §51.0.I). The canonical definition of the code-default body mode
 and the display-text literal is §4.18; §51.0 cross-references it and does not re-define
 it. Plain-markup elements opened inside a state-child body (e.g. a `<button>` or `<p>`)
 open their own free-text bodies per §4.18.1 — the code-default mode is the state-child
@@ -24140,10 +24157,10 @@ state-child may carry:
 
 ```scrml
 <engine for=MarioState initial=.Small>
-  <Small  rule=.Big>                       : "🧍"
-  <Big    rule=(.Fire | .Cape | .Small)>   : "🧍 🧍"
-  <Fire   rule=.Small>                     : "🔥"
-  <Cape   rule=.Small>                     : "🦸"
+  <Small rule=.Big : "🧍">
+  <Big   rule=(.Fire | .Cape | .Small) : "🧍 🧍">
+  <Fire  rule=.Small : "🔥">
+  <Cape  rule=.Small : "🦸">
 </>
 ```
 
@@ -24202,10 +24219,10 @@ bound local identifiers as in §18.7).
    type LoadPhase:enum = { Idle, Loading, Done(rows: int), Error(msg: string) }
 
    <engine for=LoadPhase initial=.Idle>
-     <Idle rule=.Loading>: <button onclick=load()>Load</button>
-     <Loading rule=(.Done | .Error)>: "Loading…"
-     <Done rows rule=.Idle>: "${rows} rows"
-     <Error msg rule=.Idle>: "${msg}"
+     <Idle rule=.Loading : <button onclick=load()>Load</button>>
+     <Loading rule=(.Done | .Error) : "Loading…">
+     <Done rows rule=.Idle : "${rows} rows">
+     <Error msg rule=.Idle : "${msg}">
    </>
    ```
 
@@ -24223,8 +24240,8 @@ bound local identifiers as in §18.7).
    into scope. This form mirrors §18.7's named match-arm payload destructuring.
 
    ```scrml
-   <Done rows=r rule=.Idle>: "${r} rows"
-   <Error msg=m rule=.Idle>: "${m}"
+   <Done rows=r rule=.Idle : "${r} rows">
+   <Error msg=m rule=.Idle : "${m}">
    ```
 
    The named form binds by field name (NOT by source order); the RHS identifier is the
@@ -24238,7 +24255,7 @@ bound local identifiers as in §18.7).
    amendment authorizes it on engine state-children with identical semantics.
 
    ```scrml
-   <Done(rows) rule=.Idle>: "${rows} rows"
+   <Done(rows) rule=.Idle : "${rows} rows">
    <OpenAt(depth, opener, span) rule=(.Balanced | .OpenAt)>
      // body references `depth`, `opener`, `span` as in-scope locals
    </>
@@ -24456,8 +24473,8 @@ NO separate `<EngineName/>` mount tag for same-file engines:
   <h1>Mario</h1>
 
   <engine for=MarioState initial=.Small>     <!-- renders here -->
-    <Small rule=.Big> : "🧍"
-    <Big rule=.Small> : "🧍 🧍"
+    <Small rule=.Big : "🧍">
+    <Big rule=.Small : "🧍 🧍">
   </>
 
   <p>Press the button to grow.</p>
@@ -24512,8 +24529,8 @@ the body lives at the declaration site. Adding a body at the use-site is a parse
 
 ```scrml
 <engine for=MarioState>     <!-- W-ENGINE-INITIAL-MISSING: defaulting to .Small (first state-child) -->
-  <Small rule=.Big> : "🧍"
-  <Big rule=.Small> : "🧍 🧍"
+  <Small rule=.Big : "🧍">
+  <Big rule=.Small : "🧍 🧍">
 </>
 ```
 
@@ -24539,10 +24556,10 @@ Three accepted forms:
 
 ```scrml
 <engine for=MarioState initial=.Small>
-  <Small  rule=.Big>                       : "🧍"
-  <Big    rule=(.Fire | .Cape | .Small)>   : "🧍 🧍"
-  <Fire   rule=.Small>                     : "🔥"
-  <Cape   rule=.Small>                     : "🦸"
+  <Small rule=.Big : "🧍">
+  <Big   rule=(.Fire | .Cape | .Small) : "🧍 🧍">
+  <Fire  rule=.Small : "🔥">
+  <Cape  rule=.Small : "🦸">
 </>
 ```
 
@@ -24801,12 +24818,12 @@ transition**, co-located with the engine declaration exactly as Elm co-locates
     }
     @phase = @tasks.length == 0 ? .Empty : .Editing   // checked against .Loading.rule
 }>
-    <Loading rule=(.Empty | .Editing | .ErrorState)> : "Loading your tasks…"
-    <Empty   rule=.Saving>                            : "No tasks yet."
-    <Editing rule=.Saving>                            : "${@tasks.length} tasks"
-    <Saving  rule=(.Saved | .ErrorState)>             : "Saving…"
-    <Saved   rule=.Editing>                           : "Saved."
-    <ErrorState msg rule=.Loading>                    : "${msg}"
+    <Loading rule=(.Empty | .Editing | .ErrorState) : "Loading your tasks…">
+    <Empty   rule=.Saving : "No tasks yet.">
+    <Editing rule=.Saving : "${@tasks.length} tasks">
+    <Saving  rule=(.Saved | .ErrorState) : "Saving…">
+    <Saved   rule=.Editing : "Saved.">
+    <ErrorState msg rule=.Loading : "${msg}">
 </>
 ```
 
@@ -24872,10 +24889,20 @@ blocks (Tier 1 is read-only). They are engine-only.
 
 #### 51.0.I `:`-shorthand for single-expression body (Move 15)
 
-A state-child with NO `</>` closer MAY use `<tag attrs> : expr` shorthand where `expr`
-becomes the rendered body. Cross-ref §4.14 (block grammar — the universal `:`-shorthand
-form, including the explicit `:`-shorthand body grammar) and §4.18 (code-default body
-mode) for the underlying form.
+A state-child with NO `</>` closer MAY use the `<tag attrs : expr>` shorthand where `expr`
+becomes the rendered body. The `:` opens INSIDE the opener (following the last attribute,
+body running to the `>` that terminates the opener) — this is the single canonical
+placement, identical to every other locus (§4.14, S160 — S154 ruling (b)). Cross-ref
+§4.14 (block grammar — the universal `:`-shorthand form, including the explicit
+`:`-shorthand body grammar and the inside-opener placement canon) and §4.18 (code-default
+body mode) for the underlying form.
+
+The legacy AFTER-`>` placement (`<Variant rule=... > : expr`) is DEPRECATED — it parses
+identically during the deprecation window and surfaces the info-level lint
+`W-COLON-SHORTHAND-LEGACY-PLACEMENT` (§34). Move the `: expr` inside the opener
+(`<Variant rule=... : expr>`), or run `bun scrml migrate --fix` (AST-driven). Prefer
+bare-body for multi-element markup arms; reserve `:`-shorthand for a terse single
+expression / display-text / call (§4.14 doc note).
 
 **Three legitimate body forms (mutually exclusive by syntactic shape):**
 
@@ -24883,7 +24910,7 @@ mode) for the underlying form.
 |---|---|
 | `<Variant/>` | Self-closing. No body. State-child declares transitions only. |
 | `<Variant>...</>` | Bare body — a **code-default body** (§4.18). Code, nested tags (markup-as-value), `${}` interpolation, and `"..."` display-text literals for display text. |
-| `<Variant> : expr` | Single-expression body shorthand — a **code-default** single expression (§4.14, §4.18). A display-text `:`-shorthand body is a `"..."` display-text literal. |
+| `<Variant attrs : expr>` | Single-expression body shorthand (INSIDE-opener placement, canonical — §4.14) — a **code-default** single expression (§4.14, §4.18). A display-text `:`-shorthand body is a `"..."` display-text literal. The legacy after-`>` placement (`<Variant> : expr`) is DEPRECATED (`W-COLON-SHORTHAND-LEGACY-PLACEMENT`, §34). |
 
 The `:`-shorthand is the high-density default; it composes elegantly with bare-variant
 arms in match blocks (§18.0.3) and with the kickstarter recipe shape (`docs/articles/llm-kickstarter-v2-2026-05-04.md` §11.1).
@@ -25062,14 +25089,14 @@ function load() {
     "Loading…"
   </>
 
-  <Done rows rule=.Idle>: "${rows} rows"
-  <TimedOut rule=.Idle>: "Timed out"
-  <Error msg rule=.Idle>: "${msg}"
+  <Done rows rule=.Idle : "${rows} rows">
+  <TimedOut rule=.Idle : "Timed out">
+  <Error msg rule=.Idle : "${msg}">
 </>
 ```
 
 > **Editorial note (S98 — §51.0.B.1 amendment cross-ref).** Pre-S98 revisions of this
-> example used `<Done count rule=.Idle>: ${count} rows` — a positional payload binding
+> example used `<Done count rule=.Idle : ${count} rows>` — a positional payload binding
 > whose local name (`count`) intentionally diverged from the field name (`rows`). That
 > form is still semantically valid per §51.0.B.1: positional binding assigns fields
 > left-to-right in declaration order regardless of the local name (the binding
@@ -30485,9 +30512,9 @@ apps without any registration). Always available; the floor of the resolution ch
 
 ```scrml
 <match for=ValidationError on=@signup.name.errors[0]>
-  <Required>                : "Name is required"
-  <LengthFailed("(>=2)")>   : "Name must be at least 2 characters"
-  <_>                       : ""
+  <Required : "Name is required">
+  <LengthFailed("(>=2)") : "Name must be at least 2 characters">
+  <_ : "">
 </>
 ```
 

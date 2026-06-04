@@ -702,6 +702,13 @@ export interface EngineStateChildEntry {
    *  bodies are governed by the single-expression discipline; bare-body
    *  contains arbitrary children where `;` is meaningful). */
   isColonShorthand: boolean;
+  /** S160 (S154 ruling (b)) — TRUE when this `:`-shorthand entry used the
+   *  LEGACY AFTER-`>` placement (`<Variant rule=.X> : expr`) rather than the
+   *  canonical inside-opener placement (`<Variant rule=.X : expr>`). Both build
+   *  an identical entry; this flag is the only observable difference and drives
+   *  the info-level `W-COLON-SHORTHAND-LEGACY-PLACEMENT` lint (§34). Always
+   *  FALSE for inside-opener `:`-shorthand, bare-body, and self-closing forms. */
+  legacyColonPlacement?: boolean;
   /** Substring offset (relative to `rulesRaw`) of the state-child's opener.
    *  Useful for span-based diagnostics; absolute file offset can be
    *  reconstructed by adding the engine-decl's `span.start` + the offset
@@ -6008,6 +6015,37 @@ export function validateEngineStateChildrenAndRules(
       : parseEngineStateChildren(rulesRaw);
   meta.stateChildren = stateChildren;
 
+  // ----------------------------------------------------------------------
+  // S160 (S154 ruling (b)) — W-COLON-SHORTHAND-LEGACY-PLACEMENT (info). A
+  // `:`-shorthand state-child body that used the LEGACY after-`>` placement
+  // (`<Variant rule=.X> : expr`) instead of the canonical inside-opener
+  // placement (`<Variant rule=.X : expr>`) surfaces an info-level lint. Both
+  // placements parse + build + emit identically (the parser records the
+  // difference on `legacyColonPlacement`); the lint is the only observable
+  // difference. Pushed directly with severity "info" (W-/I- codes ride
+  // result.warnings per §34) — mirrors the W-MATCH-ARROW-LEGACY message-arm
+  // emission below. Native-walker state-children leave `legacyColonPlacement`
+  // unset (the native parser is inside-opener-only), so this is a no-op there.
+  for (const sc of stateChildren) {
+    if (!sc || (sc as { legacyColonPlacement?: boolean }).legacyColonPlacement !== true) continue;
+    const span: SYMDiagnostic["span"] = engineDecl?.span ?? {
+      file: filePath, start: 0, end: 0, line: 1, col: 1,
+    };
+    errors.push({
+      code: "W-COLON-SHORTHAND-LEGACY-PLACEMENT",
+      message:
+        `W-COLON-SHORTHAND-LEGACY-PLACEMENT: state-child \`<${(sc as { tag?: string }).tag ?? "?"}>\` ` +
+        `uses the legacy AFTER-\`>\` \`:\`-shorthand placement (\`<Variant rule=...> : expr\`). ` +
+        `The canonical placement opens the \`:\`-shorthand body INSIDE the opener ` +
+        `(\`<Variant rule=... : expr>\`) — the single canonical placement across every locus ` +
+        `(SPEC §4.14, §51.0.I). Both forms parse + emit identically during the deprecation ` +
+        `window. Move the \`: expr\` inside the opener, before the \`>\`, or run ` +
+        `\`bun scrml migrate --fix\` (AST-driven).`,
+      span,
+      severity: "info",
+    });
+  }
+
   // §51.0.H (Bug-AB fix, 2026-05-30) — engine-DIRECT `<onTransition>` elements
   // (siblings of state-children, the CANONICAL PRIMER §7 placement). Neither
   // `parseEngineStateChildren` nor `walkEngineStateChildren` captures these
@@ -10991,6 +11029,29 @@ function validateMatchBlock(
           `initial=.Variant>\` (Tier 2) for transition handlers. (SPEC §18.0.2 + §34.)`,
         span: shiftSpan(blockSpan, matchBlock.span, arm.spanStart, arm.spanEnd),
         severity: "error",
+      });
+    }
+
+    // S160 (S154 ruling (b)) — W-COLON-SHORTHAND-LEGACY-PLACEMENT (info). A
+    // `:`-shorthand arm body that used the LEGACY after-`>` placement
+    // (`<Variant> : expr`) instead of the canonical inside-opener placement
+    // (`<Variant : expr>`) surfaces an info-level lint. Both placements parse +
+    // build + emit identically (the parser records the difference on
+    // `legacyColonPlacement`). Mirrors the engine state-child emission in
+    // `validateEngineStateChildrenAndRules`.
+    if (arm.bodyForm === "shorthand" && arm.legacyColonPlacement === true) {
+      const armLabel = arm.isWildcard ? "_" : arm.variantName;
+      errors.push({
+        code: "W-COLON-SHORTHAND-LEGACY-PLACEMENT",
+        message:
+          `W-COLON-SHORTHAND-LEGACY-PLACEMENT: \`<match>\` arm \`<${armLabel}>\` uses the legacy ` +
+          `AFTER-\`>\` \`:\`-shorthand placement (\`<${armLabel}> : expr\`). The canonical ` +
+          `placement opens the \`:\`-shorthand body INSIDE the opener (\`<${armLabel} : expr>\`) ` +
+          `— the single canonical placement across every locus (SPEC §4.14, §18.0.1). Both ` +
+          `forms parse + emit identically during the deprecation window. Move the \`: expr\` ` +
+          `inside the opener, before the \`>\`, or run \`bun scrml migrate --fix\` (AST-driven).`,
+        span: shiftSpan(blockSpan, matchBlock.span, arm.spanStart, arm.spanEnd),
+        severity: "info",
       });
     }
   }

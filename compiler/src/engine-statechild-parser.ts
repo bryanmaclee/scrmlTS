@@ -1435,8 +1435,9 @@ function computeCommentRegions(s: string): Array<[number, number]> {
  */
 function findOpenerEnd(s: string, open: number): number {
   let i = open;
-  let depth = 0;     // paren depth (rule=(.A | .B))
-  let inQuote = "";  // " or ' or empty
+  let depth = 0;       // paren depth (rule=(.A | .B))
+  let angleDepth = 0;  // S160 — nested markup-as-value depth inside an inside-opener `:`-body
+  let inQuote = "";    // " or ' or empty
   while (i < s.length) {
     const c = s[i]!;
     if (inQuote) {
@@ -1466,7 +1467,18 @@ function findOpenerEnd(s: string, open: number): number {
     }
     if (c === "(") depth++;
     else if (c === ")") depth--;
-    else if (c === ">" && depth === 0) return i;
+    // S160 (S154 ruling (b)) — angleDepth (§4.14 line 984). A normal opener
+    // carries no `<` (attribute `<` only appears inside `${...}` / strings,
+    // already consumed above), so angleDepth stays 0 and the first top-level
+    // `>` terminates the opener unchanged. An INSIDE-opener `:`-shorthand body
+    // with a nested markup-as-value (`<Idle : <button>Load</button>>`) opens a
+    // nested `<` (angleDepth>0); the nested element's own `>` decrements rather
+    // than terminating the opener, so the opener `>` is the FINAL balanced one.
+    else if (c === "<") angleDepth++;
+    else if (c === ">" && depth === 0) {
+      if (angleDepth > 0) { angleDepth--; }
+      else return i;
+    }
     i++;
   }
   return -1;
@@ -1511,6 +1523,25 @@ function findOpenerEnd(s: string, open: number): number {
  * returned by `findOpenerEnd`). The scan is `[tagNameEnd, openerEnd)`.
  */
 function isColonShorthandOpener(s: string, tagNameEnd: number, openerEnd: number): boolean {
+  return findInsideOpenerColonPos(s, tagNameEnd, openerEnd) >= 0;
+}
+
+/**
+ * S160 (S154 ruling (b)) — locate the INSIDE-opener `:`-shorthand body-
+ * introducer position, or `-1` if the opener carries no inside-opener `:`-body.
+ *
+ * Identical scan to `isColonShorthandOpener` (the predicate delegates here),
+ * but returns the index in `s` of the body-introducer `:` token so the engine
+ * state-child parser can split the opener into its attribute region (before the
+ * `:`) and its single-expression body (after the `:`, running to `openerEnd`).
+ *
+ * The scan is string-, `${...}`-, and bracket-aware (a `:` inside an attribute
+ * value, a ternary, or a `[...]` / `(...)` is opaque). The mandatory leading
+ * whitespace (§4.14 line 983) is the disambiguator vs. a `bind:` / `on:` /
+ * `class:` attribute-namespace separator (which glues the `:` to the
+ * identifier with no preceding whitespace). The scan is `[tagNameEnd, openerEnd)`.
+ */
+function findInsideOpenerColonPos(s: string, tagNameEnd: number, openerEnd: number): number {
   let i = tagNameEnd;
   let parenDepth = 0;
   let braceDepth = 0;
@@ -1559,13 +1590,13 @@ function isColonShorthandOpener(s: string, tagNameEnd: number, openerEnd: number
     // Top-level `:` preceded by whitespace → the `:`-shorthand body-introducer.
     if (c === ":" && parenDepth === 0 && braceDepth === 0 && bracketDepth === 0) {
       if (prevChar === " " || prevChar === "\t" || prevChar === "\n" || prevChar === "\r") {
-        return true;
+        return i;
       }
     }
     prevChar = c;
     i++;
   }
-  return false;
+  return -1;
 }
 
 /**
@@ -2086,10 +2117,33 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
       continue;
     }
     const tag = tagMatch[1]!;
-    const afterTag = openerTrimmed.slice(tag.length);
 
-    // Self-closing? `<Variant/>` — accept and treat as empty body.
-    const isSelfClose = openerInner.trimEnd().endsWith("/");
+    // S160 (S154 ruling (b)) — INSIDE-opener `:`-shorthand body. The canonical
+    // placement opens the `:`-shorthand body INSIDE the opener (`<Variant rule=.X
+    // : expr>`), the body running to the opener's `>` (which `findOpenerEnd`
+    // already located, string-/paren-/`${}`-aware so a `>` inside a string or
+    // markup body is opaque). Detect the body-introducer `:`; if present, the
+    // attribute region is everything before it and the single-expression body is
+    // everything after it (through `openerEnd`). The legacy AFTER-`>` placement
+    // (`<Variant rule=.X> : expr`) is still recognized below (deprecation window)
+    // and surfaces `W-COLON-SHORTHAND-LEGACY-PLACEMENT`.
+    const tagNameStartAbs = lt + 1 + (openerInner.length - openerTrimmed.length);
+    const tagNameEndAbs = tagNameStartAbs + tag.length;
+    const insideColonAbs = findInsideOpenerColonPos(rulesRaw, tagNameEndAbs, openerEnd);
+    // `afterTag` feeds the attribute regexes (rule=/effect=/payload). When the
+    // opener carries an inside-opener `:`-body, strip the `: expr` tail so the
+    // attribute scanners never see the body. (For the after-`>` / bare-body
+    // paths `insideColonAbs` is -1 and `afterTag` is the full post-tag text.)
+    const afterTag =
+      insideColonAbs >= 0
+        ? rulesRaw.slice(tagNameEndAbs, insideColonAbs)
+        : openerTrimmed.slice(tag.length);
+
+    // Self-closing? `<Variant/>` — accept and treat as empty body. An
+    // inside-opener `:`-shorthand opener is never self-closing (the `:`-body
+    // forbids a closer per §4.14; a trailing `/` would already be inside the
+    // body text, not an opener self-close marker).
+    const isSelfClose = insideColonAbs < 0 && openerInner.trimEnd().endsWith("/");
 
     // §51.0.O (A5-2 sub-step 4) — extract `internal:rule=` BEFORE canonical
     // `rule=` to avoid the `rule=` regex's lookahead swallowing the prefix.
@@ -2210,13 +2264,29 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
     let bodyEnd: number;
     let nextI: number;
     let isColonShorthand = false;
-    if (isSelfClose) {
+    // S160 (S154 ruling (b)) — TRUE only for the LEGACY after-`>` `:`-shorthand
+    // placement; drives W-COLON-SHORTHAND-LEGACY-PLACEMENT. Inside-opener and
+    // bare-body / self-close leave it false.
+    let legacyColonPlacement = false;
+    if (insideColonAbs >= 0) {
+      // S160 — INSIDE-opener `:`-shorthand (canonical). The body runs from one
+      // past the `:` to the opener's `>` (`openerEnd`). After-`:` whitespace is
+      // optional (§4.14) — the post-`:` text is trimmed by the AST builder /
+      // codegen as it is for the after-`>` form, so `:@thing` and `: @thing`
+      // produce the same body. Continue scanning past the opener `>`.
+      bodyStart = insideColonAbs + 1;
+      bodyEnd = openerEnd;
+      nextI = openerEnd + 1;
+      isColonShorthand = true;
+    } else if (isSelfClose) {
       bodyEnd = bodyStart;
       nextI = bodyStart;
     } else {
-      // `:`-shorthand body? After `>`, optional whitespace, then `:`.
-      // Body extends until newline (the canonical `:`-form is
-      // single-expression, terminated by a newline per SPEC §4.14 / §51.0.I).
+      // LEGACY after-`>` `:`-shorthand body (deprecation window). After `>`,
+      // optional whitespace, then `:`. Body extends until newline (the canonical
+      // `:`-form is single-expression, terminated by a newline). Surfaces
+      // W-COLON-SHORTHAND-LEGACY-PLACEMENT (§34) — the canonical placement is
+      // inside-opener (handled above).
       const afterOpener = rulesRaw.slice(bodyStart);
       const colonShortcutMatch = afterOpener.match(/^\s*:\s*([^\n]*)/);
       if (colonShortcutMatch) {
@@ -2228,6 +2298,7 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
         // (We don't currently need it for B15 validation but record it.)
         bodyStart = colonStart + 1;
         isColonShorthand = true;
+        legacyColonPlacement = true;
       } else {
         // Find matching closer for this state-child.
         const closerStart = findStateChildCloser(rulesRaw, bodyStart, tag);
@@ -2338,6 +2409,8 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
       rule: ruleForm,
       bodyRaw,
       isColonShorthand,
+      // S160 (S154 ruling (b)) — legacy after-`>` placement marker.
+      legacyColonPlacement,
       rawOffset: lt,
       // ---- A5-2 NEW (§51.0.M-Q) ----
       historyAttr,

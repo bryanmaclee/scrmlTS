@@ -63,6 +63,8 @@ import { resolve, join, relative, sep } from "path";
 import { compileScrml } from "../api.js";
 import { splitBlocks } from "../block-splitter.js";
 import { buildAST } from "../ast-builder.js";
+import { parseMatchArms } from "../match-statechild-parser.ts";
+import { parseEngineStateChildren } from "../engine-statechild-parser.ts";
 
 // ---------------------------------------------------------------------------
 // ANSI color helpers
@@ -370,6 +372,188 @@ export function rewriteGivenGuardArrows(source, filePath) {
     if (rewritten.slice(offset, offset + 2) !== "=>") continue; // moved/clobbered — skip
     rewritten = rewritten.slice(0, offset) + ":>" + rewritten.slice(offset + 2);
     count++;
+  }
+
+  return { rewritten, changed: rewritten !== source, count };
+}
+
+// ---------------------------------------------------------------------------
+// `:`-shorthand placement canonicalisation (SPEC §4.14 / §51.0.I / §18.0.1, S160)
+// ---------------------------------------------------------------------------
+
+/**
+ * S160 (S154 ruling (b)) — given a body text (an engine `rulesRaw` or a match
+ * `armsRaw`) and the parser-detected legacy after-`>` arms, rewrite each legacy
+ * arm in place from the after-`>` placement (`<Variant attrs> : expr`) to the
+ * canonical inside-opener placement (`<Variant attrs : expr>`). Returns the
+ * rewritten body (unchanged when no legacy arms are present) and the rewrite
+ * count.
+ *
+ * String-precise per arm: for each arm whose opener is at `openerStart` (local
+ * to `body`), scan to the opener's terminating `>` (string-/paren-/`${}`-aware),
+ * then to the post-`>` `:` body-introducer, then to the body's end (the parser
+ * already captured `bodyRaw`). The rewrite removes the `>` and the post-`>` `:`,
+ * splices ` : ` before the original `>` position, and re-emits the body inside
+ * the opener. Applied right-to-left so earlier offsets stay valid.
+ *
+ * @param {string} body — the engine/match body text
+ * @param {Array<{openerStart:number, legacy:boolean}>} legacyArms — opener-local
+ *   offsets of the legacy after-`>` arms (the caller derives these from the
+ *   parser entries)
+ * @returns {{ rewritten: string, count: number }}
+ */
+function rewriteColonPlacementInBody(body, legacyArms) {
+  if (!legacyArms.length) return { rewritten: body, count: 0 };
+
+  // Scan an opener from `<` to its terminating `>` (string-/paren-/`${}`-aware).
+  // Returns the index of the `>` or -1.
+  const findOpenerGt = (s, from) => {
+    let i = from;
+    let paren = 0;
+    let q = "";
+    while (i < s.length) {
+      const c = s[i];
+      if (q) { if (c === q) q = ""; i++; continue; }
+      if (c === '"' || c === "'") { q = c; i++; continue; }
+      if (c === "$" && s[i + 1] === "{") {
+        i += 2; let d = 1;
+        while (i < s.length && d > 0) { const c2 = s[i]; if (c2 === "{") d++; else if (c2 === "}") d--; i++; }
+        continue;
+      }
+      if (c === "(") paren++;
+      else if (c === ")") { if (paren > 0) paren--; }
+      else if (c === ">" && paren === 0) return i;
+      i++;
+    }
+    return -1;
+  };
+
+  // Build the edits (offset of opener `>`, end of the `: expr` body run).
+  const edits = [];
+  for (const arm of legacyArms) {
+    if (!arm.legacy) continue;
+    const gt = findOpenerGt(body, arm.openerStart);
+    if (gt < 0) continue;
+    // After `>`, optional whitespace, then `:`.
+    let p = gt + 1;
+    while (p < body.length && (body[p] === " " || body[p] === "\t")) p++;
+    if (body[p] !== ":") continue; // not the legacy after-`>` shape — skip (fail-safe)
+    const colonAt = p;
+    // The body runs from one past the `:` to end-of-line (the canonical
+    // single-expression `:`-form). Capture the post-`:` expression text.
+    let bodyEnd = colonAt + 1;
+    while (bodyEnd < body.length && body[bodyEnd] !== "\n") bodyEnd++;
+    const exprText = body.slice(colonAt + 1, bodyEnd).trim();
+    if (!exprText) continue;
+    edits.push({ openerGt: gt, segEnd: bodyEnd, exprText });
+  }
+  if (!edits.length) return { rewritten: body, count: 0 };
+
+  // Apply right-to-left so earlier offsets stay valid. Replace the slice
+  // `[openerGt, segEnd)` (`>` through end-of-line) with ` : <expr>>` placed
+  // inside the opener (before the `>`): the opener attribute text [.. , openerGt)
+  // is preserved verbatim; the body moves inside.
+  edits.sort((a, b) => b.openerGt - a.openerGt);
+  let out = body;
+  let count = 0;
+  for (const { openerGt, segEnd, exprText } of edits) {
+    if (out[openerGt] !== ">") continue; // moved/clobbered — fail-safe skip
+    out = out.slice(0, openerGt) + ` : ${exprText}>` + out.slice(segEnd);
+    count++;
+  }
+  return { rewritten: out, count };
+}
+
+/**
+ * AST-driven rewrite of legacy after-`>` `:`-shorthand placements to the
+ * canonical inside-opener placement (SPEC §4.14 / §51.0.I / §18.0.1, S160 —
+ * S154 ruling (b)). Powers the `W-COLON-SHORTHAND-LEGACY-PLACEMENT` lint's
+ * `bun scrml migrate --fix` suggestion.
+ *
+ * This MUST be AST/parser-position-driven, NOT a regex text-replace — a `>`
+ * can appear inside a string attribute value (`<Required("(>=2)")> : ...`) or a
+ * nested markup-as-value body (`<Idle> : <button>x</button>`), exactly the
+ * string-/angleDepth-awareness cases. We drive the LIVE front-end (splitBlocks
+ * + buildAST), locate every `engine-decl` (with its verbatim `rulesRaw`) and
+ * `match-block` (with its verbatim `armsRaw`), re-parse each body with the
+ * statechild parsers to find arms whose `legacyColonPlacement` is true, rewrite
+ * those arms inside the isolated body text, and splice the rewritten body back
+ * at its absolute source offset (`source.indexOf(body, span.start)`). Splices
+ * are applied right-to-left so earlier offsets stay valid; a verbatim re-find of
+ * the original body at the recorded offset is the fail-safe.
+ *
+ * @param {string} source — raw source text
+ * @param {string} filePath — for the block splitter's diagnostics
+ * @returns {{ rewritten: string, changed: boolean, count: number }}
+ */
+export function rewriteColonShorthandPlacement(source, filePath) {
+  let ast;
+  try {
+    const bs = splitBlocks(filePath, source);
+    ({ ast } = buildAST(bs));
+  } catch {
+    return { rewritten: source, changed: false, count: 0 };
+  }
+  if (!ast || typeof ast !== "object") {
+    return { rewritten: source, changed: false, count: 0 };
+  }
+
+  // Collect a body-level rewrite per engine-decl / match-block: the absolute
+  // source offset of the verbatim body text + the rewritten body.
+  const bodyEdits = [];
+
+  const walk = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { for (const x of n) walk(x); return; }
+
+    if (n.kind === "engine-decl" && typeof n.rulesRaw === "string" && n.rulesRaw.length > 0) {
+      const start = n.span && typeof n.span.start === "number" ? n.span.start : 0;
+      const at = source.indexOf(n.rulesRaw, start);
+      if (at >= 0) {
+        const entries = parseEngineStateChildren(n.rulesRaw);
+        const legacyArms = entries.map((e) => ({
+          openerStart: typeof e.rawOffset === "number" ? e.rawOffset : -1,
+          legacy: e.legacyColonPlacement === true,
+        }));
+        const { rewritten, count } = rewriteColonPlacementInBody(n.rulesRaw, legacyArms);
+        if (count > 0) bodyEdits.push({ at, original: n.rulesRaw, rewritten, armCount: count });
+      }
+    } else if (n.kind === "match-block" && typeof n.armsRaw === "string" && n.armsRaw.length > 0) {
+      const start = n.span && typeof n.span.start === "number" ? n.span.start : 0;
+      const at = source.indexOf(n.armsRaw, start);
+      if (at >= 0) {
+        const { arms } = parseMatchArms(n.armsRaw);
+        const legacyArms = arms.map((a) => ({
+          openerStart: typeof a.openerStart === "number" ? a.openerStart : -1,
+          legacy: a.legacyColonPlacement === true,
+        }));
+        const { rewritten, count } = rewriteColonPlacementInBody(n.armsRaw, legacyArms);
+        if (count > 0) bodyEdits.push({ at, original: n.armsRaw, rewritten, armCount: count });
+      }
+    }
+
+    for (const k of Object.keys(n)) {
+      if (k === "span") continue;
+      walk(n[k]);
+    }
+  };
+  walk(ast);
+
+  if (bodyEdits.length === 0) {
+    return { rewritten: source, changed: false, count: 0 };
+  }
+
+  // Apply right-to-left so earlier offsets stay valid. Verify the original body
+  // still sits at the recorded offset (fail-safe — never clobber otherwise).
+  // `count` reports the number of ARMS rewritten (one per legacy placement),
+  // matching the per-arm W-COLON-SHORTHAND-LEGACY-PLACEMENT lint emission.
+  bodyEdits.sort((a, b) => b.at - a.at);
+  let rewritten = source;
+  let count = 0;
+  for (const { at, original, rewritten: newBody, armCount } of bodyEdits) {
+    if (rewritten.slice(at, at + original.length) !== original) continue;
+    rewritten = rewritten.slice(0, at) + newBody + rewritten.slice(at + original.length);
+    count += armCount;
   }
 
   return { rewritten, changed: rewritten !== source, count };
@@ -1869,6 +2053,14 @@ Optional migrations (opt-in flags):
                             to the canonical \`:>\`. AST-driven — arrow-function
                             \`=>\` is NOT touched. Surfaces W-GIVEN-ARROW-LEGACY
                             pre-migration.
+  - \`:\`-shorthand inside-opener (--fix, SPEC §4.14 / §51.0.I / §18.0.1 / §34):
+                            rewrites the legacy AFTER-\`>\` \`:\`-shorthand placement
+                            (\`<Variant> : expr\`) to the canonical inside-opener
+                            placement (\`<Variant : expr>\`) on engine state-child
+                            and \`<match>\` arm bodies. AST-driven — string- and
+                            angleDepth-aware (a \`>\` inside a string value or
+                            markup body is opaque). Surfaces
+                            W-COLON-SHORTHAND-LEGACY-PLACEMENT pre-migration.
 
 Arguments:
   <file>                  A single .scrml file
@@ -2110,6 +2302,20 @@ export function migrateFile(filePath, opts, cwd) {
       changed = true;
     }
     migrations.givenGuardArrow = ggResult.count;
+
+    // Step 1d: `:`-shorthand placement canonicalisation — legacy after-`>`
+    // (`<Variant> : expr`) → inside-opener (`<Variant : expr>`) (SPEC §4.14 /
+    // §51.0.I / §18.0.1, S160 — S154 ruling (b)). AST-driven
+    // (rewriteColonShorthandPlacement); rewrites ONLY engine state-child / match
+    // arm bodies whose parser-detected `legacyColonPlacement` is true. Runs on
+    // the post-arm/guard text so offsets are fresh. Powers the
+    // W-COLON-SHORTHAND-LEGACY-PLACEMENT lint's `migrate --fix` suggestion.
+    const csResult = rewriteColonShorthandPlacement(rewritten, filePath);
+    if (csResult.changed) {
+      rewritten = csResult.rewritten;
+      changed = true;
+    }
+    migrations.colonShorthandPlacement = csResult.count;
   }
 
   // Step 2: optionally apply v0.3 program-shape migration.
@@ -2263,6 +2469,7 @@ export function runMigrate(args) {
   let totalMachine = 0;
   let totalMatchArmArrow = 0;
   let totalGivenGuardArrow = 0;
+  let totalColonShorthandPlacement = 0;
   const failures = [];
   const reportRows = []; // for --report aggregation
 
@@ -2286,6 +2493,7 @@ export function runMigrate(args) {
         totalMachine += r.migrations.machine;
         totalMatchArmArrow += r.migrations.matchArmArrow ?? 0;
         totalGivenGuardArrow += r.migrations.givenGuardArrow ?? 0;
+        totalColonShorthandPlacement += r.migrations.colonShorthandPlacement ?? 0;
       }
       if (dryRun && r.diff && !report) {
         console.log(r.diff);
@@ -2319,6 +2527,7 @@ export function runMigrate(args) {
     if (totalMachine > 0) console.log(`    ${c.dim(`<machine> migrations:`)} ${totalMachine}`);
     if (totalMatchArmArrow > 0) console.log(`    ${c.dim(`arm-arrow \`:>\` migrations:`)} ${totalMatchArmArrow}`);
     if (totalGivenGuardArrow > 0) console.log(`    ${c.dim(`given-guard \`:>\` migrations:`)} ${totalGivenGuardArrow}`);
+    if (totalColonShorthandPlacement > 0) console.log(`    ${c.dim(`\`:\`-shorthand inside-opener migrations:`)} ${totalColonShorthandPlacement}`);
   }
   if (unchangedCount > 0) {
     console.log(`  ${c.dim(`${unchangedCount} unchanged`)}`);

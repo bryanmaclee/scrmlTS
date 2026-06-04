@@ -490,6 +490,12 @@ function walkOneStateChild(
     rule: readRule(attrs, "rule"),
     bodyRaw: readBodyRaw(child, source),
     isColonShorthand,
+    // S160 (S154 ruling (b)) — the native parser is inside-opener-only; it never
+    // produces the legacy after-`>` placement, so this is always false here.
+    // Emitting it preserves shape-parity with the live `parseEngineStateChildren`
+    // entry (which sets `legacyColonPlacement` on every entry) for the
+    // dual-pipeline deep-equal parity test.
+    legacyColonPlacement: false,
     rawOffset,
     historyAttr: hasBareAttr(attrs, "history"),
     internalRule: readRule(attrs, "internal:rule"),
