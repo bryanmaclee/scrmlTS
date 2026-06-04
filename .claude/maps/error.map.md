@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-06-04T12:45:00Z  commit: 9f01f6cd
+# updated: 2026-06-04T20:50:00Z  commit: 452a212b
 
 scrml's own language error model is values-not-exceptions (SPEC §19.1 — no try/catch, no throw).
 The compiler itself surfaces structured CGError objects to the caller; it never throws on bad input.
@@ -186,6 +186,8 @@ native parser) → rendered inline with `@.` unscoped (`.name` leak). Fix: each-
 via `splitBlocks`+`buildAST`; `restampEachBlockIds` namespaces ids; lifted each-blocks attach to
 `matchBlock.bodyChildren` so `collectEachBlocks` emits the render fn with the `@.` rewrite;
 `__scrmlCachedArms` memoizes across the two passes.
+
+> **S162 native-stale note:** the parenthetical above ("the each-block transform lives in `buildAST`, not the native parser") described the native parser's state at S153. As of S162 (unit A, 39b1424a) the native parser DOES promote `<each>` → `each-block` (`isEachBlock`/`synthEachBlockNode` in parse-file.js) and `<match>` → `match-block`. The historical FIX (re-parse via `splitBlocks`+`buildAST`) remains as-was, but `nativeParseFile` no longer leaves a generic `markup tag="each"`. See primary.map.md "Native-Parser Swap Orientation" + structure.map.md "Native-Parser File Table (S162)".
 
 **`:`-shorthand child inside an engine arm breaks state-child parsing (c89c1cb1, was
 E-ENGINE-STATE-CHILD-MISSING)** — a §4.14 `:`-shorthand child (`<li : @.name>`) inside an engine

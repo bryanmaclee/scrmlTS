@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-06-04T12:45:00Z  commit: 9f01f6cd
+# updated: 2026-06-04T20:50:00Z  commit: 452a212b
 
 ## Entry Points
 compiler/bin/scrml.js — CLI binary registered as `scrml`; thin Bun launcher
@@ -21,7 +21,7 @@ compiler/src/reachability/  — reachability sub-passes (5 component passes, ent
 compiler/src/validators/  — attribute validation and lint passes: ast-walk.ts, attribute-allowlist.ts, attribute-interpolation.ts, lint-async-user-source.ts, lint-try-catch.ts, post-ce-invariant.ts
 compiler/src/native-parser-canary/  — canary harness for native-parser pipeline parity checks
 compiler/src/native-walker/  — walker utilities for native-parser output traversal; engine-statechild-walker.ts updated S154 to expose `messageArms` array + S160 ruling (b) to expose `legacyColonPlacement: false` default on state-child walk results
-compiler/native-parser/  — bootstrap native parser (.js + .scrml paired files); replaces block-splitter+ast-builder at M5-swap. NOTE (S153 hard M5-swap precondition): does NOT promote `<each>`/`<match>` to structural each-block/match-block nodes (leaves them as generic `markup tag="each"`); two S153 fixes route around it via legacy BS+TAB
+compiler/native-parser/  — bootstrap native parser (38 `.js` files + paired `.scrml` self-host mirrors); replaces block-splitter+ast-builder at M5-swap; activated via `--parser=scrml-native`. **S162 UPDATE: the native parser NOW promotes BOTH `<each>` → `each-block` (NEW unit A: `isEachBlock`/`synthEachBlockNode` in parse-file.js) AND `<match>` → `match-block` (already promoted via `isMatchBlock`/`synthMatchBlockNode`) to structural FileAST nodes — the S153 "does NOT promote" each/match precondition is CLOSED/RETIRED.** Remaining native-parser flip-failures are a DIFFERENT ~6-family set (F1-F9) — see the "Native-Parser File Table (S162)" below + domain.map.md "Native-Parser Swap Orientation". The `.scrml` mirrors are FEATURE-stale (S162) — native fixes go in the `.js`.
 compiler/tests/  — 886+ .test.js files total across all categories
 compiler/tests/unit/  — unit tests covering individual compiler passes; +13 S154-S158 files; +2 S159 files (per-item-handler-live-keying-bug73.test.js + html-colon-shorthand-content-model-s159.test.js); **+2 S160 files** (colon-shorthand-inside-opener-s154b.test.js + typed-array-no-rhs-default.test.js)
 compiler/tests/integration/  — full compile-to-output verification tests
@@ -170,13 +170,73 @@ The three helpers targeted by the R28-8 fix are in type-system.ts at the followi
 
 Secondary call sites: reactive-decl annotation path ~line 6080; bare-expr statement path ~line 6263; `if`-condition path ~line 6773; `return`-expr path ~line 7030; call-arg path (`inferBareVariantsAtCallArgs`) ~line 9097.
 
+## Key S162 Source Changes (native-parser each-promotion arc + swap re-measure)
+
+The S162 native-parser arc CLOSED the each/match structural-promotion precondition and re-measured
+the flip. All native-parser changes land in the `.js`; the paired `.scrml` self-host mirrors are
+FEATURE-stale (S162 finding — whole machinery missing vs the `.js`, not mere predicate-drift; S115
+`.js`/`.scrml` lockstep is moot for native fixes until a deliberate re-sync).
+
+### S162 unit A — `<each>` promoted to a structural `each-block` FileAST node (39b1424a)
+- compiler/native-parser/parse-file.js (**1600L**) — `isEachBlock(block)` predicate (name-authoritative gate; both `<each>` and `< each>` resolve) + `synthEachBlockNode(block, idGen, source, errors)` synthesize a live `each-block` ASTNode (`{ id, kind: "each-block", iterShape, inExprRaw, ofExprRaw, asName, bodyRaw, ... }` — mirrors ast-builder.js L11841 / L12091-L12105). Routed from `mapOneBlock` at the `kind === "Markup" && isEachBlock(block)` gate (parse-file.js:278), EXACTLY mirroring the pre-existing `isMatchBlock`/`synthMatchBlockNode` gate (parse-file.js:237). Adds colon-shorthand body + standalone-HTML body-child synthesis + `colonIntroducesDirectiveAttr` guard.
+- compiler/native-parser/tag-frame.js (**2402L**) — `each: true` added to the frozen `STRUCTURAL_ELEMENTS` map (tag-frame.js:135), joining `engine`/`match`/`errors`/`onTransition`/`onTimeout`/`onIdle`/`page` (SPEC §4.15 / §24.4). `isStructuralElementName(name)` is the closed-name-set membership test.
+
+### S162 unit C — `@.` contextual-sigil lexer recognition (d99403b1)
+- compiler/native-parser/lex-in-code.js (**842L**) — new `@`-then-`.` lexer branch BEFORE the `@ident` branch (lex-in-code.js:351). `@.` is the `<each>` contextual iteration-value sigil: bare `@.` is the current item/index, `@.field` / `@.a.b` is a dotted member path. The branch consumes `@.` PLUS the optional dotted-ident chain as ONE `ScrmlAt` token; `name` carries everything after the `@` (`.field`), and translate-expr's AtCell arm prepends `@` to yield `ident{name:"@.field"}`. Completes native `<each>` parity (#2f unit C).
+
+### S162 unit B — emit-each honors the exprNode contract for native per-item interp (178cc5dc)
+- compiler/src/codegen/emit-each.ts — native per-item `${expr}` interpolation now honors the `exprNode` contract (mirrors emit-html.ts:1888), so the native-parser `each-block` output codegens per-item interp identically to the live-pipeline path. Also fixed the MK2.1 coupled-test.
+
+### S162 F3 — same-line match-arm boundary detection (2af1e3dd)
+- compiler/native-parser/parse-expr.js (**3956L**) — `isAtArmBoundary(ctx)` (parse-expr.js:3007) DROPPED the redundant NEWLINE/ASI gate. Boundary now = `ctx.inMatchArmBody === true` AND `peekStartsArmPattern(cursor)` (arrow-anchored + uppercase-gated). The `inMatchArmBody` flag is saved/set/restored around the arm-body parse (parse-expr.js:2733). Fixes same-line match arms under flip (swap family F3, partial — if-as-expr residual remains).
+
+### S162 SPEC registry catch-up (e5b673dc)
+- compiler/SPEC.md + compiler/SPEC-INDEX.md — §4.15 / §24.4 register `<each>` as a structural element (reserved-name list + attr-catalog), aligning the SPEC with the long-standing implementation and the S162 native promotion.
+
+### Native-Parser File Table (S162) — F1+ swap-grind orientation
+
+The native parser is `compiler/native-parser/` (38 `.js` files; paired `.scrml` mirrors are
+FEATURE-stale — fix the `.js`). Key files by role + the swap-family each owns:
+
+| File | Lines | Role | Owns family |
+|------|-------|------|-------------|
+| `parse-stmt.js` | 3990 | statement parser (decl / fn / export / control-flow) | F5 (`const @name` derived-decl), F6/F9 (fn param / export-fn-body) |
+| `parse-expr.js` | 3956 | expression parser; match/if-as-expr; `isAtArmBoundary` arm-boundary | F3 (match/if-as-expr — same-line DONE S162) |
+| `parse-markup.js` | 2916 | markup body parser; MK3.3 display-text detection; `classifyTagFrame`; emits `E-UNQUOTED-DISPLAY-TEXT` (§4.18.7) | **F1** markup-classification half |
+| `tag-frame.js` | 2402 | TagKind classification; `STRUCTURAL_ELEMENTS`; `tagKindFor`; void-element registry | F1, F7 (structural-misplaced gating) |
+| `translate-stmt.js` | 1686 | native-AST → live-shape statement translation | — |
+| `parse-file.js` | 1600 | top-level file parser; block→ASTNode mapping (`mapOneBlock`); `isEachBlock`/`synthEachBlockNode` + `isMatchBlock`/`synthMatchBlockNode` structural promotion (S162) | each/match promotion |
+| `translate-expr.js` | 1050 | native-AST → live-shape expression translation; AtCell `@.` arm | — |
+| `collect-hoisted.js` | 856 | hoisted-declaration collection pass | — |
+| `lex-in-code.js` | 842 | code-default lexer; `@.` contextual-sigil branch (S162 unit C) + `@ident` | — |
+| `display-text-literal.js` | 640 | display-text literal scanner; emits `E-UNQUOTED-DISPLAY-TEXT` | F1 (spurious-fire surface) |
+| `ast-stmt.js` | 601 | native statement AST node constructors | — |
+| `block-context.js` | 553 | block-context frame tracking | — |
+| `parse-css-body.js` | 536 | CSS body parser | — |
+| `parse-seam.js` | 427 | code↔markup seam parser | — |
+| `parse-error-body.js` | 344 | `<errors>` block body parser | — |
+| `token.js` / `token-cursor.js` / `cursor.js` | 273 / 102 / 59 | token + cursor primitives | — |
+| `ast-expr.js` | 478 | native expression AST node constructors | — |
+| `body-mode.js` | 227 | body-mode dispatch (code/markup/sql/css) | — |
+| `parse-state-body.js` | **235** | **engine/db/schema state-child classification** (`tagKindFor`, `ENGINE_FORM_KEYWORDS`, `isStateBlock` exclusion) | **F1 (THE NEXT DISPATCH)** — engine state-child arm-body parse |
+| `parse-sql-body.js` | 182 | SQL body parser (`?{}` server-fn SQL) | F2 (drops SQL body in top-level server fns) |
+| `parse-mode.js` / `lex-mode.js` / `parse-ctx.js` | 114 / 34 / 124 | mode + parse-context state | — |
+
+**F1 locus (the NEXT dispatch — engine arm-body parse, ~168 failures, L):** native fires a spurious
+`E-UNQUOTED-DISPLAY-TEXT` on `<engine>` state-child arm bodies and then DROPS the whole engine (plus
+any each-in-arm). Two cooperating files: `parse-state-body.js` (state-child classification —
+`tagKindFor` / `ENGINE_FORM_KEYWORDS` engine exclusion) and the markup-classification path in
+`parse-markup.js` (MK3.3 display-text detection at parse-markup.js:1094+, `E-UNQUOTED-DISPLAY-TEXT`
+fire) + `display-text-literal.js`. The F1 fix must stop the markup classifier from treating an engine
+arm body as a code-default body where bare prose is an error.
+
 ## Ignored / Generated Paths
 node_modules/, compiler/node_modules/, dist/, compiler/dist/, compiler/native-parser/dist/,
 compiler/self-host/dist/, stdlib/*/dist/, .git/, handOffs/,
 benchmarks/todomvc-react/, benchmarks/todomvc-vue/, benchmarks/todomvc-svelte/
 
 ## Tags
-#scrmlts #map #structure #compiler #cli #bun #engine-graph #source-map #each #each-in-dynamic-context #match #engine-statechild #cross-file-modules #enum-subset #message-dispatch #s154 #s155 #s156 #s157 #s158 #s159 #s160 #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #r28-8 #per-item-reactivity #live-keyed #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #bare-variant-inference
+#scrmlts #map #structure #compiler #cli #bun #engine-graph #source-map #each #each-in-dynamic-context #match #engine-statechild #cross-file-modules #enum-subset #message-dispatch #s154 #s155 #s156 #s157 #s158 #s159 #s160 #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #r28-8 #per-item-reactivity #live-keyed #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #bare-variant-inference #native-parser #native-parser-swap #each-promotion #match-promotion #flip-failure-families #f1-engine-arm-body #s161 #s162
 
 ## Links
 - [primary.map.md](./primary.map.md)

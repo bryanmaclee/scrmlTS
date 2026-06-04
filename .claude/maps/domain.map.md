@@ -1,6 +1,6 @@
 # domain.map.md
 # project: scrmlts
-# updated: 2026-06-03T22:40:00Z  commit: f9d4b0f1
+# updated: 2026-06-04T20:50:00Z  commit: 452a212b
 
 The domain is the scrml COMPILER pipeline. scrml is a single-file, full-stack reactive web
 language compiled by this TypeScript/JS toolchain running on Bun. The compiler converts `.scrml`
@@ -13,7 +13,7 @@ source files into `*.server.js` + `*.client.js` + `*.html` + `*.css` outputs.
 | `.scrml` file | Single-file source combining markup, logic, styles, SQL, auth, types, and tests |
 | Pipeline | 12 ordered stages: BS → TAB → NR → MOD → CE → PA → RI → TS → META → VSS → DG → CG |
 | BS (Block Splitter) | Stage 1: tokenizes `.scrml` into typed blocks (markup/logic/sql/css/etc.) — `block-splitter.js` |
-| TAB (Tokenizer+AST Builder) | Stage 2: builds FileAST from block stream — `tokenizer.ts` + `ast-builder.js`; the `each-block`/`match-block` structural transform lives HERE (in `buildAST`), NOT in the native parser |
+| TAB (Tokenizer+AST Builder) | Stage 2: builds FileAST from block stream — `tokenizer.ts` + `ast-builder.js`; the `each-block`/`match-block` structural transform lives HERE (in `buildAST`) for the live pipeline — AND, as of S162, is now MIRRORED in the native parser (`synthEachBlockNode`/`synthMatchBlockNode` in parse-file.js) so `--parser=scrml-native` promotes both too |
 | NR (Name Resolver) | Stage 3: resolves reactive decls, engine vars, component refs — `name-resolver.ts` |
 | MOD (Module Resolver) | Stage 3.1: builds import graph, detects circular imports, produces export registry — `module-resolver.js` |
 | CE (Component Expander) | Stage 3.2: expands component references via same-file + cross-file registries — `component-expander.ts`; re-parses synthesized component bodies, falling back to legacy `splitBlocks`+`buildAST` when the body contains `<each>`/`<match>` (S153) |
@@ -60,7 +60,7 @@ source files into `*.server.js` + `*.client.js` + `*.html` + `*.css` outputs.
 | formFor | Type-driven form generation from struct definition (§41.14) — `emit-form-for.ts` |
 | schemaFor | Type-driven schema emission (§41 family) — `emit-schema-for.ts`; S156 (d)-A batch 3 adds enum-subset `CHECK IN` lowering (§41.15.6 + §41.15.8a): a `Role oneOf([.Admin,.Editor])` field column emits `CHECK (col IN ('Admin','Editor'))` in declaration order |
 | tableFor | Type-driven table rendering (§41 family) — `emit-table-for.ts` |
-| native-parser | In-progress scrml-native replacement for BS+TAB; `compiler/native-parser/`; activated via `--parser=scrml-native`. HARD M5-swap precondition (S153, witnessed twice): does NOT promote `<each>`/`<match>` to structural each-block/match-block nodes — when it becomes default it MUST, or every each/match breaks |
+| native-parser | scrml-native replacement for BS+TAB; `compiler/native-parser/` (38 `.js` files + FEATURE-stale `.scrml` mirrors); `--parser=scrml-native`. The ACTIVE strategic line: drive to default → delete legacy BS+Acorn at M6 (direction-a, ratified S161). **S162: the S153 "does NOT promote each/match" HARD precondition is CLOSED** — native NOW promotes BOTH `<each>` → `each-block` (NEW: `isEachBlock`/`synthEachBlockNode`) AND `<match>` → `match-block` (`isMatchBlock`/`synthMatchBlockNode`, pre-existing). Remaining flip-failures are a DIFFERENT ~6-family set — see "Native-Parser Swap Orientation" below |
 | library mode | Compile mode that emits ES module exports JS + server JS without HTML/runtime (SPEC §12.6); `emit-library.ts`; suppresses `.server.js` for body-content-escalated fns |
 | arm separator `:>` | Canonical match / `!{}`-handler / `given`-guard arm separator (SPEC §18.2 / §34, S147-S148); `=>` and `->` are deprecated aliases; all three parse, build, and emit identically during the deprecation window |
 | W-MATCH-ARROW-LEGACY | Info-level diagnostic emitted at every match arm or `!{}`-handler arm using a deprecated `=>` or `->` separator; suggests `bun scrml migrate --fix` for AST-driven rewrite |
@@ -155,8 +155,41 @@ I-FN-PROMOTABLE — info diagnostic suggesting function promotion
 | compiler/src/block-splitter.js (**2950L**) | S159 R4a: `shorthand && !selfClosing` branch placed BEFORE void/self-closing short-circuit so `<void : expr>` reaches the type-system guard |
 | compiler/src/type-system.ts (**17436L**) | Bug 63 (S157): markup event-handler attr `.advance` two-plane checking; E-SYNTAX-064 emitted for `@.` outside each body scope; Bug 67/71: match-as-expr exhaustiveness wired; S159 R4b: `E-COLON-SHORTHAND-ON-VOID` guard + R3 `@.`-shorthand-body E-SYNTAX-064 extension |
 
+## Native-Parser Swap Orientation (S161 ratified / S162 re-measured) — READ FIRST for any native-parser flip-failure work
+
+**Strategic line:** drive `--parser=scrml-native` to DEFAULT, then DELETE legacy block-splitter (BS) +
+Acorn at M6 (direction-a, ratified S161). The native parser is `compiler/native-parser/` — paired `.js`
+bootstrap + `.scrml` self-host mirror. Fix the `.js`; the `.scrml` mirrors are FEATURE-stale (S162 —
+whole machinery missing, not mere predicate-drift; S115 lockstep moot until a deliberate re-sync).
+
+**each/match promotion — CLOSED (S162):** the former HARD M5-swap precondition (native "does NOT promote
+`<each>`/`<match>` to structural nodes", S153) is RETIRED. Native now promotes BOTH: `<match>` → `match-block`
+(`isMatchBlock`/`synthMatchBlockNode`, already promoted — the #2f survey proved byte-identical under flip)
+and `<each>` → `each-block` (NEW unit A: `isEachBlock`/`synthEachBlockNode` in parse-file.js, mirroring the
+match path; carries the live `each-block` shape). `@.` contextual sigil now lexed (unit C); emit-each honors
+the `exprNode` contract for native per-item interp (unit B). SPEC §4.15/§24.4 register `<each>` structural.
+
+**S162 flip re-measure: ~790 flip-failures / 199 files (down from 1,150) → ~6 parser FAMILIES, not 199 file-fixes.**
+
+| Family | ~Count | Size | Locus (native file) | Status |
+|--------|--------|------|---------------------|--------|
+| **F1 engine arm-body parse** | ~168 | L | `parse-state-body.js` + markup-classification (`parse-markup.js` MK3.3 + `tag-frame.js`/`parse-state-body.js` `tagKindFor` + `display-text-literal.js`) | **THE NEXT DISPATCH** — native fires spurious `E-UNQUOTED-DISPLAY-TEXT` on `<engine>` state-child arm bodies + DROPS the whole engine (+ each-in-arm) |
+| F2 SQL `?{}` in server-fn | ~58 | — | `parse-sql-body.js` | OPEN — drops SQL body in top-level server fns |
+| F3 match/if-as-expr | ~44 | — | `parse-expr.js` (`isAtArmBoundary`) | same-line match arms DONE S162; if-as-expr residual |
+| F4 formFor expansion | ~32 | — | native parse → bridge → form pass | OPEN — drops field-markup expansion |
+| F5 `const @name` derived-decl | ~20 | — | `parse-stmt.js` | OPEN — rejects `@`-prefixed decl |
+| F6/F9 fn param / export-fn-body | ~16 | — | `parse-stmt.js` / `parse-expr.js` | OPEN |
+| F7 missing diagnostics | ~15 | — | body-parser gates (`tag-frame.js` etc.) | OPEN — swallow `E-STRUCTURAL-ELEMENT-MISPLACED` etc. |
+| F8 stdlib `await import()` | 13 | — | — (NOT a native-parser change) | RULED a stdlib-migration task; native stays strict no-`await` enforcer |
+
+**F1 (NEXT) detail:** native treats the body of an `<engine>` state-child arm as a code-default body where
+a bare prose run is `E-UNQUOTED-DISPLAY-TEXT` (§4.18.7), fires that diagnostic spuriously, and drops the whole
+engine. The fix spans `parse-state-body.js` (state-child classification — `tagKindFor`, `ENGINE_FORM_KEYWORDS`
+engine exclusion, `isStateBlock`) and the markup-classification path in `parse-markup.js` (MK3.3 display-text
+detection at L1094+) + `display-text-literal.js`. See structure.map.md "Native-Parser File Table (S162)".
+
 ## Tags
-#scrmlts #map #domain #compiler #pipeline #reactive #state-machine #scrml #match-arrow #engine-graph #source-map #cross-file-modules #each #each-in-dynamic-context #engine-statechild #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #live-keyed #colon-shorthand-html #s149 #s151 #s152 #s153 #s154 #s155 #s156 #s157 #s158 #s159
+#scrmlts #map #domain #compiler #pipeline #reactive #state-machine #scrml #match-arrow #engine-graph #source-map #cross-file-modules #each #each-in-dynamic-context #engine-statechild #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #live-keyed #colon-shorthand-html #s149 #s151 #s152 #s153 #s154 #s155 #s156 #s157 #s158 #s159 #native-parser #native-parser-swap #each-promotion #match-promotion #flip-failure-families #f1-engine-arm-body #s160 #s161 #s162
 
 ## Links
 - [primary.map.md](./primary.map.md)

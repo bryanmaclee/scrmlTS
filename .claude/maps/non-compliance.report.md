@@ -69,8 +69,8 @@ not yet executed.
 - docs/audits/scrml-dev-content-spec-fidelity-2026-05-19.md — location (website content audit) → deref to scrml-support/docs/
 
 ### Uncertain (from prior FULL_COLD_START scan — carried; not re-checked)
-- compiler/native-parser/M5-ast-bridge-scoping.md — active but M5-swap incomplete; verify bridge contract (NOTE: S153 re-confirmed the native parser does NOT promote each/match — a hard M5-swap precondition; this doc's bridge contract should capture that)
-- compiler/native-parser/M5-divergence-ledger.md — M6.6.b.x landings may have closed entries (NOTE: S153 each/match-no-structural-promotion is a NEW divergence-ledger candidate)
+- compiler/native-parser/M5-ast-bridge-scoping.md — active but M5-swap incomplete; verify bridge contract (NOTE S162: the S153 "does NOT promote each/match" precondition is now CLOSED — native promotes BOTH `<each>` → `each-block` and `<match>` → `match-block`; this doc's bridge contract should reflect the structural-promotion-CLOSED state. Remaining flip-failures are the ~6-family set F1-F9, not each/match promotion.)
+- compiler/native-parser/M5-divergence-ledger.md — M6.6.b.x landings may have closed entries (NOTE S162: the S153 each/match-no-structural-promotion divergence is RESOLVED — both now native-structural; the live divergence ledger is the ~6-family F1-F9 set)
 - compiler/native-parser/M6.6-CONTRACT-DERIVATION.md — verify M6.6.b.1 contract is current
 - docs/changes/schemaFor-impl/SCOPE-AND-DECOMPOSITION.md — schemaFor shipped; verify sub-items closed (NOTE: S156 batch 3 added enum-subset CHECK IN — if this doc listed schemaFor-subset as open, it may now be closeable)
 - docs/changes/tilde-codegen/SURVEY.md + ROUND-TRIP-SURVEY.md + FOLLOWUPS.md — tilde shipped; verify open items
