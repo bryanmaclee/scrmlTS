@@ -1,6 +1,6 @@
 # domain.map.md
 # project: scrmlts
-# updated: 2026-06-04T20:50:00Z  commit: 452a212b
+# updated: 2026-06-05T20:30:00Z  commit: e947c924
 
 The domain is the scrml COMPILER pipeline. scrml is a single-file, full-stack reactive web
 language compiled by this TypeScript/JS toolchain running on Bun. The compiler converts `.scrml`
@@ -60,7 +60,7 @@ source files into `*.server.js` + `*.client.js` + `*.html` + `*.css` outputs.
 | formFor | Type-driven form generation from struct definition (§41.14) — `emit-form-for.ts` |
 | schemaFor | Type-driven schema emission (§41 family) — `emit-schema-for.ts`; S156 (d)-A batch 3 adds enum-subset `CHECK IN` lowering (§41.15.6 + §41.15.8a): a `Role oneOf([.Admin,.Editor])` field column emits `CHECK (col IN ('Admin','Editor'))` in declaration order |
 | tableFor | Type-driven table rendering (§41 family) — `emit-table-for.ts` |
-| native-parser | scrml-native replacement for BS+TAB; `compiler/native-parser/` (38 `.js` files + FEATURE-stale `.scrml` mirrors); `--parser=scrml-native`. The ACTIVE strategic line: drive to default → delete legacy BS+Acorn at M6 (direction-a, ratified S161). **S162: the S153 "does NOT promote each/match" HARD precondition is CLOSED** — native NOW promotes BOTH `<each>` → `each-block` (NEW: `isEachBlock`/`synthEachBlockNode`) AND `<match>` → `match-block` (`isMatchBlock`/`synthMatchBlockNode`, pre-existing). Remaining flip-failures are a DIFFERENT ~6-family set — see "Native-Parser Swap Orientation" below |
+| native-parser | scrml-native replacement for BS+TAB; `compiler/native-parser/` (38 `.js` files + FEATURE-stale `.scrml` mirrors); STRICTLY OPT-IN `--parser=scrml-native` (default output UNCHANGED). The ACTIVE strategic line: drive to default → delete legacy BS+Acorn at M6 (direction-a, ratified S161; v0.8 target). **S162: the S153 "does NOT promote each/match" HARD precondition is CLOSED.** **S164-S165: §51.0.S message-arm, exprNode population, F2-match, promote-each, R1 typed-`@cell`, server-fn-star ALL LANDED → flip-failures 674→451.** Remaining flip-failures are a ~5-family set — see "Native-Parser Swap Orientation" below |
 | library mode | Compile mode that emits ES module exports JS + server JS without HTML/runtime (SPEC §12.6); `emit-library.ts`; suppresses `.server.js` for body-content-escalated fns |
 | arm separator `:>` | Canonical match / `!{}`-handler / `given`-guard arm separator (SPEC §18.2 / §34, S147-S148); `=>` and `->` are deprecated aliases; all three parse, build, and emit identically during the deprecation window |
 | W-MATCH-ARROW-LEGACY | Info-level diagnostic emitted at every match arm or `!{}`-handler arm using a deprecated `=>` or `->` separator; suggests `bun scrml migrate --fix` for AST-driven rewrite |
@@ -155,7 +155,7 @@ I-FN-PROMOTABLE — info diagnostic suggesting function promotion
 | compiler/src/block-splitter.js (**2950L**) | S159 R4a: `shorthand && !selfClosing` branch placed BEFORE void/self-closing short-circuit so `<void : expr>` reaches the type-system guard |
 | compiler/src/type-system.ts (**17436L**) | Bug 63 (S157): markup event-handler attr `.advance` two-plane checking; E-SYNTAX-064 emitted for `@.` outside each body scope; Bug 67/71: match-as-expr exhaustiveness wired; S159 R4b: `E-COLON-SHORTHAND-ON-VOID` guard + R3 `@.`-shorthand-body E-SYNTAX-064 extension |
 
-## Native-Parser Swap Orientation (S161 ratified / S164 re-measured) — READ FIRST for any native-parser flip-failure work
+## Native-Parser Swap Orientation (S161 ratified / S165 re-measured) — READ FIRST for any native-parser flip-failure work
 
 **Strategic line:** drive `--parser=scrml-native` to DEFAULT, then DELETE legacy block-splitter (BS) +
 Acorn at M6 (direction-a, ratified S161; realistic v0.8 multi-session target). The native parser is
@@ -188,11 +188,13 @@ bare display text in an engine/match/`:`-shorthand arm body is SPEC-CORRECT (§4
 the canonical enforcer, LIVE stays lenient (doomed at M6); corpus bare-text→`"..."` migration is deferred
 swap-prep backlog.
 
-**S164 flip re-measure: 674 → 631 after the S164 message-arm + exprNode landings (was ~790 S162, 1,150 S161).**
-The 674 baseline (S164-open) dropped to 631 post-landings (−43: E-ENGINE-ACCEPTS-NOT-ENUM 4→0, E-VARIANT-AMBIGUOUS
-4→0, E-TYPE-063 15→3, E-CODEGEN-INVALID-JS 18→17 — the §51.0.S family closures; modest raw-count move because
-the TEST-SUITE flip-failures are dominated by OTHER families [promote-each/table-for/lifecycle/enum-subset/SQL]
-while the exprNode fix's broad impact is in the ADOPTER corpus). ~8 environmental; remaining ~6 families below.
+**Flip re-measure: 451 flip-failures at S165 close** (674 S164-open → 509 S164-close → 451 S165; was ~790 S162,
+1,150 S161). Default output UNCHANGED across S162-S165 (no version bump — every closer is shadow-only, gated on
+`--parser=scrml-native`). Full suite at S165: 23,054 pass / 0 fail / 912 files; within-node parity **1005/0**.
+**S164 closed (674→509):** §51.0.S message-arm (B2) + native attr-value `exprNode`/`argExprNodes` population +
+lift `<markup>` close-tag + F2a chained `?{}.method()` + table-for struct-field-drop. **S165 closed (509→451,
+−58):** F2-match string-literal arms `2c2e5bb2` · promote-each 3 §17.4 for-stmt gaps `785f24d1` · R1 typed-`@cell`
+decl `89912bb9` · server-fn-star `function*`+yield `26a24b71`. ~8 environmental; remaining ~5 families below.
 
 | Family | ~Count | Size | Locus (native file) | Status |
 |--------|--------|------|---------------------|--------|
@@ -203,31 +205,37 @@ while the exprNode fix's broad impact is in the ADOPTER corpus). ~8 environmenta
 | mario PowerUp payload-enum | ~few | — | native enum-body capture | NEW S163 — native captures only `["Mushroom"]` (drops payload variants), mis-emits `PowerUp.Flower(3)` as `"Flower"(3)`; payload-bearing-enum native gap (mario residual 133 diff-lines) |
 | `effect=` opener (§51.0.H Form 3) | small | S | `synthEngineDecl` (no openerEffect read) | OPEN — small separate gap |
 | nested-engine `acceptsType` pairing | benign | — | nested engine-decl synth | WATCH (S164) — native stamps `acceptsType:null` on PRE-EXISTING-mis-paired nested engine-decls (4 hierarchy fixtures +2 EXTRA-FIELD, benign within-node rebump); top-level matches live; possibly tied to S163 machineDecls/bodyChildren nesting |
-| F2 SQL `?{}` in server-fn | ~58 | — | `parse-sql-body.js` | OPEN — drops SQL body in top-level server fns |
-| F3 if-as-expr residual | small | — | `parse-expr.js` | same-line match arms DONE S162; if-as-expr residual (LOW) |
-| F4 formFor expansion | ~32 | — | native parse → bridge → form pass | OPEN — drops field-markup expansion |
-| F5 `const @name` derived-decl | ~20 | — | `parse-stmt.js` | OPEN — rejects `@`-prefixed decl |
+| F2 SQL `?{}` in server-fn | ~58 | — | `parse-sql-body.js` / `translate-stmt.js` / `translate-expr.js` | PARTIALLY closed. **F2a chained `?{}.method()` LANDED S164 `7e54f321`** (`translate-stmt.js reconstructChainedSql`). **F2-generator `server function*` SQL LANDED S165** (see server-fn-star row). OPEN: top-level server-fn `?{}` body drop + assign-RHS `@x = ?{}.all()` (state-decl-routed). |
+| ~~promote-each (3 §17.4 for-stmt gaps)~~ | ~25 | — | `translate-stmt.js` / `parse-stmt.js` / `ast-stmt.js` | **LANDED S165 `785f24d1`** — iterable-field synth (`makeForStmtCStyle`/`makeForStmtInOf`) + §17.4b `key <expr>` clause + §17.4a `else` empty-state block; `keyExpr`/`elseBody` threaded through `makeFor`/`makeForIn`/`makeForOf`. |
+| ~~server-fn-star (`server function*` + yield)~~ | ~few (2 roots) | — | `parse-markup.js` (`BARE_DECL_RE`) / `translate-stmt.js` (Yield) | **LANDED S165 `26a24b71`** — `BARE_DECL_RE` synced VERBATIM with live (admits generator `[*\s]` form so `server function*` lifts); `Yield`-expr stmt unwraps to `makeYieldStmt`. Closes the F2-generator sub-root. |
+| ~~table-for struct-field-drop~~ | ~21 | — | `parse-stmt.js` (`typeBodyText`/`joinWithNewlines`) | **LANDED S164 `66301357`** — struct/enum field-separator newlines preserved (was: `<tableFor>` emitted only the first struct `<th>`, silent miscompile). |
+| ~~F2-match string-literal arms~~ / F3 if-as-expr residual | small | — | `parse-expr.js` / `ast-expr.js` / `translate-expr.js` | **F2-match LANDED S165 `2c2e5bb2`** (`MatchArmPatternKind.Literal` + `makeLiteralPattern` + `StringLit` branch in `parseMatchArmPattern` + `reconstructArmPattern` Literal case — `match action { "add" => {...} }` now parses). Same-line arms DONE S162. **if-as-expr residual still OPEN (LOW).** |
+| F4 formFor expansion | ~32 | — | native parse → bridge → form pass | OPEN — drops field-markup expansion (largest open family) |
+| F5 `const @name` derived-decl | ~20 | — | `parse-stmt.js` | OPEN — `const @name` derived-decl still rejected. NOTE: typed-`@cell` decl `@name: Type = e` (R1) LANDED S165 `89912bb9` (`parseTypedAtStateDecl`) — a DISTINCT decl shape, not the `const @name` derived form. |
 | F6/F9 fn param / export-fn-body | ~16 | — | `parse-stmt.js` / `parse-expr.js` | OPEN |
 | F7 missing diagnostics | ~15 | — | body-parser gates (`tag-frame.js` etc.) | OPEN — swallow `E-STRUCTURAL-ELEMENT-MISPLACED` etc. |
 | F8 stdlib `await import()` | 13 | — | — (NOT a native-parser change) | RULED a stdlib-migration task; native stays strict no-`await` enforcer |
 
-Other large flip-failure signatures in the 674 (native mis-parse → wrong/downstream diagnostic, spread across
+Other large flip-failure signatures in the remaining 451 (native mis-parse → wrong/downstream diagnostic, spread across
 families): `E-CODEGEN-INVALID-JS` (18, downstream invalid JS), `E-TYPE-063` (15) + `E-VARIANT-AMBIGUOUS` (4)
 (native bare-variant resolution gap), `E-TYPE-001` (14) + `E-TYPE-020` (14) (lifecycle / exhaustiveness),
 `E-MATCH-NOT-EXHAUSTIVE` (7) + `E-MATCH-SUBSET-DEAD-ARM` (4) (match family).
 
-**AUTONOMOUS SWAP-LOOP (S164):** the dedicated triage `docs/changes/native-swap-triage-s164/TRIAGE.md` is the
-authoritative next-pick family map (631 grouped by native parse-gap ROOT, each reproduced default-clean/native-fail).
-**LANDED this loop:** §51.0.S message-arm `7cbad5dd` + exprNode `c1566faa` (family FULLY closed) · **lift `<markup>`
-close-tag `649f4ef8`** (the markup-as-value close-tag lexer mis-decision — `</li>`'s `/` lexed as runaway regex;
-fix in `lex-in-code.js` `/`-branch + translate-stmt sliceSource; ~50-file lift family; within-node −19 pure
-convergence). **IN FLIGHT:** F2 SQL `?{}`-in-server-fn (`parse-sql-body.js` drops the body → E-PA-002; survey-STOP
-gate, multi-context risk). **QUEUE:** table-for struct-field-drop (~21 silent miscompile) → engine-body-render
-(~11) → re-measure/re-triage → (later) lifecycle/structural-in-logic missing-enforcement. **AVOID single-dispatch:**
-enum-subset struct-ctor (multi-stage) + r24-bug-31 (multi-gap). F8 await = stdlib-migration, not native.
+**AUTONOMOUS SWAP-LOOP:** the dedicated triage `docs/changes/native-swap-triage-s164/TRIAGE.md` is the
+authoritative next-pick family map (grouped by native parse-gap ROOT, each reproduced default-clean/native-fail).
+**LANDED S164:** §51.0.S message-arm `7cbad5dd` + exprNode `c1566faa` (family FULLY closed) · lift `<markup>`
+close-tag `649f4ef8` · F2a chained `?{}.method()` `7e54f321` · table-for struct-field-drop `66301357`.
+**LANDED S165:** F2-match string-literal arms `2c2e5bb2` · promote-each 3 §17.4 for-stmt gaps `785f24d1` ·
+R1 typed-`@cell` decl `89912bb9` · server-fn-star `function*`+yield `26a24b71`.
+**NEXT-PICK (open at 451, re-triage before dispatch):** F4 formFor expansion (~32, largest open) · F5 `const @name`
+derived-decl (~20) · F2 top-level server-fn `?{}` body-drop + assign-RHS `@x = ?{}.all()` · F6/F9 fn-param /
+export-fn-body · `effect=` opener (§51.0.H Form 3, small) · mario PowerUp payload-enum · F7 missing-diagnostics
+(lower-leverage). **AVOID single-dispatch:** enum-subset struct-ctor `Type { field: val }` (multi-stage) +
+r24-bug-31 if-as-expr/`<state>` block (multi-gap, decompose first). **F8 await = stdlib-migration, NOT native.**
+A fix-dispatch agent MUST re-run the flip harness to re-rank before picking — counts above are S165-close snapshots.
 
 ## Tags
-#scrmlts #map #domain #compiler #pipeline #reactive #state-machine #scrml #match-arrow #engine-graph #source-map #cross-file-modules #each #each-in-dynamic-context #engine-statechild #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #live-keyed #colon-shorthand-html #s149 #s151 #s152 #s153 #s154 #s155 #s156 #s157 #s158 #s159 #native-parser #native-parser-swap #each-promotion #match-promotion #flip-failure-families #f1-engine-substrate-closed #b2-message-arm-next #engine-substrate-fix #machinedecls-instance-share #s160 #s161 #s162 #s163 #s164
+#scrmlts #map #domain #compiler #pipeline #reactive #state-machine #scrml #match-arrow #engine-graph #source-map #cross-file-modules #each #each-in-dynamic-context #engine-statechild #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #live-keyed #colon-shorthand-html #s149 #s151 #s152 #s153 #s154 #s155 #s156 #s157 #s158 #s159 #native-parser #native-parser-swap #each-promotion #match-promotion #flip-failure-families #f1-engine-substrate-closed #engine-substrate-fix #machinedecls-instance-share #b2-message-arm-closed #native-exprnode-walker #f2-match #promote-each #typed-atcell #server-fn-star #flip-451 #s160 #s161 #s162 #s163 #s164 #s165
 
 ## Links
 - [primary.map.md](./primary.map.md)

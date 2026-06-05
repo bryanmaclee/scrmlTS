@@ -1,6 +1,6 @@
 # test.map.md
 # project: scrmlts
-# updated: 2026-06-04T20:50:00Z  commit: 452a212b
+# updated: 2026-06-05T20:30:00Z  commit: e947c924
 
 ## Test Framework
 Runner: bun test (built-in Bun test runner)
@@ -8,7 +8,7 @@ Config: bunfig.toml (timeout + happy-dom preload settings)
 Run all: `bun test compiler/tests/`
 Run single: `bun test compiler/tests/unit/<filename>.test.js`
 Coverage: `bun test compiler/tests/ --coverage`
-Full suite at S159 close: 22,856 pass / 0 fail / 220 skip (~886 files counted by the runner — includes +4 unit + +1 browser new files since S158)
+Full suite at S165 close: 23,054 pass / 0 fail / 220 skip / 1 todo / 912 files (on 26a24b71); within-node native-parser parity 1005/0
 
 ## Test Categories
 
@@ -22,7 +22,7 @@ Full suite at S159 close: 22,856 pass / 0 fail / 220 skip (~886 files counted by
 | LSP | compiler/tests/lsp/ | ~8 files |
 | Self-host | compiler/tests/self-host/ | ~5 files |
 | CLI commands | compiler/tests/commands/ | ~5 files |
-| **Total** | compiler/tests/ | **~886 .test.js files** |
+| **Total** | compiler/tests/ | **912 .test.js files (S165)** |
 
 ## S153 New Test Files (each-in-dynamic-context sweep)
 
@@ -90,6 +90,23 @@ Full suite at S159 close: 22,856 pass / 0 fail / 220 skip (~886 files counted by
 | compiler/tests/native-match-arm-same-line.test.js | S162 F3: same-line match-arm boundary detection in `parse-expr.js isAtArmBoundary` (NEWLINE gate dropped; `inMatchArmBody` + `peekStartsArmPattern`). |
 | compiler/tests/parser-conformance-markup.test.js | updated S162 for the markup-classification parity surface (touched by the each-promotion arc). |
 
+## S164-S165 New Test Files (native-parser-swap parity-closers)
+
+| File | What it covers |
+|------|----------------|
+| compiler/tests/unit/native-attrvalue-exprnode-population.test.js | S164: `populateNativeAttrValueExprNodes` (native-walker/attrvalue-exprnode-walker.ts) stamps `exprNode`/`argExprNodes` on native attr-values byte-identical to live. |
+| compiler/tests/unit/native-lift-markup-closetag-span.test.js | S164: lift `<markup>` close-tag lexing fix (lex-in-code.js `/`-branch no longer reads `</li>` as runaway regex). |
+| compiler/tests/unit/native-sql-chained-form-f2a.test.js | S164 F2a: chained `?{}.method()` SQL promotion in statement position (translate-stmt.js `reconstructChainedSql`). |
+| compiler/tests/unit/native-tablefor-struct-field-drop.test.js | S164: `typeBodyText`/`joinWithNewlines` preserve struct/enum field-separator newlines (`<tableFor>` no longer drops fields). |
+| compiler/tests/unit/m66-b2-engine-statechild-walker.test.js | S164 B2 (updated): `native-walker/engine-statechild-walker.ts` populates `messageArms` from `parseMessageArms(bodyRaw).arms` + `synthEngineDecl` reads `accepts=`. |
+| compiler/tests/parser-conformance-within-node.test.js + within-node-allowlist.json | updated S164-S165 — native↔live within-node parity (1005/0); the allowlist tracks remaining per-family gaps. |
+
+NOTE: S165's four families (F2-match string-lit arms, promote-each, R1 typed-`@cell`, server-fn-star) were
+landed with parser-conformance + within-node coverage (1005/0) and the swap flip-harness re-measure; the
+S165 dispatch BRIEFs (docs/changes/native-f2match-literal-arm-2026-06-05/ etc.) record the per-family R26
+byte-identity checks. The flip harness (default exit-0 vs `--parser=scrml-native`) is the family-level gate;
+a fix-dispatch agent re-runs it to re-rank the remaining 451.
+
 ## Fixtures & Factories
 
 | Path | Contents |
@@ -125,7 +142,7 @@ S160 ruling (c) tests cover the full Shape 4 dispatch matrix including the refin
 SATISFIES/VIOLATES/UNDETERMINABLE trichotomy and the `synthesizedFromNoRhs` lifecycle note path.
 
 ## Tags
-#scrmlts #map #test #bun #conformance #parser-parity #happy-dom #each-in-dynamic-context #per-item-reactivity #live-keyed #bug64 #bug65 #bug72 #bug73 #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #s153 #s154 #s155 #s156 #s157 #s158 #s159 #s160 #native-parser #native-parser-swap #each-promotion #match-promotion #f3-match-arm #s161 #s162
+#scrmlts #map #test #bun #conformance #parser-parity #happy-dom #each-in-dynamic-context #per-item-reactivity #live-keyed #bug64 #bug65 #bug72 #bug73 #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #s153 #s154 #s155 #s156 #s157 #s158 #s159 #s160 #native-parser #native-parser-swap #each-promotion #match-promotion #f3-match-arm #f2-match #promote-each #typed-atcell #server-fn-star #exprnode-walker #within-node-1005 #flip-451 #s161 #s162 #s163 #s164 #s165
 
 ## Links
 - [primary.map.md](./primary.map.md)

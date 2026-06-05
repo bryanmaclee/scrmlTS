@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-06-04T20:50:00Z  commit: 452a212b
+# updated: 2026-06-05T20:30:00Z  commit: e947c924
 
 ## Entry Points
 compiler/bin/scrml.js — CLI binary registered as `scrml`; thin Bun launcher
@@ -20,8 +20,8 @@ compiler/src/types/  — pure TypeScript declarations: ast.ts (1983L+ AST node s
 compiler/src/reachability/  — reachability sub-passes (5 component passes, entry-points, gate-classifier, outer-fixpoint)
 compiler/src/validators/  — attribute validation and lint passes: ast-walk.ts, attribute-allowlist.ts, attribute-interpolation.ts, lint-async-user-source.ts, lint-try-catch.ts, post-ce-invariant.ts
 compiler/src/native-parser-canary/  — canary harness for native-parser pipeline parity checks
-compiler/src/native-walker/  — walker utilities for native-parser output traversal; engine-statechild-walker.ts updated S154 to expose `messageArms` array + S160 ruling (b) to expose `legacyColonPlacement: false` default on state-child walk results
-compiler/native-parser/  — bootstrap native parser (38 `.js` files + paired `.scrml` self-host mirrors); replaces block-splitter+ast-builder at M5-swap; activated via `--parser=scrml-native`. **S162 UPDATE: the native parser NOW promotes BOTH `<each>` → `each-block` (NEW unit A: `isEachBlock`/`synthEachBlockNode` in parse-file.js) AND `<match>` → `match-block` (already promoted via `isMatchBlock`/`synthMatchBlockNode`) to structural FileAST nodes — the S153 "does NOT promote" each/match precondition is CLOSED/RETIRED.** Remaining native-parser flip-failures are a DIFFERENT ~6-family set (F1-F9) — see the "Native-Parser File Table (S162)" below + domain.map.md "Native-Parser Swap Orientation". The `.scrml` mirrors are FEATURE-stale (S162) — native fixes go in the `.js`.
+compiler/src/native-walker/  — walker utilities for native-parser output traversal; **engine-statechild-walker.ts** (S154 `messageArms` array + S160 ruling (b) `legacyColonPlacement: false` default; **S164 B2: imports `parseMessageArms`/`parseRuleAttrValue` from engine-statechild-parser.ts and populates `messageArms` from `parseMessageArms(bodyRaw).arms` — was hard-coded `[]`**); **NEW S164 attrvalue-exprnode-walker.ts** (`populateNativeAttrValueExprNodes` — stamps `exprNode`/`argExprNodes` on native attr-values by reusing the live `safeParseExprToNodeGlobal`, run from the api.js native branch)
+compiler/native-parser/  — bootstrap native parser (38 `.js` files + paired `.scrml` self-host mirrors); replaces block-splitter+ast-builder at M5-swap; activated via `--parser=scrml-native`. **S162 UPDATE: the native parser NOW promotes BOTH `<each>` → `each-block` (NEW unit A: `isEachBlock`/`synthEachBlockNode` in parse-file.js) AND `<match>` → `match-block` (already promoted via `isMatchBlock`/`synthMatchBlockNode`) to structural FileAST nodes — the S153 "does NOT promote" each/match precondition is CLOSED/RETIRED.** **S164-S165 UPDATE: §51.0.S message-arm (B2), native attr-value `exprNode`/`argExprNodes` population, F2-match string-literal arms, promote-each (3 §17.4 for-stmt gaps), R1 typed-`@cell` decl, and `server function*`+yield ALL LANDED — flip-failures 674→451.** Remaining native-parser flip-failures are a DIFFERENT ~5-family set — see the "Native-Parser File Table" below + domain.map.md "Native-Parser Swap Orientation". The `.scrml` mirrors are FEATURE-stale (S162) — native fixes go in the `.js`.
 compiler/tests/  — 886+ .test.js files total across all categories
 compiler/tests/unit/  — unit tests covering individual compiler passes; +13 S154-S158 files; +2 S159 files (per-item-handler-live-keying-bug73.test.js + html-colon-shorthand-content-model-s159.test.js); **+2 S160 files** (colon-shorthand-inside-opener-s154b.test.js + typed-array-no-rhs-default.test.js)
 compiler/tests/integration/  — full compile-to-output verification tests
@@ -205,50 +205,88 @@ FEATURE-stale (S162 finding — whole machinery missing vs the `.js`, not mere p
 - **PA-independent R26:** engine-modern-001 (7/7 `_scrml_engine_`, 4/4 transitions, 3/3 direct_set) + engine-009 nested (30/30) BYTE-IDENTICAL native==default; all 6 swept engine sub-features (basic/hierarchy/onTimeout/onIdle/history/effects) recover. mario's marioState substrate recovers; its residual is the SEPARATE PowerUp payload-enum bug (next).
 - **§4.18 ruling (S163):** native's `E-UNQUOTED-DISPLAY-TEXT` (§4.18.7) on bare display text in code-default arm bodies is SPEC-CORRECT, NOT spurious — native enforces, LIVE stays lenient (doomed M6); corpus migration deferred.
 
-### S164 flip re-measure
-- **674 flip-failures** (down from ~790 S162, 1,150 S161; engine-substrate + B1 killed ~116). ~8 environmental → ~666 genuine across 181 files / ~6 families. **NEXT: B2 (§51.0.S message-arm).**
+### S164 flip re-measure (mid-session) → S165 (current)
+- **451 flip-failures at S165 close** (674 S164-start → 509 S164-close → 451 S165; from ~790 S162, 1,150 S161). Full-suite at S165: 23,054 pass / 0 fail / 912 files; within-node parity **1005/0**. The native parser remains STRICTLY OPT-IN (`--parser=scrml-native`); default output UNCHANGED (no version bump S162-S165 — parity-closers are shadow-only). **The Phase-A default-flip is a STANDING USER DECISION; PA ships parity-closers, never the flip.** See "Key S164-late + S165 Source Changes" below + domain.map.md "Native-Parser Swap Orientation" for the next-pick family table.
 
-### Native-Parser File Table (S162) — swap-grind orientation
+## Key S164-late + S165 Source Changes (native-parser-swap parity-closers — 674→451)
+
+All land in the native `.js` (the `.scrml` mirrors are FEATURE-stale, S162). Default pipeline untouched.
+
+### S164 B2 — §51.0.S engine message-arm parity (parser-level) (7cbad5dd) + exprNode population (c1566faa)
+- **F1-narrow + B2 (`7cbad5dd`):** `parse-markup.js` recognizes the leading-`|` message-arm region (was spurious `E-UNQUOTED`). `collect-hoisted.js synthEngineDecl` reads `accepts=MsgType` → `acceptsType` (null-when-absent; live ast-builder.js:12622 parity). `native-walker/engine-statechild-walker.ts` imports `parseMessageArms` and populates `messageArms` from `parseMessageArms(bodyRaw).arms` (was `[]`). Native `engineMeta` byte-identical; within-node 1005/0; +5 tests.
+- **native attr-value `exprNode`+`argExprNodes` population (`c1566faa`, cross-cutting):** NEW `compiler/src/native-walker/attrvalue-exprnode-walker.ts` exports `populateNativeAttrValueExprNodes` — descends the native FileAST, stamps `exprNode` (expr/variable-ref values) + `argExprNodes` (call-ref args) by reusing the live `safeParseExprToNodeGlobal` (now EXPORTED from ast-builder.js — the only S164 change to that file) with the SAME `(raw, span.start)` pairing the live path uses → emitted ExprNode byte-identical to live. Run from `api.js:945` inside the native `_buildAST` branch (native-path-ONLY). R26(A)+R26(B) byte-identical; **§51.0.S message-dispatch family FULLY native-parity end-to-end**; 12 handler files → 0 native `E-CODEGEN-INVALID-JS`. Residual: +34 SPAN-COORD benign (native attr-value span block-relative inside lift/each; emit byte-identical).
+
+### S165 F2-match — string-literal match-arm patterns (2c2e5bb2, §18.16)
+- `ast-expr.js` — `MatchArmPatternKind.Literal` + `makeLiteralPattern(litKind, raw, value, span)`.
+- `parse-expr.js` — `StringLit` branch in `parseMatchArmPattern` → `makeStringLit` literal arm.
+- `translate-expr.js` — `reconstructArmPattern` `Literal` case (reconstructs the source-text pattern).
+- Fixes `match action { "add" => {...} }` arm-parse failures (was `E-EXPR-MATCH-PATTERN` / "unexpected Arrow").
+
+### S165 promote-each — 3 §17.4 for-statement parity gaps (785f24d1)
+- `translate-stmt.js` — `makeForStmtCStyle`/`makeForStmtInOf` synthesize the iterable-field text (incl. trailing §17.4b `key <expr>`); serialize `keyExpr`/`elseBody`.
+- `parse-stmt.js` — §17.4b `key <expr>` clause (`keyExpr = parseAssignmentExpr`) + §17.4a `else` empty-state block (`parseForElseBody`) in the for-header.
+- `ast-stmt.js` — `makeFor`/`makeForIn`/`makeForOf` carry `keyExpr`+`elseBody` params (null-when-absent).
+
+### S165 R1 — typed `@cell` declaration `@name: Type = e` (89912bb9, enum-subset decomp)
+- `parse-stmt.js` — `parseTypedAtStateDecl` recognizes `@name: Type = e` (typed at-state decl; was rejected as `@`-prefixed decl).
+
+### S165 server-fn-star — `server function*` lift + yield-body translate (26a24b71, 2 roots)
+- `parse-markup.js` — `BARE_DECL_RE` synced VERBATIM with live ast-builder.js:399 (admits the R25-Bug-42 generator form `server function*` / `fn*` / `function*` via `[*\s]`) so the `server function*` declaration LIFTS.
+- `translate-stmt.js` — `Yield`-expression statement unwraps to `makeYieldStmt` (native parses `yield` as an ExprKind.Yield; the live shape needs a `yield-stmt`).
+
+### S164 earlier-landed families (already counted in the 674→509 drop)
+- **lift `<markup>` close-tag (`649f4ef8`):** `lex-in-code.js` `/`-branch no longer reads `</li>`'s `/` as runaway regex-to-EOF (big lift family).
+- **F2a chained `?{}.method()` (`7e54f321`):** `translate-stmt.js reconstructChainedSql` — chained-form SQL promotion in statement position (ret/let/const/bare-expr).
+- **table-for struct-field-drop (`66301357`):** `parse-stmt.js typeBodyText`/`joinWithNewlines` preserve struct/enum field-separator newlines (was: `<tableFor>` emitted only the first struct `<th>`).
+
+### Native-Parser File Table (S165) — swap-grind orientation
 
 The native parser is `compiler/native-parser/` (38 `.js` files; paired `.scrml` mirrors are
 FEATURE-stale — fix the `.js`). Key files by role + the swap-family each owns:
 
 | File | Lines | Role | Owns family |
 |------|-------|------|-------------|
-| `parse-stmt.js` | 3990 | statement parser (decl / fn / export / control-flow) | F5 (`const @name` derived-decl), F6/F9 (fn param / export-fn-body) |
-| `parse-expr.js` | 3956 | expression parser; match/if-as-expr; `isAtArmBoundary` arm-boundary | F3 (match/if-as-expr — same-line DONE S162) |
-| `parse-markup.js` | 2916 | markup body parser; MK3.3 display-text detection; `classifyTagFrame`; emits `E-UNQUOTED-DISPLAY-TEXT` (§4.18.7) | **F1** markup-classification half |
-| `tag-frame.js` | 2402 | TagKind classification; `STRUCTURAL_ELEMENTS`; `tagKindFor`; void-element registry; **attr-value construction (~L1079/1095/1125/1130/1153) — builds `{kind:"expr"\|"variable-ref",raw,refs,sourceText,span}` but NOT `exprNode`** | F1, F7; **attr-value `exprNode`-population family (NEXT DISPATCH S164) — live `ast-builder.js:1834/1857/1878/2217` sets `exprNode: safeParseExprToNodeGlobal(...)`; `emit-html.ts` reads `val.exprNode` → absent → raw `@` → E-CODEGEN-INVALID-JS; cross-cutting ~162 files** |
-| `translate-stmt.js` | 1686 | native-AST → live-shape statement translation | — |
+| `parse-stmt.js` | 4201 | statement parser (decl / fn / export / control-flow); **S165: `parseTypedAtStateDecl` typed-`@cell` decl (R1); §17.4a `else` empty-state + §17.4b `key <expr>` clause in for-header; `typeBodyText`/`joinWithNewlines` struct-field newline preservation (table-for)** | F5 (`const @name` derived-decl), F6/F9 (fn param / export-fn-body) |
+| `parse-expr.js` | 3983 | expression parser; match/if-as-expr; `isAtArmBoundary` arm-boundary; **S165: `StringLit` branch in `parseMatchArmPattern` → `makeStringLit` literal arm (F2-match)** | F3 (if-as-expr residual — same-line + string-lit arms DONE S162/S165) |
+| `parse-markup.js` | 3097 | markup body parser; MK3.3 display-text detection; `classifyTagFrame`; emits `E-UNQUOTED-DISPLAY-TEXT` (§4.18.7); **S164 F1-narrow: recognizes leading-`|` message-arm region (was spurious E-UNQUOTED); S165: `BARE_DECL_RE` synced with live (admits `server function*`/`fn*`/`function*` generator form)** | **F1** markup-classification half; B2 (msg-arm region) |
+| `tag-frame.js` | 2402 | TagKind classification; `STRUCTURAL_ELEMENTS`; `tagKindFor`; void-element registry; attr-value construction (~L1079/1095/1125/1130/1153) builds `{kind:"expr"\|"variable-ref",raw,refs,sourceText,span}` WITHOUT `exprNode` | F1, F7; **attr-value `exprNode` family CLOSED S164** — `exprNode`/`argExprNodes` are stamped POST-parse by `native-walker/attrvalue-exprnode-walker.ts` (run from api.js:945), NOT inside tag-frame.js; cross-cutting ~162 files now native-parity |
+| `translate-stmt.js` | 2109 | native-AST → live-shape statement translation; **S165: `makeForStmtCStyle`/`makeForStmtInOf` iterable-field synth + `keyExpr`/`elseBody` serialize (promote-each); `Yield`→`makeYieldStmt` unwrap + `reconstructChainedSql` (F2a chained `?{}.method()`)** | — |
 | `parse-file.js` | 1600+ | top-level file parser; block→ASTNode mapping (`mapOneBlock`); each/match structural promotion (S162); **`collectMachineDeclsFromNodes` engine-substrate single-instance share + `synthEngineNode` `bodyChildren`→AST mapping (S163)** | each/match promotion; engine substrate (CLOSED S163) |
-| `translate-expr.js` | 1050+ | native-AST → live-shape expression translation; AtCell `@.` arm; **bare-`reset`-callee → live `reset-expr` node (B1, S163)** | B1 reset-expr (DONE S163) |
-| `collect-hoisted.js` | ~830 | hoisted-declaration collection pass; **`synthEngineDecl` REMOVED S163 (was the engine second-instance source)** | — |
-| `synthEngineDecl` (in native engine synth path) | — | builds the engine-decl from `<engine>` openers; **has ZERO `accepts=` handling (acceptsType undefined vs live null) + no openerEffect read** | **B2 (§51.0.S message-arm — THE NEXT DISPATCH)**; `effect=` opener gap |
-| `native-walker/engine-statechild-walker.ts:516` | — | walks engine state-children into `EngineStateChildEntry`; **hard-codes `messageArms: []`** | **B2 (§51.0.S message-arm)** |
-| `lex-in-code.js` | 842 | code-default lexer; `@.` contextual-sigil branch (S162 unit C) + `@ident` | — |
+| `translate-expr.js` | 1167 | native-AST → live-shape expression translation; AtCell `@.` arm; bare-`reset`-callee → live `reset-expr` node (B1, S163); **S165: `reconstructArmPattern` `Literal` case (F2-match)** | B1 reset-expr (DONE S163) |
+| `collect-hoisted.js` | 872 | hoisted-declaration collection pass; `synthEngineDecl` REMOVED S163 (was the engine second-instance source); **S164 B2: `synthEngineDecl` (engine-decl synth path) now reads `accepts=MsgType` → `acceptsType` (null-when-absent, live ast-builder.js:12622 parity)** | — |
+| `synthEngineDecl` (collect-hoisted.js engine synth path) | — | builds the engine-decl from `<engine>` openers; **S164 B2 LANDED: reads `accepts=MsgType` → `acceptsType` (null-when-absent, live parity)**; still no `effect=` openerEffect read | B2 (§51.0.S message-arm) **CLOSED S164**; `effect=` opener gap (OPEN, small) |
+| `native-walker/engine-statechild-walker.ts:~520` | — | walks engine state-children into `EngineStateChildEntry`; **S164 B2 LANDED: `messageArms` now from `parseMessageArms(bodyRaw).arms` (was hard-coded `[]`)** | B2 (§51.0.S message-arm) **CLOSED S164** |
+| `lex-in-code.js` | 867 | code-default lexer; `@.` contextual-sigil branch (S162 unit C) + `@ident`; **S164 lift `<markup>` close-tag fix (`/`-branch no longer reads `</li>` as runaway regex-to-EOF)** | — |
 | `display-text-literal.js` | 640 | display-text literal scanner; emits `E-UNQUOTED-DISPLAY-TEXT` | F1 (spurious-fire surface) |
-| `ast-stmt.js` | 601 | native statement AST node constructors | — |
+| `ast-stmt.js` | 605 | native statement AST node constructors; **S165: `makeFor`/`makeForIn`/`makeForOf` carry `keyExpr`+`elseBody` params (promote-each §17.4a/b)** | — |
 | `block-context.js` | 553 | block-context frame tracking | — |
 | `parse-css-body.js` | 536 | CSS body parser | — |
 | `parse-seam.js` | 427 | code↔markup seam parser | — |
 | `parse-error-body.js` | 344 | `<errors>` block body parser | — |
 | `token.js` / `token-cursor.js` / `cursor.js` | 273 / 102 / 59 | token + cursor primitives | — |
-| `ast-expr.js` | 478 | native expression AST node constructors | — |
+| `ast-expr.js` | 493 | native expression AST node constructors; **S165: `MatchArmPatternKind.Literal` + `makeLiteralPattern` (F2-match)** | — |
 | `body-mode.js` | 227 | body-mode dispatch (code/markup/sql/css) | — |
 | `parse-state-body.js` | 235 | engine/db/schema state-child classification (`tagKindFor`, `ENGINE_FORM_KEYWORDS`, `isStateBlock` exclusion) | F1 markup-classification (engine-substrate drop was the dominant F1 cause — CLOSED S163 via parse-file.js, not here) |
 | `parse-sql-body.js` | 182 | SQL body parser (`?{}` server-fn SQL) | F2 (drops SQL body in top-level server fns) |
 | `parse-mode.js` / `lex-mode.js` / `parse-ctx.js` | 114 / 34 / 124 | mode + parse-context state | — |
 
-**B2 locus (the NEXT dispatch — §51.0.S engine message-arm, ~20 failures, L-subset):** native
-`synthEngineDecl` has ZERO `accepts=MsgType` opener-attr handling (acceptsType undefined vs live null)
-and `native-walker/engine-statechild-walker.ts:516` hard-codes `messageArms: []` — so `(state × message)`
-arms are dropped and `accepts=`-bearing engines mis-fire `E-ENGINE-ACCEPTS-NOT-ENUM` (4) / `E-ENGINE-MSG-UNKNOWN`
-(3). **The LIVE pattern to mirror is `engine-statechild-parser.ts parseMessageArms()`** (landed S154/S155 #14 —
-`accepts=MsgType` capture + `(state × message)` arm recognition → `EngineStateChildEntry.messageArms`; SPEC
-§51.0.S + §51.0.G.1 + §51.0.B `accepts=` row). Affects `engine-message-dispatch-s6.scrml` + the conf/browser
-`engine-message-dispatch-s155` tests. **F1 engine-substrate (the ~168 dominant cause) is CLOSED S163** — see
-"Key S163 Source Changes" above; the residual `E-UNQUOTED-DISPLAY-TEXT` §4.18.7 fire is SPEC-CORRECT (native
-enforces, live lenient), NOT a native bug.
+**B2 §51.0.S engine message-arm — CLOSED S164** (`7cbad5dd` + `c1566faa`): `collect-hoisted.js synthEngineDecl`
+reads `accepts=MsgType` → `acceptsType`; `native-walker/engine-statechild-walker.ts` populates `messageArms`
+from `parseMessageArms(bodyRaw).arms` (live `engine-statechild-parser.ts parseMessageArms()` is the mirrored
+oracle — SPEC §51.0.S + §51.0.G.1 + §51.0.B `accepts=` row); `attrvalue-exprnode-walker.ts` stamps the
+attr-value `exprNode`/`argExprNodes` so the full §51.0.S message-dispatch family is native-parity end-to-end.
+**F1 engine-substrate (the ~168 dominant cause) is CLOSED S163**; the residual `E-UNQUOTED-DISPLAY-TEXT`
+§4.18.7 fire is SPEC-CORRECT (native enforces, live lenient), NOT a native bug — corpus bare-text→`"..."`
+migration is deferred swap-prep backlog.
+
+**Next-pick families (open at S165, 451 flip-failures — see domain.map.md "Native-Parser Swap Orientation"
+for the full table):** F2 SQL `?{}` assign-RHS / state-decl-routed (small) · F4 formFor expansion (~32) ·
+F5 `const @name` derived-decl (~20, `parse-stmt.js` rejects `@`-prefixed decl) · F6/F9 fn-param / export-fn-body ·
+F7 missing diagnostics (body-parser gates swallow `E-STRUCTURAL-ELEMENT-MISPLACED`) · `effect=` opener
+(§51.0.H Form 3, small — `synthEngineDecl` has no openerEffect read) · mario PowerUp payload-enum (native
+drops payload variants) · enum-subset struct-constructor `Type { field: val }` in expr position (multi-stage,
+AVOID single dispatch) · r24-bug-31 if-as-expr/`<state>` block (multi-gap, AVOID). F8 stdlib `await import()`
+is a stdlib-migration task, NOT a native-parser change. The full S164 triage is `docs/changes/native-swap-triage-s164/TRIAGE.md`.
 
 ## Ignored / Generated Paths
 node_modules/, compiler/node_modules/, dist/, compiler/dist/, compiler/native-parser/dist/,
@@ -256,7 +294,7 @@ compiler/self-host/dist/, stdlib/*/dist/, .git/, handOffs/,
 benchmarks/todomvc-react/, benchmarks/todomvc-vue/, benchmarks/todomvc-svelte/
 
 ## Tags
-#scrmlts #map #structure #compiler #cli #bun #engine-graph #source-map #each #each-in-dynamic-context #match #engine-statechild #cross-file-modules #enum-subset #message-dispatch #s154 #s155 #s156 #s157 #s158 #s159 #s160 #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #r28-8 #per-item-reactivity #live-keyed #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #bare-variant-inference #native-parser #native-parser-swap #each-promotion #match-promotion #flip-failure-families #f1-engine-substrate-closed #b2-message-arm-next #engine-substrate-fix #b1-reset-expr #s161 #s162 #s163 #s164
+#scrmlts #map #structure #compiler #cli #bun #engine-graph #source-map #each #each-in-dynamic-context #match #engine-statechild #cross-file-modules #enum-subset #message-dispatch #s154 #s155 #s156 #s157 #s158 #s159 #s160 #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #r28-8 #per-item-reactivity #live-keyed #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #bare-variant-inference #native-parser #native-parser-swap #each-promotion #match-promotion #flip-failure-families #f1-engine-substrate-closed #engine-substrate-fix #b1-reset-expr #b2-message-arm-closed #native-exprnode-walker #f2-match #promote-each #typed-atcell #server-fn-star #flip-451 #s161 #s162 #s163 #s164 #s165
 
 ## Links
 - [primary.map.md](./primary.map.md)
