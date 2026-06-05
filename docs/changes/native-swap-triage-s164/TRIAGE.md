@@ -9,7 +9,11 @@
 | Family | ~count | Native ROOT divergence | Native locus | single/multi | Size | Status |
 |---|---|---|---|---|---|---|
 | **lift `<markup>` close-tag** | ~50+ (16 files; promote-each 25) | non-self-closing markup as a value under-reaches; lexer reads `</li>`'s `/` as runaway regex-to-EOF | `lex-in-code.js` `/`-branch (+ translate-stmt sliceSource) | clean-single | S | **LANDED `649f4ef8`** |
-| F2 SQL `?{}` in server-fn | ~27 (server-fn-star-sql 11 + sql-loop-hoist 9 + inline-sql 9) | native DROPS `?{...}` SQL body in server fn → 0 `_scrml_sql` → E-PA-002 | `parse-sql-body.js` | single-ish (MULTI-CONTEXT risk: top-level/generator/loop/branch) | M | **IN FLIGHT** (survey-STOP gate) |
+| ~~F2 SQL `?{}` in server-fn~~ → **MULTI-ROOT (survey-STOP S164)** | ~27 | native DROPS `?{...}` SQL body in server fn → 0 `_scrml_sql` → E-PA-002 | **CORRECTED: NOT `parse-sql-body.js`** (that handles markup/block-position `?{}` fine) — chained-form is `translate-stmt.js` (deferred chained promotion) + `translate-expr.js translateSql` (sql-ref nodeId:-1) | **DECOMPOSED into 3 roots ↓** | M | **F2a LANDED `7e54f321`; 2 sub-roots queued** |
+| ↳ **F2a chained `?{}.method()`** | ~4 ctx (ret/let/const/bare-expr) | chained form falls to makeBareExpr → sql-ref nodeId:-1 | `translate-stmt.js reconstructChainedSql` | clean-single | M | **LANDED `7e54f321`** (R26 6/6; within-node −761 net) |
+| ↳ F2-generator `server function*` SQL | part of ~27 | native drops the WHOLE `function*` (absent from native AST); yield ?{} leg gated on it | native function* lift + yield-stmt arm (translate-stmt.js, none exists) | distinct root #1 | M | **QUEUED** |
+| ↳ F2-match arm (F3 family) | part of ~27 | native `match action { "add" => {...} }` arm-parse FAILS (E-EXPR-MATCH-PATTERN / "unexpected Arrow") even with NO `?{}` | native string-literal-pattern + `=>` match-arm recognition | distinct root #2 | M | **QUEUED** (F3 family) |
+| ↳ F2 assign-RHS `@x = ?{}.all()` | small | state-decl-routed / E-RI-002 — out-of-locus for translate-stmt | native state-decl SQL chained handling | distinct | S | QUEUED (F2 follow-on) |
 | table-for struct-field-drop | ~21 (unit 11 + integ 10) | silent MISCOMPILE: `<tableFor>` emits only the FIRST struct `<th>` (drops rest); compiles clean, html DIFFERS | native struct-field/`<tableFor>` capture (first-field-only — same shape as mario PowerUp enum-body) | single-ish | M | NEXT after F2 |
 | lifecycle-shape1 annotation | ~12 | native mis-parses `(.Draft to .Published)` bare-dot lifecycle annotation in typed decl → no tracker → no E-TYPE-001 enforcement (DEFAULT fires, native clean = missing-enforcement) | native typed-decl lifecycle-annotation parse | single | M | lower-leverage (missing-enforce; no emit move) |
 | structural-in-logic-body (F7) | ~11 | DEFAULT fires E-STRUCTURAL-ELEMENT-MISPLACED / native clean: native body-parser accepts `<schema>`/`<engine>` inside `${...}` | `tag-frame.js`/body-parser gate | single | S/M | lower-leverage (missing-enforce) |
@@ -23,14 +27,18 @@
 - **lifecycle-shape1 / structural-in-logic (F7)** — genuine native gaps but **missing-enforcement / inverse-shape** (default fires, native compiles clean); real parity work but lower-leverage (no adopter-corpus emit move). Schedule AFTER emit-producing families.
 - **compiler-api** — derivative; clears as upstream parse gaps close.
 
-## Recommended autonomous-loop order (emit-producing, clean-single first)
-1. lift close-tag (DONE `649f4ef8`)
-2. F2 SQL `?{}`-in-server-fn (IN FLIGHT) — survey-STOP if multi-context
-3. table-for struct-field-drop (silent miscompile; single-ish)
-4. engine-body-render (silent miscompile; single-ish)
-5. → re-measure + re-triage
-6. (later) lifecycle / structural-in-logic missing-enforcement
-7. (decompose-first) enum-subset struct-ctor; r24-bug-31 multi-gap
+## Recommended autonomous-loop order (emit-producing, clean-single first) — LIVE
+1. ✅ lift close-tag — DONE `649f4ef8`
+2. ✅ F2a chained `?{}.method()` — DONE `7e54f321` (F2 decomposed; the survey-STOP split it 3 ways)
+3. ⏳ table-for struct-field-drop (silent miscompile) — IN FLIGHT (Phase-0: struct-def-vs-tableFor-expansion + STOP-if-general-struct-gap)
+4. engine-body-render (silent miscompile; bare-text arm-body drop; single-ish)
+5. F2-generator (`server function*` lift + yield-stmt arm) — QUEUED
+6. F2-match arm (F3 family: string-literal pattern + `=>` recognition) — QUEUED
+7. → re-measure + re-triage
+8. (later) lifecycle / structural-in-logic missing-enforcement (lower-leverage)
+9. (decompose-first) enum-subset struct-ctor; r24-bug-31 multi-gap
+
+**LOCUS-RELIABILITY NOTE:** the triage's pointed loci have been WRONG twice (F2 → parse-sql-body.js but fix was translate-stmt.js; lift-closetag → parse-expr span but fix was lex-in-code.js). Every dispatch brief MUST treat the triage locus as a HYPOTHESIS the agent's Phase-0 verifies, not ground truth — the empirical SYMPTOM (default-clean/native-fail + the byte-diff) is reliable; the locus is not.
 
 ## Provenance (fixtures verified default-clean/native-fail, S164)
 `/tmp/tri/*` (triage agent) + PA-reproduced: lift `v1.scrml` self-closing PASS / `v2.scrml` close-tag FAIL; F2 `f2b.scrml` (default 2 `_scrml_sql` / native 0 + E-PA-002). Each confirmed default exit 0; native failure/miscompile reproduced. Broken legacy samples (api-dashboard/expense-tracker — fail on default too) were excluded.

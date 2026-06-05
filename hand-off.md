@@ -11,10 +11,11 @@
 
 ### AUTONOMOUS SWAP-LOOP STATUS (user grant S164: "land on clean R26, move to next, autonomous flow")
 The loop: land each clean-R26 family → pick next from `docs/changes/native-swap-triage-s164/TRIAGE.md` → dispatch → repeat; surface only on R26-fail / survey-STOP-needing-a-ruling / family-needing-a-decision / re-measure milestone.
-- **LANDED this loop:** message-arm `7cbad5dd` + exprNode `c1566faa` (§51.0.S family FULLY native-parity) · lift-closetag `649f4ef8` (markup-as-value close-tag lexer fix; ~50-file lift family; within-node −19 pure convergence).
-- **IN FLIGHT:** F2 SQL `?{}`-in-server-fn (`native-sql-body-server-fn-f2-2026-06-04`; survey-STOP gate — multi-context risk).
-- **QUEUE (per TRIAGE.md):** table-for struct-field-drop (~21, silent miscompile) → engine-body-render (~11) → re-measure + re-triage → (later) lifecycle/structural-in-logic missing-enforcement. **AVOID single-dispatch:** enum-subset struct-ctor (multi-stage) + r24-bug-31 (multi-gap, 2 roots).
-- **8 PA commits, coherence 0/8 at F2-dispatch, push HELD.** The full triage family-map + provenance is persisted at `docs/changes/native-swap-triage-s164/TRIAGE.md`.
+- **LANDED this loop:** message-arm `7cbad5dd` + exprNode `c1566faa` (§51.0.S family FULLY native-parity) · lift-closetag `649f4ef8` (markup-as-value close-tag lexer fix; ~50-file lift family; within-node −19 convergence) · **F2a chained `?{}.method()` SQL `7e54f321`** (R26 6/6; within-node −761 net convergence).
+- **F2 was MULTI-ROOT (survey-STOP):** decomposed into F2a-chained (LANDED) + F2-generator (`server function*` drop — QUEUED) + F2-match-arm (F3 family — QUEUED) + assign-RHS (out-of-locus, QUEUED). Triage's `parse-sql-body.js` locus was WRONG (fix was `translate-stmt.js`).
+- **IN FLIGHT:** table-for struct-field-drop (`native-tablefor-struct-field-drop-2026-06-04`; silent miscompile — default 5 `<th>`/native 2; Phase-0 STOP-if-general-struct-gap) · **parallel flip re-measure** (post lift-closetag+F2a, to checkpoint vs 631).
+- **QUEUE (per TRIAGE.md):** engine-body-render (~11, silent miscompile) → F2-generator → F2-match (F3) → re-measure/re-triage → (later) lifecycle/structural missing-enforcement. **AVOID single-dispatch:** enum-subset struct-ctor (multi-stage) + r24-bug-31 (2 roots).
+- **9 PA commits, coherence 0/9 at table-for dispatch, push HELD.** Triage family-map + provenance: `docs/changes/native-swap-triage-s164/TRIAGE.md`. **LOCUS-RELIABILITY:** triage loci wrong 2× (F2, lift) — briefs treat locus as hypothesis, symptom as ground truth.
 
 ### Repo state at OPEN
 - **scrmlTS:** HEAD `f11db672` (S163 wrap), `origin/main` **0/0** (clean, synced). Working tree clean (only the S164 hand-off rotation staged).
