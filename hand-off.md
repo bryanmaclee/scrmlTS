@@ -7,7 +7,14 @@
 
 ---
 
-## 🟢 S164 OPEN — caught up; native-parser-swap arc warm. NEXT OPENER: flip re-measure (quantify the ~790 drop post engine-substrate fix), then B2 / PowerUp enum / effect=.
+## 🟢 S164 IN PROGRESS — autonomous native-parser-swap loop. §51.0.S family FULLY closed; lift-closetag landed; F2 SQL in flight. Flip 674→631→(pending re-measure).
+
+### AUTONOMOUS SWAP-LOOP STATUS (user grant S164: "land on clean R26, move to next, autonomous flow")
+The loop: land each clean-R26 family → pick next from `docs/changes/native-swap-triage-s164/TRIAGE.md` → dispatch → repeat; surface only on R26-fail / survey-STOP-needing-a-ruling / family-needing-a-decision / re-measure milestone.
+- **LANDED this loop:** message-arm `7cbad5dd` + exprNode `c1566faa` (§51.0.S family FULLY native-parity) · lift-closetag `649f4ef8` (markup-as-value close-tag lexer fix; ~50-file lift family; within-node −19 pure convergence).
+- **IN FLIGHT:** F2 SQL `?{}`-in-server-fn (`native-sql-body-server-fn-f2-2026-06-04`; survey-STOP gate — multi-context risk).
+- **QUEUE (per TRIAGE.md):** table-for struct-field-drop (~21, silent miscompile) → engine-body-render (~11) → re-measure + re-triage → (later) lifecycle/structural-in-logic missing-enforcement. **AVOID single-dispatch:** enum-subset struct-ctor (multi-stage) + r24-bug-31 (multi-gap, 2 roots).
+- **8 PA commits, coherence 0/8 at F2-dispatch, push HELD.** The full triage family-map + provenance is persisted at `docs/changes/native-swap-triage-s164/TRIAGE.md`.
 
 ### Repo state at OPEN
 - **scrmlTS:** HEAD `f11db672` (S163 wrap), `origin/main` **0/0** (clean, synced). Working tree clean (only the S164 hand-off rotation staged).

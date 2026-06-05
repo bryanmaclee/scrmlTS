@@ -216,13 +216,15 @@ families): `E-CODEGEN-INVALID-JS` (18, downstream invalid JS), `E-TYPE-063` (15)
 (native bare-variant resolution gap), `E-TYPE-001` (14) + `E-TYPE-020` (14) (lifecycle / exhaustiveness),
 `E-MATCH-NOT-EXHAUSTIVE` (7) + `E-MATCH-SUBSET-DEAD-ARM` (4) (match family).
 
-**NEXT DISPATCH:** TBD — re-measure the flip count post-exprNode (S164 landed message-arm + exprNode; the
-exprNode closer was cross-cutting so the 674 should drop meaningfully) and pick the next family from the
-refreshed table. Remaining named families: F2 SQL-`?{}`-in-server-fn (~58, `parse-sql-body.js`) · F4 formFor
-expansion (~32) · F5 `const @name` derived-decl (~20, `parse-stmt.js`) · F6/F9 fn-param/export-fn-body (~16) ·
-F7 missing diagnostics (~15) · mario PowerUp payload-enum · `effect=` opener. Plus the flagged WATCH items
-(nested-engine acceptsType pairing; native attr-value span inside lift/each). F8 stdlib `await import()` is a
-stdlib-migration task, not native.
+**AUTONOMOUS SWAP-LOOP (S164):** the dedicated triage `docs/changes/native-swap-triage-s164/TRIAGE.md` is the
+authoritative next-pick family map (631 grouped by native parse-gap ROOT, each reproduced default-clean/native-fail).
+**LANDED this loop:** §51.0.S message-arm `7cbad5dd` + exprNode `c1566faa` (family FULLY closed) · **lift `<markup>`
+close-tag `649f4ef8`** (the markup-as-value close-tag lexer mis-decision — `</li>`'s `/` lexed as runaway regex;
+fix in `lex-in-code.js` `/`-branch + translate-stmt sliceSource; ~50-file lift family; within-node −19 pure
+convergence). **IN FLIGHT:** F2 SQL `?{}`-in-server-fn (`parse-sql-body.js` drops the body → E-PA-002; survey-STOP
+gate, multi-context risk). **QUEUE:** table-for struct-field-drop (~21 silent miscompile) → engine-body-render
+(~11) → re-measure/re-triage → (later) lifecycle/structural-in-logic missing-enforcement. **AVOID single-dispatch:**
+enum-subset struct-ctor (multi-stage) + r24-bug-31 (multi-gap). F8 await = stdlib-migration, not native.
 
 ## Tags
 #scrmlts #map #domain #compiler #pipeline #reactive #state-machine #scrml #match-arrow #engine-graph #source-map #cross-file-modules #each #each-in-dynamic-context #engine-statechild #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #live-keyed #colon-shorthand-html #s149 #s151 #s152 #s153 #s154 #s155 #s156 #s157 #s158 #s159 #native-parser #native-parser-swap #each-promotion #match-promotion #flip-failure-families #f1-engine-substrate-closed #b2-message-arm-next #engine-substrate-fix #machinedecls-instance-share #s160 #s161 #s162 #s163 #s164
