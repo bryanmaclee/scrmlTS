@@ -109,26 +109,41 @@ describe("M6.5.b.4 — bare ?{} statement promotion to kind:sql", () => {
     expect(sql.query).toBe("SELECT id, name FROM users WHERE role = 'admin'");
   });
 
-  // --- DEFERRED: chained ?{...}.get() / .all() / .run() -----------------------
+  // --- CLOSED (F2a): chained ?{...}.get() / .all() / .run() -------------------
   // The chained form parses as a Call-headed expression (the Sql atom wrapped
-  // in a postfix Member+Call chain), NOT a bare Sql atom. Faithful
-  // chainedCalls reconstruction is a separable follow-on (SCOPING §3). This
-  // test PINS the current deferred state so a future chained-promotion landing
-  // updates it deliberately (it is NOT a leak: the SECONDARY isServerOnlyNode
-  // hardening classifies the nested sql-ref as server-only — see the
-  // integration leak test).
-  test("DEFERRED: chained ?{}.run() stays bare-expr (documented follow-on)", () => {
+  // in a postfix Member+Call chain), NOT a bare Sql atom. F2a
+  // (native-sql-chained-form-f2a-2026-06-04) reconstructs the live
+  // `{kind:"sql", query, chainedCalls}` from the native Call->Member->Sql tree
+  // (translate-stmt.js reconstructChainedSql), so the chained form now promotes
+  // to a kind:"sql" LogicStatement byte-identical to the live pipeline — closing
+  // the deferral this test previously PINNED. (Was: "stays bare-expr".)
+  test("CLOSED (F2a): chained ?{}.run() promotes to kind:sql with chainedCalls", () => {
     const src = `<program db="postgres"></>
 \${
     ?{\`DELETE FROM t\`}.run()
 }
 <p>x</>`;
-    const { nativeStmts } = parseBoth(src);
-    // No kind:sql promotion for the chained form yet.
-    expect(firstSql(nativeStmts)).toBeUndefined();
-    const chained = nativeStmts.find(
+    const { liveStmts, nativeStmts } = parseBoth(src);
+    const nativeSql = firstSql(nativeStmts);
+    const liveSql = firstSql(liveStmts);
+    expect(nativeSql).toBeDefined();
+    expect(liveSql).toBeDefined();
+    expect(nativeSql.kind).toBe("sql");
+    expect(nativeSql.query).toBe("DELETE FROM t");
+    expect(nativeSql.query).toBe(liveSql.query);
+    // chainedCalls reconstructed from the native chain — matches live shape.
+    expect(nativeSql.chainedCalls).toEqual([{ method: "run", args: "" }]);
+    expect(nativeSql.chainedCalls).toEqual(liveSql.chainedCalls);
+    // No residual bare-expr + sql-ref call leak (the pre-F2a shape).
+    const leak = nativeStmts.find(
       (s) => s && s.kind === "bare-expr" && s.exprNode && s.exprNode.kind === "call",
     );
-    expect(chained).toBeDefined();
+    expect(leak).toBeUndefined();
+    // Full field-set parity (id/span counter-derived — compare the rest).
+    const strip = (n) => {
+      const { id, span, ...rest } = n;
+      return rest;
+    };
+    expect(strip(nativeSql)).toEqual(strip(liveSql));
   });
 });

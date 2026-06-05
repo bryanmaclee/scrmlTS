@@ -208,6 +208,20 @@ function appendTranslatedStmt(out, stmt, counter) {
                 out.push(makeSqlStmt(e, stmt.span, counter));
                 return;
             }
+            // F2a (FIX-NATIVE) — a CHAINED `?{...}.run()` / `.all()` / `.get()`
+            // at statement position is a `Call`-headed expression (Sql atom +
+            // postfix Member/Call chain), NOT `e.kind === "Sql"`. Reconstruct
+            // the live `kind:"sql"` statement node (mirroring the LIVE bare
+            // BLOCK_REF + consumeSqlChainedCalls statement path, ast-builder.js
+            // L7884) so the query + chain reach codegen's emit-logic `case
+            // "sql"`. Falls through to `makeBareExpr` when not a chained-SQL form.
+            {
+                const chainedSql = reconstructChainedSql(e, stmt.span, counter);
+                if (chainedSql !== null) {
+                    out.push(chainedSql);
+                    return;
+                }
+            }
             out.push(makeBareExpr(e, stmt.span, counter));
             return;
         }
@@ -472,6 +486,95 @@ function makeSqlStmt(nativeSql, span, counter) {
         chainedCalls: [],
         span: spanOrZero(span),
     };
+}
+
+// F2a (FIX-NATIVE) — the CHAINED `?{...}.get()` / `.all()` / `.run()` form.
+//
+// THE SHAPE. A chained SQL block at statement position parses (native pre-
+// translate) NOT to a bare `Sql` atom but to a `Call`-headed expression whose
+// callee is a `Member` whose object is the `Sql` atom:
+//
+//   ?{`...`}.all()        ->  Call{ callee:Member{ object:Sql{raw}, property:Ident{name:"all"} }, args:[] }
+//   ?{`...`}.nobatch().all() (multi-call) nests left-to-right:
+//                             Call{ callee:Member{ object: Call{ callee:Member{ object:Sql{raw},
+//                               property:Ident{"nobatch"} }, args:[] }, property:Ident{"all"} }, args:[] }
+//
+// `translateExpr` would lower the `Sql` atom to a `sql-ref{nodeId:-1}` and
+// DISCARD `Sql.raw` (translate-expr.js translateSql) — the query text never
+// reaches a file-level SQLNode, so codegen emits `null /* sql-ref:-1 */.all()`
+// (0 `_scrml_sql`, E-PA-002). The native `Sql.raw` is INTACT at this layer, so
+// the query + chain are recoverable here, BEFORE translateExpr runs.
+//
+// `reconstructChainedSql` returns a live `{ kind:"sql", query, chainedCalls,
+// span }` node (mirroring ast-builder.js's BLOCK_REF + consumeSqlChainedCalls
+// statement path) when `nativeExpr` is a chained-SQL Call; otherwise null (the
+// caller falls back to the ordinary bare-expr / return / let translation).
+//
+// `chainedCalls` entry shape matches the LIVE statement path
+// (consumeSqlChainedCalls, ast-builder.js L3963): `{ method, args }`. A
+// `.nobatch()` marker (§8.9.5) is a compile-time flag — it sets `node.nobatch`
+// and is dropped from the chain (mirroring ast-builder.js L3960).
+//
+// `args` reconstruction: the LIVE statement chain captures the raw arg source
+// text between the call parens. The native `Call.args` is an `Expr[]`; the
+// native parser retains no raw source on Expr nodes (the long-standing R1
+// posture), so `args` is left "" — the corpus chained-SQL calls
+// (`.all()`/`.get()`/`.run()`) are arg-less, and the codegen `case "sql"`
+// Branch B (bare-`?` placeholder + `call.args`) only fires when `call.args`
+// is non-empty. Should a payload-bearing chained call appear, the empty-args
+// reconstruction is surfaced (R1 raw-text gap) rather than silently wrong.
+function reconstructChainedSql(nativeExpr, span, counter) {
+    if (nativeExpr === undefined || nativeExpr === null || nativeExpr.kind !== "Call") {
+        return null;
+    }
+    // Walk the postfix `Member`/`Call` chain inward, collecting method names
+    // from OUTER to INNER, until we reach the `Sql` atom. A non-`Sql` base
+    // (e.g. an identifier `.method()`) is NOT a chained-SQL form — return null.
+    const methodsOuterToInner = [];
+    let cursor = nativeExpr;
+    while (cursor && cursor.kind === "Call") {
+        const callee = cursor.callee;
+        if (callee === undefined || callee === null || callee.kind !== "Member") {
+            return null;
+        }
+        const prop = callee.property;
+        const methodName = (prop && typeof prop === "object" && typeof prop.name === "string")
+            ? prop.name
+            : (typeof prop === "string" ? prop : "");
+        if (methodName === "") {
+            return null;
+        }
+        methodsOuterToInner.push(methodName);
+        cursor = callee.object;
+    }
+    // The innermost object MUST be the `Sql` atom for this to be a chained-SQL
+    // form. (A bare `?{...}` with NO chain is the `e.kind === "Sql"` path — it
+    // never reaches here.)
+    if (cursor === undefined || cursor === null || cursor.kind !== "Sql") {
+        return null;
+    }
+    const sqlAtom = cursor;
+    // Methods were collected OUTER-first; the live chain order is source order
+    // (INNER-first — the call written leftmost runs first). Reverse to match.
+    const methodsInnerToOuter = methodsOuterToInner.slice().reverse();
+    const chainedCalls = [];
+    let nobatch = false;
+    for (const method of methodsInnerToOuter) {
+        if (method === "nobatch") {
+            nobatch = true;
+            continue;
+        }
+        chainedCalls.push({ method, args: "" });
+    }
+    const node = {
+        id: stampId(counter),
+        kind: "sql",
+        query: extractSqlQuery(sqlAtom.raw === undefined || sqlAtom.raw === null ? "" : sqlAtom.raw),
+        chainedCalls,
+        span: spanOrZero(span !== undefined && span !== null ? span : sqlAtom.span),
+    };
+    if (nobatch) node.nobatch = true;
+    return node;
 }
 
 // isUpperInitial — predicate. True iff `name`'s first character is an ASCII
@@ -773,6 +876,17 @@ function makeVarDeclNode(declKind, declarator, counter) {
     // defensive double-guard needed — contrast R4-U3's condExpr sites where
     // the slot shape itself is nullable).
     if (init !== undefined && init !== null) {
+        // F2a (FIX-NATIVE) — `let r = ?{...}.get()` / `const r = ?{...}.all()`.
+        // The LIVE let/const-decl path attaches a structured `sqlNode` and OMITS
+        // `initExpr` (ast-builder.js L5282 / L5384); codegen emit-logic
+        // `case "let-decl"` / `case "const-decl"` recurses into `node.sqlNode`
+        // (kind "sql"). Reconstruct it from the native Call-headed chained-SQL
+        // initializer; otherwise fall through to the ordinary initExpr wrap.
+        const chainedSql = reconstructChainedSql(init, init.span, counter);
+        if (chainedSql !== null) {
+            node.sqlNode = chainedSql;
+            return node;
+        }
         node.initExpr = translateExpr(init);
     }
     return node;
@@ -1325,7 +1439,18 @@ function makeReturnStmt(stmt, counter) {
         expr: "",
         span: spanOrZero(stmt.span),
     };
+    // F2a (FIX-NATIVE) — `return ?{...}.all()`. The LIVE return path attaches a
+    // structured `sqlNode` and OMITS `exprNode` (ast-builder.js L9810); codegen
+    // emit-logic `case "return-stmt"` recurses into `node.sqlNode` (kind "sql").
+    // Reconstruct it from the native Call-headed chained-SQL argument. (The id
+    // is stamped on the inner sql node from the SAME counter, child-after-
+    // parent here — matching the bare/let paths' single-node id stamping.)
     if (stmt.argument !== undefined && stmt.argument !== null) {
+        const chainedSql = reconstructChainedSql(stmt.argument, stmt.argument.span, counter);
+        if (chainedSql !== null) {
+            node.sqlNode = chainedSql;
+            return node;
+        }
         node.exprNode = translateExpr(stmt.argument);
     }
     return node;

@@ -10,8 +10,12 @@
  *   2. W-CG-001 fires (the server-only block IS detected and suppressed),
  * matching the LIVE pipeline behaviour exactly.
  *
- * Covers both the PRIMARY (bare `?{}` -> kind:"sql") and the SECONDARY
- * (chained `?{}.get()` whose nested sql-ref is caught by isServerOnlyNode).
+ * Covers both the bare `?{}` -> kind:"sql" form AND the chained
+ * `?{}.get()` form. As of F2a (native-sql-chained-form-f2a-2026-06-04) the
+ * chained form ALSO promotes to a kind:"sql" LogicStatement (translate-stmt.js
+ * reconstructChainedSql), so isServerOnlyNode classifies it via the same
+ * `kind === "sql"` path as the bare form (previously the chained form relied on
+ * the SECONDARY isServerOnlyNode sql-ref hardening — now the primary path).
  */
 import { describe, test, expect } from "bun:test";
 import { resolve, dirname } from "path";
@@ -85,12 +89,12 @@ describe("M6.5.b.4 — server-only SQL must NOT leak into client.js (native pipe
     expect(native.warnings.some((w) => w.code === "W-CG-001")).toBe(true);
   });
 
-  test("SECONDARY: chained ?{}.run() at non-server scope — NO SQL in NATIVE client.js", () => {
+  test("chained ?{}.run() at non-server scope — NO SQL in NATIVE client.js", () => {
     const { clientJs } = compile(CHAINED_SQL, "chained", "scrml-native");
     expect(CLIENT_SQL_LEAK.test(clientJs)).toBe(false);
   });
 
-  test("SECONDARY: chained ?{}.run() fires W-CG-001 under NATIVE (sql-ref detected)", () => {
+  test("chained ?{}.run() fires W-CG-001 under NATIVE (kind:sql server-only detected)", () => {
     const { warnings } = compile(CHAINED_SQL, "chained", "scrml-native");
     expect(warnings.some((w) => w.code === "W-CG-001")).toBe(true);
   });
