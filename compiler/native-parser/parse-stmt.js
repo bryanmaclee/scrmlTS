@@ -724,6 +724,34 @@ export function parseStatement(ctx) {
     // implementation (parse-expr's parseUnary / parseYieldExpr). NO `KwAwait`
     // / `KwYield` branch is needed — parseExprStatement covers them.
 
+    // R1 (native-typed-atcell-decl) — a typed legacy `@`-form state-decl at
+    // statement position: `@name: Type = expr` (SPEC §6.2 typed Shape 1/3 on
+    // the legacy `@`-form + §53 type annotation). The live oracle is
+    // ast-builder.js:5524-5536: an AT_IDENT immediately followed by a `:`
+    // type annotation, then `=`, builds a `state-decl{ structuralForm:false,
+    // shape:"plain", isConst:false }` (the SAME node the `server @name: T = e`
+    // path produces, minus `isServer`). Without this arm the leading `@name`
+    // falls through to parseExprStatement, parses as an AtCell expression atom,
+    // and the trailing `:` is an unexpected token — native fired
+    // E-EXPR-UNEXPECTED (Colon) + E-STMT-MISSING-SEMICOLON + E-STMT-UNEXPECTED-
+    // TOKEN and bailed the whole `${...}` logic block, while DEFAULT compiled
+    // exit 0 (typed-`@cell`-decl parity gap).
+    //
+    // SCOPE — the `:` lookahead is the disambiguation seam. This arm fires ONLY
+    // for `@ Ident :` (a type annotation directly after `@name`). A bare
+    // `@name = e` (NO `:` — a WRITE per §6.1.2, the V-kill seam), a dotted
+    // `@obj.field = e` (a `.` after `@name`), an `@name++` update, and a bare
+    // `@name` read all have a NON-`:` token after the `@`-cell and stay in the
+    // existing parseExprStatement path UNCHANGED. The `@.`-contextual sigil
+    // (ScrmlAt whose `name` starts with `.`) is also excluded — it is never a
+    // declaration LHS. Sits BEFORE the structural-decl arm + the expr-statement
+    // fallthrough, mirroring the live `@`-form dispatch order.
+    if (kind === TokenKind.ScrmlAt
+        && peekKind(cursor, 1) === TokenKind.Colon
+        && atCellDeclNameFollows(cursor)) {
+        return parseTypedAtStateDecl(ctx);
+    }
+
     // P5-11 — a V5-strict structural state-decl: `<NAME ...> = expr` (SPEC
     // §6.2 Shape 1 / §35.2 typed). A `<` lexes as `LessThan`; without this
     // arm a `<NAME> = expr` line falls through to parseExprStatement and
@@ -3658,6 +3686,124 @@ function parseServerAtStateDecl(ctx) {
         defaultExprRaw: null,
         pinned: false,
         server: true,
+        debouncedRaw: null,
+        throttledRaw: null,
+        validators: [],
+        init,
+        span,
+    };
+}
+
+// atCellDeclNameFollows — true iff the `@`-cell token at the cursor names a
+// DECLARABLE cell (not the `@.`-contextual iteration sigil). The dispatcher
+// already confirmed `ScrmlAt` followed by `Colon`; this guard rejects the
+// `@.`-sigil form, whose ScrmlAt `name` begins with a `.` (lex-in-code.js:374 —
+// the `@.` / `@.field` iteration-value token). A `@.`-sigil is never a
+// declaration LHS, so a hypothetical `@.x : T = e` must NOT route to the typed-
+// decl arm; it stays an expression statement exactly as before.
+function atCellDeclNameFollows(cursor) {
+    const at = current(cursor);
+    if (at === undefined || at === null) return false;
+    const nm = at.name === undefined || at.name === null ? "" : at.name;
+    // `name` is everything after the `@`; a leading `.` marks the contextual
+    // `@.`-sigil. A declarable cell name starts with an identifier char.
+    return nm.length > 0 && nm.charAt(0) !== ".";
+}
+
+// --- parseTypedAtStateDecl — the typed legacy `@name: Type = expr` form ---
+// R1 (native-typed-atcell-decl). SPEC §6.2 typed Shape 1/3 on the legacy
+// `@`-form + §53 type annotation. The live oracle is ast-builder.js:5524-5536
+// (an AT_IDENT lead whose `:` annotation is followed by `=` builds a
+// `state-decl{ structuralForm:false, shape:"plain", isConst:false }` with the
+// captured `typeAnnotation`). This mirrors parseServerAtStateDecl EXACTLY minus
+// the `server` modifier: same node, `server:false`. The translate-stmt bridge
+// (makeStateDeclNode) reads `structuralForm:false` to emit the legacy-`@`-form
+// shape and omits `isServer` because `server !== true`, byte-matching the live
+// `@name: T = e` node.
+//
+// The dispatcher guarantees the cursor is at a `ScrmlAt` (a declarable cell,
+// not `@.`-sigil) immediately followed by a `Colon`. A type annotation is
+// therefore ALWAYS present on this path — it is the disambiguation seam from the
+// bare `@name = e` write (V-kill, §6.1.2), which has NO `:` and stays in
+// parseExprStatement. The `=` initializer is required (a typed `@`-decl with no
+// RHS is the no-RHS Shape-4 form, §6.2 — NOT covered here; we record a
+// diagnostic and emit the node with a null init so the rest of the program
+// still parses, mirroring parseServerAtStateDecl's recovery).
+function parseTypedAtStateDecl(ctx) {
+    const cursor = ctx.cursor;
+    const atTok = advance(cursor);       // consume `@name` (ScrmlAt)
+    // Strip the leading `@` sigil — live's `state-decl.name` is the bare cell
+    // name (ast-builder.js:5454 `tok.text.slice(1)`).
+    const atText = atTok.text === undefined || atTok.text === null ? "" : atTok.text;
+    const name = atText.charAt(0) === "@" ? atText.slice(1) : atText;
+
+    // §53 type annotation — `@name: Type = expr`. The dispatcher confirmed the
+    // `:` is present. Consume the annotation tokens raw up to the `=`, depth-
+    // tracking delimiters (the SAME collector parseServerAtStateDecl uses).
+    let typeAnnotation = "";
+    // currentKind(cursor) === TokenKind.Colon here (dispatcher invariant).
+    advance(cursor);   // consume `:`
+    const annParts = [];
+    let parenDepth = 0;
+    let braceDepth = 0;
+    let bracketDepth = 0;
+    while (atEnd(cursor) === false) {
+        const k = currentKind(cursor);
+        const topLevel = (parenDepth === 0 && braceDepth === 0 && bracketDepth === 0);
+        if (topLevel && k === TokenKind.Assign) {
+            break;   // the `=` ends the annotation; the RHS follows
+        }
+        if (k === TokenKind.LParen) parenDepth = parenDepth + 1;
+        else if (k === TokenKind.RParen && parenDepth > 0) parenDepth = parenDepth - 1;
+        else if (k === TokenKind.LBrace) braceDepth = braceDepth + 1;
+        else if (k === TokenKind.RBrace && braceDepth > 0) braceDepth = braceDepth - 1;
+        else if (k === TokenKind.LBracket) bracketDepth = bracketDepth + 1;
+        else if (k === TokenKind.RBracket && bracketDepth > 0) bracketDepth = bracketDepth - 1;
+        const annTok = advance(cursor);
+        annParts.push(annTok.text === undefined || annTok.text === null ? "" : annTok.text);
+    }
+    typeAnnotation = annParts.join(" ");
+
+    // The initializer. A typed `@x: T` REQUIRES an `=` RHS on this path (the
+    // no-RHS Shape-4 form is out of scope). Set `atStateDeclStmtPos` around the
+    // init parse exactly as parseServerAtStateDecl does, so a sibling decl on
+    // the next line is not greedily consumed into this initializer.
+    let init = null;
+    if (currentKind(cursor) === TokenKind.Assign) {
+        advance(cursor);   // consume `=`
+        const prior = enterMode(ctx, ParseMode.InExpression);
+        const sdPrior = ctx.atStateDeclStmtPos;
+        ctx.atStateDeclStmtPos = true;
+        init = parseAssignmentLevelExpr(ctx);
+        ctx.atStateDeclStmtPos = sdPrior;
+        exitMode(ctx, prior);
+        reenterBlockStubs(init);
+    } else {
+        recordError(ctx, "E-STMT-STATE-DECL-INIT",
+            "a typed `@var: Type` declaration must have an initializer ('@name: Type = expr')",
+            spanHere(ctx));
+    }
+
+    const prevTok = lastTokenBefore(ctx);
+    consumeSemicolon(ctx, prevTok);
+
+    const endE = (init === undefined || init === null) ? atTok.span.end : nodeEnd(init);
+    const span = makeSpan(atTok.span.start, endE, atTok.span.line, atTok.span.col);
+
+    // Native StateDecl — legacy `@`-form, typed, NON-server. Field names + value
+    // types match parseServerAtStateDecl (and the live ReactiveDeclNode,
+    // ast.ts:502) so translate-stmt does a structural copy. `server:false` →
+    // the bridge omits `isServer`, byte-matching the live `@name: T = e` node.
+    return {
+        kind: "StateDecl",
+        name,
+        typeAnnotation,
+        structuralForm: false,
+        isConst: false,
+        shape: "plain",
+        defaultExprRaw: null,
+        pinned: false,
+        server: false,
         debouncedRaw: null,
         throttledRaw: null,
         validators: [],
