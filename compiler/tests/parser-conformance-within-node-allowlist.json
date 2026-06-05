@@ -149,11 +149,11 @@
   },
   "examples/09-error-handling.scrml": {
     "COUNT-LENGTH": 3,
-    "EXTRA-FIELD": 19,
-    "FIELD-SHAPE": 17,
-    "KIND-NAME": 3,
-    "MISSING-FIELD": 51,
-    "SPAN-COORD": 68
+    "EXTRA-FIELD": 27,
+    "FIELD-SHAPE": 24,
+    "KIND-NAME": 7,
+    "MISSING-FIELD": 60,
+    "SPAN-COORD": 78
   },
   "examples/10-inline-tests.scrml": {
     "COUNT-LENGTH": 1,
@@ -1523,7 +1523,7 @@
     "FIELD-SHAPE": 8,
     "KIND-NAME": 2,
     "MISSING-FIELD": 19,
-    "SPAN-COORD": 10
+    "SPAN-COORD": 18
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-const-inside-fn-007.scrml": {
     "EXTRA-FIELD": 4,
@@ -1873,7 +1873,7 @@
     "FIELD-SHAPE": 7,
     "KIND-NAME": 2,
     "MISSING-FIELD": 18,
-    "SPAN-COORD": 8
+    "SPAN-COORD": 10
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-let-inside-fn-005.scrml": {
     "EXTRA-FIELD": 8,
@@ -2324,10 +2324,10 @@
   "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-fail-in-failable-fn-076.scrml": {
     "COUNT-LENGTH": 3,
     "EXTRA-FIELD": 14,
-    "FIELD-SHAPE": 5,
+    "FIELD-SHAPE": 9,
     "KIND-NAME": 3,
     "MISSING-FIELD": 24,
-    "SPAN-COORD": 6
+    "SPAN-COORD": 17
   },
   "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-fail-in-non-failable-077.scrml": {
     "COUNT-LENGTH": 3,
@@ -2343,7 +2343,7 @@
     "FIELD-SHAPE": 3,
     "KIND-NAME": 1,
     "MISSING-FIELD": 11,
-    "SPAN-COORD": 5
+    "SPAN-COORD": 7
   },
   "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-for-break-054.scrml": {
     "EXTRA-FIELD": 6,
@@ -4301,16 +4301,16 @@
   "samples/compilation-tests/gauntlet-s20-error-test/fail-basic-001.scrml": {
     "COUNT-LENGTH": 3,
     "EXTRA-FIELD": 7,
-    "FIELD-SHAPE": 3,
+    "FIELD-SHAPE": 6,
     "MISSING-FIELD": 8,
-    "SPAN-COORD": 3
+    "SPAN-COORD": 10
   },
   "samples/compilation-tests/gauntlet-s20-error-test/fail-in-control-flow-001.scrml": {
     "COUNT-LENGTH": 3,
     "EXTRA-FIELD": 9,
-    "FIELD-SHAPE": 2,
-    "MISSING-FIELD": 10,
-    "SPAN-COORD": 3
+    "FIELD-SHAPE": 8,
+    "MISSING-FIELD": 11,
+    "SPAN-COORD": 22
   },
   "samples/compilation-tests/gauntlet-s20-error-test/fail-in-non-failable-001.scrml": {
     "EXTRA-FIELD": 4,
@@ -4321,25 +4321,25 @@
   "samples/compilation-tests/gauntlet-s20-error-test/failable-fn-match-001.scrml": {
     "COUNT-LENGTH": 3,
     "EXTRA-FIELD": 8,
-    "FIELD-SHAPE": 3,
+    "FIELD-SHAPE": 6,
     "MISSING-FIELD": 10,
-    "SPAN-COORD": 5
+    "SPAN-COORD": 12
   },
   "samples/compilation-tests/gauntlet-s20-error-test/failable-inline-catch-001.scrml": {
     "COUNT-LENGTH": 3,
     "EXTRA-FIELD": 10,
-    "FIELD-SHAPE": 4,
+    "FIELD-SHAPE": 7,
     "KIND-NAME": 1,
     "MISSING-FIELD": 11,
-    "SPAN-COORD": 5
+    "SPAN-COORD": 12
   },
   "samples/compilation-tests/gauntlet-s20-error-test/failable-propagate-001.scrml": {
     "COUNT-LENGTH": 3,
     "EXTRA-FIELD": 12,
-    "FIELD-SHAPE": 3,
+    "FIELD-SHAPE": 8,
     "KIND-NAME": 1,
     "MISSING-FIELD": 19,
-    "SPAN-COORD": 4
+    "SPAN-COORD": 14
   },
   "samples/compilation-tests/gauntlet-s20-error-test/server-failable-001.scrml": {
     "COUNT-LENGTH": 1,
@@ -4359,18 +4359,18 @@
   "samples/compilation-tests/gauntlet-s20-error-test/test-fails-001.scrml": {
     "COUNT-LENGTH": 4,
     "EXTRA-FIELD": 8,
-    "FIELD-SHAPE": 4,
+    "FIELD-SHAPE": 6,
     "KIND-NAME": 1,
     "MISSING-FIELD": 10,
-    "SPAN-COORD": 4
+    "SPAN-COORD": 13
   },
   "samples/compilation-tests/gauntlet-s20-error-test/test-fails-with-001.scrml": {
     "COUNT-LENGTH": 4,
     "EXTRA-FIELD": 9,
-    "FIELD-SHAPE": 4,
+    "FIELD-SHAPE": 8,
     "KIND-NAME": 1,
     "MISSING-FIELD": 11,
-    "SPAN-COORD": 4
+    "SPAN-COORD": 16
   },
   "samples/compilation-tests/gauntlet-s20-error-test/test-inside-function-001.scrml": {
     "COUNT-LENGTH": 1,
@@ -6368,7 +6368,7 @@
     "EXTRA-FIELD": 27,
     "FIELD-SHAPE": 19,
     "KIND-NAME": 6,
-    "MISSING-FIELD": 87,
+    "MISSING-FIELD": 88,
     "SPAN-COORD": 15
   },
   "stdlib/auth/templates/login.scrml": {
@@ -6547,7 +6547,7 @@
     "SPAN-COORD": 4
   },
   "stdlib/data/parse.scrml": {
-    "COUNT-LENGTH": 2,
+    "COUNT-LENGTH": 3,
     "EXTRA-FIELD": 11,
     "FIELD-SHAPE": 10,
     "KIND-NAME": 3,

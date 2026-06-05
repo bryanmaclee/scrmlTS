@@ -1695,6 +1695,54 @@ export function parseFunctionDecl(ctx, isAsync, allowAnonymous) {
     }
 
     const params = parseParamList(ctx);
+
+    // --- the trailing `!` failable marker + optional error-type annotation ---
+    // Ported VERBATIM from parseScrmlFunctionDecl (parse-stmt.js:1901) so a BARE
+    // `function name()! -> Err` / `function name()! Err` carries the same failable
+    // metadata as the `fn` / `server` / `pure` forms. The `!`-marker is a
+    // SIGNATURE-position token that appears AFTER `)` and BEFORE any `-> ReturnType`
+    // (SPEC §19.4.1) — so it is consumed here, before the return-type annotation below.
+    // Two shapes:
+    //   1. `! -> ErrorType` — arrow form (SPEC §19.4.1 normative grammar).
+    //   2. `! ErrorType`    — bare form (SPEC §41.14). Disambiguation requires the
+    //      IDENT NOT be a function-decl attribute keyword (`route` / `method`) AND the
+    //      following token be a well-formed function-decl-head continuation. R25-Bug-36:
+    //      prior to recognition the bare form silently dropped the body.
+    let canFail = false;
+    let errorType = null;
+    if (currentKind(cursor) === TokenKind.Bang) {
+        advance(cursor);   // consume `!`
+        canFail = true;
+        if (arrowFollows(cursor)) {
+            advance(cursor);   // consume `-`
+            advance(cursor);   // consume `>`
+            if (currentKind(cursor) === TokenKind.Ident) {
+                errorType = advance(cursor).name;
+            } else {
+                recordError(ctx, "E-STMT-FN-ERROR-TYPE",
+                    "expected an error type name after '! ->'", spanHere(ctx));
+            }
+        } else if (currentKind(cursor) === TokenKind.Ident) {
+            // `! ErrorType ...` bare form (SPEC §41.14).
+            const tokName = peek(cursor).name;
+            const tokIsAttrKw = tokName === "route" || tokName === "method";
+            const k1 = peekKind(cursor, 1);
+            const k1Name = (peekKind(cursor, 1) === TokenKind.Ident) ? peek(cursor, 1).name : "";
+            const next1IsContinuation = (
+                k1 === TokenKind.LBrace ||
+                (k1 === TokenKind.Ident && (k1Name === "route" || k1Name === "method")) ||
+                (k1 === TokenKind.Dot && peekKind(cursor, 2) === TokenKind.Ident && peek(cursor, 2).name === "idempotent") ||
+                k1 === TokenKind.Colon ||
+                (k1 === TokenKind.Minus && peekKind(cursor, 2) === TokenKind.GreaterThan) ||
+                k1 === TokenKind.Semicolon ||
+                atEnd(cursor)
+            );
+            if (!tokIsAttrKw && next1IsContinuation) {
+                errorType = advance(cursor).name;
+            }
+        }
+    }
+
     // M6.7-D8a-i: optional `-> ReturnType` annotation (SPEC §14 line 5590 —
     // `->` is the sole return-type annotation for BOTH `function` and `fn`).
     // The annotation is consumed and discarded (downstream-typer concern,
@@ -1709,7 +1757,13 @@ export function parseFunctionDecl(ctx, isAsync, allowAnonymous) {
     const inline = parseFunctionBodyInline(ctx, isAsync, isGenerator);
 
     const span = makeSpan(fnTok.span.start, inline.endPos, fnTok.span.line, fnTok.span.col);
-    return makeFunctionDecl(name, params, inline.body, isAsync, isGenerator, span);
+    // Thread the failable metadata (canFail / errorType) so a bare-`function`
+    // failable is not silently dropped to canFail=false (ast-stmt.js makeFunctionDecl
+    // defaults the modifiers object). fnKind stays "function" (the keyword form).
+    return makeFunctionDecl(name, params, inline.body, isAsync, isGenerator, span, {
+        canFail,
+        errorType,
+    });
 }
 
 // =============================================================================
