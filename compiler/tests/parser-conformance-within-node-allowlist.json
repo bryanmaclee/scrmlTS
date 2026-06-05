@@ -97,7 +97,7 @@
     "FIELD-SHAPE": 8,
     "KIND-NAME": 3,
     "MISSING-FIELD": 39,
-    "SPAN-COORD": 44
+    "SPAN-COORD": 45
   },
   "examples/03-contact-book.scrml": {
     "COUNT-LENGTH": 1,
@@ -105,7 +105,7 @@
     "FIELD-SHAPE": 29,
     "KIND-NAME": 10,
     "MISSING-FIELD": 54,
-    "SPAN-COORD": 107
+    "SPAN-COORD": 110
   },
   "examples/04-live-search.scrml": {
     "COUNT-LENGTH": 1,
@@ -145,7 +145,7 @@
     "FIELD-SHAPE": 28,
     "KIND-NAME": 8,
     "MISSING-FIELD": 67,
-    "SPAN-COORD": 192
+    "SPAN-COORD": 193
   },
   "examples/09-error-handling.scrml": {
     "COUNT-LENGTH": 3,
@@ -161,7 +161,7 @@
     "FIELD-SHAPE": 11,
     "KIND-NAME": 5,
     "MISSING-FIELD": 51,
-    "SPAN-COORD": 47
+    "SPAN-COORD": 48
   },
   "examples/11-meta-programming.scrml": {
     "COUNT-LENGTH": 1,
@@ -193,7 +193,7 @@
     "FIELD-SHAPE": 38,
     "KIND-NAME": 13,
     "MISSING-FIELD": 128,
-    "SPAN-COORD": 129
+    "SPAN-COORD": 130
   },
   "examples/15-channel-chat.scrml": {
     "COUNT-LENGTH": 2,
@@ -201,7 +201,7 @@
     "FIELD-SHAPE": 33,
     "KIND-NAME": 11,
     "MISSING-FIELD": 73,
-    "SPAN-COORD": 166
+    "SPAN-COORD": 167
   },
   "examples/16-remote-data.scrml": {
     "COUNT-LENGTH": 1,
@@ -217,7 +217,7 @@
     "FIELD-SHAPE": 24,
     "KIND-NAME": 9,
     "MISSING-FIELD": 56,
-    "SPAN-COORD": 127
+    "SPAN-COORD": 129
   },
   "examples/18-state-authority.scrml": {
     "COUNT-LENGTH": 6,
