@@ -5912,11 +5912,11 @@
   },
   "samples/gauntlet-r11-elixir-chat.scrml": {
     "COUNT-LENGTH": 1,
-    "EXTRA-FIELD": 31,
-    "FIELD-SHAPE": 20,
-    "KIND-NAME": 12,
+    "EXTRA-FIELD": 32,
+    "FIELD-SHAPE": 21,
+    "KIND-NAME": 13,
     "MISSING-FIELD": 118,
-    "SPAN-COORD": 110
+    "SPAN-COORD": 111
   },
   "samples/gauntlet-r11-go-url-shortener.scrml": {
     "COUNT-LENGTH": 1,

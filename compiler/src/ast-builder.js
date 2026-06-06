@@ -2747,6 +2747,57 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             // depth > 0).
             const isTypedReactive = next1 && next1.kind === "PUNCT" && next1.text === ":";
             if (isTypedReactive && tok.kind === "AT_IDENT" && lastPart !== "=") break;
+            // high-deepset-write-loss (2026-06-06): a dotted-path reactive
+            // statement at depth 0 also begins a NEW statement. The forms are
+            //   `@obj.path.to.prop = value`     -> reactive-nested-assign (§5.2.3)
+            //   `@arr.push(...)` (et al.)       -> reactive-array-mutation
+            // The existing assignment/compound/typed boundary checks above only
+            // fire when peek(1) is `=`/`+=`/`:` etc., but a deep-set's peek(1)
+            // is `.` (the path opener), so none of them break. Result: the
+            // PRECEDING statement's collectExpr greedily swallows the whole
+            // dotted-path statement into its RHS (e.g. `@c = 1` swallows the
+            // following `@a.ref = "p"`, and `@a.ref = "p"` swallows the
+            // following `@a.ref = "q"`), silently dropping the deep-set / array
+            // mutation at codegen. The ASI-NEWLINE path below cannot rescue it
+            // because its tokStartsStmt excludes AT_IDENT. So recognize the
+            // dotted-path reactive form explicitly here.
+            //
+            // `lastPart !== "="` (and `!== "."`) preserves RHS operand reads:
+            // `@y = @x.prop` collects `@x.prop` as the RHS value, not a new
+            // statement. The forward scan only confirms the path TERMINATES as a
+            // statement (a bare `=`, not `==`, after the chain — a deep-set; or
+            // a 1-segment array-mutation method immediately followed by `(`).
+            if (
+              tok.kind === "AT_IDENT" &&
+              lastPart !== "=" && lastPart !== "." &&
+              next1 && next1.kind === "PUNCT" && next1.text === "."
+            ) {
+              const ARRAY_MUTATIONS = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill"]);
+              // Walk the `(.ident)+` chain starting at peek(1) === `.`.
+              let k = 1;
+              const segs = [];
+              while (peek(k)?.kind === "PUNCT" && peek(k)?.text === ".") {
+                const segTok = peek(k + 1);
+                if (segTok && (segTok.kind === "IDENT" || segTok.kind === "KEYWORD")) {
+                  segs.push(segTok.text);
+                  k += 2;
+                } else {
+                  break;
+                }
+              }
+              if (segs.length > 0) {
+                const afterChain = peek(k);
+                // Array-mutation: `@arr.method(` (single segment, known method).
+                const isArrayMutation =
+                  segs.length === 1 && ARRAY_MUTATIONS.has(segs[0]) &&
+                  afterChain && afterChain.kind === "PUNCT" && afterChain.text === "(";
+                // Deep-set: `@obj.path... = value` (bare `=`, not `==`).
+                const isDeepSet =
+                  afterChain && afterChain.kind === "PUNCT" && afterChain.text === "=" &&
+                  peek(k + 1)?.text !== "=";
+                if (isArrayMutation || isDeepSet) break;
+              }
+            }
           }
         }
         // BUG-ASI-NEWLINE: When at depth 0 and the current token is on a new line
