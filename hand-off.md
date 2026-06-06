@@ -1,67 +1,179 @@
-# scrmlTS — Session 167 (CLOSE)
+# scrmlTS — Session 168 (CLOSE)
 
 **Date:** 2026-06-06
-**Previous:** `handOffs/hand-off-171.md` (= S166 CLOSE).
-**Next-session pickup:** rotate THIS file → `handOffs/hand-off-172.md` at next OPEN.
-**Profile:** opened **A (FULL)** ("read pa.md and start session"; default A). Ultracode ON.
+**Previous:** `handOffs/hand-off-172.md` (= S167 CLOSE).
+**Next-session pickup:** rotate THIS file → `handOffs/hand-off-173.md` at next OPEN.
+**Profile:** opened **A (FULL)** ("once session full start. start the map arc"; default A). Ultracode ON.
 
-## 🏁 S167 CLOSE — JS-host-boundary DD + value-native `map` type FULLY designed & debate-ratified + HIGH deep-set Bug A landed / Bug B filed · `wrap and push`
+## 🏁 S168 CLOSE — map-arc Phase a+b LANDED (cycles-prereq + §59 SPEC) + language-inspiration audit (synthesis→critic→currency-corrected) · `wrap and push`
 
-A DESIGN-HEAVY foundation session that also closed the open HIGH. The user directed `run the JS-host-boundary deep-dive and high bug` → PA ran the S166-queued JS-host DD (member-class reframe), landed HIGH Bug A + filed Bug B, then drove the value-native `map` type design **one fork at a time** (per `feedback_no_batch_ratify_foundational_axioms`) culminating in an **adversarial debate** the user requested → grafted hybrid ratified. `wrap and push`.
+A heavy session. Opened on **"start the map arc"** → **caught that the cycles-FORBID disposition the
+RATIFIED-DESIGN/master-list called "ratified" was actually UNRATIFIED PA-inference** (the DD's own
+S95-corrigendum guardrail) → user ruled it (**cycles FORBID + make-acyclic-true**, **COW-all** impl) →
+**Phase a: cycles-prereq LANDED** (`8d9db4e1`, pushed) → **Phase b: SPEC §59 Value-Native Maps LANDED**
+(Nominal, `4c8063b6`, reviewer-gated rev-2). Mid-session the user added **"audit which languages inspired
+scrml — credit where credit is due"** → a 5-phase workflow chain (synthesis → completeness-critic →
+gap-closure → **currency-pass [user-flagged inaccuracy via the `bun.eval` probe] → correction**) produced
+the corrected audit. Also: **README `=>`/`->`→`:>`** migration (pushed); **`:>`-provenance** proven public
+(scrml8 2026-04-07 / scrmlTS 2026-04-14). `wrap and push`.
 
----
+### SYNC / REPO STATE AT CLOSE
+- **scrmlTS:** HEAD = the S168 wrap commit (maps refresh + hand-off/master-list/changelog) atop **§59
+  `4c8063b6`** atop README `23ef9907` atop cycles-prereq `8d9db4e1`. **PUSHED this wrap.**
+- **scrml-support:** HEAD `4d1b22e` (audit v3 + currency-changelog) atop `2127c00` (§59 draft + user-voice
+  S168 ratifications). **PUSHED this wrap.**
+- **Version:** v0.7.0 (no cut — SPEC §59 is Nominal/spec-ahead; cycles-prereq is reactivity-internal; no tag, no cross-repo notice [map unbuilt]).
+- **Tests:** **23,091 pass / 0 fail / 220 skip / 1 todo / 916 files** (+16 cycles-prereq; §59 + maps + docs are non-test). within-node 1005/0 (confirmed at pre-push).
+- **known-gaps:** HIGH 1 (Bug B — structural-compound deep-set mistarget, codegen, OPEN, unchanged) · MED 9 · LOW 16. (No bug work this session — map was design + the prereq.)
+- **Maps:** **refreshed to `4c8063b6`** (wrap 6c — 5 maps: primary/structure/test/error/domain; project-mapper verified writes landed; watermark advanced).
+- **Worktrees:** main only (both S168 dispatch worktrees cleaned at wrap).
+- **Inbox:** empty. No outbound notices due (SPEC §59 Nominal, map unbuilt; no giti/6nz/scrml/master notice). **Hooks:** Config B.
 
-## SYNC / REPO STATE AT CLOSE
-- **scrmlTS:** HEAD `75431e9e` (Bug A) + the wrap commits (this wrap: docs + maps). **PUSHED this wrap** (authorized).
-- **scrml-support:** JS-host DD + map-surface debate + user-voice S167 — committed + pushed this wrap.
-- **Version:** on v0.7.0 (no cut — design + one native-adjacent parser fix; default output unchanged; no tag, no cross-repo notice).
-- **Tests:** full suite **23,075 pass / 0 fail / 220 skip / 1 todo / 914 files** (at Bug A landing `75431e9e`; no source changed since — only docs/maps). within-node **1005/0** (+4 r11-elixir-chat native-lag allowlist bump, correct-shadow).
-- **known-gaps:** **HIGH 1** (Bug B — new; Bug A closed the original's parser layer) · MED 9 · LOW 16. + the JS-host scalar-gap (no value-native parseInt/Math.round/Date.now — a queued sub-thread, not yet a filed bug).
-- **Maps:** refreshed to `75431e9e` (wrap step 6c — incremental; 4 maps: test/structure/primary/domain; project-mapper clean, no crash). `dependencies/schema/config/build/error` retain prior watermarks (genuinely unchanged).
-- **Worktrees:** main only (the Bug A dispatch worktree `agent-a53e5e892b211dfe0` cleaned at wrap).
-- **Inbox:** empty. No outbound notices due (design-only; the map is unbuilt — no giti/6nz/scrml/master notice).
+### ★ THE GATING FINDING (must resolve before ANY map-prereq dispatch)
+**The cycles-FORBID disposition is NOT user-ratified — it is PA inference that propagated into
+"ratified"-labeled docs.** Verified against verbatim user-voice:
+- S166 (you): *"I dont know how I feel about cyclic refs, its vestigial of oop in my opinion. I
+  don't even know if I want to allow them."* — a LEAN, not a ruling.
+- S166-close STILL-OPEN list (verbatim): *"the cycles disposition (forbid via bracket-write-fix+barrier,
+  vs make-safe via cycle-guards) — NB the user has not explicitly ruled on value-CYCLES, only on
+  OOP-identity constructs."*
+- S167 user-voice: NO cycles ruling. Yet `RATIFIED-DESIGN.md` ship-gate says *"the S166 cycles
+  ruling — already ratified"* and master-list S166 addendum lists *"cycles → FORBID"* as a
+  ratification. **Both over-assert.** The DD (`scrml-support/docs/deep-dives/scrml-data-model-value-vs-object-2026-06-05.md`)
+  EXPLICITLY flagged the S95-corrigendum guardrail on this exact point (lines 187/197): *"the user
+  has NEVER spoken on value-cycles — 'acyclic' is PA inference; surface it explicitly, do not present
+  as already-ratified."*
 
-## ★ THE VALUE-NATIVE `map` TYPE — FULLY RATIFIED (the session's headline deliverable)
-Ratified design consolidated → **`docs/changes/map-type-2026-06-06/RATIFIED-DESIGN.md`** (the SPEC-draft input — READ IT for the next arc). The locks:
+**The map arc's HARD ship-gate (the cycles-prereq) rests on this unratified axiom.** PA STOPPED before
+dispatch and put the disposition question to the user (per Rule 4 verify-derived-claims + Rule 5
+shoot-straight/ask + `feedback_no_batch_ratify_foundational_axioms` + `feedback_verify_before_claim`).
 
-| # | Decision |
-|---|---|
-| Surface | **bracket-native** ("map = array keyed by values"); `[KeyT: ValT]` concrete affix (no generics); `[:]` empty; `[k:v]` literal |
-| Keys | **any §45-comparable** (primitives + structs + enums; function-containing excluded via `E-EQ-003`); struct keys "just work" (structural ==) |
-| Key-hash | the EXISTING **§47 canonical-string codec** (hash-consistency `(=x y)⇒(=hash x hash y)` free from §45 — the validated keystone) |
-| READ | **bracket** `@m[k] → V|not` (allocation-free, composes with given/is some); `.getOr(k, default)`; `.has(k) → bool` |
-| WRITE/REMOVE | **method-native** `.insert`/`.remove`/`.update`/`.insertAll` (reassignment-canonical, visible cost, composes) |
-| Delete | **`.remove()` — NOT `=not`** (kills the capability-hole; `[K:V|not]` stores `not` via `.insert(k, not)`, removes via `.remove(k)`, distinguishes via `.has(k)`) |
-| Iteration | `.keys()/.values()/.entries()` → value-native arrays; **UNORDERED by default + LOUD** + `.sorted()` stabilizer + costed opt-in `@ordered` affix |
-| `==` | structural, **order-independent** (§45) — even for `@ordered` maps |
-| Serialization | lossless codec (raw JS Map rejected — JSON.stringify drops it) |
+### THE MAP ARC STRUCTURE (S167 RATIFIED-DESIGN.md — the design IS landed)
+`docs/changes/map-type-2026-06-06/RATIFIED-DESIGN.md` carries the full ratified surface (bracket-read
++ method-write hybrid; `[KeyT:ValT]`; any §45-comparable key; §47 codec key-hash; unordered+loud;
+lossless codec). Three phases:
+1. **(a) Cycles-prereq (HARD ship-gate) — BLOCKED on the disposition ruling above.** Two pieces:
+   (i) seen-set guard in `_scrml_structural_eq` (runtime-template.js:2491 — verified: `a===b`
+   fast-path at 2492, then recurses with NO seen/WeakSet guard → RangeError on `==` of two
+   distinct-but-equal cyclic values; a real latent crash bug independent of maps); (ii) the
+   cycles-forbid barrier (reject-on-cycle at cell-assignment + route `@arr[i]=x` bracket-write
+   through COW). **Open impl sub-fork (DD line 202):** route-all-bracket-writes-through-COW (changes
+   array-element-write semantics, consistent w/ dotted-path) vs statically-reject-self-referential-
+   index-assignment-only (narrower; leaves non-self bracket writes raw-in-place). Root cause locus:
+   `ast-builder.js:5455` (path-collector gates on `peek().text==="."`; bracket targets fall to
+   bare-expr fallback ~5517 → verbatim in-place emit).
+2. **(b) Map SPEC §** — grammar/literal/access/method-surface/key-hash/iteration/codec/E-codes (after prereq).
+3. **(c) Build decomposition** — type-system → parser → runtime → codegen; Set follows decoupled;
+   130 self-host `new Map`/`new Set` sites ride the P3 value-native-self-host bridge (NOT a v1 blocker).
 
-**v1 scope-cuts (decide-on-purpose):** map-as-key NOT in v1 (any §45-comparable EXCEPT another map; unordered keeps the door open); struct-key literals via `.insert` (primitive-key literal `["DAL": 4500]` ships).
+### RULED S168 (the gating axiom — RESOLVED) + DISPATCH IN FLIGHT
+- **CYCLES DISPOSITION:** user ruled **FORBID + make-acyclic-true** (AskUserQuestion). Closes the
+  S166-open axiom; user-voice S168 appended; RATIFIED-DESIGN.md + master-list S166 "already ratified"
+  label was a PA-inference propagation (to reconcile at wrap).
+- **BRACKET-WRITE IMPL SHAPE:** user ruled **COW-all + seen-guard now; JS-host barrier follows**.
+  Representation: extend `reactive-nested-assign.path` `string[]` → `(string | {index: ExprNode})[]`.
+- **DISPATCH 1 — LANDED + PUSHED (`8d9db4e1`):** cycles-prereq — Landing 1 seen-set guard in
+  `_scrml_structural_eq` + Landing 2 parser bracket-write COW + Landing 3 computed-index codegen
+  (`reactive-nested-assign.path` → `(string|{index})[]`). Phase-0 confirm-gate PASS (rep cleanly covers
+  all 11 consumers). PA-independent R26 PASS (computed COW / self-ref→stale snapshot / reads verbatim,
+  all node --check clean). +16 tests, 0 regressions (23075→23091). agent `a938bb754f790271a`
+  (FINAL_SHA 78a7fc81). Maps' "acyclic keys" precondition now TRUE by construction. JS-host
+  Appendix-D barrier deferred (separate follow-on). Worktree retained until wrap (S67).
+- **README doc-currency — LANDED + PUSHED (`23ef9907`):** migrated 6 match-arm + 1 handler-arm + 1
+  prose arrow-separators `=>`/`->` → `:>` (S147 canonical; user S168 flagged). Arrow-fn lambdas +
+  fn-return `->` + attribute `to=>`/`story=>` untouched. Resolved a pre-existing internal inconsistency
+  (one `!{}` handler example was already `:>`). Kickstarter + primer already `:>`-canonical (README-only).
+- **PUSH: DONE** (`7c3f4e6b..23ef9907 main→main`; pre-push full suite 23091/0 + TodoMVC PASS; origin synced 0/0). HEAD `23ef9907`.
 
-**SHIP-GATE (hard prereq):** the **S166 cycles-forbid barrier** (reject-on-cycle at cell-assignment + route `@arr[i]=x` bracket-write through COW) + a **seen-set guard in `_scrml_structural_eq`** (runtime-template.js:2491 — a cyclic struct key would stack-overflow the hash). The "acyclic keys guaranteed" precondition is FALSE today. The broken-bracket-write prereq DISSOLVED (method-write reassigns a named cell, sidestepping the bracket-target codegen).
+### COMMITTED (held from push, per "commit then I'll read") + §59 LANDING IN FLIGHT
+- **scrml-support `2127c00`** — value-native-map design records: user-voice S168 cycles/COW ratifications
+  + the §59 reviewed draft. **scrml-support `edb299a`** — the language-inspiration audit doc
+  (`docs/language-inspiration-audit-2026-06-06.md`). Both HELD (scrml-support 0/2 vs origin; user reads first).
+- **⚠ AUDIT CURRENCY ISSUE (user-flagged) — currency-pass IN FLIGHT (`wo5hlo15v` / `wf_bb7ba0b0-325`).** The
+  audit is corpus-synthesized (graded KIND, did NOT currency-check the scrml side) → carries stale claims.
+  CONFIRMED: the Zig/`bun.eval` attribution describes a RETIRED user-facing surface — `bun.eval()` is
+  COMPILER-INTERNAL ONLY today (SPEC §30; the `${ bun.eval() }` user surface retired S130 / §22.12 Approach C).
+  Likely siblings: `<machine>`→`<engine>`, `@shared` removed, `->`→`to` lifecycle, `=>`→`:>` arm. The
+  currency workflow runs 5 verifiers vs live SPEC/PRIMER/code → flags + corrections → collate.
+  **CURRENCY PASS DONE: 26 of 67 scrml-side claims NON-CURRENT** (~23 nominal-spec-ahead / 20 changed / 11
+  retired / 6 renamed / 4 never-existed occurrences). Clusters: the value-native MAP family ~10 (credited
+  shipped — it's the IN-FLIGHT S168 arc); build-story §58 (Nominal); routing ~5 (file-based credited but
+  scrml routing is INFERENCE §12); `bun.eval` (retired user surface); glyph migrations (`(A->B)`→`(A to B)`,
+  `transitions{}`→`rule=`, `<machine>`→`<engine>`); event-payload "absence" CLOSED S154 §51.0.S; overload
+  "scrml shipped by accident" DELETED S64. **CORRECTION DISPATCHED (agent `a7235a0517d063be9`):** rewords
+  each stale claim in place with an accurate-today STATUS tag (shipped/ratified-design/nominal-spec-ahead/
+  renamed/closed-deleted), preserves all credits + KIND, re-grounds in live SPEC. **DONE + LANDED + HELD
+  (`4d1b22e`, scrml-support 0/2 vs origin — amended the audit commit; + sibling currency-changelog).**
+  STATUS tags: shipped 10 / ratified-design 12 / nominal-spec-ahead 7 / closed-deleted 7 / renamed 2 /
+  changed 3. The correction ALSO caught an error my own gap-closure introduced (the Remix `<page route=>`
+  override is forbidden) + the routing SPEC-locus (§40/§47.9.2 not §20.4). Map family carries a post-pass
+  note (§59 landed concurrently → it's [nominal-spec-ahead] §59, not [ratified-design]). (Lineage was
+  sound; only currency framing was wrong — ~40% of scrml-side claims drifted because the corpus got ahead
+  of the code. The layered synthesis→critic→revision→currency→correction caught it before publish.)
+- **§59 SPEC.md landing — LANDED + HELD (`4c8063b6`, scrmlTS 0/1 vs origin).** Reviewer rev-2 applied,
+  PA-reviewed (the §42.3.1 union-`not` rule, 7 §34 rows, §59.3 ternary-exclusion, additive TOC all verified
+  in the diff), file-delta'd + committed, HELD from push. SPEC.md 31,551→31,754; section count 58→59; 0
+  regressions. **MINOR FOLLOW-UP:** §6.2 "no anonymous record/map annotation type" now coexists with the
+  §59 Nominal map type — a one-line §6.2 cross-ref to §59 (Nominal) would close the surface inconsistency
+  (not blocking; §59's Nominal banner clarifies §6.2 reflects the shipped type system). (Original dispatch
+  brief detail:) Applied reviewer
+  rev-2 (B1 ternary-exclusion / B2 Acorn note / B3 §42 union-`not`-normalization micro-statement + 6 missing
+  + 5 non-blocking) → lands §59 (Nominal) + §45/§47/§42/§57/§6.5/§14 amendments + 7 §34 rows (4 E-MAP-* + 3
+  W-MAP-*; E-EQ-003 reused) + TOC + SPEC-INDEX regen. BRIEF.md archived
+  `docs/changes/map-spec-section-59-2026-06-06/BRIEF.md`. **On completion:** PA review → S147 coherence →
+  file-delta land (SPEC.md + SPEC-INDEX + any test) → PA commit (HOLD push) → Phase (c) build decomposition.
 
-**Provenance:** JS-host DD `scrml-support/docs/deep-dives/js-host-boundary-2026-06-06.md` (the capability warrant) → user forks 1+2 → debate `scrml-support/docs/debates/map-surface-bracket-vs-method-2026-06-06.md` (Swift bracket-native vs Gleam/Roc method-native, refereed by Clojure; grafted hybrid **53/60**) → user rulings (write-surface=hybrid, order=unordered-loud). Design insight recorded `~/.claude/design-insights.md`.
+### §59 reviewer-gate detail (agent `a5d17ed5`, DONE: READY-WITH-CHANGES)
+- Design HELD;
+  reviewer independently VERIFIED soundness vs SPEC + the as-built prereq `8d9db4e1` (acyclic-keys
+  termination via the real WeakMap seen-guard; hash-consistency from §45; the `E-MAP-BRACKET-WRITE`
+  prereq-COW interaction is genuinely real; no-identity/reassignment alignment; Nominal matches §58).
+  DRAFT at `scrml-support/archive/spec-drafts/value-native-map-S168-DRAFT.md`. **rev-2 to apply** (3
+  BLOCKING: B1 §59.3 ternary-collision in the depth-1-colon rule [real grammar bug — exclude the ternary
+  alt-colon]; B2 Acorn-path note [`["k":v]` isn't valid JS → needs preprocessForAcorn rewrite/plugin,
+  word-or/and precedent]; B3 §42 cites a `not|not≡not` idempotence §42 doesn't state → the §42 amendment
+  must INTRODUCE union-`not`-absorption as a NEW micro-statement) + 6 missing (W-MAP-STRUCT-KEY-LITERAL
+  code; nested-map example; `.insertAll` pairs-shape; iteration positional-correspondence; map-vs-nonmap
+  ==→E-EQ-001; duplicate-literal-key last-wins + optional W-MAP-DUPLICATE-LITERAL-KEY) + 5 non-blocking.
+  **Forks resolved (reviewer, PA concurs):** Q2 bracket-write = HARD-ERROR+fix-it; Q6 struct-key-literal
+  = parse-accept+codegen-defer+Info; Q1/Q3/Q4/Q5/Q7 = as drafted. **AWAITING user green-light** to apply
+  rev-2 + land §59 in SPEC.md as Nominal (+ amendments + §34 rows + SPEC-INDEX regen, one commit) → then
+  Phase (c) build decomposition.
+- **Language-inspiration audit** (workflow `wf_8bc50c26-362` DONE → revision agent `af73736ba2bcc4410`
+  IN FLIGHT). First synthesis: **153 attributions, 30 languages**, top-5 Roc / Rust / SPARK-Ada /
+  Erlang-Elixir / Svelte-Vue → `/tmp/scrml-inspiration-audit.md`. Completeness critic caught real gaps
+  (the value of the critic pass): 7 uncredited DECISIONS (markup control-flow `if=`/`for=`/`:key` →
+  Vue/Svelte/Solid; key= reconciliation; auto-await colorless-async → Go/effect-handlers/React-use;
+  **CPS server→state boundary → Elm Architecture gold-standard** + Next/Remix/SvelteKit; state-authority
+  → Phoenix-LiveView/HTMX; file-routing → Next/SvelteKit/Nuxt/SolidStart; reactive-CSS/Tailwind) + 3
+  under-credited (Go, HTMX, XState/SCXML/Harel for the engine lineage). Revision agent verifies each vs
+  the named source docs + integrates → `/tmp/scrml-inspiration-audit-v2.md`. **DONE + PA-REVIEWED (PASS):**
+  391 lines, 27 languages, KIND 44 borrowed / 13 convergent / 91 prior-art-compared / 30 rejected
+  (conservative, not inflated); 9/10 gaps verified-and-integrated; 1 honest non-verification (auto-await
+  "colorless/goroutine" lineage absent from corpus → credited only React-19 use()/Suspense; documented in
+  Appendix). **READY TO LAND** at `scrml-support/docs/language-inspiration-audit-2026-06-06.md` (internal-
+  first; seeds a public ACKNOWLEDGMENTS doc if user wants). **AWAITING user go** (scrml-support commit).
 
-## THE JS-HOST-BOUNDARY DD (the unifying foundation — in-progress)
-`scrml-support/docs/deep-dives/js-host-boundary-2026-06-06.md` (status in-progress). 5-stream research workflow `wf_0bee34f1-1fb` + PA spot-check. **The reframe:** "hide the host" is NOT a binary — Appendix-D's ~50 members partition into 3 classes: **A leak-bearing** (`structuredClone`/`Weak*`/`Reflect`/`Proxy`/raw Map/Set → hide; contradict §45.6/cycles) · **B pure-value-ops** (`Math`/`JSON`/`parseInt` → no semantic leak; hiding = free corpus-pedagogy choice, NOT a necessity) · **C IO** (`setTimeout`/`Promise`/`console` → already hidden 2-of-3 contexts). **Empirical (PA-verified):** adopter host-REFERENCE-type usage is ZERO across 947 `.scrml`; only a thin SCALAR cluster leaks (~80% in `23-trucking-dispatch`). **The REAL unaddressed adopter friction = the scalar gap** (no value-native `parseInt`/`Math.round`/`Date.now` — `scrml:time`/`format`/`data` cover formatting+shape, not primitive coercion/arithmetic). scrml already owns the typed-escape door (`import:host` §21.3.1 / `extern` §23.3.3). PA corrected its own "1-of-3 holdout" framing (false-symmetry — only A/C members are the holdout, not the value-ops). Map = the genuine capability gap → build (this session's map arc).
-
-## BUGS (S167)
-- **Bug A (parser) — RESOLVED `75431e9e`.** Multi-statement deep-set/array-mutation write-loss: `collectExpr`'s depth-0 boundary check gated on `peek(1)`∈{`=`,`+=`,`:`}, but a deep-set's `peek(1)` is `.`, so the preceding statement's RHS swallowed it → a deep-set/array-mutation survived only as the FIRST statement of a function body. 51-line `ast-builder.js` fix; codegen untouched; +16 emit-shape +4 happy-dom. Fixed a LIVE `@messages.push(msg)` drop in `samples/gauntlet-r11-elixir-chat`.
-- **Bug B (codegen) — NEW HIGH, OPEN.** `docs/changes/high-deepset-write-loss-2026-06-06/BUG-B-structural-compound-deepset-mistarget.md`. On a structural-compound cell (`<a><ref></>`), `a` lowers to a DERIVED composite, so `@a.ref = x` targets `a` (clobbered by recompute) not the leaf `a.ref`; fails at runtime even for a single deep-set. Fix locus `emit-logic.ts:3003` (retarget the write to the backing leaf cell for the path; the symbol-table knows the structural-compound→leaf mapping). **Net HIGH stays 1** (Bug B replaces the original open HIGH).
-- (native, swap-arc-tracked) native parser folds `@obj.path=`/`@arr.method()` in function bodies to bare-expr — same class as Bug A, a native swap-grind parity item.
-
-## OPEN QUESTIONS / NEXT-PRIORITY (S168)
-1. **The map BUILD arc** (Profile-B-shaped — the design is landed, `RATIFIED-DESIGN.md` carries the context-sweep): **(a) the cycles-prereq FIRST** (S166 cycles barrier + the `_scrml_structural_eq` seen-set guard — the hard ship-gate), then **(b) the map SPEC §** (grammar/literal/access/method-surface/key-hash/iteration/codec/E-codes), then **(c) the build decomposition** (type-system → parser → runtime → codegen; Set follows decoupled; the 130 self-host sites ride the P3 bridge).
-2. **Bug B fix** — structural-compound deep-set mistarget (HIGH; contained codegen-retarget; dispatchable anytime).
-3. **The JS-host scalar-gap** — the real adopter friction (value-native `parseInt`/`Math.round`/`Date.now`?). A queued JS-host sub-thread (a `scrml:math`? coercion operators? a monotonic-clock primitive?). Possibly higher day-to-day adopter value than the rest of the JS-host arc.
-4. **The remaining JS-host member-class dispositions** — class-A leak-bearing hide (structuredClone/Weak*/Reflect/Proxy/Error-subclass), Appendix-D tightening (decision (b)), the object/method vocab scrub (decision (e)). Each its own one-axis-at-a-time deliberation (DD is the substrate).
-5. **Set** — decoupled (rides on map if built [map-keyed-to-self] OR `scrml:data` helpers). The thinner S166 warrant.
+### OPEN QUESTIONS / NEXT (S168)
+1. **MAP ARC Phase (b):** §59 drafted; reviewer-gate in flight (above). Phase (c) build decomposition
+   follows the land (type-system → parser → runtime → codegen; Set decoupled; 130 self-host sites ride P3).
+2. **Inspiration audit** in flight (above) — user directive "credit where credit is due."
+3. **JS-host reject-on-cycle barrier** (Appendix-D hatch follow-on; part of make-acyclic-true; not a maps
+   blocker; zero adopter usage).
+4. Bug B (structural-compound deep-set mistarget, HIGH, codegen-retarget at emit-logic.ts:3003).
+5. The JS-host scalar-gap (value-native parseInt/Math.round/Date.now) — queued JS-host sub-thread.
+6. **Reconcile the ouroboros at wrap:** RATIFIED-DESIGN.md + master-list S166 both pre-asserted cycles
+   "ratified"; genuinely ruled S168 — re-stamp as S168.
+7. **`:>`-provenance** established this session (scrml8 `9555f7c` 2026-04-07 / scrmlTS `80c7d5d5`
+   2026-04-14 "canonical match arm operator"; public) — user wanted proof vs Teej's screenshot. (No action; recorded.)
 
 ## pa.md directives in force
-- Rules R1–R5. `---` answer-delimiter. Profile A/B. `full wrap` / 88% floor. **wrap step 6c maps refresh** (S166; executed this wrap — incremental, project-mapper clean).
-- Dispatch discipline: S88 isolation explicit · F4 startup-verify · S112 merge-startup · S99/S126 Bash-edit + no-`cd` (S100 hook) · S136 BRIEF.md archival · S138 R26 / PA-independent dual-verify EVERY landing · S147 branch-leak coherence. `--no-verify` forbidden (pre-commit AND pre-push, Config B).
-- **S164 background-commit-race:** wait for the completion notification before reading HEAD/coherence (held this session — Bug A commit + maps both run-in-background, waited).
-- **No batch-ratify of foundational axioms** (S166 memory) — held cleanly this session (forks one-at-a-time; user chose to DEBATE the surface rather than rubber-stamp). Standing-autonomy session-scoped (none durable).
+- Rules R1–R5. `---` answer-delimiter. Profile A/B. `full wrap` / 88% floor. wrap step 6c maps refresh.
+- Dispatch discipline: S88 isolation explicit · F4 startup-verify · S112 merge-startup · S99/S126
+  Bash-edit + no-`cd` (S100 hook) · S136 BRIEF.md archival · S138 R26 / PA-independent dual-verify ·
+  S147 branch-leak coherence. S164 background-commit-race (wait for completion notification).
+- `feedback_no_batch_ratify_foundational_axioms` (S166) — cycles disposition is axiom-level → one
+  question, DD as substrate, NOT a batch rubber-stamp.
 
 ## Tags
-#session-167 #profile-a-full-start #js-host-boundary-member-class-frame #map-type-ratified #bracket-read-method-write #unordered-loud #grafted-hybrid-53-60 #high-bug-a-landed #high-bug-b-filed #cycles-prereq #scalar-gap-queued #wrapped #pushed
+#session-168 #profile-a-full-start #map-build-arc #cycles-disposition-unratified #ouroboros-caught #spec-rule-4 #s95-corrigendum-guardrail

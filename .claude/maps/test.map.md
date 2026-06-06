@@ -1,6 +1,6 @@
 # test.map.md
 # project: scrmlts
-# updated: 2026-06-06T17:30:00Z  commit: 75431e9e
+# updated: 2026-06-06T20:30:00Z  commit: 4c8063b6
 
 ## Test Framework
 Runner: bun test (built-in Bun test runner)
@@ -8,21 +8,21 @@ Config: bunfig.toml (timeout + happy-dom preload settings)
 Run all: `bun test compiler/tests/`
 Run single: `bun test compiler/tests/unit/<filename>.test.js`
 Coverage: `bun test compiler/tests/ --coverage`
-Full suite at S167 close: 23,075 pass / 0 fail / 220 skip / 1 todo (on 75431e9e; was 23,054 at S165 — +21 from the S167 deep-set position matrix); within-node native-parser parity 1005/0
+Full suite at S167 close: 23,075 pass / 0 fail / 220 skip / 1 todo (on 75431e9e). S168 added 2 NEW test files (cow-bracket-write-emit 7 + browser-cow-bracket-write 3) + extended equality-semantics (+6 cycle-guard) + parse-mutation-shapes (+1 COW node-shape) — not re-counted into a fresh suite total here (no full re-run); within-node native-parser parity 1005/0 (UNCHANGED — S168 bracket-write COW is a LIVE-pipeline change; native still folds bracket-write to in-place, but no new flip-failure was registered)
 
 ## Test Categories
 
 | Category | Location | Count |
 |----------|----------|-------|
-| Unit | compiler/tests/unit/ | ~624 files (+1 S167: deepset-write-loss-position) |
-| Browser (DOM) | compiler/tests/browser/ | ~33 files (+1 S167: browser-deepset-write-loss) |
+| Unit | compiler/tests/unit/ | ~625 files (+1 S167: deepset-write-loss-position; +1 S168: cow-bracket-write-emit) |
+| Browser (DOM) | compiler/tests/browser/ | ~34 files (+1 S167: browser-deepset-write-loss; +1 S168: browser-cow-bracket-write) |
 | Conformance | compiler/tests/conformance/ | ~40 files |
 | Integration | compiler/tests/integration/ | ~30 files |
 | Parser conformance | compiler/tests/parser-conformance*.test.js | 10 files |
 | LSP | compiler/tests/lsp/ | ~8 files |
 | Self-host | compiler/tests/self-host/ | ~5 files |
 | CLI commands | compiler/tests/commands/ | ~5 files |
-| **Total** | compiler/tests/ | **914 .test.js files (S167; +2 over S165)** |
+| **Total** | compiler/tests/ | **916 .test.js files (S168; +2 over S167's 914)** |
 
 ## S153 New Test Files (each-in-dynamic-context sweep)
 
@@ -111,6 +111,20 @@ S166 landed two re-triage roots: bare-`function` failable `76059024` (within-nod
 27 class-budgets across 14 failable fixtures whose now-reachable bodies surface PRE-EXISTING native residuals;
 1005→991→1005; full suite 23,054/0) + cross-file `${...}`-export `9d12d980` (within-node 1005/0 with NO allowlist
 rebump — resolved via a `bodyStart` STRIP_KEY in within-node-classifier.ts; cross-file integration 48/0).
+
+## S168 New / Extended Test Files (cycles-prereq — COW-all bracket-write + structural-eq cycle guard)
+
+| File | What it covers |
+|------|----------------|
+| compiler/tests/unit/cow-bracket-write-emit.test.js | **NEW (7 emit-shape tests).** A bracket-index WRITE `@arr[i] = x` now lowers to the COW node (`reactive-nested-assign` → `_scrml_deep_set(_scrml_reactive_get(target), [<path>], value)`); a literal index `@arr[0]=x` rides the STRING path segment, a computed index `@arr[@sel]=x` emits the index ExprNode INLINE (`[_scrml_reactive_get("sel")]`). Asserts bracket READS (`@y = @arr[i]`) stay verbatim (not rewritten to COW). |
+| compiler/tests/browser/browser-cow-bracket-write.test.js | **NEW (3 happy-dom runtime acceptance).** Drives bracket-write mutations at runtime and asserts copy-on-write semantics — `@arr[0] = @arr` (self-reference) produces NO live cycle (the clone-then-set in `_scrml_deep_set` snapshots an acyclic value), and bracket reads continue to observe in-place data. |
+| compiler/tests/unit/equality-semantics.test.js | **EXTENDED (+6).** Cycle-guard termination for `_scrml_structural_eq`: a made-acyclic self-referential value's `==` terminates via the `WeakMap<a,WeakSet<b>>` seen-set instead of stack-overflowing. |
+| compiler/tests/integration/parse-mutation-shapes.test.js | **UPDATED (+1).** Bracket-index write now parses to the COW `reactive-nested-assign` node shape (was a raw index assignment). |
+
+NOTE (S168): the cycles-prereq is the build prerequisite for value-native maps (SPEC §59, landed spec-only the
+same session). It is a LIVE-pipeline change (ast-builder.js `collectAtPathSegments` + emit-logic.ts piecewise path
++ runtime-template.js cycle guard). The native parser still folds bracket-write to in-place — a SEPARATE swap-grind
+parity item, but no NEW flip-failure was registered (within-node stayed 1005/0).
 
 ## S167 New Test Files (HIGH multi-statement deep-set / array-mutation write-loss — LIVE parser fix)
 
