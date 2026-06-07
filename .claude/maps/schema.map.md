@@ -1,6 +1,6 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-06-03T22:40:00Z  commit: f9d4b0f1
+# updated: 2026-06-06T20:45:00Z  commit: 40679720
 
 Authoritative AST type source: `compiler/src/types/ast.ts` (1983L+, TypeScript).
 IR types: `compiler/src/codegen/ir.ts` (253 lines).
@@ -110,12 +110,14 @@ level to protect the `fn ... -> ReturnType` return-arrow path.
 IdentExpr | LitExpr | ArrayExpr | ObjectExpr | UnaryExpr | BinaryExpr | AssignExpr | TernaryExpr |
 MemberExpr | IndexExpr | CallExpr | NewExpr | LambdaExpr | CastExpr | MatchExpr | SqlRefExpr |
 InputStateRefExpr | EscapeHatchExpr | ResetExpr | HtmlFragmentNode | LiftExprNode | FailExprNode |
-PropagateExprNode | GuardedExprNode
+PropagateExprNode | GuardedExprNode | MapLitExpr
 
 Key expression shapes:
 - PropagateExprNode: kind: "propagate-expr"; inner: ExprNode  (the `?` operator)
 - GuardedExprNode: kind: "guarded-expr"; body: LogicStatement[]  (`!{}` form)
 - FailExprNode: kind: "fail-expr"; enumType: string; variant: string; data?: ExprNode
+- MapLitExpr: kind: "map-lit"; span; entries: MapEntry[]; diagnostics?: {code,message}[]  (§59.3 value-native map literal `[k: v, …]` / `[:]` empty; S169) [ast.ts:1925]
+- MapEntry: key: ExprNode; value: ExprNode  (one `key: value` pair; source order; last-wins on dup) [ast.ts:1898]
 
 ---
 
@@ -170,7 +172,11 @@ views: Map<string, DBTypeViews>
 
 ResolvedType (union): PrimitiveType | StructType | EnumType | ArrayType | UnionType | AsIsType |
   UnknownType | NotType | SnippetType | StateType | ErrorType | HtmlElementType |
-  CssClassType | FunctionType | MetaSpliceType | RefBindingType | PredicatedType | MachineType
+  CssClassType | FunctionType | MetaSpliceType | RefBindingType | PredicatedType | MachineType | MapType
+
+### MapType  [compiler/src/type-system.ts:227]
+kind: "map"; key: ResolvedType; value: ResolvedType; ordered: boolean
+**S169 (§59 value-native maps):** built by `tMap(key, value, ordered)` [type-system.ts:622]; recognized from a `[K: V]` annotation by `resolveTypeExpr` via `findMapEntryColon` [type-system.ts:2129] + the `@ordered` postfix affix. Key §45-comparability enforced by `classifyMapKey`/`checkMapKeyComparability` (→ `E-MAP-KEY-NOT-COMPARABLE`/`E-MAP-KEY-IS-MAP`/`E-EQ-003`). `@m[k] = v` bracket-write gated by `E-MAP-BRACKET-WRITE`.
 
 ### PredicatedType  [compiler/src/type-system.ts:332]
 kind: "predicated"; baseType: string; predicate: PredicateExpr
@@ -244,7 +250,7 @@ Whitespace-tolerant parser for `"EnumName oneOf([.A,.B])"` / `"notIn([.C])"` ann
 ---
 
 ## Tags
-#scrmlts #map #schema #ast #types #compiler #ir #protect-analyzer #match-arm #enum-subset #message-dispatch #predicated-type #each-reconcile-ctx #each-engine-ctx #s154 #s155 #s156 #s157 #s158 #s159 #bug64 #bug71 #bug73 #r28-1c
+#scrmlts #map #schema #ast #types #compiler #ir #protect-analyzer #match-arm #enum-subset #message-dispatch #predicated-type #each-reconcile-ctx #each-engine-ctx #s154 #s155 #s156 #s157 #s158 #s159 #s169 #value-native-maps #map-type #map-lit #bug64 #bug71 #bug73 #r28-1c
 
 ## Links
 - [primary.map.md](./primary.map.md)

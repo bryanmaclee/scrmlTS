@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-06-06T20:30:00Z  commit: 4c8063b6
+# updated: 2026-06-06T20:45:00Z  commit: 40679720
 
 scrml's own language error model is values-not-exceptions (SPEC §19.1 — no try/catch, no throw).
 The compiler itself surfaces structured CGError objects to the caller; it never throws on bad input.
@@ -13,7 +13,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 - All other codes → result.errors (fatal, CLI exits 1)
 - Cross-stream helper required when asserting on W-*/I-* codes in tests (see diagnostic-stream-partition memory note)
 
-## Error Code Families (382+ codes in compiler source; +7 §59 SPEC-ahead map codes S168 — SPEC-text only, NOT yet emittable)
+## Error Code Families (382+ codes in compiler source; +7 §59 value-native map codes IMPLEMENTED S169 — fire sites live end-to-end)
 
 | Family | Count | Description |
 |--------|-------|-------------|
@@ -50,10 +50,10 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-INPUT-* | 5 | Input element errors |
 | E-LIFECYCLE-* | ~12 | Lifecycle hook errors |
 | E-LIN-* | 2 | Linear-type errors |
-| E-MAP-BRACKET-WRITE | 1 | **(S168 NEW — SPEC §59.7; SPEC-AHEAD, no impl yet)** A bracket-WRITE `@m[k] = v` is attempted on a map-typed cell (at any nesting level). Map reads are bracket-native (`@m[k]` → `V \| not`); map writes are method-native. The cycles-prereq COW bracket-write lowering (`8d9db4e1`) is array/object-shaped and would corrupt the map representation, so the typer gates a map-receiver bracket-write before the COW lowering. Fix-it: use `.insert(k, v)`. Phase-c (type-system). Fatal. |
-| E-MAP-KEY-IS-MAP | 1 | **(S168 NEW — SPEC §59.4/§59.12; SPEC-AHEAD)** A map (or `@ordered` map) is used as a map KEY type — out for v1 (an `@ordered` map's `==` is order-sensitive, which would break the §59.5 hash-consistency keystone). Phase-c. Fatal. |
-| E-MAP-KEY-NOT-COMPARABLE | 1 | **(S168 NEW — SPEC §59.4; SPEC-AHEAD)** A value-native map key type is not §45-comparable (general code; cross-refs `E-EQ-003` for a function-containing key type). Map keys are identified by structural `==`. Phase-c. Fatal. |
-| E-MAP-LITERAL-MALFORMED | 1 | **(S168 NEW — SPEC §59.3; SPEC-AHEAD)** A map literal has a bracket-depth-1 entry-colon with a missing key/value, a trailing colon, or an entry-count error. Phase-c (parser). Fatal. |
+| E-MAP-BRACKET-WRITE | 1 | **(S169 IMPLEMENTED — SPEC §59.7)** A bracket-WRITE `@m[k] = v` is attempted on a map-typed cell (at any nesting level). Map reads are bracket-native (`@m[k]` → `V \| not`); map writes are method-native. The cycles-prereq COW bracket-write lowering (`8d9db4e1`) is array/object-shaped and would corrupt the map representation, so the typer gates a map-receiver bracket-write before the COW lowering. Fix-it: use `.insert(k, v)`. Fired in the `reactive-nested-assign` case [type-system.ts:~7705]. Fatal. |
+| E-MAP-KEY-IS-MAP | 1 | **(S169 IMPLEMENTED — SPEC §59.4/§59.12)** A map (or `@ordered` map) is used as a map KEY type — out for v1 (an `@ordered` map's `==` is order-sensitive, which would break the §59.5 hash-consistency keystone). Fired by `classifyMapKey`→`checkMapKeyComparability` [type-system.ts:~2069]. Fatal. |
+| E-MAP-KEY-NOT-COMPARABLE | 1 | **(S169 IMPLEMENTED — SPEC §59.4)** A value-native map key type is not §45-comparable (general code; cross-refs `E-EQ-003` for a function-containing key type). Map keys are identified by structural `==`. Fired by `classifyMapKey`→`checkMapKeyComparability` [type-system.ts:~2086]. Fatal. |
+| E-MAP-LITERAL-MALFORMED | 1 | **(S169 IMPLEMENTED — SPEC §59.3)** A map literal has a bracket-depth-1 entry-colon with a missing key/value, a trailing colon, or an entry-count error. Fired by the legacy `preprocessMapLiterals` scanner [expression-parser.ts:~1447] AND the native `parseArrayLiteral` map fork [native-parser/parse-expr.js:~3548]. Fatal. |
 | E-MATCH-* | ~7 | Pattern match errors (E-MATCH-ARM-SEPARATOR: stray-comma arm separator §18.2; E-MATCH-SUBSET-DEAD-ARM: see below) |
 | E-MATCH-SUBSET-DEAD-ARM | 1 | **(S156 (d)-A NEW)** A match arm names a variant excluded by the matched cell's `oneOf`/`notIn` enum-subset refinement — the arm can never be reached. Fired by both type-system.ts (full type-resolution, both match loci) and symbol-table.ts PASS 20 (string-based block-form pass, constructor-form + member-access, batch 4) [type-system.ts:9602; symbol-table.ts:10883] |
 | E-META-* | 7 | Meta check/eval errors |
@@ -91,9 +91,9 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | W-EQ-* | 1 | Equality warnings |
 | W-LIFECYCLE-* | 5 | Lifecycle warnings |
 | W-LINT-001..024 | 24 | Ghost-pattern lint warnings [lint-ghost-patterns.js] |
-| W-MAP-DUPLICATE-LITERAL-KEY | 1 | **(S168 NEW — SPEC §59.3/§59.11; SPEC-AHEAD, Info)** A map literal has two depth-1 entries whose keys are §45-equal (`[ "DAL": 3, "DAL": 5 ]`); the later entry wins (last-wins, matching `.insert` overwrite). Info → result.warnings. Phase-c. |
-| W-MAP-ITERATION-ORDER | 1 | **(S168 NEW — SPEC §59.8/§59.11; SPEC-AHEAD, Info)** A non-`@ordered` map is iterated without `.sorted()` in a position where order may matter; names `.sorted()` / `@ordered`. Info → result.warnings. Phase-c. |
-| W-MAP-STRUCT-KEY-LITERAL | 1 | **(S168 NEW — SPEC §59.3/§59.11; SPEC-AHEAD, Info)** A struct/enum-key map literal (`[ {a:1}: {b:2} ]`) appears in v1 — the grammar admits it but v1 codegen requires the `.insert` form for struct/enum keys (parse-accepted, codegen-deferred). Info. Phase-c. |
+| W-MAP-DUPLICATE-LITERAL-KEY | 1 | **(S169 IMPLEMENTED — SPEC §59.3/§59.11, Info)** A map literal has two depth-1 entries whose keys are §45-equal (`[ "DAL": 3, "DAL": 5 ]`); the later entry wins (last-wins, matching `.insert` overwrite). Info → result.warnings. Fired by both literal scanners [expression-parser.ts:~1485 / native-parser/parse-expr.js:~3619]. |
+| W-MAP-ITERATION-ORDER | 1 | **(S169 IMPLEMENTED — SPEC §59.8/§59.11, Info)** A non-`@ordered` map is iterated (`<each in=@m.keys()/.values()/.entries()>`) without `.sorted()` in a position where order may matter; names `.sorted()` / `@ordered`. Info → result.warnings. Fired by `runWMapIterationOrder` [lint-w-map-iteration-order.js:~149], wired at api.js. |
+| W-MAP-STRUCT-KEY-LITERAL | 1 | **(S169 IMPLEMENTED — SPEC §59.3/§59.11, Info)** A struct/enum-key map literal (`[ {a:1}: {b:2} ]`) appears in v1 — the grammar admits it but v1 codegen requires the `.insert` form for struct/enum keys (parse-accepted, codegen-deferred). Info. Fired by both literal scanners [expression-parser.ts:~1475 / native-parser/parse-expr.js:~3608]. |
 | W-MATCH-* | 6 | Match warnings — W-MATCH-ARROW-LEGACY (S147): info-level, arm-context-scoped; W-MATCH-RULE-INERT; W-MATCH-VALUE-UNUSED |
 | W-PROGRAM-* | 4 | Program-level warnings |
 | W-PURE-REDUNDANT | 1 | Redundant `pure` modifier |
@@ -148,21 +148,22 @@ No new diagnostics; existing codes extended. `accepts=MsgType` is recorded verba
 - **E-DECL-NEEDS-INITIALIZER** (scope narrowed) — S160 ruling (c) narrows this code to the `const`-derived no-RHS sub-case only. Plain reactive no-RHS typed decls (`<x>: User`) now synthesize canonical-empty or `not` init instead of firing this code.
 - **E-TYPE-001** (message extended) — when the `(not to T)` lifecycle on a cell was SYNTHESIZED from a no-RHS typed declaration (the developer wrote no annotation), the E-TYPE-001 message now appends a synthesis note (§14.12.3): "This `(not to T)` lifecycle was SYNTHESIZED from the no-RHS typed declaration `<x>: T` (Shape 4, §6.2): the type has no canonical empty, so the cell defaulted to `not` and acquired the lifecycle implicitly." Controlled by `FnReturnLifecycleSpec.synthesizedFromNoRhs?: boolean` propagated from `buildCellValueLifecycleMap`.
 
-### S168 — SPEC §59 Value-Native Maps (+7 codes, SPEC-AHEAD — NOT yet emittable)
+### S169 — SPEC §59 Value-Native Maps (+7 codes, IMPLEMENTED end-to-end)
 
-Commit `4c8063b6` landed a NEW SPEC §59 (Nominal/spec-ahead). The 7 codes below exist in SPEC §34 + §59
-ONLY — no compiler implementation has been wired (the type-system/parser/runtime/codegen lands in phase-c
-and flips the Nominal banner). They are listed in the family table above for forward-discovery but `grep`
-will NOT find any FIRE SITE in `compiler/src/` yet.
+The map type `[KeyT: ValT]` compiles end-to-end on the default pipeline + has native-parser literal
+parity. The 7 codes below now have FIRE SITES (were SPEC-text-only at S168 — banner flipped
+Nominal→Implemented at `8963ae52`). `grep` finds each fire site in `compiler/src/` (see the loci in the
+family table above). Phases: D0 union-not normalization, D1 type-system, D2a legacy parser, D2b native
+parser, D2c `<each as (k,v)>` sugar, D3 runtime, D4 codegen.
 
-- **E-MAP-BRACKET-WRITE** (NEW, Error, §59.7) — `@m[k] = v` bracket-write on a map-typed cell at any nesting level (`@outer[k1][k2] = v` too). Reads are bracket (`@m[k]` → `V | not`); writes are method. The cycles-prereq (`8d9db4e1`) routes `@name[i] = x` through the COW `_scrml_deep_set` array/object path; on a map cell that would corrupt the representation, so the typer gates a map-receiver bracket-write BEFORE the COW lowering. Fix-it names `.insert(k, v)`. This is the prereq↔§59 interaction.
-- **E-MAP-KEY-NOT-COMPARABLE** (NEW, Error, §59.4) — map key type is not §45-comparable (general; cross-refs `E-EQ-003` for a function-containing key type).
-- **E-MAP-KEY-IS-MAP** (NEW, Error, §59.4/§59.12) — a map (or `@ordered` map) used as a key type; out for v1.
-- **E-MAP-LITERAL-MALFORMED** (NEW, Error, §59.3) — a map literal with a depth-1 entry-colon missing a key/value, a trailing colon, or an entry-count error.
-- **W-MAP-ITERATION-ORDER** (NEW, Info, §59.8) — non-`@ordered` map iterated without `.sorted()` where order may matter; → result.warnings.
-- **W-MAP-STRUCT-KEY-LITERAL** (NEW, Info, §59.3) — struct/enum-key map literal (`[ {a:1}: {b:2} ]`) parse-accepted, codegen-deferred to the `.insert` form in v1.
-- **W-MAP-DUPLICATE-LITERAL-KEY** (NEW, Info, §59.3) — two depth-1 literal entries with §45-equal keys; last-wins.
-- `E-EQ-003` + `E-EQ-001` are REUSED (no new row): a function-containing key type → `E-EQ-003`; a cross-type map-vs-non-map `==` → `E-EQ-001` (§45.3/§59.9).
+- **E-MAP-BRACKET-WRITE** (Error, §59.7) — `@m[k] = v` bracket-write on a map-typed cell at any nesting level (`@outer[k1][k2] = v` too). Reads are bracket (`@m[k]` → `V | not`); writes are method. The cycles-prereq (`8d9db4e1`) routes `@name[i] = x` through the COW `_scrml_deep_set` array/object path; on a map cell that would corrupt the representation, so the typer gates a map-receiver bracket-write BEFORE the COW lowering in the `reactive-nested-assign` case [type-system.ts:~7676-7705]. Fix-it names `.insert(k, v)`. This is the prereq↔§59 interaction.
+- **E-MAP-KEY-NOT-COMPARABLE** (Error, §59.4) — map key type is not §45-comparable (general; cross-refs `E-EQ-003` for a function-containing key type). `classifyMapKey`→`checkMapKeyComparability` [type-system.ts:~2036/~2055/~2086].
+- **E-MAP-KEY-IS-MAP** (Error, §59.4/§59.12) — a map (or `@ordered` map) used as a key type; out for v1 [type-system.ts:~2069].
+- **E-MAP-LITERAL-MALFORMED** (Error, §59.3) — a map literal with a depth-1 entry-colon missing a key/value, a trailing colon, or an entry-count error. Legacy `preprocessMapLiterals` scanner [expression-parser.ts:~1447] + native `parseArrayLiteral` map fork [native-parser/parse-expr.js:~3548].
+- **W-MAP-ITERATION-ORDER** (Info, §59.8) — non-`@ordered` map iterated without `.sorted()` where order may matter; → result.warnings. `runWMapIterationOrder` [lint-w-map-iteration-order.js:~149] wired at api.js.
+- **W-MAP-STRUCT-KEY-LITERAL** (Info, §59.3) — struct/enum-key map literal (`[ {a:1}: {b:2} ]`) parse-accepted, codegen-deferred to the `.insert` form in v1 [expression-parser.ts:~1475 / native-parser/parse-expr.js:~3608].
+- **W-MAP-DUPLICATE-LITERAL-KEY** (Info, §59.3) — two depth-1 literal entries with §45-equal keys; last-wins [expression-parser.ts:~1485 / native-parser/parse-expr.js:~3619].
+- `E-EQ-003` + `E-EQ-001` are REUSED (no new row): a function-containing key type → `E-EQ-003` (fired from `checkMapKeyComparability` [type-system.ts:~2078]); a cross-type map-vs-non-map `==` → `E-EQ-001` (§45.3/§59.9).
 
 ## Fix Notes
 

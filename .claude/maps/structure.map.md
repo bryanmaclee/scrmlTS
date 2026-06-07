@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-06-06T20:30:00Z  commit: 4c8063b6
+# updated: 2026-06-06T20:45:00Z  commit: 40679720
 
 ## Entry Points
 compiler/bin/scrml.js — CLI binary registered as `scrml`; thin Bun launcher
@@ -172,7 +172,7 @@ Secondary call sites: reactive-decl annotation path ~line 6080; bare-expr statem
 
 ## Key S168 Source Changes (cycles-prereq — COW-all bracket-write + structural-eq cycle guard — LIVE)
 
-Commit `8d9db4e1`. The prerequisite for value-native maps (§59, landed spec-only same session): value
+Commit `8d9db4e1`. The prerequisite for value-native maps (§59, now IMPLEMENTED end-to-end S169 — see S169 section below): value
 cycles are forbidden and made-acyclic-true by routing ALL bracket-index WRITES through copy-on-write.
 LIVE pipeline only; no native-parser change; default output for non-bracket-write code is UNCHANGED.
 
@@ -187,6 +187,24 @@ LIVE pipeline only; no native-parser change; default output for non-bracket-writ
   - compiler/src/symbol-table.ts (+7) — a computed segment renders as `[…]` in the assignment diagnostic tail.
   - compiler/src/type-system.ts (+6) — heterogeneous-path awareness (`string | { index }`); a computed first segment renders as `[…]`.
 - Tests: cow-bracket-write-emit.test.js (NEW unit, emit-shape) + browser-cow-bracket-write.test.js (NEW happy-dom runtime); equality-semantics.test.js extended (cycle-guard `==` termination); parse-mutation-shapes.test.js updated (bracket-write → COW node shape).
+
+## Key S169 Source Changes (value-native maps §59 — IMPLEMENTED end-to-end — LIVE + native literal parity)
+
+The §59 map type `[KeyT: ValT]` now compiles end-to-end on the default (LIVE) pipeline, with
+native-parser literal parity. Phases D0..D4 across `40aa63ca..40679720`. Banner flipped
+Nominal→Implemented at `8963ae52`. The 7 §34/§59 codes (see error.map.md) now have fire sites.
+
+- compiler/src/type-system.ts (**~18216L**) — **D0** (`2ad329ba`): `normalizeUnion` (line 642) called from `tUnion` (§42.3.1 union-`not` normalization). **D1** (`fbb3c208`): `MapType` interface (line 227) + `tMap(key, value, ordered)` (line 622); `resolveTypeExpr` recognizes a `[K: V]` annotation via `findMapEntryColon` (line 2129) + the `@ordered` postfix affix; key-comparability `isComparableType` (1926) / `classifyMapKey` (2036) / `checkMapKeyComparability` (2055) → `E-MAP-KEY-NOT-COMPARABLE` / `E-MAP-KEY-IS-MAP` / `E-EQ-003` (function-key reuse); the `E-MAP-BRACKET-WRITE` gate (line ~7705) in the `reactive-nested-assign` case, placed BEFORE the cycles-prereq COW lowering (a map-shaped cell would corrupt under the array/object `_scrml_deep_set` path).
+- compiler/src/expression-parser.ts (**~3746L**) — **D2a** (`5beb1f55`): the legacy `preprocessMapLiterals` pre-Acorn scanner (~line 1379) recognizes a map literal (`[:]` empty OR a bracket-depth-1 entry-colon that is NOT a ternary alt-separator), masks it for Acorn, and attaches `E-MAP-LITERAL-MALFORMED` / `W-MAP-STRUCT-KEY-LITERAL` / `W-MAP-DUPLICATE-LITERAL-KEY` diagnostics; `esTreeToExprNode` unmasks to a `MapLitExpr`.
+- compiler/src/types/ast.ts (**~2054L**) — **D2a**: `MapLitExpr` (kind "map-lit"; entries: MapEntry[]; diagnostics?) (line 1925) + `MapEntry` (key/value ExprNode) (line 1898); both added to the `ExprNode` union (line ~2050).
+- compiler/native-parser/parse-expr.js (**~4260L**) + ast-expr.js + translate-expr.js — **D2b** (`40679720`): `parseArrayLiteral` map fork (~line 3392) at the token level — same `[:]`/`[k:v]` disambiguation + the same 3 diagnostics (E-MAP-LITERAL-MALFORMED ~3548, W-MAP-STRUCT-KEY-LITERAL ~3608, W-MAP-DUPLICATE-LITERAL-KEY ~3619); `ast-expr.js` builds the MapLit node (~line 210); `translate-expr.js` `translateMapLit` (~line 536) bridges to the legacy ExprNode. Map-literal parity with the legacy path.
+- compiler/src/runtime-template.js (**~4197L**) — **D3** (`c7bcecf1`): `_scrml_fnv1a` (line 3840, FNV-1a 32-bit → base36) + `_scrml_value_canonical` (line 3875, §59.5 value-canonical key walker) + the tagged `{ __scrml_map: true, entries, ordered }` structure + the 14-method surface (`_scrml_map_get`/`insert`/`remove`/`update`/`insert_all`/`has`/`get_or`/`keys`/`values`/`entries`/`size`/`sorted`/`sorted_by`/`from_entries`, plus internal `_empty`/`_clone`/`_set_inplace`/`_key_order`) + the lossless §57-envelope codec (`_scrml_map_encode` 4156 / `_scrml_map_decode` 4173) + the order-independent `map` case in `_scrml_structural_eq` (line ~2524, gates on the `__scrml_map` tag FIRST). The `'map'` chunk is declared in compiler/src/codegen/runtime-chunks.ts (line 137).
+- compiler/src/codegen/emit-expr.ts (**~1794L**) — **D4** (`18c61c99`): map-literal lowering + bracket-READ lowering (`@m[k]` → `_scrml_map_get`, gated on `ctx.mapVarNames`) + method-call lowering + `.size` lowering; `mapVarNames?: Set<string>` field on `EmitExprContext` (line 192).
+- compiler/src/codegen/reactive-deps.ts (**~943L**) — **D4**: `collectMapVarNames(fileAST)` (line 353) + `fileHasMapUsage(fileAST)` (line 434); the var-name set is threaded into `EmitExprContext.mapVarNames` so only known map cells take the map lowering path.
+- compiler/src/lint-w-map-iteration-order.js (**157L, NEW**) — **D4**: `runWMapIterationOrder` walks the typed-AST for `<each in=@m.keys()/.values()/.entries()>` on a non-`@ordered` map without `.sorted()` → `W-MAP-ITERATION-ORDER` (Info, line 149); wired at compiler/src/api.js (import line 49).
+- compiler/src/codegen/emit-each.ts (**~1883L**) + ast-builder.js + native-parser/parse-file.js — **D2c** (`19712a07`): `<each in=@m.entries() as (k, v)>` tuple-destructure sugar (binds the entry pair to two names).
+- New sample: samples/compilation-tests/map-001-fare-by-lane.scrml (fare-by-lane map demo).
+- Tests (NEW): value-native-map-type-system-s169 / -literal-parser-s169 / -runtime-s169 (unit), native-map-literal-d2b, value-native-map-codegen-{chunk,collector,emit}-d4, value-native-map-iteration-order-lint-d4, value-native-map-e2e-d4 (integration), each-as-tuple-destructure-d2c (+browser), union-not-normalization.
 
 ## Key S167 Source Changes (HIGH multi-statement deep-set / array-mutation write-loss — LIVE)
 
@@ -339,7 +357,7 @@ compiler/self-host/dist/, stdlib/*/dist/, .git/, handOffs/,
 benchmarks/todomvc-react/, benchmarks/todomvc-vue/, benchmarks/todomvc-svelte/
 
 ## Tags
-#scrmlts #map #structure #compiler #cli #bun #engine-graph #source-map #each #each-in-dynamic-context #match #engine-statechild #cross-file-modules #enum-subset #message-dispatch #s154 #s155 #s156 #s157 #s158 #s159 #s160 #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #r28-8 #per-item-reactivity #live-keyed #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #bare-variant-inference #native-parser #native-parser-swap #each-promotion #match-promotion #flip-failure-families #f1-engine-substrate-closed #engine-substrate-fix #b1-reset-expr #b2-message-arm-closed #native-exprnode-walker #f2-match #promote-each #typed-atcell #server-fn-star #bare-function-failable #cross-file-export-bodystart #flip-451 #deepset-write-loss #reactive-nested-assign #reactive-array-mutation #s161 #s162 #s163 #s164 #s165 #s166 #s167
+#scrmlts #map #structure #compiler #cli #bun #engine-graph #source-map #each #each-in-dynamic-context #match #engine-statechild #cross-file-modules #enum-subset #message-dispatch #s154 #s155 #s156 #s157 #s158 #s159 #s160 #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #r28-8 #per-item-reactivity #live-keyed #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #bare-variant-inference #native-parser #native-parser-swap #each-promotion #match-promotion #flip-failure-families #f1-engine-substrate-closed #engine-substrate-fix #b1-reset-expr #b2-message-arm-closed #native-exprnode-walker #f2-match #promote-each #typed-atcell #server-fn-star #bare-function-failable #cross-file-export-bodystart #flip-451 #deepset-write-loss #reactive-nested-assign #reactive-array-mutation #s161 #s162 #s163 #s164 #s165 #s166 #s167 #s168 #s169 #value-native-maps #map-type #cycles-prereq
 
 ## Links
 - [primary.map.md](./primary.map.md)
