@@ -1,46 +1,35 @@
-# D1 — type-system: MapType + recognition + key-check + E-MAP-BRACKET-WRITE gate
+# D3 — Value-Native Map RUNTIME (§59) progress
 
-Worktree: /home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/agent-a4ee551ea0ba4e873
-Branch: worktree-agent-a4ee551ea0ba4e873
+Re-dispatch after socket-death of prior D3 (zero committed). Fresh start.
 
-## 2026-06-06 startup
-- merge main: "Already up to date" (base already had D0 normalizeUnion + §59.8). normalizeUnion count=1.
-- bun install OK; bun run pretest OK.
+## 2026-06-06 — startup
+- [done] Worktree verified, merge main (already up-to-date — base fbb3c208 has D0+D1), bun install, bun run pretest.
+- [done] Read primary.map.md + SURVEY-SYNTHESIS D3 + SPEC §59 in full.
+- [done] Read fnv1a-hash.ts:82, _scrml_structural_eq @2491, normalizeType @180, wire-format codec, _scrml_value_indexed_key @594, runtime-chunks.ts.
+- First commit: WIP(d3): start at <pwd>.
 
-## @ordered / reactive-@ probe (DONE — piece 3 verification)
-- Lexer reads `@ordered` after `]` as a SINGLE `AT_IDENT` token (the §6 reactive-sigil token form).
-- BUT collectTypeAnnotation (ast-builder.js ~3815) does NOT treat post-`]` `@ordered` as a boundary;
-  it appends it after `]` with no space. typeAnnotation string the typer receives is `"[string:Money]@ordered"`.
-- VERDICT: NO ast-builder fix needed. resolveTypeExpr's map branch must strip a trailing `@ordered`
-  and set ordered:true. The leading `@` is part of the affix spelling, not reactive-@.
-- ResolvedType is NOT mirrored in compiler/src/types/ast.ts (the `kind:"array"` there is ArrayExpr,
-  an ExprNode). So no ast.ts ResolvedType change is needed.
+## Design decisions (PINNED)
+- value-canonical primitive forms (see runtime header doc).
+- map shape: { __scrml_map: true, entries: {[canonStr]: {k,v}}, ordered, order? }.
+- @ordered: explicit `order` array maintained per insert/remove; unordered = no sidecar.
 
-## Steps — ALL DONE
-- [x] Piece 1: MapType interface + ResolvedType union member + tMap ctor (f8c1f176)
-- [x] Piece 2+3: resolveTypeExpr [K:V] recognizer (findMapEntryColon, depth-1/ternary-excluded) + @ordered strip (2791b919)
-- [x] Piece 4+5: formatTypeForDiagnostic map arm + key-comparability check + isFunctionField asIs sidecar (ae6493a1)
-- [x] Piece 6: E-MAP-BRACKET-WRITE gate + surface map type to state-decl scope binding (81167707)
-- [x] Tests: 35 typer-unit tests (2fee736d)
+## Steps
+- [ ] Step 1: _scrml_fnv1a + _scrml_value_canonical (commit)
+- [ ] Step 2: map structure + method surface (commit)
+- [ ] Step 3: codec encode/decode (commit)
+- [ ] Step 4: map case in _scrml_structural_eq (commit)
+- [ ] Step 5: chunk markers in runtime-chunks.ts (commit)
+- [ ] Step 6: runtime-unit tests (commit)
+- [ ] Step 7: full suite + within-node verification
 
-## Load-bearing findings during implementation
-- ResolvedType is NOT mirrored in compiler/src/types/ast.ts (no ast.ts change needed).
-- struct fn-fields resolve to `asIs` (NOT a `function` kind) in the type registry; the resolver
-  deliberately keeps them asIs (R28-8 warns against changing the resolver root). To surface the
-  function-specific E-EQ-003 (not the general E-MAP-KEY-NOT-COMPARABLE), added an additive
-  `isFunctionField` sidecar to AsIsType (R28-8 `bareVariantBase` precedent), stamped in both
-  parseStructBody + the inline-struct branch when the raw clause is function-shaped.
-- The S168-widened heterogeneous path: a literal index `@m[0]` AND a string-literal key `@m["DAL"]`
-  BOTH produce a STRING path segment (`["0"]` / `["DAL"]`) — INDISTINGUISHABLE from a dotted
-  deep-set `@m.field` (`["field"]`). Only a COMPUTED index `@m[@k]` produces `[{index}]`. For a MAP
-  receiver this is fine: a map has NO struct fields, so ANY reactive-nested-assign on a map cell is a
-  forbidden indexed-write regardless of path-segment form. The gate does NOT discriminate the
-  segment shape for a map receiver (it does NOT require `{index}`); it fires on any path.
-- A map-typed STATE-decl bound `asIs` to the scope (the state-decl surfacing allowlist was
-  enum|union|struct|array). Added `map` to that allowlist so the bracket-write gate sees rt.kind==="map".
-  (let-decl already surfaced map via `kind !== "asIs"`.)
+## 2026-06-06 — progress
+- [done] Step 1-3 (597947aa): _scrml_fnv1a (FNV-1a verbatim, byte-matches TS ref) + _scrml_value_canonical (length-prefixed self-delimiting; -0->0, 1==1.0, field-order-independent) + map structure { __scrml_map, entries:{[canonStr]:{k,v}}, ordered, order? } + full method surface + codec.
+- [done] Step 4 (0c5e914c): map case in _scrml_structural_eq (order-independent, gated on __scrml_map tag; non-map regression-free; equality-semantics 39/0).
+- [in flight] Step 5: chunk markers (RUNTIME_CHUNK_ORDER += 'map'; CHUNK_MARKERS.map; catalog doc) + 2 coupled count tests 27->28 (tree-shaking + c10).
+- [next] Step 6: runtime-unit tests.
 
-## DEFERRED (per brief — v1 design defaults, NOT implemented)
-- `@m[k]` bracket-READ type-flow (no `case "index"` map arm typing `@m[k]` as `V|not`).
-- Deep-nesting E-MAP-BRACKET-WRITE (`@outer[k1][k2]=v`) — v1 shallow receiver check only.
-
+## 2026-06-06 — steps 5-6 complete
+- [done] Step 5 (15bde85f): 'map' chunk marker + RUNTIME_CHUNK_ORDER 27->28 + 2 coupled count tests (tree-shaking + c10) updated.
+- [done] Step 6: value-native-map-runtime-s169.test.js — 59 tests, all pass. Covers fnv1a==TS-ref, canonical hash-consistency (field-order/enums/arrays/-0/1-vs-1.0/string-delimiter/empty-string-vs-not), full method surface, MISS->null, stored-not-vs-absence via .has, entries {key,value} struct + positional correspondence, @ordered insertion order + JS-numeric-key trap, codec round-trip (+stored-not §57 envelope + bit-stability), map == order-independent (+@ordered), map-vs-non-map false-no-crash, chunk wiring.
+- [CALL] §F4 design call surfaced: codec preserves @ordered FLAG but NOT insertion order (canonical key order on wire) — §59.10 bit-stability + §59.9 order-not-value-identity; lossless at VALUE level (== holds). Documented in codec comment + tests §F4/§F4b.
+- [next] Step 7: full suite + within-node verification.

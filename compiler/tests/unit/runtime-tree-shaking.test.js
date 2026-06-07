@@ -237,7 +237,13 @@ describe("runtime size", () => {
     expect(minimal.length).toBeLessThan(SCRML_RUNTIME.length * 0.30);
   });
 
-  test("RUNTIME_CHUNK_ORDER has 27 chunks", () => {
+  test("RUNTIME_CHUNK_ORDER has 28 chunks", () => {
+    // 28 chunks post-§59 (S169 map-arc phase-c D3): 'map' chunk added for the
+    // §59 value-native map runtime (_scrml_fnv1a + _scrml_value_canonical +
+    // _scrml_map_*). Activated per-compile-unit by detectRuntimeChunks when a
+    // map is used (D4 wires the trigger). The map == BRANCH lives in the
+    // 'equality' chunk (_scrml_structural_eq), not 'map'.
+    //
     // 27 chunks post-known-gaps-#6 (S152): 'modules' chunk added for the
     // §21.3 cross-file _scrml_modules registry (Approach B). Sibling to the
     // _scrml_stdlib registry; activated per-compile-unit by detectRuntimeChunks
@@ -269,6 +275,6 @@ describe("runtime size", () => {
     //   18 chunks post-C13: 'engine' chunk for §51.0.F + §51.0.G engine
     //   state-machine runtime hooks.
     //   17 chunks post-C10: 'messages' chunk for §55.10.
-    expect(RUNTIME_CHUNK_ORDER.length).toBe(27);
+    expect(RUNTIME_CHUNK_ORDER.length).toBe(28);
   });
 });

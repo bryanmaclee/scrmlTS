@@ -54,6 +54,12 @@
  *   engine        _scrml_engine_check_transition, _scrml_engine_advance,
  *                 _scrml_engine_direct_set (§51.0.F + §51.0.G, C13).
  *                 Tree-shaken when usage.engines is false.
+ *   map           _scrml_fnv1a, _scrml_value_canonical, _scrml_map_* (§59
+ *                 value-native maps: from_entries/get/has/get_or/insert/remove/
+ *                 update/insert_all/size/keys/values/entries/sorted/sorted_by +
+ *                 encode/decode + empty/clone/set_inplace/key_order internals).
+ *                 Tree-shaken when the compile unit uses no map. The map ==
+ *                 BRANCH lives in `equality` (_scrml_structural_eq), not here.
  *   prefetch      _scrml_prefetch_tier1 (§40.9.7 tier-1 idle prefetch, A-4.3) +
  *                 _scrml_prefetch_tier2 + _SCRML_CHUNKS manifest scaffold
  *                 (§40.9.7 tier-2 hover prefetch, A-4.4) +
@@ -128,6 +134,7 @@ export const RUNTIME_CHUNK_ORDER = [
   'deep_reactive',
   'messages',
   'engine',
+  'map',
   // Stdlib registry chunks — inlined from compiler/runtime/stdlib/<name>.js
   // via _scrml_stdlib.<name>. Activated per-file by detectRuntimeChunks when
   // the source file imports from the matching `scrml:<name>` specifier.
@@ -212,6 +219,13 @@ const CHUNK_MARKERS: Record<NonCoreChunkName, string> = {
   deep_reactive:  'Fine-grained reactivity primitives (Reactivity Phase 1)',
   messages:       "§55.10 Error message resolution runtime (chunk: 'messages')",
   engine:         "§51.0.F + §51.0.G Engine state-machine runtime hooks (chunk: 'engine')",
+  // §59 Value-Native Maps — gates the _scrml_map_* helpers (+ _scrml_value_canonical
+  // + _scrml_fnv1a). Activated by detectRuntimeChunks when a compile unit USES a
+  // map (a `[KeyT:ValT]` cell / map literal / map method). Tree-shaken otherwise —
+  // without this marker a map-using build would ReferenceError on _scrml_map_get
+  // (the helpers would not be in the assembled runtime). _scrml_structural_eq's
+  // map == branch lives in the always-or-equality-gated `equality` chunk, not here.
+  map:            "§59 Value-Native Maps runtime (chunk: 'map')",
 
   // Function definition markers — 'function _name' starts at a line boundary.
   // Previous chunk ends after the preceding function/IIFE closing brace.
