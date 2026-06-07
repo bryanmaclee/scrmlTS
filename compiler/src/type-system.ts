@@ -7852,6 +7852,20 @@ function annotateNodes(
         if (typeof asName === "string" && asName.length > 0) {
           scopeChain.bind(asName, { kind: "variable", resolvedType: tAsIs() });
         }
+        // §59.8 / §14.11 (S169) — the 2-name positional destructure
+        // `as (k, v)` on a `<each in=@m.entries()>` opener binds two locals
+        // (the entry struct's `.key` / `.value` fields). Bind both so bare-ident
+        // references to `k` / `v` in the per-item body do NOT fire E-SCOPE-001.
+        // `asIs` (like `asName`) — codegen derives them from the entry struct;
+        // TS only needs the names in scope.
+        const asNames = (n as Record<string, unknown>).asNames;
+        if (Array.isArray(asNames)) {
+          for (const dn of asNames) {
+            if (typeof dn === "string" && dn.length > 0) {
+              scopeChain.bind(dn, { kind: "variable", resolvedType: tAsIs() });
+            }
+          }
+        }
         // Walk templateChildren (per-item body) AND emptyChild (empty-state
         // body). The empty-state body does NOT see the `as` binding (it's
         // outside the per-item scope) but for simplicity we walk both within

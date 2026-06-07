@@ -950,6 +950,45 @@ function readAsName(attrs) {
     return null;
 }
 
+// readAsBinding — §59.8 / §14.11 (S169) the `as` binding may be a SINGLE name
+// (`as item`) OR a 2-name positional destructure (`as (k, v)`) that binds the
+// iterated entry struct's `.key` / `.value` fields. The native attr tokenizer
+// STRIPS the parens + comma, so `as (k, v)` lands as THREE consecutive barewords
+// `as`, `k`, `v` (indistinguishable by name from `as k v`). We disambiguate by
+// inspecting the raw source between the `as` attr's span-end and the first name:
+// a `(` there marks the parenthesized destructure form. Returns
+// `{ asName, asNames }` where exactly one is non-null (or both null when there
+// is no usable `as`). Single-name path is byte-identical to readAsName.
+function readAsBinding(attrs, source) {
+    for (let i = 0; i < attrs.length; i++) {
+        const attr = attrs[i];
+        if (attr === undefined || attr === null) continue;
+        if (attr.name !== "as") continue;
+        const n1 = attrs[i + 1];
+        if (n1 === undefined || n1 === null
+            || typeof n1.name !== "string" || n1.name === "") {
+            return { asName: null, asNames: null };
+        }
+        // Disambiguate: was the source `as ( name1 , name2 )` (parens present)?
+        // Inspect the raw gap between the `as` attr end and the first name start.
+        const asEnd = attr.span ? attr.span.end : -1;
+        const n1Start = n1.span ? n1.span.start : -1;
+        const hasParen = typeof source === "string"
+            && asEnd >= 0 && n1Start > asEnd
+            && source.slice(asEnd, n1Start).includes("(");
+        if (hasParen) {
+            const n2 = attrs[i + 2];
+            if (n2 !== undefined && n2 !== null
+                && typeof n2.name === "string" && n2.name !== "") {
+                return { asName: null, asNames: [n1.name, n2.name] };
+            }
+            // `as (` with only one name — degenerate; fall back to single-name.
+        }
+        return { asName: n1.name, asNames: null };
+    }
+    return { asName: null, asNames: null };
+}
+
 // collectEachBodyRaw — the raw body text of an each block (between the opener
 // `>` and the `</each>` closer), trimmed. Reuses the same first-child/last-child
 // span bracketing as `collectArmsRaw` (the match-block precedent). Matches the
@@ -972,8 +1011,11 @@ function synthEachBlockNode(block, idGen, source, errors) {
     const ofExprRaw = readEachIterRaw(attrs, source, "of");
     const keyExprRaw = readEachIterRaw(attrs, source, "key");
 
-    // asName — the `as name` bareword (two-attr `as` + name shape).
-    const asName = readAsName(attrs);
+    // asName / asNames — the `as` binding. Single-name `as item` → asName;
+    // the §59.8/§14.11 (S169) 2-name positional destructure `as (k, v)` →
+    // asNames=[k, v] (the entry struct's `.key`/`.value` fields). Exactly one
+    // is non-null. The single-name path stays byte-identical to readAsName.
+    const { asName, asNames } = readAsBinding(attrs, source);
 
     // iterShape: "in" | "of" | null. Exactly one of in=/of= is required at the
     // type-system layer; we record what was present and tie-break BOTH-present
@@ -1018,6 +1060,7 @@ function synthEachBlockNode(block, idGen, source, errors) {
         inExprRaw,
         ofExprRaw,
         asName,
+        asNames,
         keyExprRaw,
         bodyChildren,
         templateChildren,

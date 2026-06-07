@@ -91,6 +91,15 @@ interface EachBlockAstNode {
   inExprRaw: string | null;
   ofExprRaw: string | null;
   asName: string | null;
+  /**
+   * §59.8 / §14.11 (S169) — the optional 2-name positional destructure
+   * `as (k, v)` on a `<each in=@m.entries()>` opener. When present, the
+   * iterated entry struct's fields bind positionally: `asNames[0] ← .key`,
+   * `asNames[1] ← .value`. The iterated value remains the `{ key, value }`
+   * struct; this is terseness sugar over `as e` + `e.key`/`e.value`. Null for
+   * the single-name `as e` form (the common case) and when no `as` is present.
+   */
+  asNames: [string, string] | null;
   keyExprRaw: string | null;
   bodyChildren: any[];      // full walkable body AST (includes <empty>)
   templateChildren: any[];  // bodyChildren minus the <empty> sub-element
@@ -985,6 +994,13 @@ interface EachReconcileCtx {
   mountVar: string;   // the _scrml_reconcile_list container (resolve target)
   keyVar: string;     // the per-item create-time key local
   iterVar: string;    // the iteration variable name
+  /**
+   * §59.8 / §14.11 (S169) — the 2-name positional destructure `as (k, v)`, or
+   * null. When set, every live-keyed re-resolution of `iterVar` re-derives the
+   * two entry-struct field locals so the body's `${k}` / `${v}` references stay
+   * live across reconcile. `[0] ← <iterVar>.key`, `[1] ← <iterVar>.value`.
+   */
+  destructure: [string, string] | null;
 }
 
 // Codegen is synchronous + single-threaded → a module-level stack is safe.
@@ -997,6 +1013,31 @@ function currentEachReconcileCtx(): EachReconcileCtx | null {
 }
 
 /**
+ * §59.8 / §14.11 (S169) — emit the 2-name positional-destructure binding lines
+ * for the entry-struct iterated by `<each in=@m.entries() as (k, v)>`. The
+ * iterated value (`iterVarName`) is the `{ key, value }` entry struct; `as (k, v)`
+ * is sugar that derives two locals: `k ← <item>.key`, `v ← <item>.value`. These
+ * lines are emitted right after the item is (re)bound — at create-time in the
+ * factory and inside every live-keyed effect / handler prelude — so the body's
+ * `${k}` / `${v}` references resolve and stay live across reconcile.
+ *
+ * Returns an empty array when `destructure` is null (single-name `as e` / no
+ * `as` — byte-identical to the pre-S169 emission).
+ */
+function emitDestructureBindingLines(
+  destructure: [string, string] | null,
+  iterVarName: string,
+  indent: string,
+): string[] {
+  if (!destructure) return [];
+  const [kName, vName] = destructure;
+  return [
+    `${indent}const ${kName} = ${iterVarName}.key;`,
+    `${indent}const ${vName} = ${iterVarName}.value;`,
+  ];
+}
+
+/**
  * Wrap a per-item binding's JS body lines in a live-keyed `_scrml_effect` IF a
  * reconcile ctx is active for the iter var the binding reads; otherwise return
  * the body unchanged. The `iterVarName` argument must match the active ctx
@@ -1006,6 +1047,10 @@ function currentEachReconcileCtx(): EachReconcileCtx | null {
  * create-time key) before running the body, so the body's `<iter>.field` reads
  * hit the live Proxy. A `=== null` guard (canonical absence, SPEC §42.5) skips
  * the body when the key is gone.
+ *
+ * §59.8 / §14.11 (S169) — when the active ctx carries a 2-name destructure
+ * `as (k, v)`, the two entry-struct field locals are re-derived from the freshly
+ * resolved item INSIDE the effect, so `${k}` / `${v}` body references stay live.
  */
 function maybeWrapEachPerItemEffect(bodyLines: string[], iterVarName: string, indent: string): string[] {
   const ctx = currentEachReconcileCtx();
@@ -1014,6 +1059,9 @@ function maybeWrapEachPerItemEffect(bodyLines: string[], iterVarName: string, in
   out.push(`${indent}_scrml_effect(() => {`);
   out.push(`${indent}  let ${ctx.iterVar} = _scrml_resolve_item(${ctx.mountVar}, ${ctx.keyVar});`);
   out.push(`${indent}  if (${ctx.iterVar} === null) return;`);
+  for (const l of emitDestructureBindingLines(ctx.destructure, ctx.iterVar, `${indent}  `)) {
+    out.push(l);
+  }
   // Re-indent body lines +2 so the wrapped statement nests cleanly inside the
   // effect (the caller passes them at the binding's own indent).
   for (const l of bodyLines) out.push("  " + l);
@@ -1115,12 +1163,26 @@ export function iterScopeReferencedInHandler(handlerBody: string, iterVarName: s
  * fire-time re-resolution prelude + body; otherwise return `handlerBody`
  * unchanged. The prelude SHADOWS the create-time closure binding with a `let`
  * so the body's `<iterVar>.field` reads resolve to the LIVE item.
+ *
+ * §59.8 / §14.11 (S169) — for `as (k, v)`, the handler body reads the derived
+ * locals `k` / `v` (NOT the entry-struct iterVar directly), so the gate also
+ * fires when either destructure name appears, and the prelude re-derives them
+ * from the freshly resolved item so the handler reads LIVE values at fire time.
  */
 function maybeWrapEachPerItemHandler(handlerBody: string, iterVarName: string): string {
   const ctx = currentEachReconcileCtx();
   if (!ctx || ctx.iterVar !== iterVarName) return handlerBody;
-  if (!iterScopeReferencedInHandler(handlerBody, iterVarName)) return handlerBody;
-  return `let ${ctx.iterVar} = _scrml_resolve_item(${ctx.mountVar}, ${ctx.keyVar}); if (${ctx.iterVar} === null) return; ${handlerBody}`;
+  const readsIter = iterScopeReferencedInHandler(handlerBody, iterVarName);
+  const readsDestructure =
+    !!ctx.destructure &&
+    (iterScopeReferencedInHandler(handlerBody, ctx.destructure[0]) ||
+      iterScopeReferencedInHandler(handlerBody, ctx.destructure[1]));
+  if (!readsIter && !readsDestructure) return handlerBody;
+  const prelude = `let ${ctx.iterVar} = _scrml_resolve_item(${ctx.mountVar}, ${ctx.keyVar}); if (${ctx.iterVar} === null) return;`;
+  const destructurePrelude = ctx.destructure
+    ? ` const ${ctx.destructure[0]} = ${ctx.iterVar}.key; const ${ctx.destructure[1]} = ${ctx.iterVar}.value;`
+    : "";
+  return `${prelude}${destructurePrelude} ${handlerBody}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1277,7 +1339,21 @@ function emitEachReconcileLines(
   // those bindings (emitted by renderTemplate*ToJs below) become live-keyed.
   const _eachKeyVar = `_scrml_each_key_${nextLocalId()}`;
   lines.push(`${indent}    const ${_eachKeyVar} = ${keyFnBody};`);
-  pushEachReconcileCtx({ mountVar, keyVar: _eachKeyVar, iterVar: iterVarName });
+
+  // §59.8 / §14.11 (S169) — `as (k, v)` positional destructure. When the each
+  // carries two `as` names, the iterated entry struct's fields bind positionally
+  // (`k ← <item>.key`, `v ← <item>.value`). Bind the two locals at create-time
+  // (here) AND re-derive them inside every live-keyed effect / handler prelude
+  // (via the ctx.destructure thread) so `${k}` / `${v}` stay live across
+  // reconcile. The iterated value stays the `{ key, value }` struct.
+  const destructure: [string, string] | null =
+    Array.isArray(node.asNames) && node.asNames.length === 2
+      ? [node.asNames[0], node.asNames[1]]
+      : null;
+  for (const l of emitDestructureBindingLines(destructure, iterVarName, `${indent}    `)) {
+    lines.push(l);
+  }
+  pushEachReconcileCtx({ mountVar, keyVar: _eachKeyVar, iterVar: iterVarName, destructure });
 
   // Walk template children — produce DOM-build JS.
   const templateLines: string[] = [];

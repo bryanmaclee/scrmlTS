@@ -12098,9 +12098,9 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
           return val === "" ? null : val;
         }
 
-        const inExprRaw = _captureAttrValue(header, "in");
-        const ofExprRaw = _captureAttrValue(header, "of");
-        const keyExprRaw = _captureAttrValue(header, "key");
+        let inExprRaw = _captureAttrValue(header, "in");
+        let ofExprRaw = _captureAttrValue(header, "of");
+        let keyExprRaw = _captureAttrValue(header, "key");
 
         // `as name` — whitespace-separated bareword (no `=` between `as`
         // and the variable name) per HU-1 Q6 canonical form
@@ -12109,8 +12109,74 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         // a standalone word followed by an identifier; embedded `as`
         // inside in= / key= values is not affected because those values
         // were already captured by _captureAttrValue (which is depth-aware).
+        //
+        // §59.8 / §14.11 (S169): an optional 2-name positional destructure
+        // `as ( name1 , name2 )` binds the iteration value's entry-struct
+        // fields positionally — `name1 ← .key`, `name2 ← .value`. It is sugar
+        // over `as e` + `e.key`/`e.value`; the iterated value stays the
+        // `{ key, value }` struct. We capture both names into `asNames` and
+        // leave `asName` null for the 2-name form. Try the parenthesized
+        // form FIRST (it is more specific), then fall back to single-name.
         let asName = null;
-        const asMatch = header.match(/\bas\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/);
+        let asNames = null;
+        const asTupleMatch = header.match(
+          /\bas\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)/,
+        );
+        const asMatch = asTupleMatch
+          ? null
+          : header.match(/\bas\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/);
+        if (asTupleMatch) {
+          // Guard against the `as` falling inside an earlier attribute value
+          // (same conservative containment check as the single-name path).
+          //
+          // `_captureAttrValue` is depth-aware and OVER-READS an unquoted value
+          // that is followed by the `as (k, v)` destructure — the balanced
+          // `(k, v)` parens make the scanner continue past the value's real end
+          // (e.g. `in=@m.entries() as (k, v)` captures the whole tail as the
+          // `in=` value). Because the tuple match `\bas\s*\(id, id\)` is the
+          // recognised destructure, its match position marks the TRUE end of
+          // any preceding value: clip each captured value's effective end at the
+          // tuple-match position so the containment check measures the real
+          // attribute-value region, not the over-read.
+          const asPos = asTupleMatch.index;
+          let inside = false;
+          for (const prefix of ["in", "of", "key"]) {
+            const p = new RegExp(`\\b${prefix}\\s*=`);
+            const m = header.match(p);
+            if (!m) continue;
+            const valStart = m.index + m[0].length;
+            const val = _captureAttrValue(header, prefix);
+            if (val === null) continue;
+            const valEndIdx = header.indexOf(val, valStart);
+            if (valEndIdx < 0) continue;
+            // Clip the over-read at the tuple-match start (the value cannot
+            // legitimately extend past where the `as (k, v)` destructure begins).
+            const valEnd = Math.min(valEndIdx + val.length, asPos);
+            if (asPos >= valStart && asPos < valEnd) {
+              inside = true;
+              break;
+            }
+          }
+          if (!inside) asNames = [asTupleMatch[1], asTupleMatch[2]];
+
+          // De-contaminate the iteration-source captures. `_captureAttrValue`'s
+          // depth-aware scanner OVER-READS an unquoted value followed by the
+          // `as (k, v)` destructure (the balanced `(k, v)` parens make the
+          // scanner continue past the value), so e.g. `in=@m.entries()` leaks
+          // its `inExprRaw` as `"@m.entries() as (k, v)"`. Strip a trailing
+          // ` as (id, id)` destructure tail from each captured source so
+          // downstream stages (codegen itemsExpr, key inference, TS) see the
+          // clean iteration expression. Only runs when the tuple form matched.
+          const _stripDestructureTail = (raw) =>
+            typeof raw === "string"
+              ? raw.replace(/\s+as\s*\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*,\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\)\s*$/, "")
+              : raw;
+          if (asNames) {
+            inExprRaw = _stripDestructureTail(inExprRaw);
+            ofExprRaw = _stripDestructureTail(ofExprRaw);
+            keyExprRaw = _stripDestructureTail(keyExprRaw);
+          }
+        }
         if (asMatch) {
           // Guard: avoid matching the `as` keyword appearing INSIDE an
           // earlier attribute value (e.g. `in=foo as bar`). Check that
@@ -12242,6 +12308,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
           inExprRaw,         // raw text after `in=` (null when shape is "of")
           ofExprRaw,         // raw text after `of=` (null when shape is "in")
           asName,            // bareword iteration-variable name (optional)
+          asNames,           // 2-name positional destructure [k, v] (§59.8/§14.11; null unless `as (k, v)`)
           keyExprRaw,        // raw text after `key=` (optional; null → inferred)
           bodyChildren,      // full walkable AST mirror of block.children (includes <empty>)
           templateChildren,  // bodyChildren minus the <empty> sub-element (the per-item template)
