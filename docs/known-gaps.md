@@ -19,6 +19,18 @@
 | LOW | 18 | **S169 +2 (map-arc phase-c D4-surfaced): (1) inline `onclick=${@m = @m.insert(...)}` map-assign RHS NOT lowered — `rewrite.ts`'s string-path doesn't reach `emitExpr`, so `.insert` stays on the plain `{__scrml_map}` object → runtime-broken; named-function (`onclick=addFare()`) / arrow (`(e)=>@m.insert(...)`) / logic-block / derived-init shapes ALL work (the canonical handler forms); fix = thread `mapVarNames` into `rewrite.ts`. (2) an `@ordered`-typed cell initialized with a `[:]`/`[k:v]` literal builds an UNORDERED map (codegen has no `@ordered` annotation at the literal site — `_scrml_map_from_entries(..., false)`); the cell's `@ordered` order rides the clone flag on subsequent reassignment — a documented §59 v1 limitation, not a silent-wrong class. · PRIOR S160 +2 (S154(b)-surfaced, both PRE-EXISTING): (1) `/>` + `:`-shorthand on an HTML element fires E-DG-002 not E-CLOSER-001 per §4.14 line 982; (2) after-`>` ENGINE `:`-shorthand fails E2E at the block-splitter (E-STRUCTURAL-ELEMENT-MISPLACED) — the now-canonical inside-opener engine form works E2E. PRIOR — R28-2b (NEW S143): the leading-`:` on `:let` is stripped by the tokenizer (`tokenizer.ts:763`) → `:let` arrives as `let`. R28-2 worked around it (`let` alias makes `:let` FUNCTION today); verbatim end-to-end `:let` (cohesion with `bind:`/`class:`) needs a separate tokenizer dispatch. See §R28.** · **S142 NEW LOW (gate-found-tail diagnostic gaps): brace-compound `<x> = {…}` (non-canonical; structural-children is canonical per §6.3) AND bare-prose `<onTransition>` body both compile exit-0 with NO hard diagnostic (silent-swallow class — should fire E-STRUCTURAL-ELEMENT-MISPLACED / E-UNQUOTED-DISPLAY-TEXT respectively). Surfaced when the fix-wave migrated 2 non-canonical test fixtures.** · **R27 NEW LOW (S141): C8 `@map[.Variant]` subscript → silent invalid JS (missing diagnostic; the subscript form is non-canonical per §14.10 — primary cause was a BRIEF-error) · C9 E-DG-002 false-positive on state read only inside a derived `.filter()` arrow — see §R27. Bug 45 (= C3 `int`-alias) RESOLVED S141 fix-wave `55666c5b`.** · (rotate out below) · **Bug 33 W-LINT-011 :let= false positive RESOLVED S138 `5ec84589` (PA-direct surgical regex negative-lookahead + 3 regression tests; surfaced separate Bug 54 candidate — `:let=` attribute-registry wire-up)** · **Bug 24 qualified-form discrim regex tolerance RESOLVED S138 `aa0395a7` (PA-direct surgical regex extension + 4 regression tests; mirrors classifyWriteAgainstSpec parallel — read-side asymmetry closed)** · **Bug 23 W-LIFECYCLE-LEGACY-ARROW Shape 1 emission gap RESOLVED S138 `61391c75` (PA-direct surgical +27L buildCellValueLifecycleMap per-cell emission; mirrors struct-field equivalent at extractLifecycleFields)** · **Bug 25 transition() deeper-expression regex tolerance RESOLVED S138 `5160afad` (PA-direct surgical regex extension dotted-path + 3 regression tests; mirrors RESET_CALL_RE Q6-narrow pattern; array-index form deferred per filing)** | Bug 4 bare-`/` · GITI-015 · §11-folded-citation sweep · `bun scrml promote --engine` Tier-1→2 deferred · **Bug 21 Q6-narrow deep multi-level reset heuristic (S135)** · **Bug 22 Q6-narrow cross-cell `default=` classification heuristic (S135)** · **Bug 26 `${...}` inside `function` body E-SCOPE-001 (S135)** · **Bug 27 tryParseStructuralDecl extra lookahead cleanup (S135)** · **Bug 34 Shape-2 compound markup-init missing 2nd arg (NEW S136 R24)** · **Bug 45 `int` ghost type → asIs fallthrough → confusing E-SCHEMAFOR-NO-SQL-MAPPING (NEW S136 R25; 4/4 devs reached from canon)** · **Bug 46 tableFor `sortable=`/`selectable=` RESOLVED-VERIFIED S141** (R25-filed "not implemented / W-ATTR-001 forwarded as plain HTML" is STALE — both attrs now emit wiring with NO W-ATTR-001; PA compile-verified: sortable th-click + selectable checkbox wiring present, node-check clean; closed by the §41.16 tableFor impl + S140 Bug-59 per-row-checkbox fix; R27 devs used both successfully) · **Bug 48 latent paren/bracket-depth gap in sibling `<match>`/`<machine>`/`<engine>` opener finders (NEW S137; surfaced by Bug 37 fix; not adopter-fired today)** |
 | Nominal (spec-ahead-of-impl) | 9 | — | **§40.9.5 per-role server-render-time gating runtime (S146 GITI-027B — A+D ratified, design-insight 35; D = server-render gating runtime, impl-pending, START-WHEN-HIGH-LEVERAGE; A = server-side-omission canonical-now + recipe-verified; B per-role-static-HTML rejected; C runtime-prune killed)** · §51.0.H-C1 `effect=`-on-engine-opener (S144 Insight 33; ratified, impl-pending) · Build Story §58 · `import:host` §21.3.1 · Quoted-text §4.18 compiler fire · `_{}` foreign code · WASM call-char sigils · Sidecar process decls · RemoteData enum |
 
+> **Count basis (DD3 Fork 2, `dd3-state-self-evidence-2026-06-07`).** Every gap carries a machine-grep token
+> `<!-- @gap id=<stable-id> sev=<HIGH|MED|LOW|NOMINAL> status=<open|resolved|deferred|nominal|non-gap|forensic> -->`
+> (header gaps: token on its own line under the `### ` header; the four §0-only entries with no header carry
+> standalone tokens placed in §3/§4). `bun scripts/state.ts` derives the headline counts from these tokens:
+> **HIGH/MED/LOW open = `sev=<SEV> status=open`; the Nominal line = `sev=NOMINAL status=nominal`.** Everything
+> else (`resolved`/`deferred`/`non-gap`/`forensic`, and any non-NOMINAL `status=nominal` such as the
+> framing-corrected Bug 10) is excluded — these are the four entries a human silently discounts (Bug 54 deferred,
+> Bug 69 non-gap, Bug 10 nominal, Bug 19-forensic). **The §R28/§R27 cluster tables DO contribute to the headline
+> count** (their OPEN rows — C4/C6/R28-C2 MED, R28-7b/R28-2b/C8 LOW — are real live gaps), so each cluster row
+> carries an inline `@gap` token in its final cell. This basis reproduces the canonical S170 hand-count
+> HIGH 0 · MED 9 · LOW 18 · Nominal 9 exactly.
+
 ---
 
 ## §R28 — gauntlet R28 cluster (S143, 2026-05-29)
@@ -27,22 +39,21 @@
 
 | ID | Sev | Status | Bug | Root cause / note |
 |---|---|---|---|---|
-| R28-7 | HIGH | ✅ **RESOLVED S143 (4144dc30 — user chose fix-now + empty-`<td>`)** | schemaFor + tableFor now MAP `T \| not` (nullable) + `T?` sugar optional struct fields | SPEC §41.15.8a (schemaFor → nullable column = base T's column WITHOUT NOT NULL/req; explicit inverse of §14.8.3; exactly-`[T,not]` qual; nullable-enum; `req`+`\|not` conflict → nullable wins) + §41.16.6a (tableFor → value-or-EMPTY-`<td>`, guarded so never literal null/undefined — consistent with S89 `""`-is-defined) + §34 carve-outs. emit-schema-for.ts `nullableUnionBase` + emit-table-for.ts cell-guard + type-system.ts `T?`-desugar. PA R26: nullable repro compiles clean, empty-guard `?? ""` present, node-check PASS. +4 net tests. Non-`\|not` unions (`string\|integer`) still correctly error. |
-| **R28-7b** | LOW | OPEN | predicated-base-inside-union (`bio: string req length(<=200) \| not`) resolves to `[asIs, not]` (the union member loses raw-clause predicate-base recovery) → still fires `E-SCHEMAFOR-NO-SQL-MAPPING` | pre-existing resolver limitation surfaced by R28-7; NOT one of the canonical R28 nullable shapes (`string\|not`/`integer\|not`/`Status\|not`/`T?` all work). The predicate-base recovery doesn't reach inside a union member. Out of R28-7 scope; file for resolver follow-up. |
-| R28-6 | HIGH | ✅ **RESOLVED S143 (0ecfab98)** | variant-progression `transition()` enforcement DORMANT — omitting `transition()` before post-transition field access compiled exit-0 | **CORRECTED ROOT (agent Rule-4/R26 finding): the `.get()` loose-return was a red herring** — the annotation is retained end-to-end. The real gap: `checkLifecycleBindingAccess`'s `state-decl` handler `continue`d past the RHS of a reactive assignment (`@cell = … + binding.field`), never scanning it for reads of OTHER lifecycle bindings. Fix scans the reactive-assignment RHS; symmetrically closes the same dormancy for presence-progression E-TYPE-001 RHS reads. PA R26: dormant path now fires; correct path + presence-progression clean. +6 tests. SPEC §14.12.6.2/§14.12.10. |
-| R28-2 | HIGH | ✅ **RESOLVED S143 (0dbef110) — Bug 54 un-deferred + CLOSED** | tableFor `<column>` row-access broken BOTH ways: `:let={(row)=>…}` (§41.16.3) forwarded-as-HTML; `@row` (§41.16.10) → `_scrml_reactive_get("row")` | TWO root causes both closed: (1) `rewriteAtDotInExprText` now strips `@` from the exact row-binding name → loop local (emit-table-for.ts; was only handling `@.`); (2) `:let` arrow re-parsed via the §16.6 expander machinery in the type-system column walk + `let` recognized as the colon-stripped `:let` in attribute-registry.js/html-elements.js (no W-ATTR-001). Per Rule 4, §41.16.10 defers the `@row` ergonomics, NOT the silent-wrong codegen. PA R26: `:let` emits slot body; `@row` emits loop-local (0 reactive_get). +6 tests. **Deeper root deferred → R28-2b.** |
-| R28-1 | HIGH | ✅ **RESOLVED S143 (e6fb2f3d) — gate-fire closed** | `@.` each-sigil leaked raw into emitted JS for `<match on=@.field>` nested in `<each … as alias>` → gate-caught `E-CODEGEN-INVALID-JS` | `collectMatchBlocks` now threads the enclosing `<each>` iter var into nested match-blocks; `resolveOnExpr`/`rewriteAtDotInOnExpr` lowers `on=@.field` → `iterVar.field` (byte-identical to `on=alias.field`, SPEC §17.7.3). PA R26: dev-2-go reverted to `on=@.status` compiles gate-clean (0 raw `dispatch(@.`, node --check PASS). +10 tests. **NOTE: closes the GATE-FIRE only; the deeper runtime gap (module-scope dispatcher → wrong per-item value, affects BOTH `@.` and `alias.field`) is → R28-1b.** |
-| R28-3 | HIGH | ✅ **RESOLVED S143 (051ce984)** | `:`-shorthand engine state-child preceded by a `//` markup comment broke block-splitting → `W-PROGRAM-001` + `E-CTX-001`/`E-CTX-003` | Root: a `//` comment between the parent opener `>` and the `:`-shorthand `<engine>` made the compound-auto-lift scanner (`classifyOpenerForCompoundScan`) land on `/` instead of the first `<child>`, mis-classifying the parent as never-closing markup → closer-stack unwind. SPEC §27.1: `//` is universal trivia. New `skipTriviaForCompoundScan` (ws + `//` + `/* */`). PA R26: //-comment repro now clean; dev-4-svelte/dev-2-go zero regression; within-node canary 1005/0. +5 tests. |
-| **R28-1b** | HIGH | ✅ **RESOLVED S143 (1d227a74)** | block-form `<match>` inside `<each>` was NOT rendered per-item (each factory dropped the `match-block` child + a module-scope dispatcher ref'd the item var out of scope) | Fix emits the match PER-ITEM inside the each factory: render/wire fns stay module-scope (item-agnostic, reused), each `<li>` creates its own mount + calls `dispatch(mountEl, article.status)` in factory scope (where `article` is bound), dispatch takes the mount as a param with per-mount dispose isolation (stored on the mount el — no last-write-wins across siblings); phantom module-scope trigger removed. emit-each.ts handler + emit-match.ts/emit-variant-guard.ts itemScopedDispatch. PA R26: no "unhandled match-block"; happy-dom 11/0 (2 items diff statuses → each renders its own arm). R28-1 test rewritten same commit (S113). |
-| **R28-1c** | MED | **RESOLVED S158 (CLASS-LEVEL via Bug 64 hybrid `0892db38`)** | same-key in-place field mutation does NOT re-render per-item `<each>` content — keyed reconciliation reuses the `<li>` node without re-running the per-item factory; a same-key item whose field changes in-place doesn't update | CONFIRMED (R26 reverse-direction) + RESOLVED as part of the Bug 64 (b)-hybrid fix: per-item text + Tier-1 class:/attr are now live-keyed `_scrml_effect`s that resolve the item via the reconcile `key→item` map; `_scrml_deep_reactive(item)` field-read subscription makes in-place field mutation re-fire the effect. PA happy-dom-verified (Tier-1 field-mutation case). See Bug 64 disposition. |
-| **R28-1d** | MED | ✅ NOT-REPRODUCED S147 | bare `<program>` default-logic form (no `${...}` wrap) drops `<ul>`/`<each>` | R26 reverse-direction (S147): the canonical bare-`<program>` + `<ul><each in=@items key=@.id><li : @.name>` shape emits each-wiring correctly on HEAD `f444290a` (`_scrml_reconcile_list` present). Either fixed since S143 or the original was repro-specific. Closed; re-open with the exact R28-1b dev source if it resurfaces. |
-| **R28-2b** | LOW | OPEN | the leading-`:` on `:let` is stripped by the tokenizer (`tokenizer.ts:763` "Unexpected char — skip"; regex `/[A-Za-z_@]/` excludes `:`) → `:let` arrives as `let` | R28-2 worked around it (accept the `let` alias) so `:let` FUNCTIONS today. A verbatim end-to-end `:let` (cohesion with `bind:`/`class:` which keep their colon mid-name) needs a tokenizer fix — broad blast radius across all leading-colon attrs; separate tokenizer dispatch. Surfaced by the R28-2 agent. |
-| R28-4 | MED | ✅ RESOLVED S147 (`bf5ad0db`) | `E-PA-002` advertised a `?{} CREATE TABLE` resolution but the PA introspection scanner ignored `CREATE TABLE` in `?{}` blocks (top-level AND inside fn bodies) | Root: `extractCreateTableStatements` (protect-analyzer.ts) recursed ONLY `node.children`; `?{}` sql nodes live under `body` (top-level `${}` logic block + fn-decl bodies). Fix = generic cycle-safe deep-walk (skip `span`+`_`-keys, depth-cap). Message was correct; scanner was broken. PA R26: both reproducers build shadow DB exit-0; genuine-missing guard holds; +3 regression tests (nest sql under `body`). suite 43→46/0. (Companion claim — `schemaFor` DDL satisfies `<db>` introspection — remains NOT-a-bug; surfaces intentionally decoupled.) |
-| R28-5 | MED | ✅ **RESOLVED S151 (`cce289b4`) = C4** | `E-TYPE-001` dormant on object-literal struct construction (`const a: T = {…}; a.field`) | RESOLVED S151: Path 4 added to `collectStructBindings` (type-system.ts) reusing the existing `seedInitialFromObjectLiteral` seeder — fn-local / top-level object-literal const/let bindings now enroll in the per-access lifecycle tracker exactly like the Shape-1 / JSX-construction forms; pre-transition field read fires E-TYPE-001, post-transition clean. Enrollment-only (walker untouched), gated on `lifecycleRegistry` membership + `{`-init (no over-fire on non-lifecycle bindings), mutually-exclusive guards. Carve-outs preserved (engine-cell, discrimination). +10 tests (lifecycle-objlit-binding.test.js). reproduce→fix→verify BG workflow + independent PA-verify (E-TYPE-001 fires pre / clean post; JSX 6/6, Shape-1 87/87, carve-out 2/2; over-fire probe clean). **Disclosed NEW LOW:** struct-field walker doesn't honor `given (…is not not)` discrimination — PRE-EXISTING, not introduced (see §0 S151 note). |
-| R28-C1 | HIGH | ✅ **RESOLVED — server-fn part landed S144 `44d61a19`** (this row was STALE-open; verified S151); print() residual SPLIT | SPEC §14.12.6.2 (line ~8136) + PRIMER §6.5 ALREADY use `server function publish(...)` — the `server fn`→`server function` flagship fix landed at S144 `44d61a19` per user-voice; the §0 listing was stale. Verified S151 (reverse-direction: don't "fix" what's already correct). **Residual (PARKED, canon-wide):** the §14.12.6.x worked examples + kickstarter use `print()` (~15 sites across SPEC + kickstarter) which is NOT a defined scrml builtin (absent from `examples/`, `samples/`, `compiler/runtime/`, `compiler/src/codegen/`). Needs a canon decision — the correct "read/show a value" idiom in worked examples, OR confirm `print()` is an accepted JS-host (App.D) passthrough. Pervasive + uncertain → NOT a drive-by fix; own item. |
-| R28-8 | MED | ✅ RESOLVED S161 | bare-variant inference into a typed object-literal field fired `E-VARIANT-AMBIGUOUS` when the struct field carried a trailing validator (`category: Category req`) | **S151-ratified extend-§14.10 (impl).** S161 R26 isolated the REAL scope (the S143 row over-stated it): the plain object-literal-field case already worked since S84 `6af9fbaf` (= the overseer-svelte NOT-REPRODUCED half), AND `is some`-narrowed `==` already works (the §14.10 comparison pre-pass). The LIVE residual was ONLY predicated/validated enum struct fields — the struct-body resolver lowered `Category req` to `asIs` (the trailing validator defeats the registry lookup; documented at `type-system.ts:12847`), starving the inference walker. **Localized fix (approach B per the Phase-0 STOP-gate** — a root fix regresses the 41 `structType.fields` consumers incl. formFor/schemaFor/tableFor): an `AsIsType.bareVariantBase` sidecar recovered in `parseStructBody` (`annotateBareVariantBaseFromRawClause` — reuses `_schemaForRecoverEnumSubset`; enum + enum-subset + `Category req \| not` nullable-union forms; primitives leave it absent so a stray `.V` in a `string req` field still correctly fires E-VARIANT-AMBIGUOUS), read ONLY by `inferBareVariantsWithStructNav` (`refineFieldTypeForBareVariant`). +11 tests; PA-independent R26: faithful elixir req-fields CLEAN, typo→E-TYPE-063 naming the enum, enum-subset resolves, plain control clean. kickstarter §4.8 "other position" wording is now CORRECT. |
-| R28-C2 | MED | ✅ **PARTIAL — §11.3 + §11.13 FIXED S151 (PA-direct, kickstarter)**; `< db>` + print() PARKED | **FIXED S151 (kickstarter):** §11.3 channel placement — heading + prose + recipe code + notes corrected to `<channel>` INSIDE `<program>` (was a sibling of `<program>` → fires `E-CHANNEL-OUTSIDE-PROGRAM` per SPEC §38.1 / Insight 30 S87); PA compile-verified the fixed recipe exit-0 clean (no E-CHANNEL). §11.13 SSE — added `import { sleep } from 'scrml:time'` (recipe used `sleep(1000)` unimported). **PARKED:** (a) `< db>`/`< schema>` leading-space — real markdown-display-vs-copy-paste tension (`<db>` in prose is eaten by markdown as an HTML tag; the fix is per-site backtick-wrap in prose + despace inside fenced ```scrml blocks, NOT a sed sweep; `W-WHITESPACE-001` is info-level so verbatim copies compile-with-warning, low-priority); (b) `print()` = the R28-C1 canon-wide residual (own item). Also NOTED (out of R28-C2 scope): the §11.3 recipe's `for/lift` fires `W-EACH-PROMOTABLE` (Tier-0 valid; `<each>` is the Tier-1 canonical — not a bug). |
-
+| R28-7 | HIGH | ✅ **RESOLVED S143 (4144dc30 — user chose fix-now + empty-`<td>`)** | schemaFor + tableFor now MAP `T \| not` (nullable) + `T?` sugar optional struct fields | SPEC §41.15.8a (schemaFor → nullable column = base T's column WITHOUT NOT NULL/req; explicit inverse of §14.8.3; exactly-`[T,not]` qual; nullable-enum; `req`+`\|not` conflict → nullable wins) + §41.16.6a (tableFor → value-or-EMPTY-`<td>`, guarded so never literal null/undefined — consistent with S89 `""`-is-defined) + §34 carve-outs. emit-schema-for.ts `nullableUnionBase` + emit-table-for.ts cell-guard + type-system.ts `T?`-desugar. PA R26: nullable repro compiles clean, empty-guard `?? ""` present, node-check PASS. +4 net tests. Non-`\|not` unions (`string\|integer`) still correctly error. <!-- @gap id=r28-7 sev=HIGH status=resolved --> |
+| **R28-7b** | LOW | OPEN | predicated-base-inside-union (`bio: string req length(<=200) \| not`) resolves to `[asIs, not]` (the union member loses raw-clause predicate-base recovery) → still fires `E-SCHEMAFOR-NO-SQL-MAPPING` | pre-existing resolver limitation surfaced by R28-7; NOT one of the canonical R28 nullable shapes (`string\|not`/`integer\|not`/`Status\|not`/`T?` all work). The predicate-base recovery doesn't reach inside a union member. Out of R28-7 scope; file for resolver follow-up. <!-- @gap id=r28-7b sev=LOW status=open --> |
+| R28-6 | HIGH | ✅ **RESOLVED S143 (0ecfab98)** | variant-progression `transition()` enforcement DORMANT — omitting `transition()` before post-transition field access compiled exit-0 | **CORRECTED ROOT (agent Rule-4/R26 finding): the `.get()` loose-return was a red herring** — the annotation is retained end-to-end. The real gap: `checkLifecycleBindingAccess`'s `state-decl` handler `continue`d past the RHS of a reactive assignment (`@cell = … + binding.field`), never scanning it for reads of OTHER lifecycle bindings. Fix scans the reactive-assignment RHS; symmetrically closes the same dormancy for presence-progression E-TYPE-001 RHS reads. PA R26: dormant path now fires; correct path + presence-progression clean. +6 tests. SPEC §14.12.6.2/§14.12.10. <!-- @gap id=r28-6 sev=HIGH status=resolved --> |
+| R28-2 | HIGH | ✅ **RESOLVED S143 (0dbef110) — Bug 54 un-deferred + CLOSED** | tableFor `<column>` row-access broken BOTH ways: `:let={(row)=>…}` (§41.16.3) forwarded-as-HTML; `@row` (§41.16.10) → `_scrml_reactive_get("row")` | TWO root causes both closed: (1) `rewriteAtDotInExprText` now strips `@` from the exact row-binding name → loop local (emit-table-for.ts; was only handling `@.`); (2) `:let` arrow re-parsed via the §16.6 expander machinery in the type-system column walk + `let` recognized as the colon-stripped `:let` in attribute-registry.js/html-elements.js (no W-ATTR-001). Per Rule 4, §41.16.10 defers the `@row` ergonomics, NOT the silent-wrong codegen. PA R26: `:let` emits slot body; `@row` emits loop-local (0 reactive_get). +6 tests. **Deeper root deferred → R28-2b.** <!-- @gap id=r28-2 sev=HIGH status=resolved --> |
+| R28-1 | HIGH | ✅ **RESOLVED S143 (e6fb2f3d) — gate-fire closed** | `@.` each-sigil leaked raw into emitted JS for `<match on=@.field>` nested in `<each … as alias>` → gate-caught `E-CODEGEN-INVALID-JS` | `collectMatchBlocks` now threads the enclosing `<each>` iter var into nested match-blocks; `resolveOnExpr`/`rewriteAtDotInOnExpr` lowers `on=@.field` → `iterVar.field` (byte-identical to `on=alias.field`, SPEC §17.7.3). PA R26: dev-2-go reverted to `on=@.status` compiles gate-clean (0 raw `dispatch(@.`, node --check PASS). +10 tests. **NOTE: closes the GATE-FIRE only; the deeper runtime gap (module-scope dispatcher → wrong per-item value, affects BOTH `@.` and `alias.field`) is → R28-1b.** <!-- @gap id=r28-1 sev=HIGH status=resolved --> |
+| R28-3 | HIGH | ✅ **RESOLVED S143 (051ce984)** | `:`-shorthand engine state-child preceded by a `//` markup comment broke block-splitting → `W-PROGRAM-001` + `E-CTX-001`/`E-CTX-003` | Root: a `//` comment between the parent opener `>` and the `:`-shorthand `<engine>` made the compound-auto-lift scanner (`classifyOpenerForCompoundScan`) land on `/` instead of the first `<child>`, mis-classifying the parent as never-closing markup → closer-stack unwind. SPEC §27.1: `//` is universal trivia. New `skipTriviaForCompoundScan` (ws + `//` + `/* */`). PA R26: //-comment repro now clean; dev-4-svelte/dev-2-go zero regression; within-node canary 1005/0. +5 tests. <!-- @gap id=r28-3 sev=HIGH status=resolved --> |
+| **R28-1b** | HIGH | ✅ **RESOLVED S143 (1d227a74)** | block-form `<match>` inside `<each>` was NOT rendered per-item (each factory dropped the `match-block` child + a module-scope dispatcher ref'd the item var out of scope) | Fix emits the match PER-ITEM inside the each factory: render/wire fns stay module-scope (item-agnostic, reused), each `<li>` creates its own mount + calls `dispatch(mountEl, article.status)` in factory scope (where `article` is bound), dispatch takes the mount as a param with per-mount dispose isolation (stored on the mount el — no last-write-wins across siblings); phantom module-scope trigger removed. emit-each.ts handler + emit-match.ts/emit-variant-guard.ts itemScopedDispatch. PA R26: no "unhandled match-block"; happy-dom 11/0 (2 items diff statuses → each renders its own arm). R28-1 test rewritten same commit (S113). <!-- @gap id=r28-1b sev=HIGH status=resolved --> |
+| **R28-1c** | MED | **RESOLVED S158 (CLASS-LEVEL via Bug 64 hybrid `0892db38`)** | same-key in-place field mutation does NOT re-render per-item `<each>` content — keyed reconciliation reuses the `<li>` node without re-running the per-item factory; a same-key item whose field changes in-place doesn't update | CONFIRMED (R26 reverse-direction) + RESOLVED as part of the Bug 64 (b)-hybrid fix: per-item text + Tier-1 class:/attr are now live-keyed `_scrml_effect`s that resolve the item via the reconcile `key→item` map; `_scrml_deep_reactive(item)` field-read subscription makes in-place field mutation re-fire the effect. PA happy-dom-verified (Tier-1 field-mutation case). See Bug 64 disposition. <!-- @gap id=r28-1c sev=MED status=resolved --> |
+| **R28-1d** | MED | ✅ NOT-REPRODUCED S147 | bare `<program>` default-logic form (no `${...}` wrap) drops `<ul>`/`<each>` | R26 reverse-direction (S147): the canonical bare-`<program>` + `<ul><each in=@items key=@.id><li : @.name>` shape emits each-wiring correctly on HEAD `f444290a` (`_scrml_reconcile_list` present). Either fixed since S143 or the original was repro-specific. Closed; re-open with the exact R28-1b dev source if it resurfaces. <!-- @gap id=r28-1d sev=MED status=resolved --> |
+| **R28-2b** | LOW | OPEN | the leading-`:` on `:let` is stripped by the tokenizer (`tokenizer.ts:763` "Unexpected char — skip"; regex `/[A-Za-z_@]/` excludes `:`) → `:let` arrives as `let` | R28-2 worked around it (accept the `let` alias) so `:let` FUNCTIONS today. A verbatim end-to-end `:let` (cohesion with `bind:`/`class:` which keep their colon mid-name) needs a tokenizer fix — broad blast radius across all leading-colon attrs; separate tokenizer dispatch. Surfaced by the R28-2 agent. <!-- @gap id=r28-2b sev=LOW status=open --> |
+| R28-4 | MED | ✅ RESOLVED S147 (`bf5ad0db`) | `E-PA-002` advertised a `?{} CREATE TABLE` resolution but the PA introspection scanner ignored `CREATE TABLE` in `?{}` blocks (top-level AND inside fn bodies) | Root: `extractCreateTableStatements` (protect-analyzer.ts) recursed ONLY `node.children`; `?{}` sql nodes live under `body` (top-level `${}` logic block + fn-decl bodies). Fix = generic cycle-safe deep-walk (skip `span`+`_`-keys, depth-cap). Message was correct; scanner was broken. PA R26: both reproducers build shadow DB exit-0; genuine-missing guard holds; +3 regression tests (nest sql under `body`). suite 43→46/0. (Companion claim — `schemaFor` DDL satisfies `<db>` introspection — remains NOT-a-bug; surfaces intentionally decoupled.) <!-- @gap id=r28-4 sev=MED status=resolved --> |
+| R28-5 | MED | ✅ **RESOLVED S151 (`cce289b4`) = C4** | `E-TYPE-001` dormant on object-literal struct construction (`const a: T = {…}; a.field`) | RESOLVED S151: Path 4 added to `collectStructBindings` (type-system.ts) reusing the existing `seedInitialFromObjectLiteral` seeder — fn-local / top-level object-literal const/let bindings now enroll in the per-access lifecycle tracker exactly like the Shape-1 / JSX-construction forms; pre-transition field read fires E-TYPE-001, post-transition clean. Enrollment-only (walker untouched), gated on `lifecycleRegistry` membership + `{`-init (no over-fire on non-lifecycle bindings), mutually-exclusive guards. Carve-outs preserved (engine-cell, discrimination). +10 tests (lifecycle-objlit-binding.test.js). reproduce→fix→verify BG workflow + independent PA-verify (E-TYPE-001 fires pre / clean post; JSX 6/6, Shape-1 87/87, carve-out 2/2; over-fire probe clean). **Disclosed NEW LOW:** struct-field walker doesn't honor `given (…is not not)` discrimination — PRE-EXISTING, not introduced (see §0 S151 note). <!-- @gap id=r28-5 sev=MED status=resolved --> |
+| R28-C1 | HIGH | ✅ **RESOLVED — server-fn part landed S144 `44d61a19`** (this row was STALE-open; verified S151); print() residual SPLIT | SPEC §14.12.6.2 (line ~8136) + PRIMER §6.5 ALREADY use `server function publish(...)` — the `server fn`→`server function` flagship fix landed at S144 `44d61a19` per user-voice; the §0 listing was stale. Verified S151 (reverse-direction: don't "fix" what's already correct). **Residual (PARKED, canon-wide):** the §14.12.6.x worked examples + kickstarter use `print()` (~15 sites across SPEC + kickstarter) which is NOT a defined scrml builtin (absent from `examples/`, `samples/`, `compiler/runtime/`, `compiler/src/codegen/`). Needs a canon decision — the correct "read/show a value" idiom in worked examples, OR confirm `print()` is an accepted JS-host (App.D) passthrough. Pervasive + uncertain → NOT a drive-by fix; own item. <!-- @gap id=r28-c1 sev=HIGH status=resolved --> |
+| R28-8 | MED | ✅ RESOLVED S161 | bare-variant inference into a typed object-literal field fired `E-VARIANT-AMBIGUOUS` when the struct field carried a trailing validator (`category: Category req`) | **S151-ratified extend-§14.10 (impl).** S161 R26 isolated the REAL scope (the S143 row over-stated it): the plain object-literal-field case already worked since S84 `6af9fbaf` (= the overseer-svelte NOT-REPRODUCED half), AND `is some`-narrowed `==` already works (the §14.10 comparison pre-pass). The LIVE residual was ONLY predicated/validated enum struct fields — the struct-body resolver lowered `Category req` to `asIs` (the trailing validator defeats the registry lookup; documented at `type-system.ts:12847`), starving the inference walker. **Localized fix (approach B per the Phase-0 STOP-gate** — a root fix regresses the 41 `structType.fields` consumers incl. formFor/schemaFor/tableFor): an `AsIsType.bareVariantBase` sidecar recovered in `parseStructBody` (`annotateBareVariantBaseFromRawClause` — reuses `_schemaForRecoverEnumSubset`; enum + enum-subset + `Category req \| not` nullable-union forms; primitives leave it absent so a stray `.V` in a `string req` field still correctly fires E-VARIANT-AMBIGUOUS), read ONLY by `inferBareVariantsWithStructNav` (`refineFieldTypeForBareVariant`). +11 tests; PA-independent R26: faithful elixir req-fields CLEAN, typo→E-TYPE-063 naming the enum, enum-subset resolves, plain control clean. kickstarter §4.8 "other position" wording is now CORRECT. <!-- @gap id=r28-8 sev=MED status=resolved --> |
+| R28-C2 | MED | ✅ **PARTIAL — §11.3 + §11.13 FIXED S151 (PA-direct, kickstarter)**; `< db>` + print() PARKED | **FIXED S151 (kickstarter):** §11.3 channel placement — heading + prose + recipe code + notes corrected to `<channel>` INSIDE `<program>` (was a sibling of `<program>` → fires `E-CHANNEL-OUTSIDE-PROGRAM` per SPEC §38.1 / Insight 30 S87); PA compile-verified the fixed recipe exit-0 clean (no E-CHANNEL). §11.13 SSE — added `import { sleep } from 'scrml:time'` (recipe used `sleep(1000)` unimported). **PARKED:** (a) `< db>`/`< schema>` leading-space — real markdown-display-vs-copy-paste tension (`<db>` in prose is eaten by markdown as an HTML tag; the fix is per-site backtick-wrap in prose + despace inside fenced ```scrml blocks, NOT a sed sweep; `W-WHITESPACE-001` is info-level so verbatim copies compile-with-warning, low-priority); (b) `print()` = the R28-C1 canon-wide residual (own item). Also NOTED (out of R28-C2 scope): the §11.3 recipe's `for/lift` fires `W-EACH-PROMOTABLE` (Tier-0 valid; `<each>` is the Tier-1 canonical — not a bug). <!-- @gap id=r28-c2 sev=MED status=open --> |
 **EXPECTED / no-action (overseer-classified):** bare compound expr in `if=` needs `${…}` (§5 attribute-quoting — `if=@cell` is single-ref only); `W-WHITESPACE-001` leading-space deprecation working as intended; engine inside a *redundant* `${}` correctly fires `E-STRUCTURAL-ELEMENT-MISPLACED` (only the message is misleading when the engine is a direct `<program>` child — minor).
 
 **Validation wins (S142 work, all 5 personas, independently confirmed):** errorBoundary §19.6 (nested inner-catches-first, `fallback=`, per-variant `renders` w/ payload, C-hybrid backstop §19.6.8, E-ERROR-005 exhaustiveness) — **zero walls**. Parse gate §2.2.1 default-ON — **zero false positives** across 5 clean compiles + true-positive catches (R28-1 + R28-2). Also clean: formFor validity surface, `fail`/`!{}` + per-handler tx, engine Tier-2 + `<onTransition>`, SSE codegen, word-form `and`/`or`/`not`, channel placement enforcement.
@@ -55,16 +66,15 @@
 
 | ID | Sev | Status | Bug | Root cause / note |
 |---|---|---|---|---|
-| C1 | HIGH | ✅ RESOLVED S141 (fix-wave 55666c5b) | two-bound `length(>=N,<=M)` in formFor/struct-field validator → `{op:">=",value:2 , <= 120}` malformed obj literal, invalid JS at exit-0 | validator-emit; canon-taught (PRIMER §8). Repro `/tmp/pa-r27-len2.scrml`. 5/5 devs. |
-| C2 | HIGH | ✅ RESOLVED S141 (fix-wave 55666c5b) | `->`-arm value-return `match` → `/* match expression could not be compiled */ …;)` invalid JS at exit-0 | only `=>` works; PRIMER §6.2 documents `->`. Repro `/tmp/pa-r27-match.scrml`. 4 devs. |
-| C5 | HIGH | ✅ RESOLVED S141 (fix-wave 55666c5b) | `;` inside a string in `!{}` arm → splitter breaks the string, invalid JS at exit-0 | arm-body statement-splitter not string-literal-aware. Repro `/tmp/pa-r27-semi.scrml`. dev-5. |
-| C3 | (LOW→re-conf) | ✅ RESOLVED S141 (fix-wave 55666c5b) | bare `int` struct field → `asIs` → `E-SCHEMAFOR-NO-SQL-MAPPING` | **= Bug 45 (already filed S136 R25)** — R27 re-confirmed 5/5 + root-caused: `BUILTIN_TYPES` type-system.ts:~623 missing `int`→`integer` alias (mirror `bool`→`boolean`). 1-line. |
-| C4 | MED | OPEN | lifecycle E-TYPE-001 **dormant on object-literal-constructed struct values** (`const u: User = {…}` — the PRIMER §6.5 verbatim shape). fn-return + `<User …>` state-instantiation DO fire. | `collectStructBindings` type-system.ts:14008 has no object-literal construction path. SPEC §14.12.1/.3 normative, NO deferral caveat → real spec-vs-impl gap (flagship). NOT in fix-wave (user scope). |
-| C7 | MED | ✅ RESOLVED S142 (errorBoundary build `f3e9039d`) | errorBoundary was effectively UNIMPLEMENTED (inert marker — not just "inert anchor"). Built from-scratch to the ratified §19.6 + C-hybrid model: typed `!`-error catch → per-variant `renders` / boundary `fallback=` (priority §19.6.5) + compiler-emitted host-JS backstop for non-`!` throws (§19.6.8) + E-ERROR-005 static exhaustiveness + §19.6.4 nesting + SPEC §19.6.8 amendment. **ALSO closes the R24-step-3b errorBoundary direction-call** (ratified §19.6 + C-hybrid catch-scope, S142) **+ the errorBoundary canon-vs-impl drift** (PRIMER §6 + kickstarter `renders=.Fallback`/auto-synth/§19.11-cite → §19.6 `fallback=` + per-variant-renders form). PA dual-verify: full suite 22,153/0 gate-default-ON; happy-dom both paths (typed + backstop) + 7 conformance. |
-| C6 | MED | OPEN | `bind:value=@<synth>.<field>` → E-SCOPE-001 ONLY when formFor nested in an engine state-child (works top-level; `isValid` read works both) | synth-cell scope registration doesn't propagate into engine-state-child scope. dev-4 probe. |
-| C8 | LOW | OPEN | `@map[.Variant]` subscript → silent invalid JS `[.Submitted]` (no diagnostic) | **Primary cause was a BRIEF-error** (R27 feature-7 prescribed a non-canonical subscript; §14.10 → dot-access `@map.Submitted` is canonical). LOW compiler-bug = the missing diagnostic (silent invalid JS vs clean rejection). |
-| C9 | LOW | ✅ RESOLVED S147 (`07655674`) | E-DG-002 false-positive: state read only inside a derived `.filter()` arrow flagged "never consumed" | Closed with S146 match-DG as the E-DG-002 false-positive CLASS. Root: the shared `forEachIdentInExprNode` stops at the lambda scope boundary (lin-capture). Fix = DG-local `collectLambdaBodyReactiveRefs` descends lambda bodies for reader-credit only (shared helper NOT widened — preserves lin semantics). Guard: genuine-unused still fires. +8 tests. Sibling residual surfaced: `<` inside a markup-region lambda body parse-truncates → E-DG-002 false-fires on the post-`<` cell as a SYMPTOM (tokenizer `<`-disambiguation; separate follow-up). |
-
+| C1 | HIGH | ✅ RESOLVED S141 (fix-wave 55666c5b) | two-bound `length(>=N,<=M)` in formFor/struct-field validator → `{op:">=",value:2 , <= 120}` malformed obj literal, invalid JS at exit-0 | validator-emit; canon-taught (PRIMER §8). Repro `/tmp/pa-r27-len2.scrml`. 5/5 devs. <!-- @gap id=r27-c1 sev=HIGH status=resolved --> |
+| C2 | HIGH | ✅ RESOLVED S141 (fix-wave 55666c5b) | `->`-arm value-return `match` → `/* match expression could not be compiled */ …;)` invalid JS at exit-0 | only `=>` works; PRIMER §6.2 documents `->`. Repro `/tmp/pa-r27-match.scrml`. 4 devs. <!-- @gap id=r27-c2 sev=HIGH status=resolved --> |
+| C5 | HIGH | ✅ RESOLVED S141 (fix-wave 55666c5b) | `;` inside a string in `!{}` arm → splitter breaks the string, invalid JS at exit-0 | arm-body statement-splitter not string-literal-aware. Repro `/tmp/pa-r27-semi.scrml`. dev-5. <!-- @gap id=r27-c5 sev=HIGH status=resolved --> |
+| C3 | (LOW→re-conf) | ✅ RESOLVED S141 (fix-wave 55666c5b) | bare `int` struct field → `asIs` → `E-SCHEMAFOR-NO-SQL-MAPPING` | **= Bug 45 (already filed S136 R25)** — R27 re-confirmed 5/5 + root-caused: `BUILTIN_TYPES` type-system.ts:~623 missing `int`→`integer` alias (mirror `bool`→`boolean`). 1-line. <!-- @gap id=r27-c3 sev=LOW status=resolved --> |
+| C4 | MED | OPEN | lifecycle E-TYPE-001 **dormant on object-literal-constructed struct values** (`const u: User = {…}` — the PRIMER §6.5 verbatim shape). fn-return + `<User …>` state-instantiation DO fire. | `collectStructBindings` type-system.ts:14008 has no object-literal construction path. SPEC §14.12.1/.3 normative, NO deferral caveat → real spec-vs-impl gap (flagship). NOT in fix-wave (user scope). <!-- @gap id=r27-c4 sev=MED status=open --> |
+| C7 | MED | ✅ RESOLVED S142 (errorBoundary build `f3e9039d`) | errorBoundary was effectively UNIMPLEMENTED (inert marker — not just "inert anchor"). Built from-scratch to the ratified §19.6 + C-hybrid model: typed `!`-error catch → per-variant `renders` / boundary `fallback=` (priority §19.6.5) + compiler-emitted host-JS backstop for non-`!` throws (§19.6.8) + E-ERROR-005 static exhaustiveness + §19.6.4 nesting + SPEC §19.6.8 amendment. **ALSO closes the R24-step-3b errorBoundary direction-call** (ratified §19.6 + C-hybrid catch-scope, S142) **+ the errorBoundary canon-vs-impl drift** (PRIMER §6 + kickstarter `renders=.Fallback`/auto-synth/§19.11-cite → §19.6 `fallback=` + per-variant-renders form). PA dual-verify: full suite 22,153/0 gate-default-ON; happy-dom both paths (typed + backstop) + 7 conformance. <!-- @gap id=r27-c7 sev=MED status=resolved --> |
+| C6 | MED | OPEN | `bind:value=@<synth>.<field>` → E-SCOPE-001 ONLY when formFor nested in an engine state-child (works top-level; `isValid` read works both) | synth-cell scope registration doesn't propagate into engine-state-child scope. dev-4 probe. <!-- @gap id=r27-c6 sev=MED status=open --> |
+| C8 | LOW | OPEN | `@map[.Variant]` subscript → silent invalid JS `[.Submitted]` (no diagnostic) | **Primary cause was a BRIEF-error** (R27 feature-7 prescribed a non-canonical subscript; §14.10 → dot-access `@map.Submitted` is canonical). LOW compiler-bug = the missing diagnostic (silent invalid JS vs clean rejection). <!-- @gap id=r27-c8 sev=LOW status=open --> |
+| C9 | LOW | ✅ RESOLVED S147 (`07655674`) | E-DG-002 false-positive: state read only inside a derived `.filter()` arrow flagged "never consumed" | Closed with S146 match-DG as the E-DG-002 false-positive CLASS. Root: the shared `forEachIdentInExprNode` stops at the lambda scope boundary (lin-capture). Fix = DG-local `collectLambdaBodyReactiveRefs` descends lambda bodies for reader-credit only (shared helper NOT widened — preserves lin semantics). Guard: genuine-unused still fires. +8 tests. Sibling residual surfaced: `<` inside a markup-region lambda body parse-truncates → E-DG-002 false-fires on the post-`<` cell as a SYMPTOM (tokenizer `<`-disambiguation; separate follow-up). <!-- @gap id=r27-c9 sev=LOW status=resolved --> |
 **Strategic — emitted-JS parse gate BUILT + RATIFIED (A+D), S141** (`scrml-support/docs/deep-dives/emitted-js-parse-gate-invariant-2026-05-29.md` + `scrmlTS/docs/changes/gate-emitted-js-parse-invariant-2026-05-29/`). All 5 devs' unprompted #1 ask. Landed FLAG-GATED (`validateEmit` compile option, default OFF; in-process Acorn `E-CODEGEN-INVALID-JS` backstop over final artifacts + `E-CG-003` D-conversion of the last silent-stub match site; SPEC §2.2.1 + §34). Perf admits always-on (~24ms on the 8433-line trucking-dispatch reference, ~1-2% of compile). **First run caught 16 pre-existing invalid-JS artifacts in `examples/` (C10/C11 below) — the gate works.** Flips to always-on (+ a `--validate-emit` CLI flag) once that backlog closes. Complementary to the individual C1/C2/C5 fixes. **[S142 UPDATE: backlog CLOSED — gate FLIPPED DEFAULT-ON; the gate is now a compile-time invariant by default. See ✅ Gate status + §GATE-FOUND-RESIDUALS (all resolved) below.]**
 
 **Canon-vs-impl drift (lints are CORRECT; canon needs migration — NOT compiler bugs):** `server function` fires W-DEPRECATED-SERVER-MODIFIER though all canon teaches it; kickstarter leading-space `< db>`/`< schema>` trips W-WHITESPACE-001; errorBoundary canon shape `renders=.Fallback` → migrate to SPEC `fallback={}`. (Canon-maintenance backlog.)
@@ -92,24 +102,28 @@ Canary side-effect: cg.scrml LIVE-HOIST-MISCLASSIFY→**EXACT** (residual-1 fix 
 > **NEW S140 — Bug-51-class corpus-coverage audit (`docs/audits/bug-51-class-corpus-coverage-audit-2026-05-28.md`).** The audit found 5 silent-miscompiles on shipped features (clean compile + `node --check` pass, but feature wiring absent/broken at runtime), all hidden behind emit-string-only tests with no happy-dom coverage. Bugs **57 / 58 / 59** (HIGH) + **54** (HIGH) filed below; **60** (MED) in §2. Bugs 57/58/59 DISPATCHED S140; 54 + 60 DEFERRED. Each fix's acceptance gate is a happy-dom runtime test (the missing tier that let these ship). PA dual-verified 57/58/59 per pa.md S138 R26 doctrine. The S139 "engine `effect=` doesn't fire" suspicion was R26-reverse NOT-REPRODUCED (effect= works) — no bug filed; hand-off note corrected.
 
 ### Bug B — structural-compound deep-set codegen mistarget (silent lost mutation) — `RESOLVED S170` (was HIGH; the open HIGH at S169 close; filed S167 by the Bug-A dispatch, PA-reproduced S170 on HEAD `63106225`) — PA-independent-R26-verified
+<!-- @gap id=bug-b sev=HIGH status=resolved -->
 
 **Symptom.** `@a.ref = v` where `a` is a Variant-C structural compound (`<a><ref>=""</>`) emitted `_scrml_reactive_set("a", _scrml_deep_set(get("a"), ["ref"], v))` — but `a` is a `_scrml_derived_declare` composite reading the leaf `a.ref`, so the next read recomputed from the unchanged leaf and the write was silently lost (no diagnostic, default pipeline; failed even for a SINGLE write). Distinct root from Bug A (the multi-statement parser over-consumption fixed S167 `75431e9e`); the S166-filed HIGH decomposed into these two.
 
 **Fix (S170).** `reactive-deps.ts:stampCompoundDeepSetTargets` (run once per file at runCG, mirrors `collectSynthCellKeys`) stamps the reactive-nested-assign node with `_deepSetLeafKey` (deepest statically-resolvable backing leaf along the path) + `_deepSetResidualPath` (segments past that leaf). `emit-logic.ts` honors the stamp: single-segment → `_scrml_reactive_set("a.ref", v)`; residual remainder/computed-index → COW deep-set into the leaf cell. FLAT object cells (`<a>={ref:""}`) are unchanged (no stamp). SPEC §6.3.2 authority. R26 emit excerpts (PA-verified, all `node --check` clean): `@a.ref`→`_scrml_reactive_set("a.ref",…)`; `@a.b.ref`→`a.b.ref`; `@a.cfg.deep`→ deep-set into `a.cfg`; computed `@a.items[@sel]`→ deep-set into `a.items`; flat `<a>={ref:""}` unchanged. +9 tests (5 unit + 4 happy-dom). 2 prior tests that locked the mistarget corrected (Rule-4). DEFERRED: deep-nesting through an inner-map value cell (`@outer[k1][k2]`) = the same case the S168 E-MAP-BRACKET-WRITE note already calls out, not introduced here.
 
 ### Bug 62 — engine `.advance(...)` inside an `<each>`-render event handler → `E-CODEGEN-INVALID-JS` (raw `@` sigil leaks) — `RESOLVED S156 (each-render engine-ctx threading); was HIGH` (#14 batch-3-surfaced; PRE-EXISTING; affected state-plane `.advance` too) — PA dual-R26-verified
+<!-- @gap id=bug-62 sev=HIGH status=resolved -->
 
 Surfaced landing #14 batch 3 (`a9ce4c3a`, S155). The canonical SPEC §51.0.S.6 worked example mounts dispatch handlers inside a nested `<each>` (`<li ondrop=@dragPhase.advance(.Drop(col.id))>` inside `<each in=@columns as col>`). The `<each>`-render event-wiring path does NOT thread the engine ctx, so `@x.advance(...)` in an each-rendered handler emits a raw `@` sigil → the default-ON emitted-JS parse gate fires `E-CODEGEN-INVALID-JS`. **NOT #14-specific and NOT a #14 regression** — affects STATE-plane `.advance(.StateVariant)` in each-render handlers identically; the engine-ctx-threading gap predates #14 (the message-dispatch arc just made the canonical example exercise it). #14's message-dispatch primitive is verified working with non-each handlers (happy-dom + dual R26 on the S6 fixture, which works around this with plain handlers). **Fix = thread the engine ctx (`enginesWithMessageArms` / `engineMessageVariants` + the engine-var set) through the `<each>` render-factory event-wiring path** so the `@`-sigil / `.advance` lowering fires per-item. Blocks the literal §51.0.S.6 each-nested usage. Recommend a focused follow-up dispatch (each-render-ctx engine-threading — general, not #14 codegen). BRIEF context: `docs/changes/s155-14-codegen-message-dispatch/`.
 
 **Disposition — RESOLVED S156 (each-render engine-ctx threading; landed via S67 file-delta from agent branch `c3bd22c8`).** `emit-each.ts` now builds the file's engine codegen ctx once in `emitEachBodyRenderForFile` (via the `collect*` helpers exported from `emit-engine.ts`) and threads it through `emitEachReconcileLines` → `renderTemplateChildToJs` → `renderTemplateAttrToJs` (+ nested-each + `<empty>` paths). The per-item event-handler branch now iter-scope-prelowers (`rewriteIterScopeOnly` — preserves `@engineVar` by matching only `@.`) then routes engine references through the canonical machinery (NO duplicated `.advance` logic): `.advance(.X)` → `parseExprToNode` → `emitExprField` C13 arm → `_scrml_engine_advance(...)` (state) / `_scrml_engine_dispatch_message(...)` (message plane, §51.0.G.1); `@engine = .X` → `rewriteBlockBody(engineRewriteCtx)` → `_scrml_engine_direct_set(...)`. Tree-shaken (null carrier → byte-identical pre-fix emission for engine-less files); non-engine handlers untouched. +13 tests (8 unit `each-engine-advance-bug62.test.js` + 5 happy-dom `each-engine-advance-bug62.browser.test.js`); full suite 22,672 → 22,685 / 0 fail. **PA INDEPENDENT R26 (S138 dual-verify) GREEN:** state-plane repro → `_scrml_engine_advance("phase","Active",__scrml_engine_phase_transitions)` + `node --check` OK; message-plane repro (`accepts=`/`(state×msg)` arms, `.advance(.Go(col))` in `<each as col>`) → `_scrml_engine_dispatch_message("phase",{variant:"Go",data:{n:col}},__scrml_engine_phase_msg_arms,__scrml_engine_phase_transitions)` (as-name payload threaded) + `node --check` OK; `examples/25-triage-board.scrml` no-regress. Surfaced the Tier-0 sibling → Bug 65 below.
 
 ### Bug 65 — Tier-0 `${for…lift}` engine `.advance(...)` in a lifted event handler → SILENT runtime miscompile (`node --check`-clean, TypeError on click) — `RESOLVED S157 (engine-ctx threading into the Tier-0 lift path; PA-R26-verified); was MED` (Bug-62 sibling; surfaced by the Bug 62 fix agent) — PA-verified
+<!-- @gap id=bug-65 sev=HIGH status=resolved -->
 
 The Tier-0 iteration path (`compiler/src/codegen/emit-lift.js:529`) calls `emitExprField(null, handlerSource, { mode: "client" })` — a `null` exprNode (no structured C13 `.advance` detection) AND no `engineExprCtxExtras` threaded. A lifted `<li onclick=@phase.advance(.Active)>` emits `_scrml_reactive_get("phase").advance("Active")`, which is `node --check`-CLEAN (the emit parse-gate does NOT catch it — distinct from Bug 62's Tier-1 LOUD compile failure) but is a **silent runtime miscompile**: the bare-variant string value has no `.advance` method → `TypeError` on click. Strictly WORSE symptom than Bug 62 (silent vs loud). The Bug 62 fix's `buildEachEngineCtx` + `emitEngineHandlerBody` pattern (`emit-each.ts`) is the template; the fix mirrors it into the Tier-0 lift path. `examples/25-triage-board.scrml` currently dodges it (uses a `dropOn(col)` fn-call handler, not a direct `.advance`), so latent there. MED (silent, but the Tier-0 form is the documented promotable iteration shape; an adopter writing the direct-`.advance` lift hits it). Cross-ref Bug 62 (the Tier-1 sibling, RESOLVED S156).
 
 **Disposition — RESOLVED S157 (engine-ctx threading into the Tier-0 lift path; landed via S67 file-delta from agent branch `38c43226`; PA-R26-verified).** TRUE root cause was UPSTREAM of the filed locus (`emit-lift.js:529`): `emit-logic.ts:2385` for-stmt dispatch DROPPED all engine codegen extras (the if-stmt dispatch at :2358 already threaded them), so the lift path never had an engine ctx to begin with. Fix mirrors the if-stmt thread: for-stmt dispatch now spreads `engineBindings`/`engineVarNames`/`enginesWith*`/`engineMessageVariants` into `emitForStmt`; `emit-control-flow.ts emitForStmt` assembles the ctx ONCE (`buildLiftEngineCtxFromExtras`) and threads `engineCtx` into all 5 lift call sites; `emit-lift.js` lowers lifted engine-transition handlers through the SHARED Bug 62 machinery — `buildEachEngineCtx` + `emitEngineHandlerBody` were EXPORTED from `emit-each.ts` (no fork; the active path for the reproducer was `emitCreateElementFromMarkup`'s structured-`expr` branch, NOT only the named `:529` re-parse path — both covered per depth-of-survey). Tree-shaken: byte-identical emission for engine-less for-lift files. `.advance(.X)` → `_scrml_engine_advance(...)` (state) / `_scrml_engine_dispatch_message(...)` (message, §51.0.G.1); `@engine = .X` → `_scrml_engine_direct_set(...)`. +12 unit + 6 happy-dom (real-click canary across all 3 planes); full suite 22,753 → 22,771 / 0 fail. **PA INDEPENDENT R26 GREEN:** reproducer's lifted handler now emits `_scrml_engine_advance("phase", "Active", __scrml_engine_phase_transitions)`; zero bare `.advance(`; `node --check` PASS. Surfaced a SEPARATE pre-existing defect → Bug 70 (`@.`-iter-arg in a for-lift CALL-REF handler → E-CODEGEN-INVALID-JS; NOT engine-related).
 
 ### Bug 66 — bare-variant inference/enforcement does NOT reach the struct-CONSTRUCTOR form `Type { … }` + the multi-token fn-return annotation — `RESOLVED S156 (batch 4, c7a03e64-sourced); was MED` (PRE-EXISTING B20-family parser gap; surfaced by (d)-A batch 1; NOT subset-specific) — PA-verified
+<!-- @gap id=bug-66 sev=HIGH status=resolved -->
 
 Surfaced by (d)-A enum-subset batch 1 (`4dd83a98`, S156). Two pre-existing holes in bare-variant inference/enforcement (general, NOT subset-specific, NOT a batch-1 regression):
 
@@ -121,40 +135,47 @@ Surfaced by (d)-A enum-subset batch 1 (`4dd83a98`, S156). Two pre-existing holes
 **Disposition — RESOLVED S156 (batch 4, `c7a03e64`-sourced; PA-verified).** (b) struct-CONSTRUCTOR form `Type { … }` now runs field-typed bare-variant inference — §53.15.2's canonical `const bad = Post { … role: .Viewer }` fires E-CONTRACT-001 (PA-probe-verified, naming `.Viewer` + subset); plain-enum typos now fire at the constructor position too (closes B20's deferred position). Deeper than framed: acorn drops the `Type { … }` brace body so the const-decl initExpr collapses to a bare `Type` ident — the fix (`inferBareVariantsForStructConstructor`) recovers the struct context from the RAW init text + re-parses the brace body + reuses the struct-nav walker. (a) fn-return annotation = **NON-GAP** (Rule-4 finding): SPEC §7.3:5761 makes `->` the SOLE return-type syntax; the canonical `fn assignRole() -> Role oneOf([…])` ALREADY enforces via batch 1 (PA-verified: `-> Role oneOf([.Admin,.Editor])` + `return .Viewer` → E-CONTRACT-001). The batch-1 "gap" was an artifact of testing the bare-space form (no `->`), which correctly doesn't parse. SPEC §53.15.1/§18.8.1/§53.15.4 worked examples corrected to add the elided `->` (aligned to §7.3 grammar). +16 tests (batch-4); full suite 22,737 → 22,753 / 0 fail.
 
 ### Bug 67 — `return match expr {...}` (match as a return-statement value) in a fn/function body is NOT exhaustiveness-checked — `RESOLVED S157 (ast-builder return-stmt match-as-expr hook; PA dual-verified); was MED` (PRE-EXISTING parser gap; surfaced by (d)-A batch 2) — PA-verified
+<!-- @gap id=bug-67 sev=HIGH status=resolved -->
 
 Surfaced by (d)-A batch 2 (`babb865c`, S156). A `match` used as a function-body return expression (`fn label() -> string { return match @x { … } }`) or over a fn parameter (`match p`) was NOT structurally parsed into a match-expr node, so **match exhaustiveness (E-TYPE-020) never ran there, even for FULL enums**. **PA-refined scope (S157):** the gap is SPECIFICALLY the `return match` form — `let r: string = match @x { … }` inside a function body DID fire E-TYPE-020 (PA-verified), so the exhaustiveness machinery worked; the `return`-statement match-expr wasn't reaching it. Cross-ref §18.8.1; Bug 66 (adjacent fn-return-annotation gap, RESOLVED batch 4).
 
 **Disposition — RESOLVED S157 (landed via S67 file-delta from agent branch `739bfe06` — merged main per S112 so it carries Bug 63/65/68; PA dual-verified).** LAYER = PARSER (not walker; AST-dump confirmed). The return-stmt builder (`ast-builder.js ~5730`) lacked the match-as-expr hook the `let-decl`/`const-decl` builders (~4985/~5095) had: `return match` produced a `match-expr` ExprNode with `rawArms` (string[], from `safeParseExprToNode`) — `hasHeader=false`/`hasBody=false` — which `checkMatchDiagnostics` (reads `.header`/`.body`) never visited; the `let x = match` path used `parseOneMatchAsExpr` → STRUCTURAL match-expr the typer's let-decl case explicitly visits. Fix: (1) `ast-builder.js` return-stmt builder gains the match-as-expr hook → `return-stmt.matchExpr` (structural, via `parseOneMatchAsExpr`); (2) `type-system.ts` annotateNodes return-stmt case visits `node.matchExpr` → exhaustiveness, AND `checkLinear` walkNode routes it through branch-parallel E-LIN-003 analysis (a coupling the minimal-fix framing didn't anticipate — the old rawArms path carried lin analysis via a different branch); (3) `emit-logic.ts` emits `node.matchExpr` via the shared `emitMatchExpr` IIFE — DELIBERATELY same JS shape as the pre-fix path (S95/payload+wildcard codegen tests pass unchanged). fn-PARAM `return match p` = SAME-ROOT, COVERED. +6 unit tests; full suite 22,787 → 22,794 / 0 fail; within-node parity 1005/0 (the 5 `return match` fixtures' live-vs-native baselines bumped — native is M5-swap-out-of-scope; documented divergence). **PA INDEPENDENT VERIFY:** `return match` missing `.Done` → E-TYPE-020 (names `::Done`); exhaustive `return match` → clean; let-binding parity holds; Bug 63/65/68 regression guards all green. Surfaced Bug 71 (top-level derived `const <x> = match` exhaustiveness — separate pre-existing gap; see entry).
 
 ### Bug 68 — positional-payload enum variant `Ok(int)` not materialized → misses `E-SCHEMAFOR-VARIANT-PAYLOAD-ENUM-V1` (classifies as bare-enum → bogus CHECK) — `RESOLVED S157 (parseEnumBody positional-payload materialization; CLASS-LEVEL — also closes the tableFor sibling + a constructor-payload-drop); was MED` (PRE-EXISTING; surfaced by (d)-A batch 3) — PA dual-verified
+<!-- @gap id=bug-68 sev=HIGH status=resolved -->
 
 Surfaced by (d)-A batch 3 (`8f799c78`, S156). At the schemaFor classify layer (`emit-schema-for.ts`), a POSITIONAL-payload enum variant (`Result:enum = { Ok(int), Err(string) }`) does NOT materialize its payload Map, so the field classifies as a bare-variant enum and (a) MISSES the §41.15.6/§41.15-mandated `E-SCHEMAFOR-VARIANT-PAYLOAD-ENUM-V1` rejection AND (b) emits a meaningless `text req oneOf(['Ok','Err'])` CHECK (payload silently dropped). NAMED-payload form (`Ok(value: string)`) materializes correctly and fires the rejection. Identical on FULL-enum and subset-refined fields (verified by probe — NOT introduced by the subset arc; a pre-existing positional-payload type-system/parser materialization gap). MED — silent wrong DDL + missed rejection for a positional-payload enum used as a schema field (edge case; named-payload works). Cross-ref §41.15.6 / §53.15.5; Bug 67 (sibling positional-form parser gap).
 
 **Disposition — RESOLVED S157 (landed via S67 file-delta from agent branch `b377011c` — merged main per S112 so it carries Bug 63 + Bug 65; PA dual-verified).** ROOT was enum-parse MATERIALIZATION, NOT the classify read (the classifiers were always correct; the payload Map was empty). `parseEnumBody` (`type-system.ts`) — and the codegen-side `getAllVariantInfo` raw-fallback (`emit-client.ts`) — required a `:` to record a payload field (`if (colonIdx === -1) continue;`), so a positional declaration `Ok(int)` (bare type expr, no field name) produced a SIZE-0 payload Map → `enumHasPayloadVariant`/`classifyFieldForSql`/`classifyFieldForCell` (all gate on `payload.size > 0`) misclassified it as bare-enum. Fix synthesizes `_<i>` keys for positional fields (mirrors §18.7 positional binding + the `emit-logic.ts schema[i] ?? _${i}` convention). SPEC basis: §41.15 (SPEC.md L16557) cites the POSITIONAL form `Ok(int)` as the canonical payload-bearing-enum exemplar for the rejection, so positional MUST classify payload-bearing (Rule-4 confirmed). **CLASS-LEVEL: the `tableFor` sibling (`E-TABLEFOR-VARIANT-PAYLOAD-ENUM-V1`) had the IDENTICAL miss and CLOSED in-scope via the shared materialization fix** (verified + regression test — no separate fix needed). **Collateral fix:** positional `Ok(int)` constructor now emits `data: { _0 }` (was the broken `data: {}` that silently dropped the payload); `node --check` valid. +8 unit tests; full suite 22,771 → 22,787 / 0 fail. **PA INDEPENDENT VERIFY:** positional `Ok(int)` → fires E-SCHEMAFOR-VARIANT-PAYLOAD-ENUM-V1; bare-enum `{Admin,Editor,Viewer}` → stays clean (no over-fire); tableFor sibling fires. Surfaced a stale test comment (`table-for.test.js:673-674` — claims payload requires named-field syntax; now factually wrong) — noted for a future cleanup pass, not fixed here.
 
 ### Bug 69 — `tableFor` (§41.16.6) enum-subset reach — `NON-GAP-for-v1.0 S156 (PA-probe-verified); re-trigger at v1.next variant-set feature (filtering)` ((d)-A batch-3-surfaced; user S156 re-classified non-gap)
+<!-- @gap id=bug-69 sev=HIGH status=non-gap -->
 
 Surfaced by (d)-A batch 3 (`8f799c78`, S156). `tableFor`'s walker (`type-system.ts` `_processTableForNode` ~13263) has the SAME `asIs` leading-token fallback the batch-3 schemaFor fix just closed — a subset-refined enum field reaches it stripped to the BASE enum, so a `tableFor`-rendered column for that field would treat the value as the full enum (not the subset). **Disposition — EMPIRICALLY A NON-GAP FOR v1.0 (PA-probe-verified S156, post-batch-4 `71be8f5f`).** Initially folded into the (d)-A arc as batch 5 (user S156 "fold Bug 69 in too"), BUT a PA probe BEFORE dispatch found it changes nothing observable: a `tableFor` over a struct with a subset-refined enum field (`role: Role oneOf([.Admin,.Editor])`) compiles CLEAN — NO `E-TABLEFOR-NO-DISPLAY-MAPPING`, renders identically to a full-enum field. Unlike schemaFor (where the subset IS the DB `CHECK` constraint — a real behavioral difference), tableFor's §41.16.6 per-cell default rendering displays the VALUE (`${row.field}` as text), which is subset-independent; the asIs leading-token fallback re-resolves the subset to the bare enum, which renders correctly (no wrong rejection). The variant SET would only matter for a v1.next variant-set-consuming feature (e.g. a filter dropdown of allowed values) — and filtering is §41.16.10-scoped-OUT of v1.0. **Same shape as the Bug-66 (a) fn-return NON-GAP this session.** RECOMMENDATION (Rule-3/4/5): do NOT dispatch a no-op batch 5; re-classify as NON-GAP-for-v1.0 / re-trigger when a variant-set-consuming tableFor feature lands (v1.next). **Pending user disposition.** Cross-ref §41.16.6 / §41.16.10 / §53.15.
 
 ### Bug 70 — `@.` used OUTSIDE an `<each>` body leaks raw → confusing `E-CODEGEN-INVALID-JS` instead of the spec'd `E-SYNTAX-064` — `RESOLVED S157 (E-SYNTAX-064 wired + §34 row added; PA dual-verified); was MED` (PRE-EXISTING; surfaced by the Bug 65 fix agent; PA Rule-4 re-diagnosed) — PA-verified
+<!-- @gap id=bug-70 sev=HIGH status=resolved -->
 
 Surfaced by the Bug 65 dispatch (S157) while building test fixtures. A Tier-0 `${ for (it of @items) { lift <li onclick=ping(@.id)>…</li> } }` — where the lifted CALL-REF event handler passes `@.id` — emits the raw `@.` (`_scrml_ping_N(@.id)`), tripping `E-CODEGEN-INVALID-JS`. **CORRECTED ROOT (Rule 4, PA re-diagnosis S157):** the Bug-65 agent framed this as a "Tier-0 for-lift `@.`-arg-lowering gap" with `rewriteIterScopeOnly` as the fix template — that is SPEC-INCORRECT. `@.` is the `<each>` (Tier-1, §17.7.3) iteration sigil; a Tier-0 `${ for (x of @items) { lift } }` (§17.4) uses the BARE loop variable (`it.id`), NOT `@.` (PA-verified: `ping(it.id)` emits clean `_scrml_ping_N(it.id)`). So `@.` here is OUTSIDE an `<each>` body → per §17.7.3 it should fire **`E-SYNTAX-064` (`@.` outside `<each>`)**, which PRIMER §6.3 "Implementation status" lists as SPEC'd-but-NOT-YET-WIRED (alongside E-EACH-ITER-SHAPE / E-EACH-EMPTY-* / E-EACH-KEY-SENTINEL). Currently `@.`-outside-`<each>` leaks raw → the confusing `E-CODEGEN-INVALID-JS` instead of a clear "use the loop variable; `@.` is `<each>`-only." **Spec-faithful fix = wire E-SYNTAX-064** (emit the clear diagnostic at `@.` resolution when not inside an `<each>` body). Making `@.` silently lower in a Tier-0 for-lift (the agent's suggestion) would CONTRADICT §17.7.3 — NOT the fix. If a future design wants `@.` symmetric across Tier-0/Tier-1, that is a SEPARATE spec amendment (designer-card / Profile-A), not this bug. MED (bad diagnostic on a plausible adopter typo — reaching for `@.` out of `<each>` habit). Cross-ref §17.7.3 / PRIMER §6.3; the E-SYNTAX-064 wiring likely lives in the `@.` resolution path (type-system.ts / each-context tracker). Also noted-not-fixed (LOW): `emit-lift.js:~1088` `emitCreateElementFromExprString` (bare-tag short-form, no closer) does not thread `engineCtx` (left engine-free; not reachable by the for-lift markup engine-handler path today).
 
 **Disposition — RESOLVED S157 (landed via S67 file-delta from agent branch `856352ac` — merged main per S112; PA dual-verified).** E-SYNTAX-064 wired at TWO loci in `type-system.ts` (the existing `inEachBodyScope()` :7362 infra was the gate): (1) `visitAttr` else-fire for a bare `@.field` attr-value outside each; (2) a `lift-expr` subtree scan (`markupSubtreeAtDotTokens`) for `@.` in lift-embedded markup — covering BOTH the handler-call-arg (`ping(@.id)`) AND interpolation (`${@.name}`) positions, which share ONE root (lift-embedded markup is never reached by the TS visitor's array-only recursion; an `@.`-bearing expr bails to an opaque `escape-hatch` so the detection is a text scan). The scan STOPS at nested-each boundaries so legitimate nested-`<each>` `@.` does NOT false-fire. **§34 catalog row for E-SYNTAX-064 was MISSING (code was "queued") — ADDED (Rule 4, severity Error, cross-ref §17.7.3/§3.4) in the same change; §17.7.3 prose flipped queued→wired.** Companion fix in `api.js`: the emitted-JS parse gate (E-CODEGEN-INVALID-JS "compiler defect — please report it") is now SUPPRESSED when a prior FATAL error exists (§2.2.1 — that message is only correct for VALID source; on already-fatal source the codegen-of-invalid-output is expected). +7 unit tests; full suite 22,803 → 22,810 / 0 fail. **PA INDEPENDENT VERIFY:** `ping(@.id)` outside each → E-SYNTAX-064 (names `@.id`), E-CODEGEN-INVALID-JS GONE; `@.` inside `<each>` stays clean; Bug 63/65/67/68/71 regression guards all green. Surfaced Bug 72 (nested `<each>` inside a Tier-0 for-lift codegen — separate pre-existing gap; see entry). **NB (wrap):** the §34 row addition shifts SPEC.md §34+ line numbers by ~1 — SPEC-INDEX line ranges are approximate (±drift); regen via `bun scripts/regen-spec-index.ts` at a convenient point.
 
 ### Bug 72 — nested `<each>` INSIDE a Tier-0 `${for…lift}` body → the nested-each `@.` is not codegen-rewritten in the lift-embedded position → `E-CODEGEN-INVALID-JS` — `RESOLVED S158 (cont. dispatch ace86d07 after aaf169de crash-recovery; PA dual-R26-verified); was MED` (PRE-EXISTING; surfaced by the Bug 70 fix agent) — PA-verified
+<!-- @gap id=bug-72 sev=HIGH status=resolved -->
 
 Surfaced by the Bug 70 dispatch (S157, stash-verified PRE-EXISTING — NOT a Bug 70 regression). A nested `<each>` placed INSIDE a Tier-0 `${ for (row of @rows) { lift <tr><each in=row.cells><td>${@.}</td></each></tr> } }` fails `E-CODEGEN-INVALID-JS` — the LEGITIMATE nested-each `@.` (which IS inside an `<each>` body, so Bug 70's E-SYNTAX-064 correctly does NOT fire on it) is not rewritten to the iteration variable by codegen in this lift-embedded position (the `<each>` codegen `rewriteContextualSigil` / `rewriteIterScopeOnly` doesn't reach an `<each>` nested inside a Tier-0 lift body). Distinct from Bug 70 (which is the `@.`-OUTSIDE-each diagnostic) — this is a codegen-lowering gap for a VALID `@.`-inside-nested-each in the Tier-0-lift-embedded shape. The codegen `<each>`-in-`<each>` path works at the top markup level; the gap is specifically `<each>` inside a `${for…lift}` body. MED — a real but uncommon nesting shape (Tier-0 lift wrapping a Tier-1 each). Cross-ref Bug 70 (the diagnostic sibling, RESOLVED S157); the `<each>` codegen iter-scope rewriting (`emit-each.ts`) is the locus.
 
 **Disposition — RESOLVED S158 `3707e212` (landed via S67 file-delta from continuation agent branch `807d70af`; PA independent dual-R26-verified).** TWO distinct roots (the second surfaced by survey-breadth when the fix added an attr-`@.` test case — Rule 5 transparent): **(1) CODEGEN** — a nested `<each>` in lifted markup arrives as a GENERIC `markup` node (`tag="each"`), NOT a structural `each-block` (`parseLiftTag` produces generic markup recursively + never promotes `<each>`); the Tier-0 lift path then rendered it as a literal `<each>` DOM element whose `${@.}` reached the bare-expr text-node path with no iter-scope rewrite → raw `(@ .)`. Fix = new SHARED helpers in `emit-each.ts` (`eachBlockFromMarkupNode` + `emitNestedEachFromMarkup`) that promote the markup `<each>` and emit it inline via the SAME `emitEachReconcileLines` machinery the Tier-1 nested-each branch uses; `scopeVar` (the for-loop var) threaded through `emit-lift.js` (`emitCreateElementFromMarkup` / `emitConsolidatedLift` / the `*WithContainer` variants) + `emit-control-flow.ts` (all 5 `emitForStmt` lift sub-paths + `IfOpts.scopeVar` through `emitIfStmt`) so the helper is reachable from the Tier-0 path. Null scopeVar → byte-identical pre-fix emission (tree-shake preserved). **(2) PARSER** — a per-item bare-`@`-sigil ATTR value (`<td title=@.>`) tokenizes `@` as standalone PUNCT, which the lift-tag attr-value parser didn't handle → bailed the whole tag to string-fallback → literal `<each>` + raw `@.`. Fix = new `PUNCT "@"` branch in `ast-builder.js` (mirrors the adjacent paren-branch), keeping the lift on the structured markup path. SPEC §17.7.3 (nested each → innermost-scope `@.`) / §17.4. +10 tests (7 unit + 3 happy-dom); full suite 22810 → 22820 / 0 fail. **PA INDEPENDENT R26 (S138):** reproducer compiles clean (0 `E-CODEGEN-INVALID-JS`), 0 raw `@.`, inner sigil → `createTextNode(String(_scrml_each_item))`, `title=@.` → `setAttribute("title", String(_scrml_each_item))`, `node --check` OK, control (top-level nested each) still clean. **Crash-recovery:** first dispatch (aaf169de) wrote the validated helpers then crashed on an API socket error pre-test (NO leak — main verified clean); its WIP captured as `wip-source-from-aaf169de.patch` + transplanted by the continuation agent (807d70af). **SIBLING GAP surfaced (Rule 5, NOT fixed — out of scope):** `_parseLiftAttrValue` may still bail other uncovered attr-value token-kinds (leading unary operator, template-literal-led value) to string-fallback → degraded lift emit quality; recommend a follow-up audit if string-fallback lift quality matters elsewhere. NOT filed as a bug (no confirmed reproducer); logged here as a candidate.
 
 ### Bug 71 — top-level derived `const <x> = match @cell {...}` (and plain `<x> = match`) is NOT exhaustiveness-checked — `RESOLVED S157 (ast-builder structural-decl match-as-expr hook; CLASS-LEVEL — also covers the plain init-time form; PA dual-verified); was MED` (PRE-EXISTING; surfaced by the Bug 67 dispatch, NOT a Bug 67 regression) — PA-verified
+<!-- @gap id=bug-71 sev=HIGH status=resolved -->
 
 Surfaced by the Bug 67 dispatch (S157, stash-baseline verified PRE-EXISTING). A derived state cell whose initializer is a value-return match — `const <label> = match @phase { .Idle => "i" .Loading => "l" }` at file/program scope (missing `.Done`) — does NOT fire E-TYPE-020. This is the DERIVED state-decl path (parsed as `state-decl shape:"derived"`), DISTINCT from the in-function `let x = match` / `return match` forms (Bug 67 closed the `return match` form; the `let x = match` form already checked). So exhaustiveness now covers: `let x = match` ✓ (in-fn), `return match` ✓ (Bug 67), `<match for=T>` block-form ✓, JS-style `match` statement ✓ — but the top-level **derived-`const`-cell** `= match` initializer is the remaining hole. Same shape as Bug 67's root (the derived state-decl builder likely lacks the structural match-as-expr hook the `let-decl`/`const-decl`/return-stmt builders now have), so the fix is probably the analogous hook in the derived-state-decl builder (`ast-builder.js`) + the typer's derived-state-decl case visiting `.matchExpr`. MED — silent under-enforcement on a plausible adopter idiom (a derived label/badge computed by `match`). Cross-ref §18.8.1; Bug 67 (the sibling, RESOLVED S157 — same hook pattern).
 
 **Disposition — RESOLVED S157 (landed via S67 file-delta from agent branch `78eed20f` — merged main per S112; PA dual-verified).** CLEAN PARALLEL to Bug 67 (Phase-0 confirmed no codegen entanglement — the pre-fix AST was the same `match-expr`+`rawArms` shape). `ast-builder.js tryParseStructuralDecl` gains a match-as-expr hook: when a structural state-decl RHS is `match`/`partial match`, it DUAL-PARSES the token range — `collectExpr` first (so `init`/`initExpr` are byte-identical → the reactive `_scrml_derived_declare`/`_scrml_derived_subscribe` emit is UNCHANGED), then rewinds and runs `parseOneMatchAsExpr` for a structural `matchExpr` side-field the typer visits and codegen IGNORES. `type-system.ts` annotateNodes state-decl case visits `node.matchExpr` → exhaustiveness (E-TYPE-020). NO emit rework — codegen parity proven (before/after `@label` IIFE identical; `_scrml_derived_subscribe("label","phase")` dep edge intact; `node --check` clean). **CLASS-LEVEL: the fix also covers the PLAIN `<x> = match` init-time form** (same `tryParseStructuralDecl` builder, same silent-`undefined`-on-missing-variant hole — strictly more correct per Rule 2/3; agent surfaced transparently per Rule 5; `_scrml_reactive_set`/`_scrml_init_set` emit likewise unchanged). +9 unit tests; full suite 22,794 → 22,803 / 0 fail; within-node parity 1005/0 (3 match-bearing fixtures' MISSING-FIELD baselines bumped — native M5-swap-out-of-scope; same documented pattern as Bug 67). **PA INDEPENDENT VERIFY:** derived const match missing `.Done` → E-TYPE-020; exhaustive → clean; codegen parity grep confirms the reactive subscription; Bug 63/65/67/68 regression guards all green. **Match-exhaustiveness arc COMPLETE** — `let x = match` ✓ / `return match` ✓ (Bug 67) / `<match for=T>` block-form ✓ / JS-style `match` statement ✓ / derived `const <x> = match` + plain `<x> = match` ✓ (this fix).
 
 ### Bug 61 — `@compound.isValid` (and §55 compound-level rollup synth reads) emit member-access on the compound proxy, not `_scrml_derived_get(dotted)` — `RESOLVED S140 (commit 0acb0d16); was HIGH` (PA-verified; surfaced by Bug 58)
+<!-- @gap id=bug-61 sev=HIGH status=resolved -->
 
 **Symptom.** Reading a compound-level §55 synth property — `@form.isValid` / `@form.errors` / `@form.touched` / `@form.submitted` — emits `_scrml_reactive_get("form").isValid` (member access on the compound VALUE object, which holds the field values and has no `isValid` property → `undefined`) instead of `_scrml_derived_get("form.isValid")` (the dotted derived cell, which IS declared). Net adopter impact: `@form.isValid` returns `undefined`; `disabled=!@form.isValid` evaluates `!undefined` → `true` → **the submit button stays disabled even when the form is valid**. Compile clean; `node --check` passes. This is why formFor's flagship submit button is still non-functional end-to-end AFTER Bug 58 (which correctly emits + wires the surface, but the compound-level READ path is a separate defect).
 
@@ -165,6 +186,7 @@ Surfaced by the Bug 67 dispatch (S157, stash-baseline verified PRE-EXISTING). A 
 **Disposition — RESOLVED S140 (commit `0acb0d16`), landed with the v0.6.7 cut.** The `@compound.<synthProp>` rollup read-path now collapses 2-segment synth-property reads to the dotted derived cell (`_scrml_derived_get("<compound>.<prop>")`); the submit-gate enables when the form becomes valid; **formFor is functional end-to-end**. (Per the S140 chronology in hand-off-144: v1 agent crashed + over-fired; the correct fix used a threaded `collectSynthCellKeys(fileAST)` pre-pass to guard against the over-fire on plain cells with `errors`/`submitted`/`isValid`/`touched` fields.) Original fix guidance retained for forensic: the `@compound.<prop>` read-path resolver (likely in `emit-bindings.ts` / the expression read-rewrite for `@`-member access, or the synth-cell lookup) must recognize a 2-segment access whose leaf is a registered compound-level synth property (`isValid`/`errors`/`touched`/`submitted`) and emit `_scrml_derived_get("<compound>.<prop>")` — mirroring the per-field 3-segment path that already works. **Acceptance gate:** happy-dom test asserting `@form.isValid` is reactive + the submit button enables when the form becomes valid (and the formFor browser test's documented-but-not-asserted disabled-gate behavior flips to asserted). Cross-refs: SPEC §55.5 / §55.7 (synth-property read semantics); Bug 58 (emits the surface; this is the read-path sibling); the §3.2 audit finding (the "8 unbacked reads" — Bug 58 backed them; Bug 61 fixes the compound-rollup read resolution). Deferred-sibling: the generic compound-child `bind:value=@compound.field` deep-set on a derived parent (Bug 58 fixed it formFor-locally via `_flatBindKey`; a general §55 storage-model fix would close it for hand-authored compounds — track with Bug 61).
 
 ### Bug 57 — `<each>` Tier-1 iteration: `_scrml_reconcile_list` tree-shaken out of the runtime bundle — `RESOLVED S140 (commit e4859a5f)` (was HIGH; PA-verified, happy-dom gate)
+<!-- @gap id=bug-57 sev=HIGH status=resolved -->
 
 **Symptom.** Any adopter file whose only iteration is the Tier-1 `<each>` form ships a runtime-DEAD list: the emitted client JS calls `_scrml_reconcile_list(...)` but the runtime bundle never defines it → `ReferenceError: _scrml_reconcile_list is not defined` on the first `_scrml_each_render_N()`. Compile exits 0; `node --check` passes on every artifact. Emit-string tests pass (they `toMatch` the call-site).
 
@@ -175,6 +197,7 @@ Surfaced by the Bug 67 dispatch (S157, stash-baseline verified PRE-EXISTING). A 
 **Cross-refs.** SPEC §17.7; PRIMER §6.3; sibling Tier-1 shape `<match>` §6.2. Bug-51-A class. The Landing-1 per-item attribute-interpolation caveat (S131) is a SEPARATE minor item, NOT this bug.
 
 ### Bug 58 — `formFor` validity surface never emitted (synth compound state-decl spliced into markup-children) — `RESOLVED S140 (commit 29c33a6c)` (was HIGH; PA-verified, happy-dom gate) — read-path sibling Bug 61 also RESOLVED S140 `0acb0d16`
+<!-- @gap id=bug-58 sev=HIGH status=resolved -->
 
 **Symptom.** The flagship `<formFor for=Signup onsubmit=fn/>` renders its inputs + submit button (markup half wired), but validation is 100% DEAD: the struct validators (req/length/pattern) are never wired; the §55 validity surface (`signup.isValid`, `signup.<field>.errors/.touched`, `signup.submitted`) is consumed by emitted read-sites (8 reads: disabled-button gate + per-field error anchors) but NOTHING declares/backs them; `submitted=true` is never set; the onsubmit handler is invoked with NO `values` argument (SPEC §41.14.3 mandates `fn(values)`). Compile exit 0; `node --check` pass; corroborating `W-DG-002` ×3 (per-field cells orphaned). NOT a Bug-51-A total omission — it's a half-wiring.
 
@@ -185,6 +208,7 @@ Surfaced by the Bug 67 dispatch (S157, stash-baseline verified PRE-EXISTING). A 
 **Cross-refs.** SPEC §41.14 + §55; PRIMER §8. Bug-51 sibling class: feature wiring silently dropped by AST splice into the wrong emission pipeline.
 
 ### Bug 59 — `tableFor` per-row checkbox onchange references undefined free var `evt` (Bug-50-class residual) — `RESOLVED S140 (commit 6a0c3a63)` (was HIGH; PA-verified, happy-dom gate)
+<!-- @gap id=bug-59 sev=HIGH status=resolved -->
 
 **Symptom.** With `<tableFor selectable=…>`, every per-row checkbox toggle throws `ReferenceError: evt is not defined` at runtime. The emitted per-row handler is `function(event) { if (evt !== null && evt !== undefined) { … } }` — the parameter is `event` but the body references `evt`. Compile exit 0; `node --check` pass. The MASTER checkbox is correct (`evt => {…}`) — only the per-row path is broken.
 
@@ -195,6 +219,7 @@ Surfaced by the Bug 67 dispatch (S157, stash-baseline verified PRE-EXISTING). A 
 **Cross-refs.** Bug 50 (RESOLVED S138 `c89f1176`, partial — emit-event-wiring.ts only). SPEC §41.16. Distinct from Bug 46.
 
 ### Bug 54 — `tableFor` `<column … :let={…}>` slot body silently dropped at the parse layer — `NEW S140 (reserved candidate, now filed); HIGH; DEFERRED`
+<!-- @gap id=bug-54 sev=HIGH status=deferred -->
 
 **Symptom.** `<column field="role" :let={(user) => <span class="badge">${user.role}</span>}/>` — the `:let={…}` slot body (custom per-cell renderer) is SILENTLY DROPPED. The column falls through to the default `createTextNode(String((row.role) ?? ""))` render — no `<span>`/badge anywhere in the emitted JS. The only signal is advisory `W-ATTR-001: Attribute let= is not recognized on <column>`. Adopter's custom cell rendering vanishes.
 
@@ -203,6 +228,7 @@ Surfaced by the Bug 67 dispatch (S157, stash-baseline verified PRE-EXISTING). A 
 **Disposition — DEFERRED (not in the S140 dispatch wave).** Parse-layer fix (deeper than the surgical codegen fixes 57/59); requires `:let=` to survive as a recognized slot-binding attribute through block-splitter/parser into the type-system `slotBody`. **Acceptance gate when dispatched:** happy-dom test asserting the custom `:let` renderer markup appears in the cell. Cross-refs: SPEC §41.16.3; §16.6; Bug 33; Bug 46.
 
 ### Bug 19 — Shape 1 plain reactive cell per-access lifecycle tracker — `RESOLVED S134 (commit fd58893e)` (was HIGH; Q6 prerequisite — now closed)
+<!-- @gap id=bug-19 sev=HIGH status=resolved -->
 
 **Fix (S134 `fd58893e`):** Option α per PA lean — extended `collectStructBindings` to recognize `state-decl` AST nodes (Sub-Pass 2.a; struct-typed Shape 1 case) + authored a NEW cell-value-typed tracker reusing the existing `checkLifecycleBindingAccess` from S131 HU-2 via two additive optional params (`initialStates: Map<string, "pre"|"post">` + `bindingSourceLabel: string`) (Sub-Pass 2.b; cell-value-typed Shape 1 case). Discrimination semantics (Sub-Pass 2.d) fully reused — `given X => {}` / `if (X is not) return` / `match X` / `transition(X)` all apply uniformly. Engine-cell carve-out (Sub-Pass 2.c) preserved — both new collectors skip `engineCellNames`. Two material walker changes: synthetic `{kind:"logic"}` block recursion → block-transparent (state-decl writes visible to subsequent siblings per §6.9 hoisting); `reactive-nested-assign` write node recognized as transition write. Tests: NEW `compiler/tests/unit/lifecycle-shape1-tracker.test.js` (+621L, 25 tests). Baseline 21,676 → 21,701 (+25, 0 fail). Pre-commit gate green on all 7 agent commits + the PA-authored landing.
 
@@ -219,6 +245,7 @@ All three filed in `docs/changes/b-prereq-shape1-lifecycle-tracker-2026-05-26/pr
 ---
 
 ### Bug 19 (ORIGINAL ENTRY — S134 surfacing, preserved for forensic) — Shape 1 plain reactive cell per-access lifecycle tracker — `NEW S134; HIGH; impl missing` (Q6 prerequisite)
+<!-- @gap id=bug-19-orig sev=HIGH status=forensic -->
 
 **Surfaced S134 Q6 dispatch Phase-0 STOP** (`docs/changes/q6-reset-lifecycle-2026-05-26/progress.md`). SPEC §14.12.3 + §14.12.10 (bullet 1) normatively promise per-access lifecycle transition tracking on **Shape 1 plain reactive cells** (`<state>: (not to User) = not`-style decls). The impl tracker today (`compiler/src/type-system.ts` `checkLifecycleFieldAccess`) covers struct-field positions (`User.passwordHash`-style) and fn-return positions (per §14.12.6 hybrid) only — `state-decl` (Shape 1 reactive cell decl) AST nodes are NOT in the tracker's scope.
 
@@ -242,6 +269,7 @@ All three filed in `docs/changes/b-prereq-shape1-lifecycle-tracker-2026-05-26/pr
 ---
 
 ### Bug 17 — E-META-001 only fires in compile-time meta blocks; runtime blocks silently accept JS-host globals — `RESOLVED S134 (commit 6c6c0073)` (was HIGH)
+<!-- @gap id=bug-17h sev=HIGH status=resolved -->
 
 **Surfaced S133 Step A** (commit `80b168e6`) — after closing the META_BUILTINS membership divergence, the Step A agent surfaced a second-order architectural gap. SPEC §22.12 line 14687 reads as **categorical**:
 
@@ -267,6 +295,7 @@ But pre-S134 meta-checker fired E-META-001 only inside **compile-time** meta blo
 - **Not blocking adopters today** — pre-S133 adopters didn't write `bun.eval(...)` (the user-facing surface retired S130); post-S133 they're more likely to hit it via reflex. Watch adopter bug reports for first sighting; treat as load-bearing trigger if it shows up.
 
 ### Bug 9 — Compiler-managed async transitive coloring (A9-class) — `RESOLVED-L1+L2 S138 (commit a4a0f2d2)` (was HIGH; L3 transitive coloring still deferred)
+<!-- @gap id=bug-9 sev=HIGH status=resolved -->
 
 **Fix (S138 `a4a0f2d2`):** L1 + L2 paired close per the 3-layer framing. The deferral was correct that L1-alone is a blind-patch; the L2 fix (Bug 55 below) closes the regression class and unblocks L1 to land safely.
 
@@ -303,6 +332,7 @@ But pre-S134 meta-checker fired E-META-001 only inside **compile-time** meta blo
 ---
 
 ### Bug 55 — CPS planner emits statement-shape stmts inside `Promise.all([...])` array literal — `RESOLVED S138 (commit a4a0f2d2)` (was NEW S138 HIGH; surfaced by Bug 9 L1 attempt; paired-closed with Bug 9 L1)
+<!-- @gap id=bug-55 sev=HIGH status=resolved -->
 
 **Fix (S138 `a4a0f2d2`):** PA-direct surgical fix in `compiler/src/codegen/scheduling.ts` (+37L). Added `isStatementShapeStmt` guard at the group-building step that forces statement-shape stmts to size-1 groups — out of the Promise.all parallelization batch where they'd be invalid array-literal elements.
 
@@ -336,6 +366,7 @@ The `let` and `if` statements aren't valid array-literal elements → SyntaxErro
 ---
 
 ### Bug 10 — §29 vanilla-interop — SPEC vs implementation drift — `Nominal / framing-corrected S132`
+<!-- @gap id=bug-10 sev=HIGH status=nominal -->
 
 **Originally (S110):** SPEC §2.1 + §29 asserted in the present tense that plain `.js`/`.html`/`.css` files "are valid alongside `.scrml` files; the compiler processes `.scrml` files and integrates or passes through the rest." Verified S110 the compiler did NOT do this — a pure-vanilla file is rejected (`Cannot find file or directory`); a mixed-project build compiles the `.scrml` and silently DROPS the vanilla files (not copied to dist). The bug was the FALSE present-tense CLAIM, not a missing feature.
 
@@ -346,6 +377,7 @@ The `let` and `if` statements aren't valid array-literal elements → SyntaxErro
 ---
 
 ### Bug 11 — 6nz-V `class:NAME` on for-lift reused DOM nodes — `RESOLVED S139 (commit f8a1f2ff)` (was HIGH)
+<!-- @gap id=bug-11 sev=HIGH status=resolved -->
 
 **Root cause:** `compiler/src/runtime-template.js` `_scrml_reconcile_list` sets the GLOBAL `_scrml_tracking_paused = true` for its entire body (originally added to suppress Proxy `item.id` reads from leaking onto the outer effect's deps). That body calls `createFn(item, i)` — the per-item factory — which typically registers a per-item `_scrml_effect(() => { ..._scrml_reactive_get("sel")... })` closure. When those effects ran their initial `fn()` during creation, `_scrml_reactive_get("sel")` called `_scrml_track(_scrml_state, "sel")` — but `_scrml_track` short-circuits if `_scrml_tracking_paused` (line 2380). So the per-item effect's `ctx.deps` stayed EMPTY, registering zero subscribers. The effect then never re-fired on `@sel` writes; the create-time class state stayed frozen forever. CLASS-LEVEL: same shape for any nested `_scrml_effect` registered during reconcile — class:NAME, style:NAME, attribute interpolation, textContent interpolation — all silently lost reactivity.
 
@@ -361,6 +393,7 @@ The `let` and `if` statements aren't valid array-literal elements → SyntaxErro
 ---
 
 ### Bug 12 — E-FN-003 false-positive on attributed-markup-return inside `fn` — `RESOLVED S133 (commit dbef4f4d)` (was HIGH)
+<!-- @gap id=bug-12h sev=HIGH status=resolved -->
 
 A `fn` that returned (or `let`-bound) markup carrying ANY attribute (`class`, `id`, `href`, …) false-fired `E-FN-003: fn body writes to '<attr>'`. The fn-purity write-check `checkOuterScopeMutation` (`compiler/src/type-system.ts` ~12780-12813) ran a text-heuristic `ASSIGN_RE` regex over the SERIALIZED statement text (`nodeText` → `emitStringFromTree`, which re-serializes returned markup including attributes); markup `name="…"` / `name={…}` was indistinguishable from an assignment LHS to that regex. Blocked the canonical "fn returns markup" idiom (PRIMER §6.4 sub-shape 4 / kickstarter §11.11).
 
@@ -370,6 +403,7 @@ A `fn` that returned (or `let`-bound) markup carrying ANY attribute (`class`, `i
 ---
 
 ### Bug 28 — `or` / `and` boolean operators not lowered to `||` / `&&` in derived-cell codegen — `RESOLVED S136 (commit 89008e97)` (was HIGH; R24)
+<!-- @gap id=bug-28 sev=HIGH status=resolved -->
 
 **Fix (S136 `89008e97`):** two-site landing per agent triage finding (a76e86b1c2b94ea00). The bug surface was two-sided:
 - **AST path** (`compiler/src/expression-parser.ts:preprocessForAcorn` +35L) — acorn doesn't know `or`/`and` are operators; without rewrite, the AST emission path produced no `BinaryExpr` for word-form. Added `or`→`||` / `and`→`&&` rewrite, fenced via `rewriteCodeSegments` (matches the `rewriteNotKeyword` precedent above it).
@@ -394,6 +428,7 @@ These can be hardened later with extended lookbehind if adopters report; not war
 ---
 
 ### Bug 29 — `!{}` handler `{ return }` arm codegen emits `_result = return;` (invalid JS) — `RESOLVED S136 (commit c7e81962); broader case Bug 38 RESOLVED S137 (commit 933d1ad3)` (was HIGH; R24)
+<!-- @gap id=bug-29 sev=HIGH status=resolved -->
 
 **S136 partial fix (commit `c7e81962`):** terminating-statement detection added to `compiler/src/codegen/emit-logic.ts` `emitArmAssign` closure (case `"guarded-expr":`, lines 2479-2491). Two local helpers: `splitTopLevelStmts` (depth-tracked `;`-split mirroring `rewriteBlockBody`'s separator pass) + `isTerminatorStmt` (regex `/^(?:return|throw|break|continue)(?:[\s;]|$)/`). When arm body's last statement matches a terminator, emit each statement directly (no `_result = ...` wrap). Side-effect + terminator bodies (`{ @x = "y"; return }`) emit both as a sequence — reactive_set fires BEFORE return. +18 regression tests in `compiler/tests/unit/error-handler-terminator-arms.test.js`. Tests 21,762 → 21,780.
 
@@ -409,6 +444,7 @@ These can be hardened later with extended lookbehind if adopters report; not war
 ---
 
 ### Bug 36 — `! ErrorType` bare-form parse-gap (SPEC §41.14) caused server-fn body silent drop — `RESOLVED S136 (commit e1269844)` (was CRITICAL; R25; 3/4 devs)
+<!-- @gap id=bug-36 sev=HIGH status=resolved -->
 
 **Fix (S136 `e1269844`):** three-site parser fix. Root cause was NOT `?{}` SQL as the brief hypothesized — the SQL correlation was incidental (all R25-affected functions just happened to contain SQL). Actual root: the parser only recognized `! -> ErrorType` arrow form (SPEC §19.4.1 normative grammar); the bare `! ErrorType` form (SPEC §41.14 normative examples; 4/4 R25 dev instinct from canon) was unrecognized → parser fall-through → body-collection failure → BS "statement boundary not detected" warning → silent body drop → empty server-fn handlers.
 
@@ -438,6 +474,7 @@ Tests: 14,746 pass / 9 fail (pre-fix; 9 = my new regression test's pre-fix expec
 ---
 
 ### Bug 37 — arrow function in `<each in=...>` attribute truncates at codegen — `RESOLVED S137 (commit 1ce963d0)` (was HIGH; R25; minimally reproduced)
+<!-- @gap id=bug-37 sev=HIGH status=resolved -->
 
 Inline arrow-function predicate inside an `<each>` `in=` attribute was severed at codegen. `<each in=@x.filter(c => c.foo == 1)>` emitted `_scrml_reactive_get("x").filter(c =;` — the `=>` was severed, predicate body dropped, closing paren replaced with `;`. Compile exited 0 (silent miscompile); `node --check` FAILED with `SyntaxError: Unexpected token ';'`. Minimally reproduced by overseer-4 in R25.
 
@@ -457,6 +494,7 @@ Inline arrow-function predicate inside an `<each>` `in=` attribute was severed a
 ---
 
 ### Bug 38 — `!{}` arm body codegen failure (R24 Bug 29 family, DEEPER; distinct from Bug 36) — `RESOLVED S137 (commit 933d1ad3)` (was HIGH; R25; 4/4 devs)
+<!-- @gap id=bug-38 sev=HIGH status=resolved -->
 
 Bug 29's narrow `{ return }` case was RESOLVED in S136 commit `c7e81962`. Bug 36 (RESOLVED S136 `e1269844`) was investigated for shared root by the R25-Bug-36 dispatch agent and CONFIRMED DISTINCT — Bug 36 was a function-decl-head parse-gap; Bug 38 was the call-site `!{}` handler emission gap in codegen. Different code path; not closed as Bug 36 side-effect.
 
@@ -483,6 +521,7 @@ Negative-control (value-producing arm bodies like `| _ -> "fallback"` / `| _ -> 
 ---
 
 ### Bug 39 — phantom enum-object → `el.textContent` wiring (no source backing) — `RESOLVED-AS-SIDE-EFFECT-OF-BUG-36 S136 (commit e1269844)` (was HIGH; R25; 2/4 devs independent)
+<!-- @gap id=bug-39 sev=HIGH status=resolved -->
 
 **RESOLVED via Bug 36 fix.** The phantom `el.textContent = CreateError; el.textContent = MoveError; el.textContent = ArchiveError;` wiring was a SIDE EFFECT of Bug 36's parse failure — when the `! ErrorType` bare form failed to parse, the IDENT (`CreateError` etc.) was orphaned and collected as a bare-expr by `parseRecursiveBody`. The bare-expr was then auto-wired as a reactive-display expression on a `_scrml_logic_N` slot. With Bug 36 fixed, the IDENTs are properly absorbed as errorType annotations and the phantom wiring vanishes by construction.
 
@@ -496,6 +535,7 @@ Negative-control (value-producing arm bodies like `| _ -> "fallback"` / `| _ -> 
 ---
 
 ### Bug 40 — `:`-shorthand inside `<each>` item body silently emits empty fragment — `RESOLVED S137 (commit 50d38095)` (was HIGH; R25)
+<!-- @gap id=bug-40 sev=HIGH status=resolved -->
 
 `<each in=@list><span : @.field><empty>...</></each>` emitted an item factory that returned an empty `documentFragment.firstChild` (always `null`). No `span` element, no text content. Confirmed for `<empty : "string literal">` (Svelte dev-3, overseer-3). Affected dev-1's "all 7 `<each>` item factory bodies empty" finding (dev-1 also used `<li class="card" : @.title>` `:`-shorthand).
 
@@ -524,6 +564,7 @@ Three-file fix coupled with regression tests:
 ---
 
 ### Bug 41 — `<schema>` block content leaks into HTML body as raw visible text — `RESOLVED S137 (commit ebeba766)` (was HIGH; R25)
+<!-- @gap id=bug-41 sev=HIGH status=resolved -->
 
 dev-2-elixir's HTML output contained the raw text content of the `<schema>` block (`cards { ... } activity_log { ... }`) as visible body content. Schema content belongs to the DDL / migration artifact path (schemaFor walker, migration diff); NEVER the HTML render-tree.
 
@@ -558,6 +599,7 @@ Brief's broader-list speculation would have been over-fix. Banked: trust grep ov
 ---
 
 ### R24-BUG-4 — `<match>` block-form `</>` closer rejected with E-CTX-001 — `RESOLVED S138 (commit adc0a70f)` (was HIGH; class-level fix also closes same-shape `<each>` `</>` gap)
+<!-- @gap id=r24-bug-4 sev=HIGH status=resolved -->
 
 **Fix (S138 `adc0a70f`):** CLASS-LEVEL — `compiler/src/block-splitter.js` STRUCTURAL_RAW_BODY_ELEMENTS depth-tracker replaced with generic tag-stack scanner. Per SPEC §4.4.2 — `</>` SHALL close the innermost open tag, no exceptions. Closes BOTH `<match>` AND `<each>` `</>` closer support in one fix.
 
@@ -584,6 +626,7 @@ New `findStructuralBodyEnd` helper (+479/-58L in block-splitter.js): skip-zone h
 ---
 
 ### Bug 53 — `<match>` `:`-shorthand arm body emits raw markup as textContent (Phase 3 codegen gap) — `RESOLVED S138 (commit f05d04d2)` (was HIGH; surfaced by R24-BUG-4 R26)
+<!-- @gap id=bug-53 sev=HIGH status=resolved -->
 
 **Fix (S138 commit landed alongside this known-gaps update):** PA-direct surgical fix in `compiler/src/codegen/emit-match.ts:buildMatchArms` shorthand branch (+46/-18L). Detect markup-start in trimmed bodyRaw via `/^<[A-Za-z_]/` regex. When matched, route through `nativeParseFile` (same as the bare-body branch). Non-markup shorthand (string literals, reactive cells, expressions, less-than comparisons) keeps the parseExprToNode path.
 
@@ -628,6 +671,7 @@ The `:`-shorthand arm body (`<Idle>: <p>Idle</p>`) emits `el.textContent = <p>Id
 ---
 
 ### Bug 52 — `<match for=Type on=.BareVariant>` codegen does not lower bare-variant (Phase 3 codegen gap) — `RESOLVED S138 (commit a30d86d1)` (was HIGH; surfaced by R24-BUG-4 R26)
+<!-- @gap id=bug-52 sev=HIGH status=resolved -->
 
 **Fix (S138 `a30d86d1`):** PA-direct surgical fix in `compiler/src/codegen/emit-match.ts:resolveOnExpr`. Added 5th branch (+18L) detecting `^\.[A-Z][A-Za-z0-9_$]*$` shape and lowering to `JSON.stringify(variantTag)`. Mirrors the canonical bare-variant lowering at `emit-expr.ts:emitIdent` lines 291-303 (unit variants store as bare string tags at runtime — `Phase.Idle === "Idle"`).
 
@@ -651,6 +695,7 @@ Dispatch helper's `_tag` extraction handles the string form directly: `_tag = (t
 ---
 
 ### Bug 49 — BS-level statement-boundary detection silently drops `const X = call() !{...}` arm content — `RESOLVED S137 (commit 076d53e5)` (was HIGH; R26 verification surfaced; UPSTREAM of Bug 38 codegen fix)
+<!-- @gap id=bug-49 sev=HIGH status=resolved -->
 
 **Fix (S137 `076d53e5`):** ROOT CAUSE WAS DOWNSTREAM OF BRIEF HYPOTHESIS. Brief hypothesized `expression-parser.ts:2010` (the warning fire site). Actual locus: `compiler/src/tokenizer.ts` `tokenizeLogic` — two layers earlier than the codegen modules the maps route to. The expression-parser warning was the SYMPTOM; the tokenizer was where the `!{...}` content went unrecognized as an extension of the preceding statement, becoming an orphaned block that the BS-level statement-boundary scanner then dropped.
 
@@ -762,6 +807,7 @@ The `const r = call() !{...}` shape IS shown in PRIMER §6 + kickstarter — it'
 ## §2 MED — silent acceptance / incomplete surfaces
 
 ### Bug 73 — per-item EVENT HANDLERS in a reconciled list close over the CREATE-TIME item, not the live one (display↔handler divergence on same-key reuse) — `RESOLVED S159 (this commit; live-keyed per-item handlers re-resolve the item by key AT FIRE TIME via the existing _scrml_resolve_item plumbing, both tiers; PA independent dual-R26-verified); was MED, in-impl` (Bug-64 sibling-gap #2; PA R26-reverse-VERIFIED at HEAD `97fe2199`, BOTH tiers)
+<!-- @gap id=bug-73 sev=MED status=resolved -->
 
 **Context.** Bug 64 (S158) made per-item DISPLAY bindings (text / class: / attr) live-keyed — they re-resolve the current item by the node's create-time key via `_scrml_resolve_item(<wrapper>, <key>)`. Per-item EVENT HANDLERS were explicitly scoped OUT (named as sibling-gap #2 in the Bug 64 disposition) and still close over the **create-time** iter var.
 
@@ -778,18 +824,21 @@ Both files' DISPLAY bindings (in the same factory) DO re-resolve via `_scrml_res
 **ORIGINAL FILING — in-impl S159 (autonomous bug arc).** Dispatched to `scrml-js-codegen-engineer` with a Phase-0-survey-STOP gate (enumerate the handler-emission sites in `emit-lift.js` + `emit-each.ts` that close over the iter var; confirm which to wrap vs exclude; the fire-time resolve+rebind+null-guard shape; nested-`<each>` ctx matching) before the heavy edit.
 
 ### Bug 63 — markup-attribute bare-variant `.advance(.X)` not type-checked (no variant-typo / two-plane diagnostic at event-handler-attribute position) — `RESOLVED S157 (commit e2ca4978; markup-attr handler hookup to inferReactiveSiteBareVariants); was MED` (#14 batch-2-surfaced; PRE-EXISTING; general markup-attr gap) — PA dual-verified
+<!-- @gap id=bug-63 sev=MED status=resolved -->
 
 Surfaced #14 batch 2 (`c6f323f0`, S155). The §51.0.G.1 `.advance` two-plane resolution + `E-ENGINE-MSG-UNKNOWN` / `E-VARIANT-AMBIGUOUS` fire in logic-block / fn-body bare-expr position, but NOT at markup-attribute position (`ondrop=@x.advance(.Drop(col))` — the canonical §51.0.S call site). Pre-existing: bare-variant inference does not reach markup-attribute event-handler exprs for ANY bare variant (not message-specific). Consequence: a typo'd message/state variant in a markup-attr `.advance` is NOT caught at compile time (the runtime dispatch still WORKS; only the static safety net is absent). Fix = wire bare-variant inference into the markup-attr event-handler expr path (general — benefits all markup-attr bare variants). NOT a #14 regression. Cross-ref Bug 62 (the each-render-ctx sibling gap).
 
 **Disposition — RESOLVED S157 (commit `e2ca4978`; landed via S67 file-delta from agent branch `e1491bbc`; PA dual-verified).** LOCALIZED HOOKUP (Phase-0 survey confirmed the existing `type-system.ts annotateNodes case "markup"` walk already visits handler attrs — no new typer subsystem). For each `on*` event-handler attr (`isEventHandlerAttrName`, B18 predicate reused), normalize the handler value to an ExprNode via new `handlerAttrToExprNode()` (synthesizes a `call`-rooted node from the `call-ref` bare form `@cell.method`+`argExprNodes`, or passes the `expr` interpolation form's parsed `exprNode` through), then invoke the SAME `inferReactiveSiteBareVariants(..., cellMessageEnums)` the bare-expr statement path uses at `type-system.ts:6116`. State plane → `E-TYPE-063` on invalid variant; message plane → `E-ENGINE-MSG-UNKNOWN` for `accepts=` engines. Covers all 4 positions (plain markup-attr / `<each>` per-item / engine-state-child body / `${...}` interpolation). Non-`.advance`/non-`@` handlers untouched. +9 unit tests. **PA INDEPENDENT RECOMPILE:** markup-attr + `<each>`-handler `.advance(.Bogus)` now fire `E-TYPE-063` (were silent); valid `.Active` compiles clean (no false positive). Full suite additive +9, 0 fail.
 
 ### Bug 64 — Tier-0 `for ... lift` index-keyed list reuses DOM nodes on in-place replace → per-item interpolated text goes STALE (create-time-static) — `RESOLVED S158 (ratified (b) hybrid: live-keyed per-item effects + reconcile key→item map; CLASS-LEVEL — also closes R28-1c + the Tier-1-class-not-reactive gap; PA dual-R26-verified incl. TodoMVC node-reuse); was MED` (scrml-site adopter report) — PA-verified
+<!-- @gap id=bug-64 sev=MED status=resolved -->
 
 Reported by scrml-site (`handOffs/incoming/read/2026-06-02-0838-scrml-site-to-scrmlTS-liftlist-index-key-stale-content.md`, `needs:fyi`). A Tier-0 `${ for (let ln of @lines) { lift <div>…</div> } }` list whose items have no `id` field keys by ARRAY INDEX. On in-place cell replace (`@lines = toLines(other)`), `_scrml_reconcile_list` reuses the index-matched DOM nodes and patches only REACTIVE bindings — but per-item interpolated text (`${ln.n}${ln.text}`) is emitted CREATE-TIME-STATIC, so it does NOT refresh (`class:`/`if=` toggles on the same nodes DO update — the sneaky split). Workaround (shipped by scrml-site): route the change through `[]` (clear → refill = full recreate). Two interpretations: (a) intended ("provide a stable `id`/`key` or you get index semantics") → wants a doc/lint note; (b) codegen gap (interpolated per-item content emitted static when the node can be reused) → silent-wrong-output. Per "don't soft-classify bugs," (b) is the live possibility. ALSO flags a tension: the `<each>` escape hatch (the lint suggests it) drops event/class/`${}` wiring per scrml-site's own friction log → neither stock path serves a hover-wired list that must re-render. DISPOSITION (user-accepted S155): QUEUE; batch with the next lift/each codegen touch (highest-churn area); confirm (a)-vs-(b) before fix.
 
 **Disposition — RESOLVED S158 (landed via S67 file-delta from agent branch `0892db38`; PA independent dual-R26-verified).** User ruled (b) codegen fix (S158 AskUserQuestion), then ratified the **(A) Hybrid** implementation after a Phase-0 survey STOP. **Reframe vs the S155 entry (Rule-4 / R26 correction by the survey):** the split was BROADER than "only text stale" — on array-replace BOTH text + class go stale in BOTH tiers; on field-mutation text is always stale AND Tier-1 `<each>` class: is ALSO stale (it was a BARE static toggle, not effect-wrapped — a latent gap). The deeper S155 #7 tension (`<each>` drops handlers/class) was LARGELY STALE — post-S156-S158 `<each>` already wires handlers + Tier-0 class. **The fix (universal keyed-list model):** per-item bindings read the CURRENT item from the LIVE collection BY KEY (not a create-time snapshot). (1) Runtime `runtime-template.js` `_scrml_reconcile_list` builds ONE `key→item` map (`container._scrml_item_by_key`) per pass before any fast-path bail + `_scrml_trigger(container,"_scrml_items")`; NEW `_scrml_resolve_item(container,key)` tracks the container slot (re-fire on reconcile) + returns `_scrml_deep_reactive(item)` (field reads subscribe → re-fire on in-place field mutation) OR `null` (canonical absence). keyFn-call count REDUCED to N/pass (was 2N/3N). (2) Codegen `emit-lift.js` (Tier-0) + `emit-each.ts` (Tier-1) + `emit-control-flow.ts` — per-item text (AND Tier-1 class:/attr, unifying the tiers + closing the bare-toggle gap) emit as live-keyed `_scrml_effect`s resolving the item by key. Node-reuse + Fast-path-B2 PRESERVED (map build is O(n)/pass, no re-create). **CLASS-LEVEL — closes Bug 64 (array-replace) + R28-1c (Tier-1 field-mutation) + the Tier-1-class-not-reactive latent gap + unifies Tier-0/Tier-1 binding.** +11 tests (9 happy-dom + 2 unit) + 4 coupled emit-shape assertion updates (createTextNode→textContent-in-effect; all semantic invariants preserved incl. Bug 72's inner-`@.`→`_scrml_each_item`). Full unit+integration+conformance 15733/0; browser 365/0; **TodoMVC 39/0 (node-reuse no-regression — the critical perf gate)**. **PA INDEPENDENT R26 + happy-dom:** array-replace / field-mutation / reorder all reflect new data (content follows key); no-op reconcile same node identity (fast-path preserved); both tiers; node --check OK; zero `undefined` leaks. **SIBLING GAPS surfaced (Rule 5, NOT fixed — out of scope):** (1) `${ @cell = x }` reactive write inside a scrml `function foo()` body lowers to an EMPTY function body in client.js (potential silent-miscompile — PA to R26-verify + file); (2) per-item event handlers still close over the create-time item, not the live one (`onclick=fn(@.id)` on a reordered reused node fires with stale value) — a follow-up axis using the same `_scrml_resolve_item` plumbing. Cross-refs: SPEC §17.4/§17.7; R28-1c row (§R28); the universal keyed-list contract (React/Vue/Svelte/Solid).
 
 ### Bug 60 — render-by-tag nested-compound-field use-site emits literal browser-ignored tags (input never appears) — `RESOLVED S158 (emit-html enclosingCompoundStack + lookupQualifiedStateCell fallback + transparent compound-wrapper + DG render-by-tag read-credit; PA dual-R26-verified); was MED (DEFERRED since S140)` (Bug-51-class audit) — PA-verified
+<!-- @gap id=bug-60 sev=MED status=resolved -->
 
 **Symptom.** A nested compound-field render-by-tag use-site — `<signupForm><userName/></signupForm>` where `userName` is a Shape-2 field inside the `signupForm` compound — emits the tags VERBATIM as literal `<signupForm><userName /></signupForm>` (browser-ignored), with ZERO `data-scrml-render-by-tag` and NO `<input>`. The field's runtime cell IS fully wired in client.js (`_scrml_reactive_set("signupForm.userName", null)` + validators + derived isValid/errors), so the cell exists but no DOM element binds to it — the input simply never renders. Compiler emits `E-DG-002` (declared but never consumed in a render context). SPEC §6.3.5 explicitly declares this form valid. The top-level Shape-2 render-by-tag forms (v1–v6, v8: text/checkbox/select/textarea/const-prefix/multi-line-`match{}`/`${}`-wrap) all HOLD post-S139-Bug-51 — only the nested-compound-field use-site fails.
 
@@ -798,6 +847,7 @@ Reported by scrml-site (`handOffs/incoming/read/2026-06-02-0838-scrml-site-to-sc
 **Disposition — RESOLVED S158 (landed via S67 file-delta from agent branch `7a97aef5`; PA independent dual-R26-verified).** R26 reverse-direction re-verified at HEAD `3707e212` BEFORE dispatch (S138 — the S140 root cause was agent-evidence, never PA-re-run; confirmed still firing, not closed by a sibling fix). The fix (two files): **(1) `emit-html.ts`** — NEW `enclosingCompoundStack` + a transparent compound-wrapper branch (a BLOCK-form `<signupForm>…</signupForm>` whose tag resolves to a `compound-parent` cell is a NAMESPACE wrapper — pushes its name, walks children, emits NO DOM element of its own; SPEC §6.3.5:2209 is silent on wrapper emission, transparent follows from the parent being render-spec-less; E-CELL-NO-RENDER-SPEC is the SELF-tag `<x/>` rule, not the block-wrapper). The render-by-tag self-tag block now falls back to `lookupQualifiedStateCell(fileScope, [enclosing, tag])` when the bare `lookupStateCell` fails inside a wrapper, and keys the bind on `decl.qualifiedPath ?? tag` (`signupForm.userName` for nested; bare `tag` for top-level — byte-identical). REUSES the existing top-level Shape-2 expansion path unchanged. **(2) `dependency-graph.ts`** — E-DG-002 lives in a SEPARATE pass; added a render-by-tag structural-read credit (lowercase tag matching a `reactiveVarNodeIds` entry → `creditReader`) mirroring the existing each-block/engine/match-block credits, clearing the spurious "never consumed" on the wrapped compound. Precise — a genuine orphan still fires (PA-verified). **Wrapper-emission decision: TRANSPARENT** (agent surveyed, spec-grounded). SPEC §6.3.5:2209 + §6.4.2. +15 tests (10 unit + 5 happy-dom); pre-commit gate 15714→15724, browser 5/5, render-by-tag+Bug-51 family 49/49, DG suite 117/117. **PA INDEPENDENT R26:** reproducer → text+email inputs render, 2 `data-scrml-render-by-tag` hookpoints, 0 literal tags, bind keys `signupForm.userName`/`signupForm.email`, E-DG-002 GONE, node --check OK; orphan control STILL fires E-DG-002 (no over-credit); top-level Shape-2 control no-regression. **SIBLING GAPS surfaced (Rule 5):** (a) the DG credit ALSO clears a PRE-EXISTING E-DG-002 false-fire on TOP-LEVEL render-by-tag-only cells (one principled mechanism fixes both — bonus); (b) DEFERRED edge — nested PREDICATE-typed or ENUM-`<select>`-typed render-by-tag fields may key `reactiveTypeMap`/`enumVarMap` by bare-leaf vs dotted in `emit-bindings.ts` (the repro's text/email + req/length/email validators lower to HTML attrs, unaffected); flagged for a future predicate/enum nested render-by-tag pass. **Process notes:** worktree branched from stale session-start base `1a72c81c` (S112 — behind main by Bug 72; Bug-60 files DISJOINT from Bug-72 files so file-delta was clean additive, no revert); agent self-caught + corrected ONE `--no-verify` slip on progress.md (soft-reset + re-committed through the gate). Cross-refs: SPEC §6.3.5/§6.4.2; PRIMER §5; the S139 Bug 51-A/B/C cluster (top-level render-by-tag).
 
 ### A5 refinement-type freeze extension — `DEFERRED with adoption-watch trigger` (S134)
+<!-- @gap id=a5 sev=MED status=open -->
 
 The `const <state>` deep-freeze debate (S134) ratified a **sequenced** verdict: A4 (close the L21 walker alias-escape gap) lands NOW; A5 (refinement-type `object(frozen(deep))` extension that emits `Object.freeze` at the JS-host boundary) DEFERS until adopter friction confirms the boundary-zone enforcement is needed.
 
@@ -811,6 +861,7 @@ The `const <state>` deep-freeze debate (S134) ratified a **sequenced** verdict: 
 
 
 ### Bug 1 — Tailwind arbitrary-value classes — `partial-impl` (remaining: ring-offset + gradient + safelist + string-shaped)
+<!-- @gap id=bug-1 sev=MED status=open -->
 
 Major families shipped S108-S109: grid / flex / aspect / transition / timing / individual transforms + shorthand + directional / outline / ring (length/color/var/keyword). The `W-TAILWIND-UNRECOGNIZED-CLASS` floor lint catches typos + unsupported arbitrary-values today.
 
@@ -825,6 +876,7 @@ Major families shipped S108-S109: grid / flex / aspect / transition / timing / i
 ---
 
 ### Bug 12 — V-kill READ-side fire — `deferred`
+<!-- @gap id=bug-12-vkill sev=MED status=open -->
 
 S123 V-kill landed write-side enforcement (`@x = expr` at default-logic body-top fires `E-WRITE-NOT-IN-LOGIC-CONTEXT`). The READ-side fire (rejecting bare `@x` reads against undeclared cells inside `${...}` bodies) is deferred — the engine var-name canonicalization machinery is the unblocker.
 
@@ -834,6 +886,7 @@ S123 V-kill landed write-side enforcement (`@x = expr` at default-logic body-top
 ---
 
 ### Bug 13 — E-SCHEMA-003 enforcement — `RESOLVED S133 afbcb47a`
+<!-- @gap id=bug-13 sev=MED status=resolved -->
 
 S130 HU-2 Q7 ratified `<schema>` placement as immediate child of `<program>` (per F-019); SPEC §34 E-SCHEMA-003 catalog row updated S130. **RESOLVED S133 `afbcb47a`** ("feat(s133): E-SCHEMA-003 placement enforcement (Phase 2 amendment closure F-019)") — a `<schema>` block parented by anything other than the `<program>` root now fires E-SCHEMA-003. Fire site: `compiler/src/gauntlet-phase1-checks.js:538` (Check 4 — placement enforcement). Test: `compiler/tests/unit/e-schema-003-placement.test.js`.
 
@@ -843,6 +896,7 @@ S130 HU-2 Q7 ratified `<schema>` placement as immediate child of `<program>` (pe
 ---
 
 ### Bug 14 — MCP V0 partial-impl + deferred items — `partial-impl`
+<!-- @gap id=bug-14 sev=MED status=open -->
 
 MCP V0 sub-units A+B+C+D shipped S125-S130. V0.E (E2E + adopter docs + fixture multi-page app) pending. V0.D (this session S130) has 3 deferred items that limit current capability:
 
@@ -856,6 +910,7 @@ MCP V0 sub-units A+B+C+D shipped S125-S130. V0.E (E2E + adopter docs + fixture m
 ---
 
 ### Bug 16 — Generator policy — `open` (S114)
+<!-- @gap id=bug-16 sev=MED status=open -->
 
 `yield` / `yield*` / `function*` are NOT covered by the S114 "no async/await" rule (preserved in the JS-subset bound at M4.3 per S114). Semantic policy is open: do generators belong in scrml, and if so under what discipline (compiler-managed iteration vs user-authored protocol)?
 
@@ -865,6 +920,7 @@ MCP V0 sub-units A+B+C+D shipped S125-S130. V0.E (E2E + adopter docs + fixture m
 ---
 
 ### Bug 17 — L19 multi-statement-handler relaxation — `queued for HU`
+<!-- @gap id=bug-17-l19 sev=MED status=open -->
 
 L19 forbids multi-statement event handlers (`onclick=` must be a single expression, not a multi-statement block). The rule was ratified pre-engines; engines + body-split CPS may have changed the design constraints. Carry-forward question: should L19 relax under modern scrml composition?
 
@@ -874,6 +930,7 @@ L19 forbids multi-statement event handlers (`onclick=` must be a single expressi
 ---
 
 ### Bug 30 — Linter scans content inside `<!-- -->` HTML comment blocks — `RESOLVED S137 (commit 5199a435)` (was MED; R24; R25 confirmed via Bug 43)
+<!-- @gap id=bug-30 sev=MED status=resolved -->
 
 Original symptom: the lint pass fired `W-LINT-001` / `W-LINT-003` / `W-LINT-004` / `W-LINT-005` / `W-LINT-007` / `W-LINT-008` / `W-LINT-011` / `W-LINT-014` / `W-LINT-016` / `W-LINT-022` on text appearing inside HTML comment blocks (`<!-- ... -->`). Surfaced by dev-2/3/4 overseers in R24 (R25 confirmed via Bug 43 cross-ref): every dev's `<!-- FRICTION REPORT -->` block (containing anti-pattern words like `===`, `<style>`, `.map()`, `{#if}` for comparison) tripped multiple lints.
 
@@ -908,6 +965,7 @@ Both agent + PA ran R26 independently. PA-captured pre-fix baseline at `/tmp/r26
 ---
 
 ### Bug 31 — `if`-statement-as-expression in `!{}` result binding produces invalid JS — `RESOLVED S137 (commit 8f4f4ce3)` (was MED; R24-BUG-5)
+<!-- @gap id=bug-31 sev=MED status=resolved -->
 
 Original symptom: function body containing `if (cond) return` immediately followed by `failableCall() !{...}` caused codegen to emit `let _result = if (cond) { return fn(); }` — JS SyntaxError. Narrow but adopter-encounterable on dev-1-react's `function load()` pattern.
 
@@ -937,6 +995,7 @@ PA hypothesis WRONG (4 of 11 dispatches correct this session). Brief's "MODERATE
 ---
 
 ### Bug 32 — `@.` iteration sigil not lowered inside `<tableFor>` column slot body — `RESOLVED S137 (commit 68bfb4a4)` (was MED; R24-BUG-6; CLASS-CLOSE)
+<!-- @gap id=bug-32 sev=MED status=resolved -->
 
 Original symptom: `<column field="status" :let={(row) => <span>${@.status}...}/>` inside `<tableFor for=T rows=@cell>` emitted `@ . status` unlowered into client JS — orphan `@` token → JS SyntaxError. dev-1-react column-slot at line 331 (inside `<tableFor>` starting line 311, `<column>` line 330).
 
@@ -960,6 +1019,7 @@ Original symptom: `<column field="status" :let={(row) => <span>${@.status}...}/>
 ---
 
 ### Bug 35 — `rewriteIsPredicates` in `preprocessForAcorn` fails on BS-tokenizer space-padded dots — `RESOLVED S137 (commit 5cb993c2)` (was MED; R24-BUG-1 triage finding)
+<!-- @gap id=bug-35 sev=MED status=resolved -->
 
 Original symptom: when the BS tokenizer space-pads dot tokens (`@x is . All` vs the canonical `@x is .All`), `rewriteIsPredicates` in `compiler/src/expression-parser.ts:preprocessForAcorn` FAILED to recognize the `is`-predicate. AST-path silently dropped the predicate; codegen fell through to the string-rewrite fallback (which worked correctly via `rewriteIsOperator` at `compiler/src/codegen/rewrite.ts:561-562`).
 
@@ -991,6 +1051,7 @@ Original symptom: when the BS tokenizer space-pads dot tokens (`@x is . All` vs 
 ---
 
 ### Bug 42 — `?{}` SQL in `server function*` SSE generator body not lowered (E-CG-006 misclassified) — `RESOLVED S137 (commit 480aded4)` (was MED; R25)
+<!-- @gap id=bug-42 sev=MED status=resolved -->
 
 Original symptom: compiler treated `server function*` (SSE generator) body as client-side context for `?{}` lowering. dev-1 + dev-2 emitted raw `? { \`SELECT...\` } . all ( )` tokens. dev-4 emitted `null` with `// E-CG-006` comment.
 
@@ -1029,6 +1090,7 @@ SSE handler emit sample (dev-1 `activityLog`): properly synthesized as `async fu
 ---
 
 ### Bug 43 — Linter scans HTML comment content — `RESOLVED-AS-DUPLICATE-OF-BUG-30 S137 (commit 5199a435)` (was MED; R24; R25 confirming evidence)
+<!-- @gap id=bug-43 sev=MED status=resolved -->
 
 R25 surfaced this independently (dev-3 / overseer-3). Already filed as Bug 30 in S136 R24 intake. **RESOLVED in same commit as Bug 30** (`5199a435`, S137) — single fix to `buildSkipRanges()` + `commentRanges` skip extension closes both. dev-3-svelte's friction-report empirically verified clean post-fix (10 → 0 false-positives, 0 outside-comment fires affected).
 
@@ -1038,6 +1100,7 @@ R25 surfaced this independently (dev-3 / overseer-3). Already filed as Bug 30 in
 ---
 
 ### Bug 44 — W-LINT-007 false-positive on `fallback={<markup/>}` (SPEC §19.6 canonical errorBoundary shape) — `RESOLVED S137 (commit 98f82970)` (was MED; R25)
+<!-- @gap id=bug-44 sev=MED status=resolved -->
 
 Original symptom: W-LINT-007 ghost-pattern lint fired on `<errorBoundary fallback={<markup/>}>` (the SPEC §19.6.2 canonical form, only-working shape per compiler-accepts) treating it as a JSX `{val}` scalar braces-in-attribute pattern. Confirmed by dev-3-svelte + dev-4-pascal + overseer-4 in R25; dev-1-react + dev-2-elixir also empirically firing per PA dual-verify.
 
@@ -1071,7 +1134,13 @@ Original symptom: W-LINT-007 ghost-pattern lint fired on `<errorBoundary fallbac
 
 ## §3 LOW — ergonomic / cosmetic
 
+<!-- §0-only LOW entries (no `### ` header; tracked in the §0 LOW Closed-this-arc cell) -->
+<!-- @gap id=s169-map-inline-insert sev=LOW status=open -->  <!-- inline onclick=${@m=@m.insert(...)} map-assign RHS not lowered (S169 map-arc) -->
+<!-- @gap id=s169-ordered-unordered-build sev=LOW status=open -->  <!-- @ordered cell built UNORDERED from a [:] literal (S169 map-arc; documented §59 v1 limit) -->
+
+
 ### Bug 74 — `/>` + `:`-shorthand on an HTML element fires E-DG-002, not E-CLOSER-001 — `spec-vs-impl divergence` (S160, PRE-EXISTING)
+<!-- @gap id=bug-74 sev=LOW status=open -->
 
 SPEC §4.14 line 982 specifies that a closer (`</>`, `/`, OR `/>`) present alongside a `:`-shorthand body is **E-CLOSER-001** (choose one form). The impl does NOT fire E-CLOSER-001 for the self-closing `/>` case on an HTML element — `<span :@thing />` instead surfaces **E-DG-002** (the cell "declared but never consumed", because the `/>` short-circuits the body emit). PRE-EXISTING on the S159 HTML-element `:`-shorthand path (ruling (b) S160 explicitly said "no change to `/>` handling", so this was out of (b)'s scope). Surfaced + characterized by the (b) dispatch.
 
@@ -1081,12 +1150,14 @@ SPEC §4.14 line 982 specifies that a closer (`</>`, `/`, OR `/>`) present along
 ---
 
 ### Bug 75 — after-`>` ENGINE `:`-shorthand fails E2E at the block-splitter — `pre-existing; now-deprecated form` (S160)
+<!-- @gap id=bug-75 sev=LOW status=open -->
 
 The legacy after-`>` `:`-shorthand placement on an **engine** state-child (`<Idle rule=.X> : "..."`) fails end-to-end at the block-splitter with **E-STRUCTURAL-ELEMENT-MISPLACED** — the parser parses it but the block-splitter rejects the shape. PRE-EXISTING (the after-`>` engine form never worked E2E). The now-canonical **inside-opener** engine form (`<Idle rule=.X : "...">`, S160 ruling (b)) WORKS E2E — net improvement. Consequence: the engine after-`>` `W-COLON-SHORTHAND-LEGACY-PLACEMENT` lint is parser-verified (the entry carries `legacyColonPlacement:true`) but only E2E-fires where after-`>` body text reaches `parseEngineStateChildren`; the MATCH locus after-`>` IS E2E-proven (lint fires + byte-identity). Low priority — after-`>` is deprecated; the canonical form works.
 
 ---
 
 ### Bug 4 — Bare `/` in markup-text body parses as element closer — `spec'd`
+<!-- @gap id=bug-4 sev=LOW status=open -->
 
 The `?{` half closed S108 via Approach C-narrow (markup-text-mode locus gate per SPEC §3.1 + §8.1). Bare `/` half remains open. Writing scrml-about-scrml prose where `/` appears in text (e.g., "`""` / `0` / `[]` are all defined values") can still confuse the BS-layer's `looksLikeCloser` heuristic in edge cases.
 
@@ -1096,12 +1167,14 @@ The `?{` half closed S108 via Approach C-narrow (markup-text-mode locus gate per
 ---
 
 ### Bug 18 — GITI-015 — `queued`
+<!-- @gap id=bug-18 sev=LOW status=open -->
 
 LOW-severity adopter bug filed by giti per S124 carry-forward. Details in `handOffs/incoming/read/`. Queued; not currently in implementation.
 
 ---
 
 ### Bug 19 — §11-folded-citation sweep — `cosmetic`
+<!-- @gap id=bug-19-cite sev=LOW status=open -->
 
 5 dev.to articles cite SPEC `§11` for `<db>` / `protect=` / state-authority content. §11 is folded (content distributed to §6.12 + §52 per SPEC-INDEX row 44). The E-codes those articles cite are correct; only the bare section number is stale. Lowest-priority cleanup item.
 
@@ -1111,6 +1184,7 @@ LOW-severity adopter bug filed by giti per S124 carry-forward. Details in `handO
 ---
 
 ### Bug 20 — `bun scrml promote --engine` (Tier-1→2 sibling) — `deferred`
+<!-- @gap id=bug-20 sev=LOW status=open -->
 
 The `bun scrml promote --match` CLI shipped S66 (Tier-0→1 lift mechanical). The companion `--engine` flag (Tier-1→2 lift) is deferred — it pairs with `W-MATCH-TRANSITIONS-ACCRUING`, a sibling lint that needs its own §34 catalog + implementation groundwork. The CLI flag stays registered but prints a clear "deferred" message until that lands.
 
@@ -1120,6 +1194,7 @@ The `bun scrml promote --match` CLI shipped S66 (Tier-0→1 lift mechanical). Th
 ---
 
 ### Bug 21 — Q6-narrow heuristic: deep multi-level reset on nested compound — `heuristic` (S135)
+<!-- @gap id=bug-21 sev=LOW status=open -->
 
 `reset(@a.b.c)` where `b` is itself a compound state with its own lifecycle-annotated fields: Q6-narrow's `applyResetToCellField` walker conservatively uses `fieldPath[0]` — the first hop after the cell root — for tracker classification. The §6.8.2 B22 ratification supports deeper compound-nav targets, but the canonical scrml idiom is one hop deep (per the §6.8.2 worked examples). Deeper nesting works at runtime via the existing `_scrml_reset` codegen; only the per-access tracker's state revert is shallow.
 
@@ -1130,6 +1205,7 @@ The `bun scrml promote --match` CLI shipped S66 (Tier-0→1 lift mechanical). Th
 ---
 
 ### Bug 22 — Q6-narrow heuristic: cross-cell `default=@otherCell` reset value classification — `heuristic` (S135)
+<!-- @gap id=bug-22 sev=LOW status=open -->
 
 `<state default=@otherCell>: (not to User) = not` — when `reset(@state)` evaluates `@otherCell` as the reset value, `classifyResetValueAgainstSpec` heuristically treats any non-`not` text as post-type for presence-progression. If `@otherCell` is itself in a pre-state at the reset moment, the heuristic misclassifies. The actual cross-cell type-check happens at the assignment site (`@state = @otherCell` would route through `classifyWriteAgainstSpec` properly); the heuristic only affects whether the per-access tracker reverts vs maintains state immediately after the reset.
 
@@ -1140,6 +1216,7 @@ The `bun scrml promote --match` CLI shipped S66 (Tier-0→1 lift mechanical). Th
 ---
 
 ### Bug 23 — Lifecycle source-form follow-up: W-LIFECYCLE-LEGACY-ARROW not emitted for Shape 1 cells — `RESOLVED S138 (commit 61391c75)` (was LOW heuristic; S135)
+<!-- @gap id=bug-23 sev=LOW status=resolved -->
 
 **Fix (S138 `61391c75`):** PA-direct surgical fix in `compiler/src/type-system.ts:buildCellValueLifecycleMap` (+27L incl. doc). Per-cell emission of W-LIFECYCLE-LEGACY-ARROW when `findTopLevelArrow` detects glyph = "arrow" (legacy form). Lint message mirrors struct-field equivalent — same format, same info-level severity, same SPEC §14.12.5 reference.
 
@@ -1150,6 +1227,7 @@ The `bun scrml promote --match` CLI shipped S66 (Tier-0→1 lift mechanical). Th
 ---
 
 ### Bug 24 — Lifecycle source-form follow-up: qualified-form discrim regex tolerance — `RESOLVED S138 (commit aa0395a7)` (was LOW heuristic; S135)
+<!-- @gap id=bug-24 sev=LOW status=resolved -->
 
 **Fix (S138 `aa0395a7`):** PA-direct surgical regex extension in `compiler/src/type-system.ts:isIsVariantCheckOf` (+12L incl. doc).
 
@@ -1167,6 +1245,7 @@ Optional `(?:[A-Z][A-Za-z0-9_$]*)?` matches both bare-dot `is .Draft` (optional 
 ---
 
 ### Bug 25 — Lifecycle source-form follow-up: `transition()` with deeper expressions — `RESOLVED S138 (commit 5160afad)` (was LOW heuristic; S135)
+<!-- @gap id=bug-25 sev=LOW status=resolved -->
 
 **Fix (S138 `5160afad`):** PA-direct surgical regex extension in `compiler/src/type-system.ts:TRANSITION_CALL_RE` (+15L incl. doc).
 
@@ -1186,6 +1265,7 @@ Captured group still binds the ROOT identifier (which keys into the bindings map
 ---
 
 ### Bug 26 — `${...}` inside `function probe() { ... }` body emits E-SCOPE-001 for `$` — `LOW` (S135)
+<!-- @gap id=bug-26 sev=LOW status=open -->
 
 A `${...}` block placed inside a bare `function name() { ... }` body emits an unexpected `E-SCOPE-001` diagnostic for the leading `$` character. The `${` token gets preprocessed differently inside function bodies vs at structural positions. Unrelated to the silent-swallow class that S135 structural-in-logic landing closed — surfaced as a Phase 0 probe side-finding.
 
@@ -1196,6 +1276,7 @@ A `${...}` block placed inside a bare `function name() { ... }` body emits an un
 ---
 
 ### Bug 27 — `tryParseStructuralDecl` extra lookahead on structural-element compound forms — `cleanup` (S135)
+<!-- @gap id=bug-27 sev=LOW status=open -->
 
 `tryParseStructuralDecl` enters the compound-state-decl branch when it sees `<schema><users>...` (treating it as a potential compound state-decl with field `users`), then rewinds when the child `<users>` doesn't have an `=` RHS. Works correctly (the rewind handles it; the parent eventually emits `E-STRUCTURAL-ELEMENT-MISPLACED` per the S135 structural-in-logic fix) but does extra lookahead work that could be short-circuited by checking the leading-tag name against the structural-element registry FIRST.
 
@@ -1206,6 +1287,7 @@ A `${...}` block placed inside a bare `function name() { ... }` body emits an un
 ---
 
 ### Bug 33 — W-LINT-011 false positive on `:let={}` slot-binding shape — `RESOLVED S138 (commit 5ec84589)` (was LOW; R24-BUG-7)
+<!-- @gap id=bug-33 sev=LOW status=resolved -->
 
 **Fix (S138 `5ec84589`):** PA-direct surgical 1-character regex change in `compiler/src/lint-ghost-patterns.js` Pattern 11 W-LINT-011. Pre-fix regex `\s:[a-z][a-zA-Z0-9-]*\s*=` greedily matched scrml's reserved `:let={(row) => ...}` slot-binding form. Post-fix `\s:(?!let\b)[a-z][a-zA-Z0-9-]*\s*=` uses negative-lookahead `(?!let\b)` to exclude the reserved form while keeping genuine Vue-shape `:attr=` caught. Word-boundary `\b` ensures `:letFoo=` (longer ident starting with `let`) STILL fires the lint.
 
@@ -1218,6 +1300,7 @@ A `${...}` block placed inside a bare `function name() { ... }` body emits an un
 ---
 
 ### Bug 34 — Shape-2 compound markup-init emits empty 2nd arg to `_scrml_reactive_set` — `LOW` (S136 R24)
+<!-- @gap id=bug-34 sev=LOW status=open -->
 
 A Shape-2 compound state cell like `<form><title>= <input type="text"/></form>` (compound with markup init on a field) emits `_scrml_reactive_set("newTicketForm.title", )` — the 2nd argument is empty. Surfaced by dev-4-pascal overseer.
 
@@ -1231,6 +1314,7 @@ A Shape-2 compound state cell like `<form><title>= <input type="text"/></form>` 
 ---
 
 ### Bug 45 — `int` ghost type silently resolves to `asIs` (causes downstream `E-SCHEMAFOR-NO-SQL-MAPPING`) — `LOW` (S136 R25; 4/4 devs)
+<!-- @gap id=bug-45 sev=LOW status=open -->
 
 `int` is used in struct field type position by kickstarter §6.1 examples (`age: int(>=18)`), PRIMER §6.5 example (`id: int`), AND the R25 BRIEF. ALL 4 R25 devs reached for `int`. Compiler's `BUILTIN_TYPES` only has `integer` and `number` — `int` falls through to `asIs` (any-type) silently, then `schemaFor(StructType)` breaks with a confusing downstream `E-SCHEMAFOR-NO-SQL-MAPPING: ... declared type (asIs) has no v1.0 SQL mapping`. The actual root cause ("unknown type name `int`") is not surfaced at the struct-field-type declaration site.
 
@@ -1247,6 +1331,7 @@ The canon is wrong about `int`, OR the compiler should alias it to `integer`. Ad
 ---
 
 ### Bug 46 — `tableFor` attributes `sortable=` / `selectable=` not implemented (W-ATTR-001 forwarded as plain HTML) — `LOW` (S136 R25; 4/4 devs)
+<!-- @gap id=bug-46 sev=LOW status=resolved -->
 
 The R25 BRIEF feature 8 references `<tableFor for=Card rows=@cards pick=[...] sortable= selectable=@selectedIds/>`. The `sortable=` and `selectable=` attributes fire `W-ATTR-001` ("not recognized on `<tableFor>`, forwarded as plain HTML attribute") — no semantic effect. The BRIEF specifies these attributes per SPEC §41.16 (tableFor spec), but the compiler hasn't shipped the wiring.
 
@@ -1261,6 +1346,7 @@ The R25 BRIEF feature 8 references `<tableFor for=Card rows=@cards pick=[...] so
 ---
 
 ### Bug 51 — Shape 2 + render-by-tag empirically broken end-to-end at codegen — `RESOLVED S139` (was MED — all 3 sub-bugs closed)
+<!-- @gap id=bug-51 sev=LOW status=resolved -->
 
 **S139 investigation surfaced a wider scope than the original entry described.** Shape 2 `<userName req length(>=2)> = <input/>` + render-by-tag use-site `<userName/>` was empirically broken in THREE distinct ways, none of which had adopter-test coverage (no Shape 2 sample in `samples/` or `examples/`; existing unit/integration tests only checked AST shape, not the emitted JS / HTML):
 
@@ -1303,6 +1389,7 @@ Wrapping the SAME Shape 2 decl explicitly in `${...}` compiles cleanly — the u
 ---
 
 ### Bug 50 — `<tableFor>` synthetic `onchange` handler emits raw `if-stmt` inside object-literal property value — `RESOLVED S138 (commit c89f1176)` (was MED; NOT-REPRODUCED S138 closure REVERSED at cc93c031; HIGH re-classification; RESOLVED PA-direct surgical)
+<!-- @gap id=bug-50 sev=LOW status=resolved -->
 
 **Fix (S138 `c89f1176`):** PA-direct surgical fix in `compiler/src/codegen/emit-event-wiring.ts` Case B (arrow function detected via `isArrowFunction`). When `binding.handlerExprNode` is absent (the synth-fallback-string path — used by emit-table-for's `selectable=@cell` master-checkbox + per-row onchange synth), route through `rewriteExprArrowBody` directly (which skips Pass 1 `rewritePresenceGuard`) instead of `emitExprField` (which falls through to `rewriteExprWithDerived` → Pass 1 → `( ident ) => { body }` matched as `given x => body` presence-guard → `if (x !== null && x !== undefined) { body }`).
 
@@ -1380,6 +1467,7 @@ The `selectable=@selectedIds` (reactive-ref form) triggers a synth onchange hand
 ---
 
 ### Bug 48 — Latent paren/bracket-depth gap in sibling `<match>` / `<machine>` / `<engine>` opener finders — `LOW; latent` (S137 — surfaced by Bug 37 agent investigation)
+<!-- @gap id=bug-48 sev=LOW status=open -->
 
 Same-shape bug class surfaced by the R25-Bug-37 dispatch agent (`1ce963d0`). Bug 37 fixed `_findEachOpenerEnd` in `compiler/src/ast-builder.js` by adding `parenDepth` + `bracketDepth` tracking alongside the existing braces+quotes tracking. THREE sibling finders in the same file have the same braces+quotes-only shape and would fail the same way under an inline-arrow-in-attribute-value adopter pattern:
 
@@ -1401,37 +1489,49 @@ Same-shape bug class surfaced by the R25-Bug-37 dispatch agent (`1ce963d0`). Bug
 
 These are SPEC-only surfaces — designed, normatively documented, NOT yet implemented in the compiler. The author has explicitly ratified them as "spec-ahead-of-implementation" (Nominal sections). Adopters should treat as roadmap, not present capability.
 
+<!-- §0-only Nominal entries (no `### ` header; tracked in the §0 Nominal Closed-this-arc cell) -->
+<!-- @gap id=nominal-8-gating-runtime sev=NOMINAL status=nominal -->  <!-- §40.9.5 per-role server-render-time gating runtime (S146 GITI-027B D) -->
+<!-- @gap id=nominal-9-engine-opener-effect sev=NOMINAL status=nominal -->  <!-- §51.0.H-C1 effect=-on-engine-opener (S144 Insight 33) -->
+
+
 ### Nominal-1 — Build Story §58 — `nominal`
+<!-- @gap id=nominal-1 sev=NOMINAL status=nominal -->
 
 S118 landed SPEC §58 "Build Story" as a Nominal section. Compilation as a pure function `compile(source, buildStory) → artifact`; content-addressed Merkle closure (Approach B); `[story]` manifest table; per-`<program>` `story=` attribute; `build-story.lock` sidecar; cryptographic SHA-256 closure hash. **No compiler implementation exists.** Includes a §58.12 determinism-gap analysis flagging the `*`-marked claims.
 
 - **Status:** Nominal. Implementation arc estimated ~90-200h (per S124 build-story-research-roughing); M6-gated (M6 cutover precedes substantive build-story work).
 
 ### Nominal-2 — `import:host` §21.3.1 — `nominal`
+<!-- @gap id=nominal-2 sev=NOMINAL status=nominal -->
 
 S114 ratified `import:host` declaration form as the manifest-gated self-host bootstrap bridge (Approach C carve-out). **Zero references in `compiler/native-parser/` or `compiler/src/`** per S129 D8b finding — the syntax is SPEC-only.
 
 - **Status:** Nominal. Implementation arc is part of the self-host bootstrap migration (post-v1.0 — see master-list).
 
 ### Nominal-3 — Quoted-text model §4.18 compiler fire — `nominal`
+<!-- @gap id=nominal-3 sev=NOMINAL status=nominal -->
 
 SPEC §4.18 landed Wave 1 S111 — the code-default body mode + `"..."` display-text literal + `E-UNQUOTED-DISPLAY-TEXT` error code. The compiler fire is spec-ahead-of-implementation; Waves 2+ ship with the native parser (v0.4.x → v0.5).
 
 - **Status:** Nominal until native parser default-flip + quoted-text BS-retrofit / native-implementation lands. The examples in dev.to articles + samples that show bare display prose inside engine/match arm bodies are NOT wrong against today's compiler.
 
 ### Nominal-4 — `_{}` foreign code — `nominal`
+<!-- @gap id=nominal-4 sev=NOMINAL status=nominal -->
 
 §23 — embed non-JS code inline with level-marked braces (`_{}`/`_={...}=`). Enables inline Rust, Python, SQL extensions. Specced, not yet implemented.
 
 ### Nominal-5 — WASM call-char sigils — `nominal`
+<!-- @gap id=nominal-5 sev=NOMINAL status=nominal -->
 
 §23.3 — single-character sigils (`r{}`, `c{}`, `z{}`) for invoking compiled WASM functions from Rust, C, Zig. Specced, not yet implemented.
 
 ### Nominal-6 — Sidecar process declarations — `nominal`
+<!-- @gap id=nominal-6 sev=NOMINAL status=nominal -->
 
 §23.4 — `use foreign:name { fn }` for declaring server-side sidecar processes (HTTP/socket services). Specced, not yet implemented.
 
 ### Nominal-7 — `RemoteData` enum — `nominal`
+<!-- @gap id=nominal-7 sev=NOMINAL status=nominal -->
 
 §13.5 — built-in `Loading / Loaded(T) / Failed(Error)` enum for modeling async fetch state. Pattern-matchable with exhaustive checking. Specced, not yet implemented.
 
