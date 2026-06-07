@@ -832,6 +832,17 @@ function memberPropertyName(property) {
 // a `BlockStub` (the brace-delimited statement body). The live `LambdaExpr.
 // body` is `{ kind:"expr", value }` or `{ kind:"block", stmts }`.
 function translateArrow(nativeExpr) {
+    // A block-bodied arrow (`(x) => { ... }`) -> an EscapeHatchExpr carrying the
+    // full lambda source (S170 Wave 2). The live front-end (expression-parser.ts
+    // esTreeToExprNode) does exactly this for a BlockStatement-bodied arrow; the
+    // structured `lambda` surface has no block-statement body, so emit-expr's
+    // emitEscapeHatch (rewriteExprArrowBody over the whole `(x) => {...}`) is the
+    // canonical path. Previously this produced a `lambda` with `stmts:[]` — the
+    // callback body (e.g. a `.filter(n => { ... })` predicate) was DROPPED.
+    const hatch = blockBodyLambdaEscapeHatch(nativeExpr, "ArrowFunctionExpression");
+    if (hatch !== null) {
+        return hatch;
+    }
     return {
         kind: "lambda",
         params: translateParamList(nativeExpr.params),
@@ -842,6 +853,26 @@ function translateArrow(nativeExpr) {
     };
 }
 
+// blockBodyLambdaEscapeHatch — when a native Arrow / Function expression has a
+// block body whose full-lambda `verbatim` source was stamped at parse time
+// (parse-expr.js finishArrow / parseFunctionExpr), build the live
+// EscapeHatchExpr the downstream emitter expects. `nativeKind` is the ESTree
+// node-type string emit-expr.ts:emitEscapeHatch branches on
+// ("ArrowFunctionExpression" / "FunctionExpression") so rewriteExprArrowBody
+// runs the scrml->JS passes over the WHOLE lambda value. Returns null when the
+// body is not a block, or no verbatim source is available (the tokens-only
+// entry) — the caller then falls back to the structured `lambda` translation.
+function blockBodyLambdaEscapeHatch(nativeExpr, nativeKind) {
+    const body = nativeExpr.body;
+    if (body === undefined || body === null || body.kind !== ExprKind.BlockStub) {
+        return null;
+    }
+    if (typeof nativeExpr.verbatim !== "string" || nativeExpr.verbatim.length === 0) {
+        return null;
+    }
+    return makeEscapeHatch(nativeKind, nativeExpr.verbatim, nativeExpr.span);
+}
+
 // translateFunctionExpr — native `Function{name,params,body,isAsync,
 // isGenerator}` -> live `lambda` with `fnStyle: "function"`. The live
 // `LambdaExpr` has no `name` / `isGenerator` field (the live catalog models a
@@ -850,6 +881,12 @@ function translateArrow(nativeExpr) {
 // expression is a rare logic-body shape; the name is dropped, matching the
 // live ast-builder's lambda surface).
 function translateFunctionExpr(nativeExpr) {
+    // A block-bodied function expression -> an EscapeHatchExpr carrying the full
+    // lambda source (S170 Wave 2; see blockBodyLambdaEscapeHatch + translateArrow).
+    const hatch = blockBodyLambdaEscapeHatch(nativeExpr, "FunctionExpression");
+    if (hatch !== null) {
+        return hatch;
+    }
     return {
         kind: "lambda",
         params: translateParamList(nativeExpr.params),
@@ -1115,13 +1152,22 @@ function reconstructArmPattern(pattern) {
 
 // reconstructArmBody — the source text of one match-arm body. A concise
 // expression body re-stringifies via the shared expr-source reconstructor; a
-// BlockStub body has no concise source — emit a `{}` placeholder (a block-body
-// match arm is a rare shape; the downstream re-parse tolerates it).
+// BlockStub body carries the verbatim `{...}` source (S170 Wave 2 — stamped at
+// parse time by parseBlockStub) so the live re-parse path
+// (emit-control-flow.ts parseMatchArm -> isBlockBody -> rewriteBlockBody) sees
+// the FULL block-arm body and emits its statements. Previously this returned a
+// `"{}"` placeholder, SILENTLY DROPPING the body (e.g. the Mario
+// `eatPowerUp` `.Mushroom => { @coins=...; @score=...; .advance }` arm became
+// a no-op transition). A BlockStub with no `verbatim` (no source available at
+// parse time — the tokens-only conformance entry) still folds to `{}`.
 function reconstructArmBody(body) {
     if (body === undefined || body === null) {
         return "{}";
     }
     if (body.kind === ExprKind.BlockStub) {
+        if (typeof body.verbatim === "string" && body.verbatim.length > 0) {
+            return body.verbatim;
+        }
         return "{}";
     }
     return exprSourceText(body);

@@ -1471,7 +1471,41 @@ export function finishArrow(ctx, params, isAsync, headStartTok) {
     const startCol = (headStartTok === undefined || headStartTok === null || headStartTok.span === undefined)
         ? colOf(body) : headStartTok.span.col;
     const span = makeSpan(startPos, endOf(body), startLine, startCol);
-    return makeArrow(params, body, isAsync, span);
+    const node = makeArrow(params, body, isAsync, span);
+    // Verbatim-body recovery (S170 Wave 2). A block-bodied arrow has no concise
+    // form the bridge can re-stringify; the live front-end converts it to an
+    // EscapeHatchExpr carrying the WHOLE lambda source (expression-parser.ts
+    // esTreeToExprNode). Stamp the full `(params) => {...}` span so the bridge
+    // (translate-expr.js translateLambdaBody) can emit the same escape-hatch
+    // shape instead of dropping the statement body to `stmts:[]`.
+    stampLambdaVerbatim(ctx, node, body, span);
+    return node;
+}
+
+// --- stampLambdaVerbatim — stamp the FULL-lambda source onto a block-bodied
+// arrow / function expression node. The downstream bridge re-emits a
+// block-bodied lambda as an EscapeHatchExpr whose `raw` is re-parsed by
+// emit-expr.ts rewriteExprArrowBody over the WHOLE `(params) => {...}` /
+// `function(...){...}` value — NOT a bare `{...}` block. So the verbatim must
+// be the full lambda span, not just the block body. Only stamped for a
+// BLOCK body (a concise expression body translates structurally — no escape
+// hatch) and only when `ctx.source` is available + the span is in range.
+function stampLambdaVerbatim(ctx, node, body, span) {
+    if (body === undefined || body === null || body.kind !== ExprKind.BlockStub) {
+        return;
+    }
+    if (ctx.source === null || ctx.source === undefined) {
+        return;
+    }
+    // A render-body lambda (`(x) => { lift <p/> }`) is not a JS callback the
+    // escape-hatch re-parse path can handle — skip (regression-neutral). In
+    // practice a lambda body is a JS callback, so this guard rarely fires.
+    if (blockStubIsRenderBody(body.tokens) === true) {
+        return;
+    }
+    if (span.start >= 0 && span.end <= ctx.source.length && span.end > span.start) {
+        node.verbatim = ctx.source.slice(span.start, span.end);
+    }
 }
 
 // --- parseFunctionExpr — `function name?(params) { ... }` ---
@@ -1510,7 +1544,12 @@ export function parseFunctionExpr(ctx, isAsync) {
     const body = parseArrowOrFunctionBody(ctx, false);
     exitFunctionScope(ctx, scopePrior);
     const span = makeSpan(fnTok.span.start, endOf(body), fnTok.span.line, fnTok.span.col);
-    return makeFunction(name, params, body, isAsync, isGenerator, span);
+    const node = makeFunction(name, params, body, isAsync, isGenerator, span);
+    // Verbatim-body recovery (S170 Wave 2) — see stampLambdaVerbatim. A block-
+    // bodied function expression's full `function name?(...) {...}` source is
+    // stamped so the bridge can re-emit the escape-hatch shape.
+    stampLambdaVerbatim(ctx, node, body, span);
+    return node;
 }
 
 // --- parseArrowOrFunctionBody — concise expression body OR a BlockStub ---
@@ -1583,7 +1622,76 @@ export function parseBlockStub(ctx) {
     const tokenEnd = (depth === 0) ? (cursor.idx - 1) : cursor.idx;
     const bodyTokens = cursor.tokens.slice(tokenStart, tokenEnd);
     const span = makeSpan(open.span.start, closeTok.span.end, open.span.line, open.span.col);
-    return makeBlockStub(bodyTokens, tokenStart, tokenEnd, span);
+    const stub = makeBlockStub(bodyTokens, tokenStart, tokenEnd, span);
+
+    // Verbatim-body recovery (S170 Wave 2). The bridge re-stringifies a
+    // block-bodied match arm / lambda for the LIVE re-parse path, but a
+    // BlockStub has no concise source form — translate-expr previously emitted
+    // a `"{}"` placeholder, SILENTLY DROPPING the body statements. When the
+    // source is available (`ctx.source` — set whenever the body parses from a
+    // real source slice, e.g. parseLogicBodyBestEffort lexes `bodyText` and
+    // passes it as the source), stamp the EXACT balanced `{...}` source span so
+    // the bridge can hand the verbatim body to the downstream re-parse.
+    //
+    // The span is `[open.span.start, closeTok.span.end)` — the opening `{`
+    // through (and including) the matching `}` — in the SAME coordinate space
+    // as `ctx.source` (the token stream and `ctx.source` share an origin: both
+    // derive from the same lex(bodyText) call). The slice is therefore a
+    // balanced `{...}` string with no off-by-one. (parseLogicBodyBestEffort's
+    // later top-level span shift acts on top-level STATEMENT spans only; this
+    // nested BlockStub span is captured here, before any shift.)
+    //
+    // SCOPE GUARD — a RENDER body (`{ lift <markup> }` or a bare-markup arm
+    // body) is NOT a JS-statement body. The downstream consumer re-parses the
+    // verbatim through the JS-arm path (emit-control-flow.ts parseMatchArm ->
+    // rewriteBlockBody), which would read the `<tag>` as a less-than operator
+    // and emit malformed JS (E-CODEGEN-INVALID-JS). Such an arm belongs to the
+    // match-BLOCK routing (markup-position match), which the native parser does
+    // not yet promote for a `match` in a `${...}` logic body — a SEPARATE gap
+    // (filed). Leaving `verbatim` unset preserves the pre-S170 `{}` fallback
+    // for render bodies (regression-neutral), while JS-statement bodies (the
+    // dominant corpus form — the Mario `eatPowerUp` arm) recover their source.
+    if (depth === 0
+        && ctx.source !== null && ctx.source !== undefined
+        && span.start >= 0 && span.end <= ctx.source.length && span.end > span.start
+        && blockStubIsRenderBody(bodyTokens) === false) {
+        stub.verbatim = ctx.source.slice(span.start, span.end);
+    }
+    return stub;
+}
+
+// --- blockStubIsRenderBody — does a BlockStub's token run contain markup /
+// lift content (a RENDER body), as opposed to a pure JS-statement body? A
+// render arm body (`{ lift <p>...</p> }` or a bare `<div>...</div>`) must NOT
+// have its verbatim source recovered for the JS-arm re-parse path — it belongs
+// to match-block routing. Signals:
+//   - a `lift` keyword token (KwLift) — the `lift <markup>` statement form, OR
+//   - a markup opener: a `<` (LessThan) source-adjacent to a following Ident
+//     (`<tag`). Adjacency (no intervening whitespace) distinguishes a markup
+//     element from a less-than comparison (`a < b` is never source-adjacent on
+//     both sides of the `<` to an immediately-following ident with no space).
+function blockStubIsRenderBody(bodyTokens) {
+    if (Array.isArray(bodyTokens) === false) {
+        return false;
+    }
+    for (let i = 0; i < bodyTokens.length; i = i + 1) {
+        const t = bodyTokens[i];
+        if (t === undefined || t === null) {
+            continue;
+        }
+        if (t.kind === TokenKind.KwLift) {
+            return true;
+        }
+        if (t.kind === TokenKind.LessThan && i + 1 < bodyTokens.length) {
+            const next = bodyTokens[i + 1];
+            if (next !== undefined && next !== null && next.kind === TokenKind.Ident
+                && t.span !== undefined && next.span !== undefined
+                && t.span.end === next.span.start) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 // --- parseParamList — `( param, param, ... )` for an arrow / function head ---
