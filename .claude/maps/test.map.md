@@ -8,21 +8,21 @@ Config: bunfig.toml (timeout + happy-dom preload settings)
 Run all: `bun test compiler/tests/`
 Run single: `bun test compiler/tests/unit/<filename>.test.js`
 Coverage: `bun test compiler/tests/ --coverage`
-Full suite at S167 close: 23,075 pass / 0 fail / 220 skip / 1 todo (on 75431e9e). S168 added 2 NEW test files (cow-bracket-write-emit 7 + browser-cow-bracket-write 3) + extended equality-semantics (+6 cycle-guard) + parse-mutation-shapes (+1 COW node-shape) — not re-counted into a fresh suite total here (no full re-run); within-node native-parser parity 1005/0 (UNCHANGED — S168 bracket-write COW is a LIVE-pipeline change; native still folds bracket-write to in-place, but no new flip-failure was registered) — S169 added 13 NEW value-native-map / each-tuple / union-not test files (see S169 section below); not re-counted into a fresh suite total here (no full re-run captured in this map refresh)
+Full suite at S167 close: 23,075 pass / 0 fail / 220 skip / 1 todo (on 75431e9e). S168 added 2 NEW test files (cow-bracket-write-emit 7 + browser-cow-bracket-write 3) + extended equality-semantics (+6 cycle-guard) + parse-mutation-shapes (+1 COW node-shape) — not re-counted into a fresh suite total here (no full re-run); within-node native-parser parity 1005/0 (UNCHANGED — S168 bracket-write COW is a LIVE-pipeline change; native still folds bracket-write to in-place, but no new flip-failure was registered) — S169 added 13 NEW value-native-map / each-tuple / union-not test files (see S169 section below); not re-counted into a fresh suite total here. **S170: Bug B (`72aa6836`) +9 tests (5 emit-shape + 4 happy-dom) with 2 mistarget-locking tests corrected per Rule-4; set-algebra (`df08f282`) +16 value-correct unit; native-parser fix-wave-1 (`5a346faa`) +24 regression with the within-node allowlist surgically reconciled (34 over-budget → current; PARSE-FAILURE:0 / NESTED-SHAPE:0); fix-wave-2 (`cc69c62d`) +5 statement-survival canary, full suite at fix-wave-2 23405 pass / 0 fail.** native-parser flip-failures re-measured 605 on `df08f282` → ~508 after the two waves (default BS+Acorn 0-fail / fully green throughout)
 
 ## Test Categories
 
 | Category | Location | Count |
 |----------|----------|-------|
-| Unit | compiler/tests/unit/ | 569 files (+9 S169: value-native-map-{type-system,literal-parser,runtime}-s169, native-map-literal-d2b, value-native-map-codegen-{chunk,collector,emit}-d4, value-native-map-iteration-order-lint-d4, each-as-tuple-destructure-d2c, union-not-normalization) |
-| Browser (DOM) | compiler/tests/browser/ | 36 files (+1 S169: each-as-tuple-destructure-d2c.browser) |
+| Unit | compiler/tests/unit/ | 639 files (find-count at cc69c62d; +9 S169 value-native-map arc; +S170: structural-compound-deepset, data-set-algebra, native-on-lifecycle-block, native-const-at-derived-decl, native-reactive-write-deepset-mutation, native-destructured-param-structuring, native-vardecl-type-annotation-thread, native-exprtext-backfill, native-blockstub-verbatim-body) |
+| Browser (DOM) | compiler/tests/browser/ | 37 files (+1 S169 each-as-tuple-destructure-d2c.browser; +1 S170 browser-structural-compound-deepset) |
 | Conformance | compiler/tests/conformance/ | ~40 files |
 | Integration | compiler/tests/integration/ | 105 files (+1 S169: value-native-map-e2e-d4) |
 | Parser conformance | compiler/tests/parser-conformance*.test.js | 10 files |
 | LSP | compiler/tests/lsp/ | ~8 files |
 | Self-host | compiler/tests/self-host/ | ~5 files |
 | CLI commands | compiler/tests/commands/ | ~5 files |
-| **Total** | compiler/tests/ | **913 .test.js files (S169 find-count; +13 value-native-map arc files)** |
+| **Total** | compiler/tests/ | **923 .test.js files (find-count at cc69c62d; +~10 S170 across Bug-B / set-algebra / native-parser regression / BlockStub)** |
 
 ## S153 New Test Files (each-in-dynamic-context sweep)
 
@@ -99,18 +99,21 @@ Full suite at S167 close: 23,075 pass / 0 fail / 220 skip / 1 todo (on 75431e9e)
 | compiler/tests/unit/native-sql-chained-form-f2a.test.js | S164 F2a: chained `?{}.method()` SQL promotion in statement position (translate-stmt.js `reconstructChainedSql`). |
 | compiler/tests/unit/native-tablefor-struct-field-drop.test.js | S164: `typeBodyText`/`joinWithNewlines` preserve struct/enum field-separator newlines (`<tableFor>` no longer drops fields). |
 | compiler/tests/unit/m66-b2-engine-statechild-walker.test.js | S164 B2 (updated): `native-walker/engine-statechild-walker.ts` populates `messageArms` from `parseMessageArms(bodyRaw).arms` + `synthEngineDecl` reads `accepts=`. |
-| compiler/tests/parser-conformance-within-node.test.js + within-node-allowlist.json | updated S164-S167 — native↔live within-node parity (1005/0); the allowlist tracks remaining per-family gaps (S167: +4 native-lag on samples/gauntlet-r11-elixir-chat.scrml — see below). |
+| compiler/tests/parser-conformance-within-node.test.js + within-node-allowlist.json | updated S164-S170 — native↔live within-node parity; the allowlist tracks remaining per-family gaps. **S170 fix-wave-1 surgically reconciled the allowlist for the combined GROUP-P+T AST-shape changes (34 over-budget files → current; PARSE-FAILURE:0 / NESTED-SHAPE:0; the deltas are benign parity-churn from the deliberate shape changes); fix-wave-2 needed NO reconcile.** |
 | compiler/tests/integration/m6.4a-native-p2-form1.test.js (§B) | S166 ROOT-2: emitted-output regression for the native cross-file `${...}`-wrapped `export const Name = <markup>` raw-slice fix — `<Badge/>` markup EXPANDS in consumer HTML, E-COMPONENT-020/035 GONE (was `raw=""` → empty CE registry). |
 
 NOTE: S165's four families (F2-match string-lit arms, promote-each, R1 typed-`@cell`, server-fn-star) were
 landed with parser-conformance + within-node coverage (1005/0) and the swap flip-harness re-measure; the
 S165 dispatch BRIEFs (docs/changes/native-f2match-literal-arm-2026-06-05/ etc.) record the per-family R26
 byte-identity checks. The flip harness (default exit-0 vs `--parser=scrml-native`) is the family-level gate;
-a fix-dispatch agent re-runs it to re-rank the remaining 451.
+a fix-dispatch agent re-runs it to re-rank before picking a family.
 S166 landed two re-triage roots: bare-`function` failable `76059024` (within-node residual-preserving rebump —
 27 class-budgets across 14 failable fixtures whose now-reachable bodies surface PRE-EXISTING native residuals;
 1005→991→1005; full suite 23,054/0) + cross-file `${...}`-export `9d12d980` (within-node 1005/0 with NO allowlist
 rebump — resolved via a `bodyStart` STRIP_KEY in within-node-classifier.ts; cross-file integration 48/0).
+**S170 re-measured 605 native-only flip-failures on `df08f282` (default BS+Acorn 0-fail / fully green) → ~508**
+after fix-wave-1 `5a346faa` (within-node allowlist surgically reconciled, 34 over-budget → current; PARSE-FAILURE:0/
+NESTED-SHAPE:0) + fix-wave-2 `cc69c62d` (NO allowlist reconcile; full suite 23405/0). See the S170 section below.
 
 ## S168 New / Extended Test Files (cycles-prereq — COW-all bracket-write + structural-eq cycle guard)
 
@@ -125,6 +128,26 @@ NOTE (S168): the cycles-prereq is the build prerequisite for value-native maps (
 in S169 — see the S169 section below). It is a LIVE-pipeline change (ast-builder.js `collectAtPathSegments` + emit-logic.ts piecewise path
 + runtime-template.js cycle guard). The native parser still folds bracket-write to in-place — a SEPARATE swap-grind
 parity item, but no NEW flip-failure was registered (within-node stayed 1005/0).
+
+## S170 New / Corrected Test Files (Bug B codegen + set-algebra stdlib + native-parser fix-wave-1/2)
+
+| File | What it canaries |
+|------|------------------|
+| compiler/tests/unit/structural-compound-deepset.test.js | **NEW (5 emit-shape).** `@a.ref = v` on a Variant-C structural compound (`<a><ref>=""</>` → `a` is a `_scrml_derived_declare` composite) now retargets the WRITE to the backing LEAF cell (`_scrml_reactive_set("a.ref", v)` single-segment; COW `_scrml_deep_set` into the leaf for residual/computed) instead of the composite key `a` (which the derived recompute clobbered). FLAT object cells unchanged. Bug B fix (`reactive-deps.ts:stampCompoundDeepSetTargets` + emit-logic.ts). |
+| compiler/tests/browser/browser-structural-compound-deepset.test.js | **NEW (4 happy-dom runtime acceptance).** Drives the DOM-event → handler → deep-set path on a structural-compound cell and asserts the write SURVIVES the derived recompute (was a silent lost mutation even for a single write). |
+| compiler/tests/unit/cow-bracket-write-emit.test.js (×2 cases) + deepset-write-loss-position.test.js | **CORRECTED (Rule-4).** Two prior tests LOCKED the Bug-B mistarget as expected output; updated to the SPEC-faithful leaf-cell shape (SPEC §6.3.2). |
+| compiler/tests/unit/data-set-algebra.test.js | **NEW (16, value-correct over structs).** `scrml:data` `union`/`intersection`/`difference`/`member` over plain arrays return value-DISTINCT arrays agreeing with `==` (§45) — `Array.includes`/JS `Set` reference-keying would be WRONG for structs/enums/nested maps; the helpers reuse the §59.5 value-canonical codec (`_data_value_canonical`). Also asserts `unique`'s no-key path now value-dedups (was `[...new Set]`, struct-broken). Type DEFERRED — these are PRIMER-only transforms, NO `set` type. |
+| compiler/tests/unit/native-on-lifecycle-block.test.js | **NEW (native).** `on mount`/`on dismount` blocks desugar under `--parser=scrml-native` (§6.7.1; fix-wave-1 GROUP P). |
+| compiler/tests/unit/native-const-at-derived-decl.test.js | **NEW (native).** `const @name` parses as a DERIVED state-decl (`parseConstAtStateDecl`) under native — F5 CLOSED. |
+| compiler/tests/unit/native-reactive-write-deepset-mutation.test.js | **NEW (native).** Native emits the live `reactive-nested-assign` / `reactive-array-mutation` kinds (→ COW + trigger, routing through the Bug-B-fixed emit-logic) byte-identical to live (fix-wave-1 GROUP T). |
+| compiler/tests/unit/native-destructured-param-structuring.test.js | **NEW (native).** Destructured param names resolve under native (closes false E-SCOPE-001; GROUP T). |
+| compiler/tests/unit/native-vardecl-type-annotation-thread.test.js | **NEW (native).** Var-decl `typeAnnotation` threads under native so a bare variant resolves against the declared type (E-VARIANT-AMBIGUOUS → E-CONTRACT-001; GROUP T). |
+| compiler/tests/unit/native-exprtext-backfill.test.js | **NEW (native).** `backfillNativeExprText` stamps `.expr`/`.init`/`.condition` from structured siblings so type-system regex-over-text passes work under native (GROUP W). INERTNESS: 295/297 byte-identical, 2 deltas a NET-POSITIVE fix. |
+| compiler/tests/unit/native-blockstub-verbatim-body.test.js | **NEW (native, statement-survival canary per the Bug-73 lesson).** `parseBlockStub` stamps `stub.verbatim`; `reconstructArmBody` returns it (was literal `"{}"` → dropped statements — the Mario MUSHROOM Small→Big fix); lambda callback block bodies preserved. +17 flip closures. |
+
+The within-node parity allowlist (`parser-conformance-within-node-allowlist.json`) was surgically reconciled
+for the combined fix-wave-1 P+T state (34 over-budget files → current; PARSE-FAILURE:0, NESTED-SHAPE:0 — benign
+parity-churn from the deliberate AST-shape changes); fix-wave-2 needed NO allowlist reconcile (deltas within budget).
 
 ## S169 New Test Files (value-native maps §59 — IMPLEMENTED end-to-end)
 
@@ -148,7 +171,7 @@ parity item, but no NEW flip-failure was registered (within-node stayed 1005/0).
 | File | What it covers |
 |------|----------------|
 | compiler/tests/unit/deepset-write-loss-position.test.js | **NEW (16 emit-shape tests / 87 asserts).** Full position matrix for the `collectExpr` depth-0 statement-boundary fix (ast-builder.js): consecutive dotted-path deep-set writes (`@obj.field = value` → `reactive-nested-assign` §5.2.3) AND array-mutations (`@arr.push(...)` et al. → `reactive-array-mutation`) survive at EVERY body position, in source order, with the right `_scrml_deep_set(...)` path + value — not just as the first statement. Includes the RHS-operand guard (`@y = @x.prop` collects `@x.prop` as the RHS read, NOT a swallowed new statement). Emit-shape lower bound (S139/S140/S152 — string check; the runtime proof is the browser file). |
-| compiler/tests/browser/browser-deepset-write-loss.test.js | **NEW (4 happy-dom runtime acceptance).** Drives the DOM-event → handler → reactive-set path and asserts the deep-set MUTATIONS ACTUALLY APPLY at runtime: every deep-set in a multi-statement body takes effect, last-write-wins ordering. Uses a FLAT object cell `<a> = { ref: "" }` to isolate the parser fix (a STRUCTURAL-COMPOUND cell — `<a><ref></>` — lowers to a derived composite that fails at runtime even for a single deep-set; that is Bug B, a SEPARATE pre-existing codegen mistarget filed but NOT fixed this session). |
+| compiler/tests/browser/browser-deepset-write-loss.test.js | **NEW (4 happy-dom runtime acceptance).** Drives the DOM-event → handler → reactive-set path and asserts the deep-set MUTATIONS ACTUALLY APPLY at runtime: every deep-set in a multi-statement body takes effect, last-write-wins ordering. Uses a FLAT object cell `<a> = { ref: "" }` to isolate the parser fix (a STRUCTURAL-COMPOUND cell — `<a><ref></>` — lowers to a derived composite that failed at runtime even for a single deep-set; that was Bug B, a SEPARATE codegen mistarget **CLOSED S170 `72aa6836` — see the S170 section below**). |
 
 NOTE (S167): the deep-set fix is a LIVE-pipeline (ast-builder.js `collectExpr`/`parseLogicBody`) fix, not a
 native-parser swap-closer. Real-corpus impact: `samples/gauntlet-r11-elixir-chat.scrml` had `@messages.push(msg)`
@@ -195,7 +218,7 @@ S160 ruling (c) tests cover the full Shape 4 dispatch matrix including the refin
 SATISFIES/VIOLATES/UNDETERMINABLE trichotomy and the `synthesizedFromNoRhs` lifecycle note path.
 
 ## Tags
-#scrmlts #map #test #bun #conformance #parser-parity #happy-dom #each-in-dynamic-context #per-item-reactivity #live-keyed #bug64 #bug65 #bug72 #bug73 #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #s153 #s154 #s155 #s156 #s157 #s158 #s159 #s160 #native-parser #native-parser-swap #each-promotion #match-promotion #f3-match-arm #f2-match #promote-each #typed-atcell #server-fn-star #exprnode-walker #within-node-1005 #flip-451 #bare-function-failable #cross-file-export-bodystart #deepset-write-loss #reactive-nested-assign #reactive-array-mutation #s161 #s162 #s163 #s164 #s165 #s166 #s167 #s168 #s169 #value-native-maps #map-type #each-tuple-destructure #union-not-normalization
+#scrmlts #map #test #bun #conformance #parser-parity #happy-dom #each-in-dynamic-context #per-item-reactivity #live-keyed #bug64 #bug65 #bug72 #bug73 #colon-shorthand-html #colon-shorthand-canonical #shape4-no-rhs #s153 #s154 #s155 #s156 #s157 #s158 #s159 #s160 #native-parser #native-parser-swap #each-promotion #match-promotion #f3-match-arm #f2-match #promote-each #typed-atcell #server-fn-star #exprnode-walker #within-node-1005 #flip-605 #flip-508 #bare-function-failable #cross-file-export-bodystart #deepset-write-loss #reactive-nested-assign #reactive-array-mutation #s161 #s162 #s163 #s164 #s165 #s166 #s167 #s168 #s169 #value-native-maps #map-type #each-tuple-destructure #union-not-normalization #s170 #set-algebra #scrml-data #bug-b-structural-compound-deepset #structural-compound-deepset #data-set-algebra #native-on-lifecycle-block #const-at-derived-decl #blockstub-verbatim-body #mario-match-arm-fix
 
 ## Links
 - [primary.map.md](./primary.map.md)

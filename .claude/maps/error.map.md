@@ -367,6 +367,33 @@ enforcement extended to the constructor-form match path and member-access match 
 so both `<match on=@role>` block-form AND inline `match @role { .Admin => ... }` patterns enforce
 the subset. Closes Bug 66 (both loci must agree per §18.8.1 / §18.0.1).
 
+### Bug B — structural-compound deep-set codegen mistarget (S170 — CLOSED, no new code)
+`72aa6836`. A LIVE-pipeline CODEGEN mistarget (NOT a new diagnostic — the bug emitted WRONG JS with
+NO error). `@a.ref = v` on a Variant-C structural compound (`<a><ref>=""</>`, where `a` lowers to a
+`_scrml_derived_declare` composite reading the leaf `a.ref`) emitted a `reactive-nested-assign` write to
+the COMPOSITE key `a`; the derived recompute then silently clobbered the write (lost mutation, exit 0,
+failed at runtime even for a SINGLE write). Distinct root from Bug A (S167 `75431e9e` — that was a PARSER
+boundary bug dropping deep-sets at statement position 2+; Bug B is the CODEGEN target selection).
+**Fix:** `reactive-deps.ts:stampCompoundDeepSetTargets` (~L739, run once-per-file at `runCG`) stamps the
+node with `_deepSetLeafKey` (deepest backing LEAF cell) + `_deepSetResidualPath`; `emit-logic.ts`
+(~L3025-3035) retargets the write to the leaf cell (single-segment → `_scrml_reactive_set("a.ref", v)`;
+residual/computed → COW `_scrml_deep_set` into the leaf). FLAT object cells UNCHANGED. SPEC §6.3.2. This
+closes the LAST open HIGH (Bug A S167 + Bug B S170 → known-gaps HIGH 1→0). The diagnostic surface is
+unchanged; the watch is that 2 prior tests had LOCKED the mistarget as expected output (corrected per Rule-4).
+
+### Native-parser S170 parity resolutions (E-SCOPE-001 / E-VARIANT-AMBIGUOUS — opt-in `--parser=scrml-native`)
+`5a346faa` (fix-wave-1). Under `--parser=scrml-native` these previously FALSE-fired and are now resolved:
+- **E-SCOPE-001** on destructured parameter names — native now structures destructured params (GROUP T,
+  translate-stmt.js), so the destructure-introduced names resolve.
+- **E-VARIANT-AMBIGUOUS → E-CONTRACT-001** — native now threads the var-decl `typeAnnotation` (GROUP T), so
+  a bare variant on an annotated decl resolves against the declared type (matching the live path) instead
+  of firing E-VARIANT-AMBIGUOUS for lack of type context.
+- The GROUP W `exprtext-backfill-walker.ts` backfills `.expr`/`.init`/`.condition` from the structured
+  `exprNode`/`initExpr`/`condExpr` siblings so the type-system's regex-over-text lifecycle/enum-subset
+  passes (which read the string fields) fire correctly under native. The DEFAULT pipeline is unaffected.
+The fix-wave-2 `cc69c62d` BlockStub `verbatim`-body recovery cleared a class of native `E-CODEGEN-INVALID-JS`
+(empty `"{}"` arm/lambda bodies that dropped statements → downstream invalid JS). Default output unchanged.
+
 ## Error Handling Patterns
 - All compile errors returned as CGError[] in result.errors or result.warnings
 - Caller checks result.errors.length to determine if compilation succeeded
@@ -380,7 +407,7 @@ errorBoundary compile support: `compiler/src/codegen/emit-error-boundary.ts` (32
 fallback markup + per-variant renders; paired with host-JS try/catch backstop (§19.6.8 C-hybrid).
 
 ## Tags
-#scrmlts #map #error #diagnostics #CGError #compiler #W-MATCH-ARROW-LEGACY #E-PA-002 #E-DG-002 #E-DECL-NEEDS-INITIALIZER #E-CODEGEN-INVALID-JS #E-ENGINE-STATE-CHILD-MISSING #E-SCOPE-001 #E-ENGINE-ACCEPTS-NOT-ENUM #E-ENGINE-MSG #E-MATCH-SUBSET-DEAD-ARM #E-SYNTAX-064 #E-COLON-SHORTHAND-ON-VOID #W-COLON-SHORTHAND-LEGACY-PLACEMENT #E-REFINEMENT-NO-DEFAULT #W-EACH #each-in-dynamic-context #source-map #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #shape4-no-rhs #s152 #s153 #s154 #s155 #s156 #s157 #s158 #s159 #s160 #colon-shorthand-html #colon-shorthand-canonical
+#scrmlts #map #error #diagnostics #CGError #compiler #W-MATCH-ARROW-LEGACY #E-PA-002 #E-DG-002 #E-DECL-NEEDS-INITIALIZER #E-CODEGEN-INVALID-JS #E-ENGINE-STATE-CHILD-MISSING #E-SCOPE-001 #E-ENGINE-ACCEPTS-NOT-ENUM #E-ENGINE-MSG #E-MATCH-SUBSET-DEAD-ARM #E-SYNTAX-064 #E-COLON-SHORTHAND-ON-VOID #W-COLON-SHORTHAND-LEGACY-PLACEMENT #E-REFINEMENT-NO-DEFAULT #W-EACH #each-in-dynamic-context #source-map #enum-subset #message-dispatch #bug60 #bug62 #bug63 #bug64 #bug65 #bug70 #bug71 #bug72 #bug73 #r28-1c #per-item-reactivity #shape4-no-rhs #s152 #s153 #s154 #s155 #s156 #s157 #s158 #s159 #s160 #s167 #s168 #s169 #s170 #colon-shorthand-html #colon-shorthand-canonical #value-native-maps #e-map-bracket-write #bug-b-structural-compound-deepset #set-algebra #native-parser-parity #E-VARIANT-AMBIGUOUS #E-CONTRACT-001
 
 ## Links
 - [primary.map.md](./primary.map.md)
