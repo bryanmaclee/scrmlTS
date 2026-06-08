@@ -1,6 +1,6 @@
 # build.map.md
 # project: scrmlts
-# updated: 2026-06-07T19:30:00Z  commit: e05dbb17
+# updated: 2026-06-07T21:10:00Z  commit: 642950a2
 
 ## Development Commands (package.json scripts)
 
@@ -31,7 +31,7 @@
 | scripts/rebuild-self-host-dist.ts | Rebuilds self-host compiler dist |
 | scripts/bundle-size-benchmark.js | Measures emitted bundle sizes |
 | scripts/perf-regression-check.ts | Runs timing regression check against perf baseline |
-| scripts/state.ts | **DD3 project-state tool (S172, NEW +329).** `bun scripts/state.ts` prints state-at-HEAD: gap counts by severity (from `docs/known-gaps.md` `@gap` tokens), bun-test subset pass/skip/fail, version, inventory, last-N `wrap(s…)` anchors, maps-staleness. `--write` regenerates in-repo `@generated:*` sections (today: known-gaps §0 `\| Severity \| Open \|` table). `--check` is the currency gate — exit 1 on stale `@generated`; maps-staleness is WARN-only. This is the wrap step 6d generator. |
+| scripts/state.ts | **DD3 project-state tool (S172, NEW +329).** `bun scripts/state.ts` prints state-at-HEAD: gap counts by severity (from `docs/known-gaps.md` `@gap` tokens), bun-test subset pass/skip/fail, version, inventory, last-N `wrap(s…)` anchors, maps-staleness. `--write` regenerates in-repo `@generated:*` sections; `--check` is the currency gate — exit 1 on stale `@generated`; maps-staleness is WARN-only. This is the wrap step 6d generator. **GEN_SECTIONS** (2 entries S173): (1) `gap-counts` → known-gaps §0 `\| Severity \| Open \|` data rows from `@gap` tokens; (2) **`recent-sessions` (NEW S173, DD3 Fork 1)** → master-list §0.6 generated index (last-8 `wrap(s…)` anchors + push-state + tag-cut) via `recentSessions(8)` [scripts/state.ts:272]. Per-session narrative SoT is `docs/changelog.md`; §0.6 is the startup-load-bearing forensic index only. |
 
 ## CI/CD Pipeline
 No .github/workflows/ directory detected — no automated CI/CD configured.

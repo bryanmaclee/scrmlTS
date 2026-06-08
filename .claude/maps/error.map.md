@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-06-07T19:30:00Z  commit: e05dbb17
+# updated: 2026-06-07T21:10:00Z  commit: 642950a2
 
 scrml's own language error model is values-not-exceptions (SPEC §19.1 — no try/catch, no throw).
 The compiler itself surfaces structured CGError objects to the caller; it never throws on bad input.
@@ -13,7 +13,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 - All other codes → result.errors (fatal, CLI exits 1)
 - Cross-stream helper required when asserting on W-*/I-* codes in tests (see diagnostic-stream-partition memory note)
 
-## Error Code Families (382+ codes in compiler source; +7 §59 value-native map codes IMPLEMENTED S169 — fire sites live end-to-end)
+## Error Code Families (384+ codes in compiler source; +7 §59 value-native map codes IMPLEMENTED S169 + 2 NEW S173 (E-EXPORT-001 §21.2, W-TYPE-FN-FIELD §14.3) — fire sites live end-to-end)
 
 | Family | Count | Description |
 |--------|-------|-------------|
@@ -43,6 +43,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | E-ENGINE-MSG-UNKNOWN | 1 | **(S155 NEW)** `.advance(.X)` targets a variant in NEITHER the state-transition plane NOR the message-dispatch plane [type-system.ts:8322] |
 | E-ENGINE-STATE-CHILD-MISSING | 1 | Engine state-child closer un-findable. S153 (c89c1cb1) closed the `:`-shorthand-child false-fire class [engine-statechild-parser.ts] |
 | E-ERRORS-* | 2 | `<errors>` element validation (E-ERRORS-001, E-ERRORS-002) |
+| E-EXPORT-001 | 1 | **(S173 NEW — SPEC §21.2)** A plain (Shape-1) OR derived reactive STATE CELL is named in an `export` clause. A state cell is not in the Form-2 exportable set (type / function / fn / const / let); a reactive cell holds per-instance runtime state, so exporting it has no cross-file meaning. Previously the export was SWALLOWED SILENTLY (emitted JS had no export; a cross-file import resolved to garbage). SHARED MOD-stage check — covers both pipelines (legacy ast-builder + native collect-hoisted both feed `file.ast.exports`). Fix-it: export a function returning it, a `const` of its current value, or wrap the cell in a component and export that. Fired in `buildImportGraph` via `collectStateCellNames`/`exportedLocalNames` [module-resolver.js:301]. Fatal. |
 | E-EXPR-* | 30 | Native-parser expression grammar codes (§34.1) |
 | E-FORMFOR-* | 8 | formFor type validation errors |
 | E-HISTORY-* | 1 | Engine history attribute error |
@@ -100,6 +101,7 @@ code: string; message: string; span: CGSpan | object; severity: 'error' | 'warni
 | W-STDLIB-* | 2 | stdlib shim/compiler-deferred warnings |
 | W-TAILWIND-* | 2 | Tailwind class warnings |
 | W-TRY-CATCH-IN-SCRML-SOURCE | 1 | try/catch used in scrml source |
+| W-TYPE-FN-FIELD | 1 | **(S173 NEW — SPEC §14.3, Info)** A struct field is declared with a FUNCTION type (`f: fn() -> T` etc.). The compiler currently resolves a function-typed struct field as an opaque `asIs` value — its function shape is not type-checked, and whether function-typed struct fields are a first-class supported feature is an open question (deferred). Info-level nudge (severity `warning` → W- prefix → result.warnings, non-fatal). Lifecycle fields are excluded so they never mis-fire (`isFunctionTypeAnnotation` is deliberately conservative). Fired by `checkFunctionTypedStructFields` walk [type-system.ts:3320], wired at the markup/type pass [type-system.ts:14762]. |
 | I-ASYNC-USER-SOURCE | 1 | Info: async pattern in user source |
 | I-AUTH-REDIRECT-UNRESOLVED | 1 | Info: auth redirect target unresolved |
 | I-FN-PROMOTABLE | 1 | Info: function eligible for promotion |
@@ -164,6 +166,11 @@ parser, D2c `<each as (k,v)>` sugar, D3 runtime, D4 codegen.
 - **W-MAP-STRUCT-KEY-LITERAL** (Info, §59.3) — struct/enum-key map literal (`[ {a:1}: {b:2} ]`) parse-accepted, codegen-deferred to the `.insert` form in v1 [expression-parser.ts:~1475 / native-parser/parse-expr.js:~3608].
 - **W-MAP-DUPLICATE-LITERAL-KEY** (Info, §59.3) — two depth-1 literal entries with §45-equal keys; last-wins [expression-parser.ts:~1485 / native-parser/parse-expr.js:~3619].
 - `E-EQ-003` + `E-EQ-001` are REUSED (no new row): a function-containing key type → `E-EQ-003` (fired from `checkMapKeyComparability` [type-system.ts:~2078]); a cross-type map-vs-non-map `==` → `E-EQ-001` (§45.3/§59.9).
+
+### S173 — two new diagnostics (additive, zero-codegen)
+
+- **W-TYPE-FN-FIELD** (NEW, Info, §14.3) — function-typed struct field nudge. A struct field declared with a function type now surfaces an info-level diagnostic instead of being silently resolved as opaque `asIs`. Severity `warning` (W- prefix → result.warnings, non-fatal, CLI exits 0). Predicate `isFunctionTypeAnnotation` [type-system.ts:1927] is deliberately conservative so a lifecycle field never mis-fires; the walk `checkFunctionTypedStructFields` [type-system.ts:3310] fires one diagnostic per function-typed field (recurses into array-element / nested inline-struct field types). Wired at the markup/type pass [type-system.ts:14762]. Whether function-typed struct fields are a first-class feature is an open question (deferred).
+- **E-EXPORT-001** (NEW, Error, §21.2) — reactive state-cell export discriminator. Exporting a plain (Shape-1) OR derived reactive state cell is now a fatal error; previously the export was swallowed silently (no export in emitted JS; cross-file import resolved to garbage). The check is keyed on the `kind:"state-decl"` binding (NOT name-case), so `export const Greeting` (component-as-const), `export <channel>`, and exported engines stay legal. SHARED MOD-stage check — runs for both pipelines (legacy ast-builder + native collect-hoisted both feed `file.ast.exports`). `collectStateCellNames` [module-resolver.js:97] + `exportedLocalNames` [module-resolver.js:136] + the check in `buildImportGraph` [module-resolver.js:295-313]. Fix-it: export a function returning the value, a `const` of its current value, or wrap the cell in a component and export that (wrapping-component idiom).
 
 ## Fix Notes
 
