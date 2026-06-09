@@ -6743,12 +6743,20 @@
     "MISSING-FIELD": 230,
     "SPAN-COORD": 34
   },
+  "stdlib/math/index.scrml": {
+    "COUNT-LENGTH": 2,
+    "EXTRA-FIELD": 28,
+    "FIELD-SHAPE": 37,
+    "KIND-NAME": 10,
+    "MISSING-FIELD": 173,
+    "SPAN-COORD": 26
+  },
   "stdlib/time/index.scrml": {
-    "COUNT-LENGTH": 4,
-    "EXTRA-FIELD": 141,
-    "FIELD-SHAPE": 79,
-    "KIND-NAME": 28,
-    "MISSING-FIELD": 387,
-    "SPAN-COORD": 57
+    "COUNT-LENGTH": 6,
+    "EXTRA-FIELD": 143,
+    "FIELD-SHAPE": 84,
+    "KIND-NAME": 30,
+    "MISSING-FIELD": 408,
+    "SPAN-COORD": 62
   }
 }

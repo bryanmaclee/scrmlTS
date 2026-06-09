@@ -324,6 +324,41 @@ export function bundleStdlibForRun(names, outputDir, log, diagnostics) {
     }
   }
 
+  // Crawl a just-copied shim's top-level relative-FILE imports and copy each
+  // sibling shim file into `_scrml/` (recursively). Only same-directory and
+  // subdir relative `.js` imports are followed; bare/absolute specifiers and
+  // bun:/node: are left to the runtime resolver. Idempotent via `copiedFiles`.
+  const copiedFiles = new Set();
+  function copyTransitiveShimSiblings(shimSrcPath, shimName) {
+    if (copiedFiles.has(shimSrcPath)) return;
+    copiedFiles.add(shimSrcPath);
+    let shimText;
+    try {
+      shimText = readFileSync(shimSrcPath, "utf8");
+    } catch {
+      return;
+    }
+    const srcDir = dirname(shimSrcPath);
+    // Match top-level `import ... from "./x.js"` / `export ... from "../y.js"`.
+    const RELATIVE_IMPORT_RE = /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s+["'](\.[^"']+\.js)["']/g;
+    let m;
+    while ((m = RELATIVE_IMPORT_RE.exec(shimText)) !== null) {
+      const rel = m[1];
+      const depSrc = join(srcDir, rel);
+      if (!existsSync(depSrc) || copiedFiles.has(depSrc)) continue;
+      // Destination mirrors the dependency's path relative to STDLIB_RUNTIME_DIR
+      // so a `./math.js` next to `time.js` lands at `_scrml/math.js`, and a
+      // nested `./oauth/pkce.js` lands at `_scrml/oauth/pkce.js`.
+      const relToRoot = relative(STDLIB_RUNTIME_DIR, depSrc);
+      const depDst = join(stdlibOut, relToRoot);
+      mkdirSync(dirname(depDst), { recursive: true });
+      copyFileSync(depSrc, depDst);
+      if (log) log(`  [STDLIB] Bundled transitive ${shimName} dep -> _scrml/${relToRoot}`);
+      // Recurse so a dep's own deps are copied too.
+      copyTransitiveShimSiblings(depSrc, shimName);
+    }
+  }
+
   // `scrml:compiler` family — KNOWN-DEFERRED per S121 Wave 7 Unit E survey
   // (docs/changes/bug-8-followup/scrml-compiler-shim-survey-s121-2026-05-22.md
   // Option (d)). The umbrella shim + its 13 per-stage siblings ship a deferred
@@ -403,6 +438,19 @@ export function bundleStdlibForRun(names, outputDir, log, diagnostics) {
       copyTree(subDir, dstSub);
       if (log) log(`  [STDLIB] Bundled scrml:${name}/* -> _scrml/${name}/`);
     }
+
+    // Transitive sibling-FILE imports (S176 — stdlib-ouroboros de-leak).
+    // A shim may `import { x } from "./other.js"` a SIBLING shim file (not a
+    // subdir): scrml:time -> ./math.js, scrml:oauth -> ./http.js + ./crypto.js.
+    // Without copying those siblings, an adopter importing only the umbrella
+    // shim (e.g. just `scrml:time`) gets a runtime "Cannot find module" because
+    // the dependency was never copied into `_scrml/`. Crawl the just-copied
+    // shim's top-level relative-file imports and copy each one (recursively),
+    // so cross-shim runtime composition resolves regardless of co-import.
+    // This also closes the pre-existing scrml:oauth latent gap (oauth.js
+    // imports ./http.js + ./crypto.js, never copied when oauth is imported
+    // alone). Subdir imports (`./oauth/pkce.js`) are already covered above.
+    copyTransitiveShimSiblings(src, name);
 
     // For the `scrml:compiler*` family, also fire the DEFERRED warning even
     // when the thunk shim IS on disk — the deferral is a property of the

@@ -16,6 +16,25 @@ ${
     // ---------------------------------------------------------------------------
 
     /**
+     * Current wall-clock time as a Unix timestamp in milliseconds.
+     *
+     * CAPABILITY-SCOPED (DD1 Fork 1, 1C): `now()` is NON-DETERMINISTIC — it
+     * reads the host clock. It is therefore the sanctioned, centralized
+     * wall-clock touch for scrml (the shim is the one place `Date.now()` is
+     * read). Per §48.3.4 it MUST NOT be called from a pure `fn` / `pure`
+     * body (E-FN-004); call it from a `function` / `server function` and
+     * pass the resolved timestamp into pure code as a parameter.
+     *
+     * Example:
+     *   server function stamp() { return now() }
+     *   function onTick() { @lastSeen = now() }
+     *   // fn elapsed(then) { return now() - then }   // E-FN-004 — non-det in fn
+     */
+    export function now() {
+        return Date.now()
+    }
+
+    /**
      * Format a timestamp as a human-readable date string.
      *
      * @param timestamp — Unix timestamp in milliseconds, or a Date object

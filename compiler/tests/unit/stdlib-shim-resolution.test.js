@@ -73,6 +73,7 @@ const NEW_SHIM_MANIFEST = [
   { name: "fs", symbol: "readFileSync" },
   { name: "cron", symbol: "schedule" },
   { name: "format", symbol: "formatCurrency" },
+  { name: "math", symbol: "round" },
   { name: "http", symbol: "get" },
   { name: "oauth", symbol: "memoryAdapter" },
   { name: "path", symbol: "join" },

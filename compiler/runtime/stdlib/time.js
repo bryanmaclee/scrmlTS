@@ -4,6 +4,7 @@
 // are pure / Intl-based — safe in both server and client contexts.
 //
 // Surface (must match stdlib/time/index.scrml exports):
+//   - now()                                  → number (Date.now(), non-deterministic; E-FN-004 in `fn`)
 //   - formatDate(timestamp, options?, locale?)
 //   - formatTime(timestamp, options?, locale?)
 //   - formatDateTime(timestamp, options?, locale?)
@@ -23,6 +24,15 @@
 //   - tzOffset(tz, timestamp?)                → number (minutes)
 //   - formatISO(timestamp)                    → string
 //   - parseISO(str)                           → Date | null
+
+import { floor } from "./math.js";
+
+// Current wall-clock time (Unix ms). NON-DETERMINISTIC — the sanctioned,
+// centralized wall-clock touch (the one place Date.now() is read). The
+// compiler rejects calling it from a pure `fn` body (E-FN-004, §48.3.4).
+export function now() {
+  return Date.now();
+}
 
 export function formatDate(timestamp, options, locale) {
   const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
@@ -49,30 +59,30 @@ export function formatRelative(timestamp, now) {
   const base = now || Date.now();
   const ts = timestamp instanceof Date ? timestamp.getTime() : timestamp;
   const diff = base - ts;
-  const seconds = Math.floor(diff / 1000);
+  const seconds = floor(diff / 1000);
 
   if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
+  const minutes = floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
+  const hours = floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
+  const days = floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
+  const months = floor(days / 30);
   if (months < 12) return `${months} ${months === 1 ? "month" : "months"} ago`;
   return formatDate(timestamp);
 }
 
 export function formatDuration(ms) {
   if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
+  const seconds = floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
+  const minutes = floor(seconds / 60);
   const remainingSecs = seconds % 60;
   if (minutes < 60) {
     return remainingSecs > 0 ? `${minutes}m ${remainingSecs}s` : `${minutes}m`;
   }
-  const hours = Math.floor(minutes / 60);
+  const hours = floor(minutes / 60);
   const remainingMins = minutes % 60;
   return remainingMins > 0 ? `${hours}h ${remainingMins}m` : `${hours}h`;
 }
@@ -131,13 +141,13 @@ export function diffTime(a, b, unit) {
   const diffMs = ta - tb;
   const u = unit.replace(/s$/, "");
   if (u === "millisecond") return diffMs;
-  if (u === "second") return Math.floor(diffMs / 1000);
-  if (u === "minute") return Math.floor(diffMs / 60000);
-  if (u === "hour") return Math.floor(diffMs / 3600000);
-  if (u === "day") return Math.floor(diffMs / 86400000);
-  if (u === "week") return Math.floor(diffMs / 604800000);
-  if (u === "month") return Math.floor(diffMs / 2592000000);
-  if (u === "year") return Math.floor(diffMs / 31536000000);
+  if (u === "second") return floor(diffMs / 1000);
+  if (u === "minute") return floor(diffMs / 60000);
+  if (u === "hour") return floor(diffMs / 3600000);
+  if (u === "day") return floor(diffMs / 86400000);
+  if (u === "week") return floor(diffMs / 604800000);
+  if (u === "month") return floor(diffMs / 2592000000);
+  if (u === "year") return floor(diffMs / 31536000000);
   return diffMs;
 }
 

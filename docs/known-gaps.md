@@ -16,8 +16,8 @@
 |---|---|
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 0 |
-| MED | 9 |
-| LOW | 22 |
+| MED | 11 |
+| LOW | 23 |
 | Nominal (spec-ahead-of-impl) | 9 |
 <!-- @generated:gap-counts END -->
 
@@ -64,6 +64,21 @@ The typed-SQL-row arc (`g-sql-row-type`) is a 3-link chain; T1 (type the `?{}` r
 
 ### G-SQL-ROW-PROTECT-LEAK — the protected-column-projection leak (data-flow / server-fn-return) is unguarded — `NEW S175; LOW; deferred from T1/T2/T3`
 Deferred across the typed-SQL-row arc (T1 stripped the keyword-based view-selection; T2/T3 left it out of scope). A server fn that SELECTs a protected column (§14.8.4 client/full view) and RETURNs the row across the wire to the client is NOT statically caught — the correct shape is data-flow (does a protected-column-bearing row reach a client surface?), not a per-function keyword (the `server` keyword is deprecated — `g-server-keyword-drift`). Natural home: the return-boundary / `E-ROUTE-003` family + the typed-SQL-row contract. Low priority — the `protect=` system still enforces at the schema/PRAGMA layer; this is the static-projection gap. <!-- @gap id=g-sql-row-protect-leak sev=LOW status=open -->
+
+---
+
+## §S176 — gaps filed S176 (2026-06-09)
+
+> Surfaced by the DD1 Fork 1 build (`scrml:math` + capability clock, landed S176). The clock + math vocabulary shipped (closing the scalar-vocab gap + the `time.js` Math-leak); these are the bounded follow-ons the build deliberately did not fold in.
+
+### G-RANDOM-PRIMITIVE — no value-native `random()`; `Math.random` (class-C non-det) still reaches the host — `NEW S176; LOW`
+DD1 Fork 1 shipped `scrml:math` (pure) + `scrml:time.now()` (capability-scoped non-det via E-FN-004 binding-aware gate). `Math.random` (~5 corpus sites) is the SAME class-C non-det as the clock but is neither a clock (doesn't fit `scrml:time`) nor pure (doesn't fit `scrml:math`). Recommended home: a thin `scrml:random` module exporting `random()` (and friends), gated EXACTLY like `now()` — the `collectNowFromScrmlTime` binding-aware E-FN-004 mechanism (type-system.ts) generalizes to any imported non-det binding; mirror it for `scrml:random.random`. Cohesive with the `now()` precedent. Low priority (5 sites; clear shape). <!-- @gap id=g-random-primitive sev=LOW status=open -->
+
+### G-STDLIB-CLIENTINLINE-SHIM-IMPORT — a client-inlined stdlib shim cannot import a sibling shim (blocks `data.js` Math de-leak) — `NEW S176; MED`
+DD1 Fork 1 de-leaked `time.js` (15→0 raw `Math.*`, routed through `scrml:math`'s shim) but `data.js` stayed leaking 2× (`clamp` = `Math.min(Math.max(...))`). Root: `data.js` is one of the 4 statically CLIENT-INLINED shims, and the client inliner STRIPS all imports before IIFE-wrapping — so a `data.js → import from math.js` keeps the call reference but loses the import = browser `ReferenceError`. The build correctly DEFERRED rather than ship a client-breaking de-leak (Rule 3). The real fix is in the client inliner (follow cross-shim imports when inlining, or inline the transitive closure). Until then `data.js`'s 2 Math touches stay (server-correct, client-correct, just not de-leaked). The S176 build DID fix the related server-bundler gap (`bundleStdlibForRun` now copies sibling-FILE shim imports — also closed a latent `scrml:oauth`→http/crypto bug). <!-- @gap id=g-stdlib-clientinline-shim-import sev=MED status=open -->
+
+### G-PURE-FUNCTION-PURITY-GAP — the §48 fn-body purity walker fires for `fn` only, not `pure function` (≡ `fn`) — `NEW S176; MED; soundness`
+Pre-existing UNIFORM gap surfaced by the `now()` capability work: the §48 fn-body prohibition walker (non-det `NON_DET_CALLS` incl. now()/Date.now/Math.random, SQL `?{}`, DOM mutation, reactive writes) fires only on `fn`-declared functions, NOT on `pure function` — even though §33.6 (S32) makes `pure function` ≡ `fn`. So `pure function f() { return now() }` (or `Date.now()`, `?{}`, etc.) currently compiles clean, bypassing the purity guarantee. The S176 build correctly did NOT single out `now()` to be stricter than `Date.now()` here (cohesion; test N3b pins the uniformity). Fix: make the §48 purity walker treat `pure function` identically to `fn` for the WHOLE prohibition set (non-det + SQL + DOM + reactive-write), not just now(). MED — it's a soundness hole in the purity contract, but low adopter impact (the `fn` keyword is the documented + corpus-dominant form; `pure function` is rare). <!-- @gap id=g-pure-function-purity-gap sev=MED status=open -->
 
 ---
 

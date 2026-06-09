@@ -21208,6 +21208,56 @@ The `scrml:compiler` family — the umbrella `scrml:compiler` plus 13 per-stage 
 - `stdlib/compiler/*.scrml` — the .scrml sources (aspirational; the target surface a future Option (b) dispatch would lift to).
 - `docs/changes/bug-8-followup/scrml-compiler-shim-survey-s121-2026-05-22.md` — full rationale + the four options analysis.
 
+### 41.18 `scrml:math` — pure scalar/numeric vocabulary
+
+**Added:** S176 — DD1 Fork 1 (1A), ratified by the S176 AskUserQuestion. Authority: `scrml-support/docs/deep-dives/js-host-boundary-foundation-2026-06-07.md` Fork 1. Closes the corpus scalar gap (adopters reaching raw `Math.*` / `parseInt` / `Number`) and the stdlib-ouroboros (scrml's own runtime had no value-native math target, so it leaked raw `Math`).
+
+`scrml:math` is a PURE stdlib module: every member is deterministic, side-effect-free, and capability-free. The runtime shim (`compiler/runtime/stdlib/math.js`) is the sanctioned, centralized touch of the host `Math.*` / `Number.*` surface — instead of scattering `Math.round(...)` across application and stdlib code, the host-math reach is funneled through this one module.
+
+**Catalog (the function surface):**
+
+| Member | Signature | Behavior |
+|---|---|---|
+| `round` | `round(n)` | Nearest integer (ties toward +Infinity). |
+| `floor` | `floor(n)` | Round toward -Infinity. |
+| `ceil` | `ceil(n)` | Round toward +Infinity. |
+| `abs` | `abs(n)` | Absolute value. |
+| `min` | `min(...values)` | Smallest argument. Variadic — `min(a, b)` or `min(...arr)`. |
+| `max` | `max(...values)` | Largest argument. Variadic — `max(a, b)` or `max(...arr)`. |
+| `clamp` | `clamp(value, minimum, maximum)` | Constrain to the inclusive range `[minimum, maximum]`. |
+| `parseInt` | `parseInt(str, radix?)` | Leading-integer parse; `radix` defaults to **10** (no implicit-octal surprise). |
+| `parseFloat` | `parseFloat(str)` | Leading-float parse. |
+| `toNumber` | `toNumber(value)` | Whole-value coercion (`Number(value)`); `""` → `0`, non-numeric → `NaN`. |
+| `isNaN` | `isNaN(value)` | `Number.isNaN` — does NOT coerce. |
+
+**Normative statements:**
+
+- Every `scrml:math` member is pure (§33 / §48). Because they are plain value imports, they are CALLABLE inside pure `fn` / `pure function` bodies — the §48.6.2 `fn`-purity walker (E-FN-003) treats imported stdlib `function` calls exactly as it treats `scrml:format` / `scrml:regex` calls (imported bindings are not added to the local non-pure-callee set). A pure calc — `round` / `floor` / `abs` of inputs — is the primary use.
+- `parseInt` SHALL default `radix` to 10 when omitted. The implicit-octal behavior of bare JS `parseInt` is not reproduced.
+- `scrml:math` is import-only (§41.5). There is no ambient `Math` global in scrml (DD1 Fork 1, 1B ambient builtins DEFERRED). Reach a member via `import { round } from 'scrml:math'`.
+- `scrml:math` deliberately EXCLUDES `random()`. A random source is non-deterministic (the same capability class as the wall clock, §41.19) and so does not belong in a pure module; its home is a separate design decision (DD1 Fork 1 follow-on — `scrml:random` vs an impure carve-out).
+
+**Cross-references:** §33 (`pure`) · §48 / §48.6.2 (`fn` purity, E-FN-003) · §41.5 (resolution) · §42.1 (the parallel "what scrml is NOT" rule shape). Shim: `compiler/runtime/stdlib/math.js`; source: `stdlib/math/index.scrml`.
+
+### 41.19 `scrml:time.now()` — capability-scoped wall clock
+
+**Added:** S176 — DD1 Fork 1 (1C), ratified by the S176 AskUserQuestion.
+
+`scrml:time.now()` returns the current wall-clock time as a Unix timestamp in milliseconds. It is the sanctioned, centralized wall-clock touch — the one place the host `Date.now()` is read (the `scrml:time` shim's internal `Date.now()` uses are now funneled through it).
+
+**Capability rule (normative):**
+
+- `now()` is NON-DETERMINISTIC — it reads the host clock. Per §48.3.4 it SHALL NOT be called from a pure `fn` body; doing so is **E-FN-004**. (The same gate applies to the canonical pure form `fn`; `pure function` purity-enforcement is the broader, uniform §48 gate — see §48.6.2.)
+- `now()` SHALL be permitted in `function` (event-handler / effect class) bodies and in `server function` bodies. Generate the timestamp there and pass it into pure code as a parameter.
+- The E-FN-004 gate is BINDING-AWARE. The compiler resolves the `now` callee to its import origin: a bare `now()` whose binding came from `import ... 'scrml:time'` is non-deterministic and fires E-FN-004 inside a `fn` body; a user's OWN `function now() { ... }` (not imported from `scrml:time`) is NOT gated. Aliased imports (`import { now as currentTime } from 'scrml:time'`) fire on the alias. Member access (`x.now()`) and other `scrml:time` members (`nowInTimezone()`) do not match. (Implementation: the host member-expression `Date.now` remains covered by the existing E-FN-004 `NON_DET_CALLS` list; the imported-binding leg is the value-import companion an adopter actually writes.)
+
+**Normative statements:**
+
+- No new §34 code is introduced. The capability is enforced by the existing **E-FN-004** (non-deterministic call); its message names the offending callee and directs the author to call it from a `function` / `server function`.
+- `now()` is import-only (`import { now } from 'scrml:time'`); there is no ambient clock (1B ambient builtins DEFERRED).
+
+**Cross-references:** §48.3.4 (non-deterministic-call rule) · §48 / §48.6.2 (`fn` purity) · §33 (`pure`) · §34 (E-FN-004 catalog row) · §41.18 (the sibling pure module — `random()`'s non-det classification is the same as the clock's). Shim: `compiler/runtime/stdlib/time.js`; source: `stdlib/time/index.scrml`.
+
 ---
 
 ## 42. `not` — The Unified Absence Value

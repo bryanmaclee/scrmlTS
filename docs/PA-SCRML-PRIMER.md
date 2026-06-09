@@ -950,7 +950,7 @@ The v0.3.0 critical-path investment. Five sub-waves, ALL CLOSED end-to-end:
 
 ---
 
-## §10 stdlib — what's on the shelf (16 modules)
+## §10 stdlib — what's on the shelf (17 modules)
 
 **Important:** stdlib modules are **import-only**, not standalone-compile targets. Don't try to compile `stdlib/<x>/index.scrml` directly — it's designed to be imported into a `<program>`.
 
@@ -996,15 +996,16 @@ The v0.3.0 critical-path investment. Five sub-waves, ALL CLOSED end-to-end:
 **Crypto + format + patterns:**
 - `scrml:crypto` — `hash`, `verifyHash`, `hmac`, `safeCompare`, `generateUUID`, `generateToken`
 - `scrml:format` — `formatCurrency/Number/Percent/Bytes`, `slug`, `pluralize`, `titleCase`, `capitalize`, `toWords`, `truncate`, `padLeft/Right`, locale-aware Intl: `compactNumber`, `formatList`, `formatRange`, `formatNumberAdvanced`
-- `scrml:time` — `formatDate/Time/DateTime/Relative/Duration`, `parseDate`, `isValidDate`, `startOf/addTime/diffTime`, `debounce/throttle/sleep`; timezone: `formatInTimezone`, `nowInTimezone`, `toTimezoneParts`, `tzOffset`; ISO: `formatISO`, `parseISO`
+- `scrml:time` — `formatDate/Time/DateTime/Relative/Duration`, `parseDate`, `isValidDate`, `startOf/addTime/diffTime`, `debounce/throttle/sleep`; timezone: `formatInTimezone`, `nowInTimezone`, `toTimezoneParts`, `tzOffset`; ISO: `formatISO`, `parseISO`; **`now()` — (S176, DD1 Fork 1 / 1C) capability-scoped wall clock** (`Date.now()` ms): non-deterministic → REJECTED in pure `fn`/`pure` bodies (E-FN-004, binding-aware — a user's own `function now()` is not gated), ALLOWED in `function`/`server function`. The sanctioned centralized clock touch. SPEC §41.19.
 - `scrml:regex` — vetted `patterns` catalog (email, url, ipv4, uuid, slug, hexColor, semver, isoDate, phoneE164, usZip, etc.); helpers `test`, `match`, `extract`, `replace`, `escape`, `caseInsensitive`, `isValid(name, str)`
+- `scrml:math` — **(S176, DD1 Fork 1 / 1A)** PURE scalar vocabulary: `round`, `floor`, `ceil`, `abs`, `min(...values)`, `max(...values)`, `clamp(value, min, max)`, `parseInt(str, radix=10)`, `parseFloat`, `toNumber`, `isNaN`. The sanctioned centralized host `Math.*`/`Number.*` touch. Every member is pure → CALLABLE in pure `fn` bodies (imports are fn-callable; no E-FN-003). Import-only (no ambient `Math`). Deliberately EXCLUDES `random()` (non-deterministic — same class as the clock; separate design follow-on). SPEC §41.18.
 
 **Wrappers:**
 - `scrml:fs`, `scrml:path`, `scrml:process`, `scrml:test` — Node compat / test runner
 
 **Distribution model (locked S57):** bundled-with-compiler, single-version, stdlib-version = compiler-version, no registry, no separate semver.
 
-**Honesty positioning:** "kills ~88-90% of typical-app npm needs" (S58 lift after `scrml:oauth` lands). Real remaining gaps: JWKS / OIDC discovery (deferred); date-formatting beyond Intl; advanced HTTP middleware beyond what's bundled; some niche utility libs (lodash-equivalents).
+**Honesty positioning:** "kills ~88-90% of typical-app npm needs" (S58 lift after `scrml:oauth` lands). Real remaining gaps: JWKS / OIDC discovery (deferred); date-formatting beyond Intl; advanced HTTP middleware beyond what's bundled; some niche utility libs (lodash-equivalents). **(S176)** The scalar gap (raw `Math.*` / `parseInt` / `Number` reaches, ~95 corpus sites) is now closed by `scrml:math` (§41.18); the wall-clock reach is capability-scoped via `scrml:time.now()` (§41.19).
 
 **No generics** — scrml doesn't have type parameters. Recurring finding: per-domain enums + per-screen state-machine variants beat generic stdlib types like `AsyncPhase<T>` — naming the variants in app context produces better match blocks. The five-line "boilerplate" is five lines of useful domain spec.
 

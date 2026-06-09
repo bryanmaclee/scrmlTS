@@ -6564,6 +6564,48 @@ function annotateNodes(
   }
   collectParseVariantImports(_allTopNodes);
 
+  // ---------------------------------------------------------------------------
+  // DD1 Fork 1 (1C) — capability-scoped wall clock `scrml:time.now()`.
+  //
+  // `now()` reads the host clock — it is NON-DETERMINISTIC (§48.3.4) and so
+  // MUST NOT be called from a pure `fn` / `pure` body (E-FN-004). The existing
+  // E-FN-004 check is identifier-keyed on HOST member-expressions (`Date.now`,
+  // `Math.random`, ...). An adopter writes `import { now } from 'scrml:time'`
+  // then a BARE `now()` — which no host-member string matches. We must fire on
+  // the IMPORTED binding WITHOUT false-positiving on a user's own
+  // `function now() {}`. So we resolve the import binding (mirroring the
+  // `parseVariant`-from-`scrml:data` precedent above): collect the local names
+  // bound to `now` from imports of `scrml:time`, then thread the set into the
+  // fn-purity walker so E-FN-004 fires only on those bindings. A user-declared
+  // `now` (not imported from `scrml:time`) is never in this set.
+  // ---------------------------------------------------------------------------
+  const nowFromScrmlTime = new Set<string>();
+  function collectNowFromScrmlTime(nodesArg: ASTNodeLike[]): void {
+    for (const n of nodesArg) {
+      if (!n || typeof n !== "object") continue;
+      if (n.kind === "import-decl" && (n as ASTNodeLike).source === "scrml:time") {
+        const specifiers = (n as ASTNodeLike).specifiers as Array<{ imported?: string; local?: string }> | undefined;
+        if (Array.isArray(specifiers)) {
+          for (const spec of specifiers) {
+            if (spec && spec.imported === "now" && typeof spec.local === "string") {
+              nowFromScrmlTime.add(spec.local);
+            }
+          }
+        } else if (Array.isArray(n.names)) {
+          // Defensive fallback when specifiers wasn't populated.
+          for (const name of n.names as unknown[]) {
+            if (typeof name === "string" && name === "now") nowFromScrmlTime.add("now");
+          }
+        }
+      }
+      const body = n.body as ASTNodeLike[] | undefined;
+      if (Array.isArray(body)) collectNowFromScrmlTime(body);
+      const children = n.children as ASTNodeLike[] | undefined;
+      if (Array.isArray(children)) collectNowFromScrmlTime(children);
+    }
+  }
+  collectNowFromScrmlTime(_allTopNodes);
+
   // Step 2: wire fnErrorTypes / fnCanFail so `!{}` exhaustiveness fires.
   for (const localName of parseVariantLocals) {
     fnErrorTypes.set(localName, "ParseError");
@@ -7264,7 +7306,7 @@ function annotateNodes(
         // same walker that fn bodies use so the same E-FN-001..E-FN-005
         // codes surface uniformly — users already understand these codes.
         if (Array.isArray(txBody)) {
-          checkFnBodyProhibitions(n, txBody, errors, filePath, stateTypeRegistry, nonPureFnNames, scopeChain);
+          checkFnBodyProhibitions(n, txBody, errors, filePath, stateTypeRegistry, nonPureFnNames, scopeChain, nowFromScrmlTime);
         }
 
         scopeChain.pop();
@@ -7503,7 +7545,7 @@ function annotateNodes(
         // §48 fn body prohibition checks (E-FN-001 through E-FN-008)
         // E-STATE-COMPLETE (§54.6.1) is emitted from within for fn bodies.
         if (n.fnKind === "fn" && Array.isArray(fnBody)) {
-          checkFnBodyProhibitions(n, fnBody, errors, filePath, stateTypeRegistry, nonPureFnNames, scopeChain);
+          checkFnBodyProhibitions(n, fnBody, errors, filePath, stateTypeRegistry, nonPureFnNames, scopeChain, nowFromScrmlTime);
         }
 
         // §54.6.1 E-STATE-COMPLETE universal widening (S32 Phase 1b).
@@ -16929,6 +16971,11 @@ function checkFnBodyProhibitions(
   stateTypeRegistry?: Map<string, ResolvedType>,
   nonPureFnNames?: Set<string>,
   scopeChain?: ScopeChain,
+  // DD1 Fork 1 (1C): local names bound to `now` from `import ... 'scrml:time'`.
+  // A bare `now()` call to one of these inside a pure `fn` body is E-FN-004
+  // (non-deterministic wall-clock read). Binding-aware — a user's own
+  // `function now() {}` is NOT in this set and never fires.
+  nowFromScrmlTime?: Set<string>,
 ): void {
   const fnName = (fnNode.name as string) ?? "<anonymous>";
   const fnSpan = (fnNode.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 }) as Span;
@@ -17400,6 +17447,33 @@ function checkFnBodyProhibitions(
               stmtSpan,
             ));
             break; // one error per statement for non-det
+          }
+        }
+
+        // E-FN-004 (DD1 Fork 1, 1C): the imported `scrml:time.now()` wall clock.
+        // Binding-aware — fires only on a BARE call to a local name bound to
+        // `now` from `import ... 'scrml:time'`, so a user's own `function now()`
+        // never trips it, and member access `obj.now()` / `nowInTimezone()` do
+        // not match (CALL_RE keys on the bare leading identifier). The host
+        // `Date.now` member string is already covered by NON_DET_CALLS above;
+        // this leg covers the value-import binding the adopter actually writes.
+        if (nowFromScrmlTime && nowFromScrmlTime.size > 0) {
+          const NOW_CALL_RE = /\b([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
+          let mn: RegExpExecArray | null;
+          while ((mn = NOW_CALL_RE.exec(txt)) !== null) {
+            // Skip member accesses (`x.now(`) — a preceding `.` means this is
+            // not the imported bare binding.
+            if (mn.index > 0 && txt[mn.index - 1] === ".") continue;
+            const callee = mn[1];
+            if (nowFromScrmlTime.has(callee)) {
+              errors.push(new TSError(
+                "E-FN-004",
+                `E-FN-004: \`fn ${fnName}\` body calls \`${callee}()\` (\`scrml:time.now\`), which is non-deterministic — it reads the host wall clock. ` +
+                `\`fn\` must be a pure function of its inputs. Call \`${callee}()\` from a \`function\` or \`server function\` and pass the timestamp into \`fn ${fnName}\` as a parameter.`,
+                stmtSpan,
+              ));
+              break; // one E-FN-004 per statement for the imported now()
+            }
           }
         }
 
