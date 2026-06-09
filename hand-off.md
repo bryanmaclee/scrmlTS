@@ -1,49 +1,49 @@
-# scrmlTS — Session 175 (CLOSE)
+# scrmlTS — Session 176 (CLOSE)
 
-**Date:** 2026-06-09 (opened 2026-06-08; spanned midnight)
-**Previous:** `handOffs/hand-off-179.md` (= S174 CLOSE).
-**Next-session pickup:** rotate THIS file → `handOffs/hand-off-180.md` at next OPEN.
-**Profile:** opened **A (FULL)** ("read pa.md and start session"; default A). `/effort` → **ultracode**.
-**Wrap:** `wrap and push` — 8-step wrap executed (incl. 6b worktree-cleanup + 6c maps-refresh + 6d state-doc regen + currency gate + step-7 push).
+**Date:** 2026-06-09
+**Previous:** `handOffs/hand-off-180.md` (= S175 CLOSE).
+**Next-session pickup:** rotate THIS file → `handOffs/hand-off-181.md` at next OPEN.
+**Profile:** opened **A (FULL)** ("read pa.md start full"). `/effort` → **ultracode**.
+**Wrap:** plain **"wrap"** — 8-step wrap executed (6b worktree-cleanup [no-op, already clean] + 6c maps-refresh + 6d state-doc regen + currency gate). Step 7 push: see "Open questions" — surfaced (plain "wrap" ≠ "wrap and push").
 
-## 🟢 S175 CLOSE — typed-SQL-row arc T1+T2+T3 SHIPPED end-to-end on the flagship · function-boundary rule (4A + passed-vs-stored + Fork-3) SHIPPED
+## 🟢 S176 CLOSE — FOUR compiler-source arcs shipped + pushed (type-system + JS-host-boundary cluster)
 
-A long multi-arc Profile-A session. **Two feature deliveries, both fully verified, both pushed.** Five compiler-source dispatches, all survey-gated with landing-review (one caught a deprecated-`server`-keyword view-selection + I stripped it; one caught the flagship laundering + filed it as the connecting tranche).
+A long Profile-A/ultracode session. Four arcs ratified → built → PA-independent-R26-verified → file-delta landed → pushed. Plus the orphan-branch cleanup + a design-judgment pivot (purity-enforcement → deprecation on user pushback).
 
 ### STATE AS OF CLOSE
-- **HEAD:** the wrap commit (this) + the maps commit, on top of `9e6156c4` (function-boundary). scrmlTS origin **0/0** after the wrap push. scrml-support origin **0/0** (2 commits: `4baeff4` design-insight/recon-DD-current + the user-voice S175/S175(cont) record).
-- **Tests:** full suite **23,538 / 0 fail / 220 skip / 1 todo** (S174 close 23,484; +54 across the typed-SQL-row arc; function-boundary net-zero [+11 reject tests replaced the warning tests]). Pre-commit subset **16,344 / 89 / 0**. `bun scripts/state.ts --check` PASS.
-- **known-gaps:** **HIGH 0 · MED 10 · LOW 22 · Nominal 9** (live via `@generated:gap-counts`). S175 deltas: RESOLVED `g-sql-row-type` + `g-sql-row-typeflow` (MED−2); FILED `g-server-keyword-drift` (LOW), `g-sql-row-protect-leak` (LOW), `g-sql-row-typeflow` (resolved same session) (LOW+2).
+- **HEAD:** the wrap commit (this: hand-off + changelog + master-list + maps + state regen) on top of `35172d78` (scrml:random). The 4 arc landings: `46cffc83` (E-TYPE-UNKNOWN-NAME) · `beb8a115` (scrml:math+clock) · `4a19a047` (pure-deprecation) · `35172d78` (scrml:random). scrmlTS origin **0/0 through 35172d78**; the wrap commit's push state is in Open Questions.
+- **Tests:** full suite **23,680 / 0 fail / 220 skip / 1 todo** (S175 close 23,538; +142: +63 E-TYPE-UNKNOWN-NAME, +44 scrml:math/clock, +17 pure-deprecation, +18 scrml:random). `bun scripts/state.ts --check` PASS.
+- **known-gaps:** **HIGH 0 · MED 10 · LOW 22 · Nominal 9** (live via `@generated:gap-counts`). S176 deltas: RESOLVED `g-unknown-type-leak`, `g-pure-function-purity-gap` (by-deprecation), `g-random-primitive`; FILED `g-random-primitive`(→resolved same session), `g-stdlib-clientinline-shim-import` (MED, OPEN), `g-pure-function-purity-gap`(→resolved same session).
 - **Version:** v0.7.0, no cut.
-- **Worktrees:** **main only** (5 session worktrees cleaned at 6b). **⚠ 2 ORPHAN branches remain — NOT this session's, NOT deleted:** `worktree-agent-a48bf500147b36c24` + `worktree-agent-a902a67a8980303f6` (no worktree, prior session — the dry-run caught them; left untouched per the S87 must-not-touch precedent). **Next session: investigate + clean if confirmed-landed/abandoned.**
-- **Maps:** refreshed 6c (project-mapper incremental on the session's type-system/SPEC landings) — watermark advanced to the maps commit. (The maps had been STALE for `type-system.ts` across all 4 type-system landings; every dispatch agent reported it + grep-recovered current loci — the refresh closes that.)
+- **stdlib:** 16 → **18 modules** (NEW `scrml:math`, `scrml:random`; `scrml:time` gained `now()`).
+- **Worktrees:** **main only** (all session worktrees cleaned per-landing). No orphan branches (the 2 S175 orphans investigated + cleaned — superseded, work in origin/main `76059024`+`9d12d980`).
+- **Maps:** refreshed 6c (project-mapper incremental on the S176 source landings — E-TYPE-UNKNOWN-NAME / W-PURE-DEPRECATED / scrml:math+random+now / generalized collector); watermark → `35172d78` (trails the wrap commit by 1 = docs-only wrap commit; WARN-only per 6d).
 - **Inbox:** empty.
-- **Untracked:** none (the 5 `.wf-*.js` scratch deleted at wrap).
 
-### S175 ARC (what shipped)
-
-**1. Typed-SQL-row feature — Shape C RATIFIED + built T1→T2→T3, end-to-end on the flagship.** The S174 blind-DD convergence (SPEC §14.8.7 mandates typed SQL rows; `type-system.ts:7305` hard-coded `tAsIs()`) → user presented the side-by-side → ruled **Shape C** (a consumer authors a plain `:struct` prop contract; a SQL projection row STRUCTURALLY width-subtypes into it; bounded to SQL-row→`:struct`, general struct assignment stays nominal) → then **(B)** (full struct-return type-flow).
-- **`45bea7c5` T1** (read-site row typing): `sql-projection.ts` (SELECT-projection extractor) + `resolveSqlRowType` (`case sql` + let/const sqlNode path) + F-SCHEMA-001 (`<schema>` as 3rd ColumnDef source) + `W-SQL-ROW-UNTYPED` + `E-TYPE-051` any→asIs. **View-selection stripped pre-landing** (keyed on the deprecated `server` keyword — caught at landing-review).
-- **`1dbf67b4` T2** (prop-contract mechanism): SPEC §14.8.8 + `checkSqlRowWidthSubtype` + `E-SQL-ROW-CONTRACT-MISMATCH` + T2a (dormant `E-TYPE-004` wired live + for-of/`<each>` element-type thread). Agent Phase-0 caught the flagship-laundering no-op → dogfood reverted + `g-sql-row-typeflow` filed.
-- **`95c25b67` T3** (the connecting middle, B): T3a (state-decl SQL-init) + T3b (cell-boundary width-subtyping) + T3c (`inferReturnTypeFromBody` — bounded fn-return-type inference; `<fn-return>` over-approx E-TYPE-004-exempt). **Flagship `board.scrml` chain types end-to-end** (`@loadRows: LoadCardRow[]`); **engage-test PROVED** the check fires on a real contract break (not a no-op). Codegen byte-identical. `g-sql-row-type` + `g-sql-row-typeflow` RESOLVED.
-
-**2. Function-boundary rule (S174-ratified) — `9e6156c4`.** **4A** (function-typed struct fields REJECTED: `W-TYPE-FN-FIELD`→hard `E-STRUCT-FUNCTION-FIELD` + wire `FunctionType` through `resolveTypeExpr`, closing the int-for-fn hole) + **name-the-rule** (NEW SPEC §15.11.5.1: "a function may be PASSED or CALLED, never STORED as value data"; unifies W-COMPONENT-001-PASSED + E-STRUCT-FUNCTION-FIELD-STORED; W-COMPONENT-001 NOT escalated) + **Fork-3 doc tail** (§15.11.2 Clojure identity/value reconciliation). Corpus scan: ZERO fn-typed struct fields across 930 `.scrml` (S174 "zero cost" confirmed). Recon DD `passed-vs-stored-function-boundary-2026-06-08.md` → current/RATIFIED.
+### S176 ARC (what shipped — all pushed, all R26-verified)
+1. **`46cffc83` — `E-TYPE-UNKNOWN-NAME` (g-unknown-type-leak RESOLVED).** The committed S174 "2 must-follow-soon". Scope via a fan-out investigation workflow (6 readers + adversarial risk-audit) → user ruled **BROAD** (all leak loci + symmetric `E-TYPE-ANY-FORBIDDEN` extension). Position-aware leaf predicate (PascalCase + registry-PRESENCE + import-specifier exemption) post-import-seed. SPEC §14.1.2. Agent caught the investigation's miss (machine-typed cells via machineRegistry → exempted). +63.
+2. **`beb8a115` — DD1 Fork 1 (1A+1C): `scrml:math` + `scrml:time.now()`.** Pure math module (fn-callable) + capability-scoped clock (E-FN-004 binding-aware). time.js de-leaked 15→0; data.js DEFERRED (`g-stdlib-clientinline-shim-import`); bundler sibling-shim-copy fix closed a latent oauth bug. SPEC §41.18/§41.19. +44.
+3. **`4a19a047` — `pure` modifier DEPRECATED.** THE design-judgment arc (see PROCESS). `W-PURE-DEPRECATED` (replaces W-PURE-REDUNDANT) + migrate Migration 3 + 10-decl corpus → fn + SPEC §33 banner. Closes `g-pure-function-purity-gap` by-deprecation. +17.
+4. **`35172d78` — `scrml:random` (g-random-primitive RESOLVED).** `random()` + `randomInt`, capability-scoped; the now() collector generalized to a registry (`collectNonDetStdlibBindings`). 6 Math.random migrated; http jitter de-leaked. SPEC §41.20. +18.
 
 ### PROCESS NOTES (for next session)
-- **2 orphan branches** (`a48bf500`, `a902a67a`) — investigate + clean (above).
-- **Agent committed to scrml-support main** (`4baeff4`, the function-boundary agent): the brief authorized the design-insight + recon-DD-frontmatter EDITS but not the COMMIT. Content was correct + bounded (no damage), kept. **Going-forward: dev-agent briefs that touch scrml-support SHALL say "make the edits; do NOT commit scrml-support — PA lands the storage writes."** Candidate pa.md addendum.
-- **Survey-gated landing-review worked twice as the safety net** (the view-selection strip; the laundering catch) — the pattern (agent surveys + reports design in Phase-0; PA reviews at landing; revert+re-dispatch on a wrong design choice) held across 5 dispatches.
+- **The pure-deprecation pivot (design-judgment precedent).** PA dispatched "enforce purity on pure function"; user pushed back "pure was deprecated long ago"; PA STOPPED the agent, re-investigated comprehensively (newest-first), found pure was killed-early→re-ratified-S32 + `server` (not pure) is the Insight-26 deprecation, BUT pure is empirically INERT → user ruled deprecate. Lesson: take the pushback seriously, re-verify the record properly, surface the inert-finding.
+- **2 new PA memories:** `feedback_sweep_all_mentions_newest_first` (don't anchor on the first user-voice hit; weight the LATEST), `feedback_path_discipline_hook_bash_blindspot` (the S100 hook misses Bash writes; S126 mandates Bash-edits → leak vector; defense = agent self-check + PA post-dispatch main-clean verify).
+- **PATH-DISCIPLINE INCIDENT** (deprecate-pure, commit `4a19a047` body): agent python3 Bash-write leaked to MAIN type-system.ts; self-reverted + PA-verified clean. Hook-hardening is a filed follow-on (settings task).
+- **Standing land+push grant OFFERED + DECLINED** — user kept per-arc authorization. Continue asking per landing.
 
 ### CARRY-FORWARD QUEUE (all need user direction)
-- **DD1 (JS-host foundation) remaining forks** — Fork 1 (scalar vocab: `scrml:math` 1A + capability-clock 1C — flagged HIGHEST-LEVERAGE next build, precondition of any "hide the host" ruling) · Fork 2 (global-store, ratify-the-omission) · Fork 5 (escape door). One-axis-at-a-time per `feedback_no_batch_ratify_foundational_axioms`. DD: `scrml-support/docs/deep-dives/js-host-boundary-foundation-2026-06-07.md`.
-- **Typed-SQL-row deferred tails:** `g-sql-row-protect-leak` (LOW — the protected-column-projection leak; data-flow/return-boundary follow-on); broad unrecognized-type-leak `g-unknown-type-leak` (MED — the committed S174 "2 must-follow-soon"); `g-component-001-coverage` (LOW — W-COMPONENT-001 vestigial); `g-route-arg-fn` (LOW — E-ROUTE arg-direction); `g-server-keyword-drift` (LOW — scrub `server function` from canon, 207× SPEC/31× kickstarter/7× PRIMER/12 flagship).
-- **Native-parser swap Wave 3** (strategic #1; ~508 flip-failures) — design-gated; DEFER to M6. TRIAGE: `docs/changes/native-swap-retriage-s166/`.
-- **Carry-forward design queue:** L19 multi-statement-handler relaxation; generators policy; DD3 Fork-4 wrap-gate→pre-commit promotion (optional).
+- **DD1 Fork 1 last follow-on:** `g-stdlib-clientinline-shim-import` (MED) — the client-inliner strips cross-shim imports, so a client-inlined shim (data.js — one of auth/crypto/data/host) can't import a sibling shim; blocks the data.js Math de-leak. Real fix is in the inliner. + a NEW micro-finding: http/index.scrml still leaks `Math.pow`/`Math.max` (pure-math ouroboros, separate from Math.random; http is server-bundled so de-leakable — small follow-on, not yet filed as a gap).
+- **DD1 remaining forks (close the DD):** Fork 2 (global-reactive-store — ratify-the-omission 2A+2B, credit the engine-singleton; DO NOT build 2C) · Fork 5 (escape door — 5A keep `import:host` platform-only). Both ratify-the-omission; close DD1 + unblock the "hide the host" stance ruling (Fork 1 was its precondition — now shipped). DD: `scrml-support/docs/deep-dives/js-host-boundary-foundation-2026-06-07.md` (status still `in-progress`; Forks 3+4+1 done).
+- **Hook-hardening:** close the path-discipline hook's Bash-write blind spot (intercept Bash main-absolute writes; settings/hook task, not compiler). Memory `feedback_path_discipline_hook_bash_blindspot`.
+- **Typed-SQL-row LOW tails:** `g-sql-row-protect-leak` (LOW) · `g-route-arg-fn` (LOW) · `g-server-keyword-drift` (LOW — scrub deprecated `server` from canon; the `server` deprecation [Insight 26] still pervades spec/primer/kickstarter/corpus).
+- **Native-parser swap Wave 3** (strategic #1; design-gated; DEFER to M6). TRIAGE: `docs/changes/native-swap-retriage-s166/`.
+- **Carry-forward design queue:** L19 multi-statement-handler relaxation; generators policy; DD3 Fork-4 wrap-gate→pre-commit promotion.
 
 ### pa.md directives in force
 - Rules R1–R5. `---` answer-delimiter. Profile A/B. `full wrap`/88% floor. wrap = 8 steps (6b/6c/6d).
-- Dispatch: S88 isolation · F4 startup-verify · S90 CWD-routing · S99/S126 Bash-edit+no-`cd` · S136 BRIEF.md · S138 R26+independent-verify · S147 branch-leak coherence · S164 bg-commit-race.
-- `feedback_no_batch_ratify_foundational_axioms` · `feedback_verify_before_claim` (R26-reverse) · `feedback_signal_ruling_scope` · `feedback_limit_primitives_not_godify` · `feedback_pa_bash_cleanup_dry_run` (caught the 2 orphans this wrap) · `feedback_show_code_to_reason_about`.
+- Dispatch: S88 isolation · F4 startup-verify · S90 CWD-routing · **S99/S126 Bash-edit+no-`cd` (+ S176 hook-Bash-blindspot — self-enforce worktree-absolute prefix on Bash writes)** · S136 BRIEF.md · S138 R26+independent-verify · S147 branch-leak coherence · S164 bg-commit-race.
+- Memory: `feedback_sweep_all_mentions_newest_first` · `feedback_path_discipline_hook_bash_blindspot` · `feedback_no_batch_ratify_foundational_axioms` · `feedback_limit_primitives_not_godify` · `feedback_verify_before_claim` · `feedback_signal_ruling_scope` · `feedback_show_code_to_reason_about` · `feedback_pa_bash_cleanup_dry_run`.
 
 ## Tags
-#session-175 #profile-a-full-start #typed-sql-row-arc-complete #function-boundary-rule #wrap-and-push
+#session-176 #profile-a-full-start #e-type-unknown-name #scrml-math-clock #pure-modifier-deprecated #scrml-random #four-arcs #pure-deprecation-pivot
