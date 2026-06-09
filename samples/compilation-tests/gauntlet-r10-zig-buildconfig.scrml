@@ -95,7 +95,7 @@ ${
     // with no side effects is "pure" by convention. scrml makes this explicit
     // and verifiable at compile time. This is the right design.
 
-    pure function platformFlag(platform) {
+    fn platformFlag(platform) {
         if (platform == "WASM") { return "-target wasm32-freestanding" }
         if (platform == "LinuxX64") { return "-target x86_64-linux" }
         if (platform == "MacOSArm64") { return "-target aarch64-macos" }
@@ -117,7 +117,7 @@ ${
     // (a string), so the enum type and the runtime value are disconnected.
     // Workaround: use if/else chains. This is the same thing Wave 1 devs hit.
 
-    pure function optFlag(optLevel) {
+    fn optFlag(optLevel) {
         if (optLevel == "Debug") { return "-O Debug" }
         if (optLevel == "ReleaseSafe") { return "-O ReleaseSafe" }
         if (optLevel == "ReleaseFast") { return "-O ReleaseFast" }
@@ -125,7 +125,7 @@ ${
         return "-O Debug"
     }
 
-    pure function depsFlags(deps) {
+    fn depsFlags(deps) {
         let flags = ""
         for (let dep of deps) {
             flags = flags + " --dep " + dep
@@ -141,7 +141,7 @@ ${
     // compile error: you cannot assign a string to a Platform field.
     // SUGGESTED FIX: Allow @platform = Platform::WASM (enum variant as reactive initial
     // value), with the runtime storing the enum tag. This bridges the gap.
-    pure function buildCommandFor(platform, optLevel, stripDebug, enableLTO, singleThreaded, deps) {
+    fn buildCommandFor(platform, optLevel, stripDebug, enableLTO, singleThreaded, deps) {
         let cmd = "zig build"
         cmd = cmd + " " + platformFlag(platform)
         cmd = cmd + " " + optFlag(optLevel)

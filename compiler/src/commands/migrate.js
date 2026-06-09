@@ -9,6 +9,8 @@
  *   1. Whitespace-after-`<` (W-WHITESPACE-001):  `< db>` → `<db>`, etc.
  *      Applies only to known scrml lifecycle/structural keywords.
  *   2. `<machine>` keyword (W-DEPRECATED-001):   `<machine` → `<engine`.
+ *   3. `pure` modifier   (W-PURE-DEPRECATED):  `pure function`/`pure fn` → `fn`;
+ *                                              `[server ]pure[ server ]function` → `server fn`.
  *
  * Migrations gated by `--program-shape` (v0.3 Wave 2 — S86):
  *   3. Program-shape rewrite per SPEC §40.8 (one-program-per-application).
@@ -145,8 +147,18 @@ const KNOWN_KEYWORDS = new Set([
  *   up here. If Migration 2 runs first on `< machine`, it produces `< engine`,
  *   and Migration 1 then normalizes that to `<engine`.
  *
+ * Migration 3 — `pure` modifier (W-PURE-DEPRECATED, deprecate-pure-modifier-2026-06-09):
+ *   `pure function NAME(` / `pure fn NAME(` → `fn NAME(`;
+ *   `pure server function NAME(` / `server pure function NAME(` → `server fn NAME(`.
+ *   The `pure` modifier is deprecated language-wide; `fn` is the canonical pure
+ *   form (mirrors the `<machine>`→`<engine>` deprecation, Migration 2). The
+ *   regex anchors on the DECLARATION shape (`pure` [+ `server`] + `function`/`fn`
+ *   + name + `(`) so prose/comments that merely mention "pure function" are not
+ *   rewritten. Idempotent — a `fn NAME(` produced by a prior run has no leading
+ *   `pure` to match. Applied after Migrations 1+2 in the same pass.
+ *
  * @param {string} source — raw source text
- * @returns {{ rewritten: string, changed: boolean, migrations: { whitespace: number, machine: number } }}
+ * @returns {{ rewritten: string, changed: boolean, migrations: { whitespace: number, machine: number, pure: number } }}
  */
 export function applyMigrations(source) {
   let result = source;
@@ -182,12 +194,38 @@ export function applyMigrations(source) {
     }
   );
 
+  // Migration 3: `pure` modifier (W-PURE-DEPRECATED) → drop it; `fn` is canonical.
+  //
+  // The `pure` modifier is deprecated language-wide. Canonical pure form is `fn`
+  // (and `server fn`). Rewrites the DECLARATION forms only (anchored on a name +
+  // `(` so prose mentions of "pure function" are untouched):
+  //   `pure function NAME(`            → `fn NAME(`
+  //   `pure fn NAME(`                  → `fn NAME(`
+  //   `pure server function NAME(`     → `server fn NAME(`
+  //   `server pure function NAME(`     → `server fn NAME(`
+  // `export` (when present) precedes `pure` and is left in place by the regex,
+  // so `export pure function NAME(` → `export fn NAME(` falls out naturally.
+  // Idempotent: a `fn NAME(` from a prior run carries no leading `pure`.
+  let pureCount = 0;
+  result = result.replace(
+    // group 1: optional leading `server ` (the `server pure` ordering)
+    // keyword: `pure` then optional ` server`, then `function` or `fn`
+    // group 2: the trailing whitespace + name + `(` we re-emit verbatim
+    /\b(server\s+)?pure(\s+server)?\s+(?:function|fn)(\s+[A-Za-z_$][\w$]*\s*\()/g,
+    (_match, leadServer, midServer, tail) => {
+      pureCount++;
+      const isServer = Boolean(leadServer) || Boolean(midServer);
+      return `${isServer ? "server " : ""}fn${tail}`;
+    }
+  );
+
   return {
     rewritten: result,
     changed: result !== source,
     migrations: {
       whitespace: whitespaceCount,
       machine: machineCount,
+      pure: pureCount,
     },
   };
 }
@@ -2048,6 +2086,8 @@ Apply automated source rewrites for deprecated scrml syntax patterns.
 Migrations shipped:
   - Whitespace-after-\`<\`  (W-WHITESPACE-001): \`< db>\` → \`<db>\`
   - \`<machine>\` keyword     (W-DEPRECATED-001): \`<machine\` → \`<engine\`
+  - \`pure\` modifier        (W-PURE-DEPRECATED): \`pure function\`/\`pure fn\` → \`fn\`;
+                            \`[server ]pure[ server ]function\` → \`server fn\`
 
 Optional migrations (opt-in flags):
   - v0.3 program-shape      (--program-shape, SPEC §40.8): rewrites legacy
@@ -2481,6 +2521,7 @@ export function runMigrate(args) {
   let failedCount = 0;
   let totalWhitespace = 0;
   let totalMachine = 0;
+  let totalPure = 0;
   let totalMatchArmArrow = 0;
   let totalGivenGuardArrow = 0;
   let totalColonShorthandPlacement = 0;
@@ -2505,6 +2546,7 @@ export function runMigrate(args) {
       if (r.migrations) {
         totalWhitespace += r.migrations.whitespace;
         totalMachine += r.migrations.machine;
+        totalPure += r.migrations.pure ?? 0;
         totalMatchArmArrow += r.migrations.matchArmArrow ?? 0;
         totalGivenGuardArrow += r.migrations.givenGuardArrow ?? 0;
         totalColonShorthandPlacement += r.migrations.colonShorthandPlacement ?? 0;
@@ -2539,6 +2581,7 @@ export function runMigrate(args) {
     console.log(`  ${c.green(changedCount)} ${verb}`);
     if (totalWhitespace > 0) console.log(`    ${c.dim(`whitespace migrations:`)} ${totalWhitespace}`);
     if (totalMachine > 0) console.log(`    ${c.dim(`<machine> migrations:`)} ${totalMachine}`);
+    if (totalPure > 0) console.log(`    ${c.dim(`\`pure\` modifier migrations:`)} ${totalPure}`);
     if (totalMatchArmArrow > 0) console.log(`    ${c.dim(`arm-arrow \`:>\` migrations:`)} ${totalMatchArmArrow}`);
     if (totalGivenGuardArrow > 0) console.log(`    ${c.dim(`given-guard \`:>\` migrations:`)} ${totalGivenGuardArrow}`);
     if (totalColonShorthandPlacement > 0) console.log(`    ${c.dim(`\`:\`-shorthand inside-opener migrations:`)} ${totalColonShorthandPlacement}`);

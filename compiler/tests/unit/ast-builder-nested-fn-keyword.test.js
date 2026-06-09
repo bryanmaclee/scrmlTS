@@ -234,7 +234,7 @@ describe("nested fn keyword-form — modifier prefixes", () => {
     expect(fn.isAsync).toBe(true);
   });
 
-  test("nested `pure fn name(...)` — isPure:true (redundant per §33.6, W-PURE-REDUNDANT)", () => {
+  test("nested `pure fn name(...)` — isPure:true (deprecated per §33, W-PURE-DEPRECATED)", () => {
     const result = parse(`\${
       function outer() {
         pure fn validate(x) {

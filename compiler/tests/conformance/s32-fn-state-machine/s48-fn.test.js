@@ -26,14 +26,29 @@ function diagnose(source) {
 }
 
 describe("S32-004: §48.11/48.13 — `fn` SHALL be semantically equivalent to `pure function`", () => {
-  test("CONF-S32-004: `fn` and `pure function` accept identical bodies without diagnostic delta", () => {
+  test("CONF-S32-004: `fn` and `pure function` enforce identical body invariants (errors)", () => {
     const srcFn = `\${ fn double(x) { return x * 2 } }`;
     const srcPureFunction = `\${ pure function double(x) { return x * 2 } }`;
-    const { errors: errFn, warnings: warnFn } = diagnose(srcFn);
-    const { errors: errPF, warnings: warnPF } = diagnose(srcPureFunction);
-    // W-PURE-REDUNDANT only applies to `pure fn`; neither form here carries it.
+    const { errors: errFn } = diagnose(srcFn);
+    const { errors: errPF } = diagnose(srcPureFunction);
+    // The two forms enforce the SAME body invariants — the error (hard-fail)
+    // stream is identical. §48.11.
     expect(errFn.map(e => e.code).sort()).toEqual(errPF.map(e => e.code).sort());
-    expect(warnFn.map(w => w.code).sort()).toEqual(warnPF.map(w => w.code).sort());
+  });
+
+  test("CONF-S32-004b: `pure function` carries ONLY the deprecation warning beyond `fn`", () => {
+    // The `pure` modifier is deprecated (deprecate-pure-modifier, 2026-06-09):
+    // `pure function` warns W-PURE-DEPRECATED; plain `fn` does not. That is the
+    // only diagnostic delta between the two forms.
+    const srcFn = `\${ fn double(x) { return x * 2 } }`;
+    const srcPureFunction = `\${ pure function double(x) { return x * 2 } }`;
+    const { warnings: warnFn } = diagnose(srcFn);
+    const { warnings: warnPF } = diagnose(srcPureFunction);
+    expect(warnFn.some(w => w.code === "W-PURE-DEPRECATED")).toBe(false);
+    expect(warnPF.some(w => w.code === "W-PURE-DEPRECATED")).toBe(true);
+    // Removing the deprecation warning leaves the two warning sets identical.
+    const stripDeprec = (ws) => ws.map(w => w.code).filter(c => c !== "W-PURE-DEPRECATED").sort();
+    expect(stripDeprec(warnFn)).toEqual(stripDeprec(warnPF));
   });
 });
 

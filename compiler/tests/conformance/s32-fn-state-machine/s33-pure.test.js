@@ -62,19 +62,34 @@ describe("S32-002: §33.6 — transitions MAY NOT call non-deterministic built-i
   });
 });
 
-describe("S32-003: §33.4 — W-PURE-REDUNDANT on already-pure context", () => {
-  test("CONF-S32-003a: `pure fn` emits W-PURE-REDUNDANT", () => {
+describe("S32-003: §33 — W-PURE-DEPRECATED on the deprecated `pure` modifier", () => {
+  // Ratified 2026-06-09 (deprecate-pure-modifier): the `pure` modifier is
+  // deprecated language-wide; `fn` is the canonical pure form.
+  // W-PURE-DEPRECATED SUPERSEDES the former W-PURE-REDUNDANT.
+  test("CONF-S32-003a: `pure fn` emits W-PURE-DEPRECATED (not W-PURE-REDUNDANT)", () => {
     const src = `\${ pure fn double(x) { return x * 2 } }`;
     const { warnings } = diagnose(src);
-    expect(warnings.some(w => w.code === "W-PURE-REDUNDANT")).toBe(true);
+    expect(warnings.some(w => w.code === "W-PURE-DEPRECATED")).toBe(true);
+    expect(warnings.some(w => w.code === "W-PURE-REDUNDANT")).toBe(false);
   });
 
-  test.skip("CONF-S32-003b: `pure` on a state-local transition emits W-PURE-REDUNDANT", () => {
+  test("CONF-S32-003c: `pure function` ALSO emits W-PURE-DEPRECATED", () => {
+    const src = `\${ pure function double(x) { return x * 2 } }`;
+    const { warnings } = diagnose(src);
+    expect(warnings.some(w => w.code === "W-PURE-DEPRECATED")).toBe(true);
+  });
+
+  test("CONF-S32-003d: plain `fn` does NOT emit W-PURE-DEPRECATED", () => {
+    const src = `\${ fn double(x) { return x * 2 } }`;
+    const { warnings } = diagnose(src);
+    expect(warnings.some(w => w.code === "W-PURE-DEPRECATED")).toBe(false);
+  });
+
+  test.skip("CONF-S32-003b: `pure` on a state-local transition emits W-PURE-DEPRECATED", () => {
     // Phase 4 transition-decl grammar does not currently accept a leading
-    // `pure` modifier on the transition signature; spec §33.4 prescribes
-    // the warning but the parser does not surface `pure` as a transition
-    // modifier yet. Deferred to a follow-up Phase 4 extension (tracked
-    // under REGISTRY Phase 4 gating).
+    // `pure` modifier on the transition signature; the parser does not surface
+    // `pure` as a transition modifier yet. Deferred to a follow-up Phase 4
+    // extension (tracked under REGISTRY Phase 4 gating).
     const src =
       `< Submission id(string)>\n` +
       `    < Draft body(string)>\n` +
@@ -83,6 +98,6 @@ describe("S32-003: §33.4 — W-PURE-REDUNDANT on already-pure context", () => {
       `    < Validated body(string)></>\n` +
       `</>`;
     const { warnings } = diagnose(src);
-    expect(warnings.some(w => w.code === "W-PURE-REDUNDANT")).toBe(true);
+    expect(warnings.some(w => w.code === "W-PURE-DEPRECATED")).toBe(true);
   });
 });

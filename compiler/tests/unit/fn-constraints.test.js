@@ -103,7 +103,7 @@ function getFnErrors(nodes, filePath) {
     e.code.startsWith("E-FN-") ||
     e.code.startsWith("W-FN-") ||
     e.code === "E-STATE-COMPLETE" ||
-    e.code === "W-PURE-REDUNDANT"
+    e.code === "W-PURE-DEPRECATED"
   );
 }
 
@@ -1128,36 +1128,62 @@ describe("§11: E-FN-008 — lift targeting outer scope", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §12  W-PURE-REDUNDANT — `pure fn` redundancy warning (§33.4, §33.6)
-//       Added 2026-04-20 (S32 Phase 2): `fn` is a shorthand for `pure function`
-//       so the `pure` modifier on `fn` adds nothing. Warning, not error.
+// §12  W-PURE-DEPRECATED — the `pure` modifier is deprecated (§33, §48.11)
+//       Ratified 2026-06-09 (deprecate-pure-modifier): `pure` is deprecated
+//       language-wide; `fn` is the canonical pure form. Fires on ANY
+//       `pure`-modifier declaration (gated on `isPure` alone) — `pure fn`,
+//       `pure function`, `pure server function`. SUPERSEDES W-PURE-REDUNDANT
+//       (the redundant-pure case is now just deprecated-pure). Warning,
+//       not error — mirrors W-DEPRECATED-001 (`<machine>`->`<engine>`).
 // ---------------------------------------------------------------------------
 
-describe("§12: W-PURE-REDUNDANT — `pure fn` emits a redundancy warning", () => {
-  test("`pure fn` emits W-PURE-REDUNDANT", () => {
+describe("§12: W-PURE-DEPRECATED — the `pure` modifier is deprecated", () => {
+  test("`pure fn` emits W-PURE-DEPRECATED", () => {
     const fnDecl = makeFnDecl("double", [], { isPure: true });
     const errors = getFnErrors([fnDecl]);
 
-    expect(errors.some(e => e.code === "W-PURE-REDUNDANT")).toBe(true);
-    const warn = errors.find(e => e.code === "W-PURE-REDUNDANT");
+    expect(errors.some(e => e.code === "W-PURE-DEPRECATED")).toBe(true);
+    const warn = errors.find(e => e.code === "W-PURE-DEPRECATED");
     expect(warn.severity).toBe("warning");
     expect(warn.message).toContain("double");
-    expect(warn.message).toContain("redundant");
+    expect(warn.message).toContain("deprecated");
   });
 
-  test("plain `fn` (no pure modifier) does NOT emit W-PURE-REDUNDANT", () => {
-    const fnDecl = makeFnDecl("double", []);
-    const errors = getFnErrors([fnDecl]);
-
-    expect(errors.some(e => e.code === "W-PURE-REDUNDANT")).toBe(false);
-  });
-
-  test("`pure function` (not fn) does NOT emit W-PURE-REDUNDANT (out of scope)", () => {
-    // W-PURE-REDUNDANT only fires on `pure fn` per §33.6 — `pure function`
-    // is the canonical full form and keeps its established semantics.
+  test("`pure function` (fnKind function) ALSO emits W-PURE-DEPRECATED", () => {
+    // The deprecation covers every `pure`-modifier form, not just `pure fn`.
     const fnDecl = { ...makeFunctionDecl("double", []), isPure: true };
     const errors = getFnErrors([fnDecl]);
 
+    expect(errors.some(e => e.code === "W-PURE-DEPRECATED")).toBe(true);
+    const warn = errors.find(e => e.code === "W-PURE-DEPRECATED");
+    expect(warn.severity).toBe("warning");
+  });
+
+  test("`pure server function` emits W-PURE-DEPRECATED", () => {
+    const fnDecl = { ...makeFunctionDecl("fetchRow", []), isPure: true, isServer: true };
+    const errors = getFnErrors([fnDecl]);
+
+    expect(errors.some(e => e.code === "W-PURE-DEPRECATED")).toBe(true);
+  });
+
+  test("plain `fn` (no pure modifier) does NOT emit W-PURE-DEPRECATED", () => {
+    const fnDecl = makeFnDecl("double", []);
+    const errors = getFnErrors([fnDecl]);
+
+    expect(errors.some(e => e.code === "W-PURE-DEPRECATED")).toBe(false);
+  });
+
+  test("plain `function` (no pure modifier) does NOT emit W-PURE-DEPRECATED", () => {
+    const fnDecl = makeFunctionDecl("doStuff", []);
+    const errors = getFnErrors([fnDecl]);
+
+    expect(errors.some(e => e.code === "W-PURE-DEPRECATED")).toBe(false);
+  });
+
+  test("W-PURE-REDUNDANT is fully superseded — never emitted", () => {
+    const fnDecl = makeFnDecl("double", [], { isPure: true });
+    const file = makeFile([fnDecl]);
+    const { errors } = runTS({ files: [file] });
     expect(errors.some(e => e.code === "W-PURE-REDUNDANT")).toBe(false);
   });
 });

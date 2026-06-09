@@ -1466,7 +1466,7 @@
   },
   "samples/compilation-tests/gauntlet-r10-zig-buildconfig.scrml": {
     "COUNT-LENGTH": 2,
-    "EXTRA-FIELD": 75,
+    "EXTRA-FIELD": 79,
     "FIELD-SHAPE": 74,
     "KIND-NAME": 23,
     "MISSING-FIELD": 254,
@@ -1642,7 +1642,7 @@
     "SPAN-COORD": 11
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-fn-call-pure-function-021.scrml": {
-    "EXTRA-FIELD": 5,
+    "EXTRA-FIELD": 6,
     "FIELD-SHAPE": 6,
     "MISSING-FIELD": 6,
     "SPAN-COORD": 15

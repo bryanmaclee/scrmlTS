@@ -444,3 +444,88 @@ describe("§12 default excludes", () => {
     expect(isExcluded(otherFile)).toBe(false);
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// §13  Migration 3 (W-PURE-DEPRECATED) — `pure` modifier → `fn`
+//      Ratified 2026-06-09 (deprecate-pure-modifier). `pure` is deprecated
+//      language-wide; `fn` is the canonical pure form. Mirrors Migration 2.
+// ---------------------------------------------------------------------------
+
+describe("§13 Migration 3 (W-PURE-DEPRECATED)", () => {
+  test("`pure function NAME(` → `fn NAME(`", () => {
+    const { rewritten, migrations } = applyMigrations(`pure function double(x) { return x * 2 }`);
+    expect(rewritten).toBe(`fn double(x) { return x * 2 }`);
+    expect(migrations.pure).toBe(1);
+  });
+
+  test("`pure fn NAME(` → `fn NAME(`", () => {
+    const { rewritten, migrations } = applyMigrations(`pure fn cube(x) { return x * x * x }`);
+    expect(rewritten).toBe(`fn cube(x) { return x * x * x }`);
+    expect(migrations.pure).toBe(1);
+  });
+
+  test("`pure server function NAME(` → `server fn NAME(`", () => {
+    const { rewritten, migrations } = applyMigrations(`pure server function fetchRow(id) { return id }`);
+    expect(rewritten).toBe(`server fn fetchRow(id) { return id }`);
+    expect(migrations.pure).toBe(1);
+  });
+
+  test("`server pure function NAME(` → `server fn NAME(`", () => {
+    const { rewritten, migrations } = applyMigrations(`server pure function fetchRow(id) { return id }`);
+    expect(rewritten).toBe(`server fn fetchRow(id) { return id }`);
+    expect(migrations.pure).toBe(1);
+  });
+
+  test("`export pure function NAME(` → `export fn NAME(` (export preserved)", () => {
+    const { rewritten, migrations } = applyMigrations(`export pure function add(a, b) { return a + b }`);
+    expect(rewritten).toBe(`export fn add(a, b) { return a + b }`);
+    expect(migrations.pure).toBe(1);
+  });
+
+  test("idempotent — re-running on `fn NAME(` does nothing", () => {
+    const once = applyMigrations(`pure function double(x) { return x * 2 }`).rewritten;
+    const { rewritten, migrations } = applyMigrations(once);
+    expect(rewritten).toBe(once);
+    expect(migrations.pure).toBe(0);
+  });
+
+  test("does NOT rewrite prose / comments mentioning `pure function`", () => {
+    // The regex anchors on a declaration shape (name + `(`); a comment that
+    // merely says "pure function of bytes" has no name+`(` and is untouched.
+    const src = `// the token span is a pure function of the source bytes`;
+    const { rewritten, migrations } = applyMigrations(src);
+    expect(rewritten).toBe(src);
+    expect(migrations.pure).toBe(0);
+  });
+
+  test("does NOT rewrite a plain `function NAME(` (no pure modifier)", () => {
+    const src = `function doStuff(x) { return x }`;
+    const { rewritten, migrations } = applyMigrations(src);
+    expect(rewritten).toBe(src);
+    expect(migrations.pure).toBe(0);
+  });
+
+  test("does NOT rewrite a plain `fn NAME(` (already canonical)", () => {
+    const src = `fn double(x) { return x * 2 }`;
+    const { rewritten, migrations } = applyMigrations(src);
+    expect(rewritten).toBe(src);
+    expect(migrations.pure).toBe(0);
+  });
+
+  test("rewrites multiple `pure function` decls in one file", () => {
+    const src = `pure function a(x) { return x }\npure function b(y) { return y }`;
+    const { rewritten, migrations } = applyMigrations(src);
+    expect(rewritten).toBe(`fn a(x) { return x }\nfn b(y) { return y }`);
+    expect(migrations.pure).toBe(2);
+  });
+
+  test("migrated `pure function` source no longer fires W-PURE-DEPRECATED", () => {
+    // End-to-end: a migrated decl is the canonical `fn`, which the type system
+    // does NOT flag. (Compile-level check lives in the conformance suite; here
+    // we assert the text outcome carries no leading `pure`.)
+    const { rewritten } = applyMigrations(`\${ pure function double(x) { return x * 2 } }`);
+    expect(rewritten).toContain(`fn double(`);
+    expect(/\bpure\s+(?:function|fn)\b/.test(rewritten)).toBe(false);
+  });
+});

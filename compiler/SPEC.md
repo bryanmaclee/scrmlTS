@@ -16512,6 +16512,8 @@ ${
 
 ## 33. The `pure` Keyword
 
+> **DEPRECATED (2026-06-09, deprecate-pure-modifier).** The `pure` modifier is deprecated language-wide. **`fn` is the canonical pure form** (and `server fn` for server-side pure functions); bare `function` (no modifier) is the impure form. Every `pure`-modifier declaration — `pure function`, `pure fn`, `pure server function` — emits **W-PURE-DEPRECATED** (§34) and SHALL be rewritten to `fn` / `server fn`. Run `bun scrml migrate --fix`. Both forms continue to compile during the deprecation window; `pure` becomes the reserved **E-PURE-DEPRECATED** at end-of-window when the parser stops accepting the modifier. This mirrors the `<machine>` → `<engine>` (W-DEPRECATED-001 → E-DEPRECATED-001, §51.3.2) and `server function` → plain `function` (W-DEPRECATED-SERVER-MODIFIER → E-DEPRECATED-SERVER-MODIFIER, Insight 26) deprecation cycles. The §33 body below documents the legacy semantics; the purity contract it describes is now carried by `fn` (E-FN-001..009, §48), which is purity-enforced. (The former W-PURE-REDUNDANT — `pure fn` redundancy — is SUPERSEDED by W-PURE-DEPRECATED: the redundant-pure case is now just deprecated-pure.)
+
 ### 33.1 Overview
 
 A `pure` function is a function that performs no side effects. The compiler statically verifies this constraint at compile time. `pure` functions are guaranteed to produce the same output for the same inputs, enabling aggressive optimization (memoization, dead-code elimination, compile-time evaluation).
@@ -16525,7 +16527,7 @@ ${ pure function add(a, b) { return a + b; } }
 **Amended 2026-04-20 (S32).** The `pure` keyword is a modifier that attaches to any callable declaration site where purity is a meaningful contract. Supported attachment sites:
 
 - `pure function name(...) { ... }` — pure function declaration
-- `pure fn name(...) { ... }` — pure fn (equivalent to `fn` alone, since `fn` is always pure; `pure` here is redundant, see §33.6 and W-PURE-REDUNDANT)
+- `pure fn name(...) { ... }` — **DEPRECATED** (W-PURE-DEPRECATED); equivalent to `fn` alone. Migrate to `fn name(...)`.
 - `pure method name(...) { ... }` — pure method on a struct, state, or shape
 - State-local transition bodies (§54.3) SHALL be pure by default. `pure` on a transition declaration is accepted but redundant (§33.6).
 
@@ -16554,7 +16556,7 @@ A `pure` function SHALL NOT:
 
 - **E-PURE-001**: `pure` function body contains a purity violation (mutation, DB access, DOM mutation, non-deterministic call, `lift`, `async`/`await`, or call to a non-pure function). **Amended 2026-04-21 (S37):** "server call" removed — server dispatch is an execution-site concern, not a body-level violation (§33.3 item 2).
 - **E-PURE-002**: `pure` function calls a non-`pure` function.
-- **W-PURE-REDUNDANT** (added 2026-04-20, S32): `pure` applied to a declaration that is already pure by context (e.g., `pure fn`, `pure transition`). The modifier has no additional effect. Author MAY remove the redundant modifier.
+- **W-PURE-DEPRECATED** (added 2026-06-09, deprecate-pure-modifier): the `pure` modifier is deprecated language-wide — `fn` is the canonical pure form. Fires on ANY `pure`-modifier declaration (`pure function`, `pure fn`, `pure server function`). Author SHALL migrate to `fn` / `server fn` (run `bun scrml migrate --fix`). **Supersedes W-PURE-REDUNDANT** (added 2026-04-20, S32 — the `pure fn` redundancy warning): the redundant-pure case is now just deprecated-pure. Reserved end-of-window promotion: **E-PURE-DEPRECATED**.
 - **~~E-RI-001~~** (retired 2026-04-21, S37): formerly fired on `pure` + `server` co-declaration under the "server is a caller-perspective side effect" framing. Retired because `server` is an execution-site dispatch directive, not a body-level side effect; client↔server transport is deterministic from the developer's standpoint. `server pure function` / `server fn` are valid forms (§48.10). The error code was never emitted by the compiler and no ratified test covered it.
 
 ### 33.5 Normative Statements
@@ -16771,7 +16773,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-STATE-TRANSITION-ILLEGAL | §54.6.3 | Call of a transition not declared on the binding's current substate | Error |
 | E-STATE-TERMINAL-MUTATION | §54.6.4 | Write to a field of a binding in a terminal substate (zero declared outgoing transitions) | Error |
 | E-STATE-MACHINE-DIVERGENCE | §51.15.4 | State-local transitions and override-mode machine body (or type-level `transitions {}`) are inconsistent | Error |
-| W-PURE-REDUNDANT | §33.4 | `pure` applied to a declaration that is already pure by context (`pure fn`, `pure transition`) | Warning |
+| W-PURE-REDUNDANT | §33.4 | **SUPERSEDED by W-PURE-DEPRECATED (2026-06-09, deprecate-pure-modifier).** Formerly: `pure` applied to a declaration already pure by context (`pure fn`). No longer emitted — the redundant-pure case is now deprecated-pure (W-PURE-DEPRECATED fires instead). | — |
+| W-PURE-DEPRECATED | §33, §48.11 | The `pure` modifier is deprecated language-wide; `fn` is the canonical pure form. Fires on ANY `pure`-modifier declaration (`pure function`, `pure fn`, `pure server function`). Migrate to `fn` / `server fn` (run `bun scrml migrate --fix`). Both forms compile during the deprecation window; `pure` becomes E-PURE-DEPRECATED at end-of-window. Mirrors the `<machine>`→`<engine>` (W-DEPRECATED-001) and `server function`→`function` (W-DEPRECATED-SERVER-MODIFIER) cycles. **Supersedes W-PURE-REDUNDANT.** **Fires:** emitted by TS (`compiler/src/type-system.ts`, the `case "function-decl"` path, gated on `isPure === true`). (Added 2026-06-09, deprecate-pure-modifier.) | Warning |
 | E-FN-007 | §48.4.1 | Branches return incompatible `<state>` types without an explicit union return type | Error |
 | E-FN-008 | §48.5.2 | `lift` inside `fn` body targets a `~` accumulator outside the `fn` boundary | Error |
 | E-FN-009 | §48.5.4 | Reactive `@variable` captured as live subscription inside `fn` body | Error |
@@ -17144,6 +17147,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-COMPONENT-024 | §16.5 | A `slot="name"` fill is used to fill a parametric snippet prop. Parametric snippets are invoked with `render name(arg)`; slot-fill is the zero-argument form only. (Catalog addition S84 Wave 2 #5; full prose at §16.5 lines 8564, 8575.) | Error |
 | E-INPUT-005 | §36 | Two input-state-type elements (`<keyboard id=>`, `<mouse id=>`, `<gamepad id=>`) in the same scope use the same `id` value. Input state ids must be unique within their scope. (Catalog addition S84 Wave 2 #5; full prose at §36 lines 15628-15644.) | Error |
 | E-DEPRECATED-001 | §51.3.2 | The `<machine>` keyword is rejected. Deprecation cycle endpoint — activates after the W-DEPRECATED-001 deprecation window when the parser stops accepting `<machine>` and adopters MUST migrate to `<engine>`. Mirrors the `server function` → plain `function` deprecation cycle (W-DEPRECATED-SERVER-MODIFIER → E-DEPRECATED-SERVER-MODIFIER). (Catalog addition S84 Wave 2 #5; spec body at §51.3.2 line 22018, W-DEPRECATED-001 row at line 14432.) | Error |
+| E-PURE-DEPRECATED | §33, §48.11 | The `pure` modifier is rejected. Deprecation cycle endpoint — activates after the W-PURE-DEPRECATED deprecation window when the parser stops accepting the `pure` modifier and adopters MUST migrate `pure function` / `pure fn` to `fn` (and `pure server function` to `server fn`). Mirrors the `<machine>`→`<engine>` (W-DEPRECATED-001 → E-DEPRECATED-001) and `server function`→`function` (W-DEPRECATED-SERVER-MODIFIER → E-DEPRECATED-SERVER-MODIFIER) deprecation cycles. RESERVED — not yet emitted (the warning is the active stage). (Added 2026-06-09, deprecate-pure-modifier.) | Error |
 | E-WHITESPACE-001 | §15.15.5 | A `< identifier>` opener with whitespace between `<` and the identifier. Deprecation cycle endpoint — activates after the W-WHITESPACE-001 deprecation window (P3 of state-as-primary unification, 2026-04-30) when the parser stops accepting the space-after-`<` form. (Catalog addition S84 Wave 2 #5; spec body at §15.15.5 lines 372, 8418, W-WHITESPACE-001 row at line 14431.) | Error |
 | E-ENGINE-006 | §51.5 | Machine rebinding: an attempt to shadow a machine-bound variable with a different machine. A given `@variable` may be bound by at most one machine in a file scope. (Catalog addition S84 Wave 2 #5; full prose at §51.5 line 22245.) | Error |
 | E-ENGINE-007 | §51.5 | Assignment to `event.from` or `event.to` inside a transition effect block. `event` is read-only — it carries the from/to context of the firing transition for inspection only. (Catalog addition S84 Wave 2 #5; full prose at §51.5 line 22530.) | Error |
@@ -22969,7 +22973,7 @@ When a return type annotation is absent:
 
 ### 48.9 Relationship to `pure` (§33)
 
-**Amended 2026-04-21 (S37).** `fn` and `pure function` enforce the same purity contract (§33.3). `pure fn` is therefore redundant — the compiler emits W-PURE-REDUNDANT (§33.4) because `fn` is already pure by definition.
+**Amended 2026-04-21 (S37). Amended 2026-06-09 (deprecate-pure-modifier).** `fn` and `pure function` enforce the same purity contract (§33.3). The `pure` modifier is now DEPRECATED (§33) — `fn` is THE canonical pure form. Both `pure fn` and `pure function` emit W-PURE-DEPRECATED (§34, supersedes the former W-PURE-REDUNDANT) and SHALL be rewritten to `fn`. `function` (no modifier) remains the impure form.
 
 `pure function` is equivalent to `fn` at the declaration site; it enforces every constraint listed in §33.3, including the non-determinism and async prohibitions that §48 raises as E-FN-004 and E-FN-005. The two forms produce different diagnostic text (E-PURE-001 vs E-FN-001..005) but verify the same body invariants.
 
@@ -22985,9 +22989,9 @@ Rationale: `fn` is a pure function, not a query executor. Database access is a c
 
 ### 48.11 Relationship to `function` and `pure function`
 
-**Amended 2026-04-20 (S32 amendment).** The "constrained state factory" framing from the 2026-04-07 amendment is retired. `fn` is an ergonomic shorthand for `pure function`. The two forms are semantically equivalent at the declaration site. The §48.3 body prohibitions remain in force because `fn` is always pure. The return-site state-completeness check (formerly E-FN-006) is relocated to E-STATE-COMPLETE at every state literal site (§54).
+**Amended 2026-04-20 (S32 amendment). Amended 2026-06-09 (deprecate-pure-modifier).** The "constrained state factory" framing from the 2026-04-07 amendment is retired. `fn` is THE canonical pure form; `pure function` is the DEPRECATED long-form spelling of the same contract (§33, W-PURE-DEPRECATED). Bare `function` (no `pure` modifier) is the impure form. The two pure forms are semantically equivalent at the declaration site. The §48.3 body prohibitions remain in force because `fn` is always pure. The return-site state-completeness check (formerly E-FN-006) is relocated to E-STATE-COMPLETE at every state literal site (§54).
 
-`fn` is retained. Existing scrml code using `fn` remains valid. New code MAY use `fn` or `pure function` interchangeably.
+`fn` is the form to write. Existing scrml code using `fn` remains valid. The `pure function` / `pure fn` long-forms are deprecated — new code SHALL use `fn` (and `server fn`); run `bun scrml migrate --fix` to rewrite existing `pure`-modifier declarations.
 
 §7.3's original description of `fn` as a "shorthand lazy form equivalent to `function name()`" is superseded: `fn` is not equivalent to bare `function`, but IS equivalent to `pure function`. The compiler applies the §48.3 purity constraints to `fn` declarations and emits E-FN-001 through E-FN-005, E-FN-007 through E-FN-009 where violations are present. E-FN-006 is retired; its role is subsumed by E-STATE-COMPLETE.
 

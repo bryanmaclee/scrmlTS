@@ -7554,16 +7554,26 @@ function annotateNodes(
           checkFunctionBodyStateCompleteness(n, fnBody, errors, filePath, stateTypeRegistry);
         }
 
-        // §33.4/§33.6 W-PURE-REDUNDANT (S32 Phase 2).
-        // `pure fn` is redundant: fn is already pure (≡ pure function per §33.6).
-        if (n.fnKind === "fn" && (n as ASTNodeLike).isPure === true) {
+        // §33 W-PURE-DEPRECATED (deprecate-pure-modifier-2026-06-09).
+        // The `pure` modifier is DEPRECATED language-wide — `fn` is the
+        // canonical pure form. This single check fires on ANY `pure`-modifier
+        // declaration (gated on `isPure` alone, NOT `fnKind === "fn"`), so it
+        // catches `pure function`, `pure fn`, and `pure server function`. The
+        // four ast-builder consume paths (~6806/~8339/~9386/~9661) all set
+        // `isPure: true` and flow through this `case "function-decl"`, so this
+        // is the single common fire-point. Mirrors W-DEPRECATED-001
+        // (`<machine>`->`<engine>`) and W-DEPRECATED-SERVER-MODIFIER (Insight 26):
+        // same warn -> (reserved E-PURE-DEPRECATED) -> removal cycle.
+        // This SUPERSEDES the former W-PURE-REDUNDANT (`pure fn` redundancy) —
+        // the redundant-pure case is now just deprecated-pure.
+        if ((n as ASTNodeLike).isPure === true) {
           const fnSpan = (n.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 }) as Span;
           const fnName = (n.name as string) ?? "<anonymous>";
           errors.push(new TSError(
-            "W-PURE-REDUNDANT",
-            `W-PURE-REDUNDANT: \`pure\` modifier on \`fn ${fnName}\` is redundant.\n` +
-            `  \`fn\` is a shorthand for \`pure function\` (§33.6); purity is implicit.\n` +
-            `  Remove the \`pure\` keyword — write \`fn ${fnName}(...)\` alone.`,
+            "W-PURE-DEPRECATED",
+            `W-PURE-DEPRECATED: the \`pure\` modifier is deprecated; use \`fn\` (the canonical pure form).\n` +
+            `  \`pure function ${fnName}\` / \`pure fn ${fnName}\` -> \`fn ${fnName}\`.\n` +
+            `  Run \`bun scrml migrate --fix\` to rewrite automatically.`,
             fnSpan,
             "warning",
           ));

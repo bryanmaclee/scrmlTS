@@ -60,7 +60,7 @@ describe("§48.6.4 pinned fn — parser recognition", () => {
     expect(decl.isServer).toBe(false);
   });
 
-  test("§48.6.4.3: `pinned pure fn` — pinned + pure flags both set (W-PURE-REDUNDANT fires elsewhere)", () => {
+  test("§48.6.4.3: `pinned pure fn` — pinned + pure flags both set (W-PURE-DEPRECATED fires elsewhere)", () => {
     const src = `<program>\${ pinned pure fn double(x) { return x * 2 } }</program>`;
     const ast = parse(src);
     const decl = findFnDecl(ast, "double");

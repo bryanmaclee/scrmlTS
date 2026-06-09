@@ -1,6 +1,6 @@
-// pure fn — §48.2 lists 'pure fn' as a valid prefix
+// fn — the canonical pure form (the `pure` modifier is deprecated; §33/§48.11)
 ${
-    pure fn cube(x) {
+    fn cube(x) {
         return x * x * x
     }
 }

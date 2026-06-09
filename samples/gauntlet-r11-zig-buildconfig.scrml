@@ -112,7 +112,7 @@ ${
     //   @newPlatform:Platform = .Linux
     // With the compiler enforcing that all assignments are Platform variants.
     // Then enum match would work: match @newPlatform { .Linux :> ... }
-    pure function platformDescription(p) {
+    fn platformDescription(p) {
         if (p == "Linux") { return "GNU/Linux x86_64 (ELF binary)" }
         if (p == "MacOS") { return "macOS ARM64 / x86_64 (Mach-O binary)" }
         if (p == "Windows") { return "Windows x86_64 MSVC (PE/COFF binary)" }
@@ -120,7 +120,7 @@ ${
         return "Unknown platform"
     }
 
-    pure function optimizationDescription(o) {
+    fn optimizationDescription(o) {
         if (o == "Debug") { return "No optimization, full debug info, safety on" }
         if (o == "ReleaseSafe") { return "Optimized, safety checks still enabled" }
         if (o == "ReleaseFast") { return "Maximum performance, safety checks off" }
@@ -132,7 +132,7 @@ ${
     // POSITIVE SIGNAL: `pure` keyword maps to Zig's functional purity convention.
     // In Zig, a function with only value parameters and no global state is pure
     // by convention. scrml makes this explicit and compiler-verifiable.
-    pure function buildCommand(target) {
+    fn buildCommand(target) {
         let cmd = "zig build"
         if (target.platform == "Linux") { cmd = cmd + " -Dtarget=x86_64-linux" }
         if (target.platform == "MacOS") { cmd = cmd + " -Dtarget=aarch64-macos" }
@@ -144,7 +144,7 @@ ${
     }
 
     // Serialize targets to JSON
-    pure function targetsToJson(targets) {
+    fn targetsToJson(targets) {
         if (targets.length == 0) { return "[]" }
         let lines = []
         for (let t of targets) {
