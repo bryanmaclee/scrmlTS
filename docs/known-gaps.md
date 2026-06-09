@@ -17,7 +17,7 @@
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 0 |
 | MED | 11 |
-| LOW | 20 |
+| LOW | 21 |
 | Nominal (spec-ahead-of-impl) | 9 |
 <!-- @generated:gap-counts END -->
 
@@ -41,7 +41,7 @@
 ## §S174 — gaps filed S174 (2026-06-08)
 
 ### G-SQL-ROW-TYPE — typed SQL query rows are SPEC-mandated (§14.8.7) but the compiler discards the type — `NEW S174; MED; build queued`
-SPEC §14.8.7 (`SPEC.md:7926`) mandates: a `?{ SELECT id,email FROM users }` produces a value whose type is a struct of the selected columns. The compiler instead hard-codes `tAsIs()` at `type-system.ts:7305` (the `case "sql"`), discarding the row type it could derive from (SELECT projection ∧ generated table types). Symptom: every DB-row prop in `23-trucking-dispatch` is `asIs` (was `any`). Two BLIND DDs (`typed-sql-row-2026-06-08.md` + `typed-sql-rows-structless-app-2026-06-08.md`) converged: build in two tranches — (1) spec-debt: implement §14.8.7 (needs a SELECT-projection parser; the column-type half exists) + close the filed P1 `F-SCHEMA-001` (feed `<schema>` DDL as a 3rd ColumnDef source into the §14.8 generator); (2) one scoped ratification: the cross-file prop boundary (a writable, file-crossing projection-row type reverses §14.8's nominal-isolation wall §14.8.1/.4/.7). NOT an L22 member (type-OUT-of-query); debate-not-warranted. <!-- @gap id=g-sql-row-type sev=MED status=open -->
+SPEC §14.8.7 (`SPEC.md:7926`) mandates: a `?{ SELECT id,email FROM users }` produces a value whose type is a struct of the selected columns. The compiler instead hard-codes `tAsIs()` at `type-system.ts:7305` (the `case "sql"`), discarding the row type it could derive from (SELECT projection ∧ generated table types). Symptom: every DB-row prop in `23-trucking-dispatch` is `asIs` (was `any`). Two BLIND DDs (`typed-sql-row-2026-06-08.md` + `typed-sql-rows-structless-app-2026-06-08.md`) converged: build in two tranches — (1) spec-debt: implement §14.8.7 (needs a SELECT-projection parser; the column-type half exists) + close the filed P1 `F-SCHEMA-001` (feed `<schema>` DDL as a 3rd ColumnDef source into the §14.8 generator); (2) one scoped ratification: the cross-file prop boundary (a writable, file-crossing projection-row type reverses §14.8's nominal-isolation wall §14.8.1/.4/.7). NOT an L22 member (type-OUT-of-query); debate-not-warranted. **S175 — Tranche-2 shape RULED = Shape C** (named `:struct` prop contract; SQL projection rows STRUCTURALLY width-subtype into a declared contract — bounded to the SQL-row→contract boundary, general struct-to-struct stays nominal; reverses the §14.8 nominal-isolation wall; B-inline anonymous row retained as a shorthand). The decisive corpus fact: the same `LoadCard` is fed by two different-width projections (board 13-col + load-detail 18-col) reading 6 fields → width-subtyping is forced. Tranche-1 build (§14.8.7 read-site projection typing + SELECT-projection parser + F-SCHEMA-001 `<schema>`-as-ColumnDef-source) NEXT; Tranche-2 build (cross-file contract + width-subtyping rule) follows. See user-voice S175 + design-insights. <!-- @gap id=g-sql-row-type sev=MED status=open -->
 
 ### G-UNKNOWN-TYPE-LEAK — an unrecognized type-name (not `any`) silently resolves to `asIs` instead of erroring — `NEW S174; MED; must-follow-soon` (the user's "2")
 After S174 enforced `E-TYPE-ANY-FORBIDDEN` for the literal `any` token, an arbitrary UNDEFINED type name still leaks: `type Bar:struct = { a: Frobnicate }` compiles with zero diagnostic (`resolveTypeExpr` unknown-type fall-through → `asIs`/`tUnknown`). Same seam as the `any` reject (`type-system.ts` type resolution) but must fire only on TRULY-undefined types (after full resolution; care re: forward-refs + cross-file types). User-committed near-term follow-on ("2 must-follow-soon"). <!-- @gap id=g-unknown-type-leak sev=MED status=open -->
@@ -51,6 +51,13 @@ Surfaced by the function-boundary recon: in `23-trucking-dispatch` callback prop
 
 ### G-ROUTE-ARG-FN — no symmetric non-serializable-ARGUMENT-type gate — `NEW S174; LOW`
 `E-ROUTE-003` (§12.5) gates non-serializable RETURN types (recursive into struct fields). There is NO symmetric ARGUMENT-direction gate: a function passed INTO a server-escalated fn (incl. a function-typed struct field, once 4A's `FunctionType` is wired) may silently drop/stringify rather than error. Fork-4-INDEPENDENT (hits bare function args too). File as a separate `E-ROUTE` arg-direction amendment; do NOT bundle with the 4A landing. <!-- @gap id=g-route-arg-fn sev=LOW status=open -->
+
+---
+
+## §S175 — gaps filed S175 (2026-06-08)
+
+### G-SERVER-KEYWORD-DRIFT — the deprecated `server` keyword pervades the canon (spec/primer/kickstarter/corpus) — `NEW S175; LOW; migration-backlog`
+The `server` function/`@var` modifier is DEPRECATED — `route-inference.ts:3054` fires `W-DEPRECATED-SERVER-MODIFIER` ("The 'server' keyword is deprecated; remove from new code"). Placement is compiler-INFERRED via Route Inference (§12.2 Trigger 1: every `?{}`-bearing function auto-escalates to server; `route-inference.ts:344/358`). Yet `server function` still pervades the canon: **207× SPEC.md, 31× kickstarter, 7× PRIMER, 12 flagship-corpus files.** User S175 (verbatim): *"there is no explicite server function, server as a keyword was deprecated long ago, but it keeps showing up."* Surfaced when the typed-SQL-row Tranche-1 agent keyed SQL-row view-selection on `isServer === true` (the deprecated keyword, set only by `ast-builder.js` `scan.server`) — a wrong-shaped reliance (stripped pre-landing; view-selection deferred to a data-flow/return-boundary follow-on). Migration backlog: scrub `server function`→`function` across spec/primer/kickstarter/examples — the `isServer` machinery + `W-DEPRECATED-SERVER-MODIFIER` already exist, so this is corpus/doc currency, NOT a compiler change. Per `feedback_stated_intent_vs_corpus_migration`: user-voice states normative intent verbatim → corpus contradiction = migration, not open question. <!-- @gap id=g-server-keyword-drift sev=LOW status=open -->
 
 ---
 

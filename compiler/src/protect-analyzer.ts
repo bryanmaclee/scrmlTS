@@ -62,6 +62,7 @@ import { Database } from "bun:sqlite";
 import { resolve, dirname } from "node:path";
 import { existsSync, realpathSync } from "node:fs";
 import type { Span, AttrNode, ASTNode, StateNode } from "./types/ast.ts";
+import { parseSchemaBlock, generateCreateTable } from "./schema-differ.js";
 
 // ---------------------------------------------------------------------------
 // PA-internal types
@@ -444,6 +445,91 @@ function extractCreateTableStatements(nodes: ASTNode[]): Map<string, string> {
 }
 
 // ---------------------------------------------------------------------------
+// F-SCHEMA-001 — `< schema>` DDL as a third ColumnDef source (§39, §14.8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk the AST for `< schema>` state blocks, parse their declarative DDL bodies
+ * via schema-differ.js `parseSchemaBlock`, and synthesize a `CREATE TABLE`
+ * statement per declared table via `generateCreateTable`. Returns a
+ * `Map<tableName (lowercased), CREATE TABLE SQL>`.
+ *
+ * This is the THIRD ColumnDef source after (1) the live DB file and (2) the
+ * `CREATE TABLE` statements harvested from `?{}` blocks. The schema DDL is
+ * authoritative scrml-side schema-as-code (§39): a DDL-first app with no
+ * materialized DB and no harvested `CREATE TABLE` still gets generated table
+ * types from its `< schema>` block — closing the "schema-is-code promise of §39"
+ * gap where the flagship had to bootstrap a `dispatch.db` just to get types.
+ *
+ * PRECEDENCE (see `resolveDb`): live DB file > harvested `CREATE TABLE` (`?{}`)
+ * > `< schema>` DDL. The schema DDL only fills the gap when the higher-precedence
+ * sources are absent for a given table.
+ *
+ * The body text is the concatenated `text`-kind children of the `< schema>`
+ * node (the same shape schema-differ's own consumers read).
+ */
+function extractSchemaCreateTableStatements(nodes: ASTNode[]): Map<string, string> {
+  const result = new Map<string, string>();
+
+  const collectSchemaBodyText = (node: ASTNode): string => {
+    const children = (node as { children?: ASTNode[] }).children;
+    if (!Array.isArray(children)) return "";
+    let text = "";
+    for (const c of children) {
+      if (c && (c as { kind?: string }).kind === "text" &&
+          typeof (c as { value?: unknown }).value === "string") {
+        text += (c as { value: string }).value;
+      }
+    }
+    return text;
+  };
+
+  const visit = (value: unknown, depth: number): void => {
+    if (value === null || typeof value !== "object" || depth > 64) return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, depth + 1);
+      return;
+    }
+    const node = value as Record<string, unknown>;
+    if (node.kind === "state" && node.stateType === "schema") {
+      const body = collectSchemaBodyText(node as unknown as ASTNode);
+      if (body.trim().length > 0) {
+        let parsed: { tables: Array<{ name: string; columns: unknown[] }> };
+        try {
+          parsed = parseSchemaBlock(body) as typeof parsed;
+        } catch {
+          parsed = { tables: [] };
+        }
+        for (const table of parsed.tables ?? []) {
+          if (!table || typeof table.name !== "string") continue;
+          // schemaFor-style synthesized tables can be empty (no columns) — skip
+          // those so we never feed a degenerate `CREATE TABLE x ()` to SQLite.
+          if (!Array.isArray(table.columns) || table.columns.length === 0) continue;
+          const key = table.name.toLowerCase();
+          // First `< schema>` declaration of a table wins (a later duplicate is
+          // ignored — schema-as-code should not declare a table twice).
+          if (!result.has(key)) {
+            try {
+              result.set(key, generateCreateTable(table));
+            } catch {
+              // A malformed table decl — skip; PA's existing E-PA-002 path will
+              // surface the missing-table error if no other source covers it.
+            }
+          }
+        }
+      }
+    }
+    for (const key of Object.keys(node)) {
+      if (key === "span" || key.startsWith("_")) continue;
+      visit(node[key], depth + 1);
+    }
+  };
+
+  visit(nodes, 0);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // DB resolution helper (real file vs shadow)
 // ---------------------------------------------------------------------------
 
@@ -596,6 +682,18 @@ export function runPA(input: PAInput): { protectAnalysis: ProtectAnalysis; error
       // < db> blocks. These statements are used to build a shadow in-memory DB
       // when the real DB file does not exist yet.
       const createTableMap = extractCreateTableStatements(nodes);
+
+      // F-SCHEMA-001 — third ColumnDef source: synthesize CREATE TABLE from the
+      // file's `< schema>` DDL block(s) (§39, schema-as-code). Merge as a LOWER-
+      // precedence fallback: a `?{}`-harvested CREATE TABLE for the same table
+      // ALWAYS wins (it is the materialized truth the app actually runs). The
+      // live DB file, when present, still wins over both via resolveDb's
+      // existsSync check. This lets a DDL-first app with no materialized DB get
+      // generated table types without bootstrapping a throwaway `.db`.
+      const schemaCreateTableMap = extractSchemaCreateTableStatements(nodes);
+      for (const [tableKey, createSql] of schemaCreateTableMap) {
+        if (!createTableMap.has(tableKey)) createTableMap.set(tableKey, createSql);
+      }
 
       const dbBlocks = collectDbBlocks(nodes);
 

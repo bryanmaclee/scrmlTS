@@ -7925,8 +7925,28 @@ view selection):**
 - **§8 (SQL Contexts):** SQL query result types are inferred using the generated table types.
   A `?{ SELECT id, email FROM users }` context produces a value whose type is a struct
   containing only the selected columns, derived from the appropriate `Users` view (full or
-  client per §14.8.4). Selecting a protected column in a client-boundary function's SQL
-  context is E-PROTECT-001, not merely a SQL error.
+  client per §14.8.4). The chained method wraps the row: `.get()` produces `Row | not`,
+  `.all()` (or a bare `?{}`) produces `Row[]` (§8.3). Selecting a protected column in a
+  client-boundary function's SQL context is E-PROTECT-001, not merely a SQL error.
+
+  **Implementation status (Tranche 1):** The read-site row typing is implemented for the
+  ratified v1 SQL surface — single-table SELECTs and qualified-column JOINs with an explicit
+  projection list, including `AS` aliases (`c.name AS customer_name` → field
+  `customer_name`), resolved via a FROM/JOIN table-alias map. The compiler NEVER fails a
+  build on an untypeable query: a computed / expression / function-call column types that
+  ONE field `asIs` (the rest of the row stays typed); `SELECT *` over a single table expands
+  to that table's generated type while `SELECT *` over a JOIN, a CTE, a `UNION`, or a
+  subquery-in-FROM degrades the whole row to `asIs`. Every degradation emits an info-level
+  `W-SQL-ROW-UNTYPED` lint naming the untyped column(s). The cross-file structural-width
+  contract into a declared `:struct` prop (Tranche 2) is a separate, later addition.
+
+  The read-site row is typed from the §14.8 generated (full) table type. The full/client
+  view discrimination (§14.8.4) and the projection-side `E-PROTECT-001` are **DEFERRED**:
+  the server/client boundary is RI-inferred, and every `?{}`-bearing function auto-escalates
+  to server (§12.2 Trigger 1), so a "client-boundary `?{}`" context does not exist. The
+  protected-column-projection leak (does a server-fn RETURN a row carrying a protected column
+  to the client?) is a data-flow / server-fn-return concern for a follow-on (return-boundary /
+  `E-ROUTE-003`), not a read-site projection check.
 - **Multiple `< db>` blocks (§11.7):** Each `< db>` block has its own independent generated
   types. Two `< db>` blocks that both list `users` in `tables=` produce two independent
   `Users` types with nominal distinctness. They are not the same type even if the underlying
@@ -16458,7 +16478,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-TYPE-ANY-FORBIDDEN | §14.1.1 | The literal type-token `any` appears in a type-annotation position (struct field, state-cell annotation, `fn`/`function` parameter or return type). `any` is not a scrml type — there is no `any` (S174 hard line; TypeScript's type-checking opt-out has no scrml equivalent). Use a concrete type, or `asIs` for a deliberate, named untyped escape hatch. `any`-token-specific (an arbitrary undefined type name that also silently resolves to `asIs` is a separate broader gap, tracked as a follow-on). (Catalog addition S174; emitted at `compiler/src/type-system.ts` `checkAnyTypeForbidden`.) | Error |
 | E-TYPE-040 | §16.4 | Slot fill type incompatible with declared slot shape | Error |
 | E-TYPE-050 | §14.8.5 | Two tables produce the same generated type name | Error |
-| E-TYPE-051 | §14.8.5 | SQLite column type unmappable; typed `any` | Warning |
+| E-TYPE-051 | §14.8.5 | SQLite column type unmappable; typed `asIs` | Warning |
 | E-MARKUP-001 | §4.1 | Unknown HTML element name | Error |
 | E-MARKUP-002 | §4.4.1 | Explicit closer does not match open tag name (spec); attribute type mismatch on HTML element (implementation — collision, see H-03 audit note) | Error |
 | E-MARKUP-003 | §4.4.1 | `</tagname>` closer used inside a `${ }` logic context | Error |
@@ -16493,6 +16513,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-PA-006 | §11.5 | `src=` attribute absent from `< db>` block | Error |
 | E-PA-007 | §11.3 | `protect=` field name matches no table column | Error |
 | E-PROTECT-001 | §11.3.2 | Protected field accessed on client type | Error |
+| W-SQL-ROW-UNTYPED | §14.8.7 | A `?{ ... }` SQL query result (or one of its projection columns) could not be typed from the §14.8 generated table types and falls back to `asIs`. Info-level. Fires for the deferred v1 SQL surface long tail: a computed / expression / function-call projection column (that ONE field is `asIs`; the rest of the row stays typed), `SELECT *` over a JOIN, a CTE / `WITH`, a `UNION`, a subquery-in-FROM, or a query whose FROM table has no generated type in scope (no enclosing `< db>` block). NEVER fatal — the build always completes; the row's untyped fields are simply not statically checked. Single-table SELECTs and qualified-column JOINs with an explicit projection list (incl. `AS` aliases) DO get a typed projection row and fire no lint. (Catalog addition: typed-sql-row Tranche 1; emitted at `compiler/src/type-system.ts` `resolveSqlRowType`.) | Info |
 | E-PROTECT-002 | §11.3.3 | Code accessing protected field may run client-side | Error |
 | E-ROUTE-001 | §12.4 | Unresolvable callee or computed member access in route analysis | Warning |
 | ~~E-RI-001~~ | — | **Retired 2026-04-21 (S37)**; `server pure` is now valid (§33.3, §48.10). | — |

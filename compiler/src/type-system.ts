@@ -74,6 +74,8 @@
 import { getElementShape, getAllElementNames } from "./html-elements.js";
 import { forEachIdentInExprNode, forEachCallInExprNode, classifyLiteralFromExprNode, exprNodeContainsCall, emitStringFromTree, parseExprToNode } from "./expression-parser.ts";
 import { isEventHandlerAttrName } from "./multi-statement-scan.ts";
+import { extractSelectProjection } from "./sql-projection.ts";
+import type { SelectProjection, ProjectedColumn } from "./sql-projection.ts";
 
 // ---------------------------------------------------------------------------
 // Engine state-child grammar metadata (S81 Phase A10 follow-on)
@@ -5423,6 +5425,173 @@ function annotateNodes(
     return entry ? entry.boundary : "client";
   }
 
+  // ------------------------------------------------------------------------
+  // §14.8.7 / §8.3 — Typed SQL projection rows (Tranche 1, read-site typing).
+  //
+  // A `?{ SELECT ... }` context produces a value whose type is a struct of the
+  // SELECTED columns, derived from the §14.8 generated table types in scope
+  // (bound by the enclosing `< db>` block with `kind: "db-type"`). The chained
+  // method wraps the row: `.get()` -> `Row | not`; `.all()` (or bare) -> `Row[]`.
+  //
+  // The row is typed from the generated (full) table view. Every `?{}`-bearing
+  // function auto-escalates to server (§12.2 Trigger 1), so there is no
+  // client-boundary `?{}` context — the full/client view discrimination and the
+  // projection-side protected-column check are DEFERRED to a return-boundary
+  // (server-fn-return / data-flow) follow-on.
+  //
+  // Graceful degradation (the ratified v1 SQL surface — never break a build):
+  //   - an expression / function-call column types that ONE field `asIs`
+  //     (W-SQL-ROW-UNTYPED names it); the rest of the row stays typed.
+  //   - `SELECT *` single-table expands to the table's generated type; JOIN /
+  //     ambiguous `*` degrades the whole row to `asIs` + W-SQL-ROW-UNTYPED.
+  //   - CTE / UNION / subquery-in-FROM / non-SELECT degrade the whole row.
+  // ------------------------------------------------------------------------
+
+  /**
+   * Resolve a single FROM/JOIN table name to its generated db-type view. The
+   * `view` param selects the full vs client schema; callers currently always
+   * pass `"full"` (every `?{}`-function is server-escalated). The generated
+   * types are bound into scope under the PascalCase generated NAME
+   * (initCap(tableName)); look them up there and pick the requested view.
+   *
+   * Returns null when no generated type is in scope for the table (e.g. the
+   * table is not in the enclosing `< db>` block's `tables=`, or there is no
+   * `< db>` block in scope) — the caller degrades the affected column / row.
+   */
+  function resolveTableView(
+    tableName: string,
+    view: "full" | "client",
+  ): StructType | null {
+    const { name: generatedName } = initCap(tableName);
+    if (!generatedName) return null;
+    const entry = scopeChain.lookup(generatedName);
+    if (!entry || entry.kind !== "db-type") return null;
+    const picked = view === "full" ? entry.fullType : entry.clientType;
+    if (picked && picked.kind === "struct") return picked as StructType;
+    // Fall back to whichever view is present.
+    if (entry.fullType && entry.fullType.kind === "struct") return entry.fullType as StructType;
+    if (entry.clientType && entry.clientType.kind === "struct") return entry.clientType as StructType;
+    return null;
+  }
+
+  /**
+   * Resolve a `?{ SELECT ... }` SQLNode to its projection row type, wrapped per
+   * the chained method (`.get()` -> `Row | not`; `.all()`/bare -> `Row[]`).
+   *
+   * Returns `tAsIs()` (and emits W-SQL-ROW-UNTYPED) for the deferred long tail.
+   * `span` is the host node's span (used for the W-SQL-ROW-UNTYPED lint).
+   */
+  function resolveSqlRowType(sqlNode: ASTNodeLike, span: Span): ResolvedType {
+    const query = typeof sqlNode.query === "string" ? (sqlNode.query as string) : "";
+    const chained = Array.isArray(sqlNode.chainedCalls)
+      ? (sqlNode.chainedCalls as Array<{ method: string; args: string }>)
+      : [];
+
+    // Determine the wrapper from the chained method. `.run()` returns void
+    // (write op) — no row type. Bare `?{}` / `.all()` -> array; `.get()` -> optional.
+    let wrap: "array" | "optional" | "void" = "array";
+    for (const call of chained) {
+      const m = (call.method || "").toLowerCase();
+      if (m === "run") { wrap = "void"; break; }
+      if (m === "get") { wrap = "optional"; break; }
+      if (m === "all") { wrap = "array"; break; }
+    }
+    if (wrap === "void") {
+      // A write op has no projection row. Leave as asIs (the prior behavior);
+      // no lint — this is not an untyped SELECT, it is a deliberate non-SELECT.
+      return tAsIs();
+    }
+
+    const proj = extractSelectProjection(query);
+    // Every `?{}`-bearing function auto-escalates to server (§12.2 Trigger 1),
+    // so the projection always resolves against the full/generated table view.
+    const view = "full" as const;
+
+    const degradeWholeRow = (reason: string): ResolvedType => {
+      errors.push(new TSError(
+        "W-SQL-ROW-UNTYPED",
+        `W-SQL-ROW-UNTYPED: the result of this \`?{}\` SQL query is typed \`asIs\` ` +
+        `(${reason}). The row's fields are not statically checked. ` +
+        `Single-table SELECTs with an explicit column list get a typed projection ` +
+        `row (SPEC §14.8.7); the long tail (CTE / UNION / subquery-in-FROM / ` +
+        `\`SELECT *\` over a JOIN) is deferred.`,
+        span,
+        "info",
+      ));
+      return tAsIs();
+    };
+
+    if (!proj.resolvable) {
+      return degradeWholeRow(proj.unresolvableReason ?? "the query is not a single typeable SELECT");
+    }
+
+    // Build the row struct field-by-field.
+    const rowFields = new Map<string, ResolvedType>();
+    const untypedCols: string[] = [];
+
+    for (const col of proj.columns) {
+      if (col.kind === "star") {
+        // `SELECT *`: single-table -> expand the table's generated view.
+        // JOIN / ambiguous / unresolved -> whole row asIs.
+        if (col.table && proj.fromTables.length === 1) {
+          const struct = resolveTableView(col.table, view);
+          if (struct) {
+            for (const [fname, ftype] of struct.fields) rowFields.set(fname, ftype);
+            continue;
+          }
+          return degradeWholeRow(`\`SELECT *\` on table \`${col.table}\` has no generated type in scope`);
+        }
+        return degradeWholeRow("`SELECT *` over a JOIN or ambiguous source is not statically typeable");
+      }
+
+      if (col.kind === "opaque" || !col.table || !col.column) {
+        // Computed / expression / unresolved column — type this ONE field asIs.
+        rowFields.set(col.outputName, tAsIs());
+        untypedCols.push(col.outputName);
+        continue;
+      }
+
+      // kind === "column": resolve against the source table's view.
+      const struct = resolveTableView(col.table, view);
+      if (!struct) {
+        // No generated type for the source table — degrade this field only.
+        rowFields.set(col.outputName, tAsIs());
+        untypedCols.push(col.outputName);
+        continue;
+      }
+      const fieldType = struct.fields.get(col.column);
+      if (fieldType === undefined) {
+        // The column is absent from the resolved view (does not exist in the
+        // generated table type) — degrade this field only (asIs + W-SQL-ROW-UNTYPED).
+        rowFields.set(col.outputName, tAsIs());
+        untypedCols.push(col.outputName);
+        continue;
+      }
+      rowFields.set(col.outputName, fieldType);
+    }
+
+    if (untypedCols.length > 0) {
+      errors.push(new TSError(
+        "W-SQL-ROW-UNTYPED",
+        `W-SQL-ROW-UNTYPED: SQL projection column${untypedCols.length === 1 ? "" : "s"} ` +
+        `\`${untypedCols.join("`, `")}\` ` +
+        `${untypedCols.length === 1 ? "is" : "are"} typed \`asIs\` ` +
+        `(computed / expression / unresolved column). The rest of the row is typed ` +
+        `from the §14.8 generated table types. (SPEC §14.8.7).`,
+        span,
+        "info",
+      ));
+    }
+
+    // Synthesize the row struct. The name is a compiler-internal projection
+    // label (not a user-visible type); nominal distinctness is not required
+    // for Tranche 1 (cross-file `:struct` contract is Tranche 2).
+    const rowStruct = tStruct("<sql-row>", rowFields);
+
+    if (wrap === "optional") return tUnion([rowStruct, tNot()]);
+    return tArray(rowStruct);
+  }
+
   // Build a map of function name -> errorType for exhaustive !{} checking (§19.7).
   // Also builds fnCanFail (all failable functions) and fnAllDeclared (all function names)
   // for E-ERROR-002 and E-ERROR-004 checks.
@@ -6612,6 +6781,19 @@ function annotateNodes(
       case "let-decl":
       case "const-decl": {
         resolvedType = tAsIs();
+        // §14.8.7 / §8.3 (Tranche 1) — `let/const x = ?{ SELECT ... }.get()/.all()`
+        // is lowered by ast-builder to a let/const-decl with `init:""` and an
+        // attached `sqlNode`. Type the bound variable from the projection row
+        // instead of the default `asIs`. A user type annotation (next block)
+        // still wins — annotation > inferred row (Tranche-2 width-subtyping is
+        // a separate dispatch). Graceful-degrades via W-SQL-ROW-UNTYPED.
+        {
+          const _letSqlNode = (n as Record<string, unknown>).sqlNode as ASTNodeLike | undefined;
+          if (_letSqlNode && _letSqlNode.kind === "sql") {
+            const _letSqlSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+            resolvedType = resolveSqlRowType(_letSqlNode, _letSqlSpan);
+          }
+        }
         // §53.4 — If a type annotation is present and predicated, classify the assignment zone.
         const letAnnot = (n as ASTNodeLike).typeAnnotation as string | undefined;
         if (letAnnot) {
@@ -7302,7 +7484,11 @@ function annotateNodes(
       // SQL block
       // ------------------------------------------------------------------
       case "sql": {
-        resolvedType = tAsIs();
+        // §14.8.7 / §8.3 (Tranche 1) — type the projection row from the §14.8
+        // generated table types in scope instead of discarding it as `asIs`.
+        // Graceful-degrades (W-SQL-ROW-UNTYPED) for the deferred long tail.
+        const _sqlSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        resolvedType = resolveSqlRowType(n, _sqlSpan);
         break;
       }
 

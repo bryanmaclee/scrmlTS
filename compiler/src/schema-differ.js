@@ -363,7 +363,7 @@ export function diffSchema(desired, actual, options = {}) {
  * §39.5.8. Shared-core `req` adds `NOT NULL` (and a `CHECK (col != '')` for
  * text/blob), other shared-core predicates add `CHECK (...)` clauses.
  */
-function generateCreateTable(table, driver = "sqlite") {
+export function generateCreateTable(table, driver = "sqlite") {
   const colDefs = table.columns.map(col => {
     let def = `"${col.name}" ${col.type}`;
     if (col.primaryKey) def += " PRIMARY KEY";

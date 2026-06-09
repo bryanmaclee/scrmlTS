@@ -300,6 +300,16 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
   //     S99 RI note above; the stub no longer exists so the trigger is gone).
   // The two W-CG-CHUNK-* warnings are UNAFFECTED (still 1 each) — they are
   // about the empty seeds route chunk under emitPerRoute, not the stub.
+  //
+  // typed-sql-row Tranche 1 (§14.8.7, change-id typed-sql-row-tranche1): the
+  // read-site SQL projection typer now emits 6 INFO-level W-SQL-ROW-UNTYPED lints
+  // for the deferred long tail — 4 computed/subquery columns (billing/invoices
+  // `payment_token`/`active_payment_tokens`; customers `outstanding_count`/
+  // `total_loads`) and 3 lone `SELECT id` in seeds.scrml (no `< db>` block in
+  // scope -> no generated type). All other queries (board / load-detail / etc.)
+  // resolve to typed projection rows and fire NO lint. NO E-PROTECT-001 fires:
+  // the auth `login` selects `password_hash` but is server-escalated via §12.2
+  // Trigger-2 protected-field access (it verifies the hash server-side).
   const EXPECTED_BASELINE = {
     "I-AUTH-REDIRECT-UNRESOLVED": 1,
     "W-ATTR-001": 20,
@@ -310,6 +320,7 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
     "W-DEAD-FUNCTION": 1,
     "W-PROGRAM-001": 4,
     "W-PROGRAM-REDUNDANT-LOGIC": 18,
+    "W-SQL-ROW-UNTYPED": 6,
   };
 
   test("aggregate diagnostic count matches baseline", () => {
