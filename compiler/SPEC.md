@@ -7426,15 +7426,36 @@ scrml has an independent type system. It is NOT modeled after TypeScript. The ty
 
 ### 14.1.1 `any` is not a type — there is no `any`
 
-**Canonical rule (S174 — hard line).** scrml has **no `any` type.** `any` is NOT a scrml type — not on a struct field, not on a state-cell type annotation, not on a `fn` / `function` parameter or return type, not anywhere a type annotation is valid. This reinforces §14.1: the type system is NOT modeled after TypeScript, and TypeScript's `any` — the type-checking opt-out that silently erases type safety — has no scrml equivalent. User-voice S174 verbatim: *"I have made that a hard line in scrml. There is no any. … I am only begrudgingly allowing 'asis' because I don't know everything someone might try with the language."*
+**Canonical rule (S174 — hard line).** scrml has **no `any` type.** `any` is NOT a scrml type — not on a struct / error / enum-variant-payload / tuple field, not on a type-alias right-hand side, not on a state-cell type annotation, not on a `fn` / `function` parameter or return type, not anywhere a type annotation is valid. This reinforces §14.1: the type system is NOT modeled after TypeScript, and TypeScript's `any` — the type-checking opt-out that silently erases type safety — has no scrml equivalent. User-voice S174 verbatim: *"I have made that a hard line in scrml. There is no any. … I am only begrudgingly allowing 'asis' because I don't know everything someone might try with the language."*
 
 The sanctioned untyped escape hatch is **`asIs`** — a deliberate, *named* opt-out for a value whose shape genuinely cannot be expressed (a foreign value, an unmodeled SQL-query row, a polymorphic payload). `asIs` is explicit and greppable; `any` is the silent TypeScript reflex this rule forecloses.
 
 The literal type-token `any` in any type-annotation position is rejected with **`E-TYPE-ANY-FORBIDDEN`** (§34); the diagnostic points the author to `asIs`.
 
-Parallel shape to the other "what scrml is NOT" rules: §42.1 (`null` / `undefined` do not exist in scrml source, S89) · §19.9.8 (no `async` / `await`, S114).
+Parallel shape to the other "what scrml is NOT" rules: §14.1.2 (no unrecognized type names) · §42.1 (`null` / `undefined` do not exist in scrml source, S89) · §19.9.8 (no `async` / `await`, S114).
 
-> **Note — `any`-token-specific.** This rule rejects the literal `any` token. A *different* unrecognized type name (a typo'd or undefined type) that also currently resolves silently to `asIs` is a separate, broader gap tracked as a follow-on — it is not what this rule covers.
+> **Note — symmetric with the unrecognized-type-name rule (§14.1.2).** The literal `any` token and an *arbitrary unrecognized type name* (a typo'd or undefined type) are now both rejected, at identical loci, by sibling checks: this section's `E-TYPE-ANY-FORBIDDEN` catches the `any` token, and §14.1.2's `E-TYPE-UNKNOWN-NAME` catches an undefined name. Both previously collapsed silently to `asIs`; both are closed.
+
+### 14.1.2 Unrecognized type names — every type must be defined
+
+**Canonical rule (S174 follow-on — hard line).** Every type name in a type-annotation position SHALL resolve to a *defined* type: a built-in (`string`, `number`, `boolean`, `int`, the named-shape vocabulary `email`/`url`/`uuid`/`phone`/`date`/`time`/`color`, the built-in error/enum types `NetworkError`/`ValidationError`/`SQLError`/`AuthError`/`TimeoutError`/`ParseError`/`NotFoundError`/`ConflictError`), `asIs`, a type declared in the same file (including a *forward reference* — a type used before its `type` declaration appears in source order), or an imported type (§21.8). An **unrecognized** type name — a typo'd or genuinely undefined name like `Frobnicate` — is rejected with **`E-TYPE-UNKNOWN-NAME`** (§34).
+
+Before this rule, an unrecognized type name fell through `resolveTypeExpr`'s unresolvable path to `asIs` with **no diagnostic** — silently masquerading as the sanctioned `asIs` escape hatch, exactly as the literal `any` token did before §14.1.1. This is the *separate, broader gap* §14.1.1 deferred; it is now closed. The sanctioned untyped escape hatch remains **`asIs`** — a deliberate, *named*, greppable opt-out; a misspelled name is not.
+
+**Loci.** The rule fires at every type-annotation position, symmetric with §14.1.1 (`E-TYPE-ANY-FORBIDDEN` covers the same set): named `:struct` / `:error` / `:enum` / `:tuple` declaration bodies (including **enum-variant payload field types**, `Variant(field: Type)`), **type-alias** right-hand sides (`type A = Type`), state-cell / `let` / `const` type annotations, `fn` / `function` parameter and return types, and the recursive leaf positions (inline-struct field types, array element, **map value**, union members, snippet parameter, lifecycle post-type).
+
+**Resolution.** Resolution is against the file's `typeRegistry` (the same registry the type-as-argument family resolves through, §53.14.5), built with a forward-reference-safe placeholder pass so a forward reference never mis-fires. Cross-file imported types resolve via the §21.8 import protocol; in a single-file compile (where a dependency was not processed into the registry) an **imported specifier name** is exempt regardless — the import statement is the proof the name is defined elsewhere. This also covers renamed re-exports, `export *`, and stdlib re-export chains.
+
+**Carve-outs (do not fire).**
+
+- **`asIs`** — the sanctioned escape hatch, at every locus.
+- **A map KEY position** — owned by `E-MAP-KEY-NOT-COMPARABLE` (§59.4): an undefined key name collapses to a non-comparable `asIs` key, which that check already rejects, so the unknown-name check defers there to avoid a double diagnostic (the `any`-token check still scans keys — `any` is invalid in every position). The map VALUE position is checked.
+- **Machine names** — a machine-typed state cell (`@state: M` where `< machine name=M >` governs it) annotates the cell with the *machine* name, which lives in the machine registry (§51.3), not the type registry; machine names are exempt.
+- **`<db>`-block-scoped explicit annotations** — generated DB type names are bound into the scope chain (§14.8), not the `typeRegistry`; db-block-scoped annotations are out of v1 scope (db-types flow via inference, not author annotation).
+- **Type-as-argument idents** (`parseVariant(json, T)`, `formFor for=T`, `schemaFor(T)`, `reflect(T)`) — these are call-argument identifiers / markup `for=` attributes carrying no type annotation; they have their own diagnostics (`E-PARSEVARIANT-TYPE-NOT-ENUM` / `E-FORMFOR-TYPE-NOT-STRUCT` / `E-SCHEMAFOR-TYPE-NOT-STRUCT` / `E-META-003`) and are never reached by this check.
+
+Parallel shape to the other "what scrml is NOT" rules: §14.1.1 (no `any`) · §42.1 (`null` / `undefined` do not exist in scrml source, S89) · §19.9.8 (no `async` / `await`, S114).
+
 
 ### 14.2 Type Declaration Syntax
 
@@ -13077,6 +13098,8 @@ function upsertProfile(userId: number, email: string).idempotent() {
 **Canonical rule (S114 — strongest form).** scrml has **no `async` keyword** and **no `await` keyword.** They are NOT valid in scrml source — not on function declarations, not on arrow declarations, not in expression position, not at module top level, not anywhere. The token `async` is not a valid scrml modifier on any function form; the token `await` is not a valid scrml expression operator; the form `for await ... of` is not a valid scrml iteration form. User-voice S114 verbatim: *"I have intentionally left async/await out of the language, because I hate leaky abstractions and colored functions."*
 
 Parallel shape to other "what scrml is NOT" rules:
+- §14.1.1 — there is no `any` type (S174 hard line; `asIs` is the named escape hatch).
+- §14.1.2 — there are no unrecognized type names (every type must be defined; S174 follow-on).
 - §42.1 — `null` / `undefined` do not exist in scrml source (S89 ABSOLUTE).
 - PRIMER §6 — try/catch is not in scrml's vocabulary.
 - Pillar 4 — one file type (no JS-escape pocket).
@@ -16618,7 +16641,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | W-DEAD-FUNCTION | §12.2 | A function is declared but called from neither a server-classified context nor a client-classified context, is not exported, is not server-annotated, and is not referenced from markup. The function will be tree-shaken from the output. Remove the declaration if intended dead, or wire it up to a caller. RI does not yet track all markup reference patterns; if the diagnostic is a false positive, exporting the function or adding an explicit caller suppresses it. **Fires:** emitted by RI (`compiler/src/route-inference.ts` Step 5d, D4) at the function's declaration site. Added 2026-05-08 (Insight 26 Batch 1) as the in-vacuum complement to caller-context propagation (Trigger 5). | Warning |
 | E-TYPE-030 | §14.7, §15.2 | `asIs` value used past resolution requirement | Error |
 | E-TYPE-031 | §15.3, §15.10 | Prop value fails declared type constraint | Error |
-| E-TYPE-ANY-FORBIDDEN | §14.1.1 | The literal type-token `any` appears in a type-annotation position (struct field, state-cell annotation, `fn`/`function` parameter or return type). `any` is not a scrml type — there is no `any` (S174 hard line; TypeScript's type-checking opt-out has no scrml equivalent). Use a concrete type, or `asIs` for a deliberate, named untyped escape hatch. `any`-token-specific (an arbitrary undefined type name that also silently resolves to `asIs` is a separate broader gap, tracked as a follow-on). (Catalog addition S174; emitted at `compiler/src/type-system.ts` `checkAnyTypeForbidden`.) | Error |
+| E-TYPE-ANY-FORBIDDEN | §14.1.1 | The literal type-token `any` appears in a type-annotation position (struct / error / enum-variant-payload / tuple field, type-alias RHS, state-cell annotation, `fn`/`function` parameter or return type, and the recursive leaf positions). `any` is not a scrml type — there is no `any` (S174 hard line; TypeScript's type-checking opt-out has no scrml equivalent). Use a concrete type, or `asIs` for a deliberate, named untyped escape hatch. Symmetric with `E-TYPE-UNKNOWN-NAME` (§14.1.2) — an undefined type NAME is rejected at the identical loci via the same locus traversal. (Catalog addition S174; loci broadened S174 follow-on; emitted at `compiler/src/type-system.ts` `checkAnyTypeForbidden`.) | Error |
+| E-TYPE-UNKNOWN-NAME | §14.1.2 | An unrecognized (typo'd or undefined) type NAME appears in a type-annotation position — the SAME loci as `E-TYPE-ANY-FORBIDDEN` (struct / error / enum-variant-payload / tuple field, type-alias RHS, state-cell annotation, `fn`/`function` param + return, and recursive leaf positions: inline-struct field, array element, map VALUE, union member, snippet param, lifecycle post-type). The name resolves against the file's `typeRegistry` per §53.14.5 (forward-reference-safe placeholder pass); cross-file imports resolve via §21.8 / the §21.3 imported-types seed, and an imported specifier name is exempt even in single-file mode. `asIs` is the never-fires escape hatch. Carve-outs: a map KEY is owned by `E-MAP-KEY-NOT-COMPARABLE` (§59.4, no double-fire); a machine name (§51.3) and `<db>`-block-scoped annotations are exempt. Before this rule the name collapsed SILENTLY to `asIs` (the broader leak §14.1.1 deferred). Emitted at the decl-binding sites (NOT `resolveTypeExpr`, which is span-free) by `compiler/src/type-system.ts` `checkUnknownTypeNames` (run AFTER the imported-types seed). (Catalog addition S174 follow-on.) | Error |
 | E-TYPE-040 | §16.4 | Slot fill type incompatible with declared slot shape | Error |
 | E-TYPE-050 | §14.8.5 | Two tables produce the same generated type name | Error |
 | E-TYPE-051 | §14.8.5 | SQLite column type unmappable; typed `asIs` | Warning |
@@ -21197,6 +21221,8 @@ The `scrml:compiler` family — the umbrella `scrml:compiler` plus 13 per-stage 
 scrml defines a single canonical value for the absence of a meaningful value: `not`. `not` replaces the JavaScript concepts of `null` and `undefined` uniformly.
 
 **Canonical rule (S89 — strongest form):** The token `null` is NOT a valid scrml expression, attribute value, type token, or identifier. The token `undefined` is NOT a valid scrml expression, attribute value, type token, or identifier. The canonical scrml absence sentinel is `not` (Optional bare-sentinel form — see §42.2.1 for assignment, §42.2.2 for absence-check, §42.3.1 for the `T | not` optional union type, §42.4 for `if=` falsy semantics, §6.8.1 for the `default=not` attribute form).
+
+Parallel shape to the other "what scrml is NOT" rules: §14.1.1 (no `any` type) · §14.1.2 (no unrecognized type names) · §19.9.8 (no `async` / `await`).
 
 **Compilers MUST emit `W-ABSENCE-IN-SCRML-SOURCE` info-level lint (§34) on any `null` or `undefined` token in user scrml source.** This is the regression-guard companion to the hard-error path `E-SYNTAX-042` (§42.7). The lint surfaces the appearance at code-review and IDE-hover positions for cases the hard-error walker may not yet catch (cross-file partials, foreign-code fragments, partial-paste regions, generated fixtures). *(Code renamed from `W-NULL-IN-SCRML-SOURCE` by S89 undefined-eradication dispatch 2026-05-13; the rule covers BOTH absence tokens.)*
 

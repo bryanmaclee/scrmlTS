@@ -3685,6 +3685,214 @@ function typeTextMentionsAnyToken(typeText: string): boolean {
 }
 
 /**
+ * §14.1.2 / E-TYPE-UNKNOWN-NAME — is a leaf type-name atom an UNRECOGNIZED
+ * (truly-undefined) type name?
+ *
+ * `name` is the bare leading identifier of a type-expression leaf (already
+ * stripped of trailing validators / `?` / array `[]` / paren-tails by the
+ * caller's leaf extraction). Returns true iff the name is a genuine
+ * unrecognized type — a typo'd or undefined name that `resolveTypeExpr` would
+ * otherwise collapse SILENTLY to `asIs` (the §14.1.2 leak this check closes).
+ *
+ * All of the following must hold:
+ *   1. `/^[A-Z]/` — leading uppercase (PascalCase). LOAD-BEARING: this auto-
+ *      exempts the lowercase type vocabulary — primitives (number/string/…),
+ *      NAMED_SHAPES (email/url/uuid/phone/time/color), the type-operator
+ *      keywords (to/oneOf/notIn/ordered/req/lin/snippet) and predicate idents —
+ *      none of which are PascalCase, so only a capitalized NAME is ever a
+ *      candidate. A `.`-leading variant literal (`.Admin`) never produces a
+ *      leading-`[A-Za-z]` leaf, so it never reaches here.
+ *   2. NOT a built-in type (`BUILTIN_TYPES`, which includes the 8 PascalCase
+ *      built-in error / enum types: NetworkError, ValidationError, SQLError,
+ *      AuthError, TimeoutError, ParseError, NotFoundError, ConflictError).
+ *   3. NOT `asIs` (the sanctioned, named escape hatch — already in
+ *      BUILTIN_TYPES, but spelled out for clarity; it must NEVER fire).
+ *   4. NOT present in `typeRegistry` — PRESENCE, not kind. A same-file forward
+ *      reference AND a type alias both transiently resolve to `tUnknown()`
+ *      (indistinguishable by KIND from a genuine unknown), but `buildTypeRegistry`
+ *      Pass-1 registers EVERY declared name as a placeholder before bodies parse,
+ *      so presence is the forward-ref-safe test. (Do NOT require
+ *      `kind !== "unknown"` — that would re-fire on every legitimate forward ref.)
+ *   5. NOT in `exemptTypeNames` — names that resolve through a NON-typeRegistry
+ *      path. Two classes: (a) IMPORTED specifier names — the single-file-mode
+ *      landmine guard; a single-file compile of an importing file has no
+ *      imported types seeded into the registry, so the imported name is
+ *      genuinely absent (also covers renamed re-exports / `export *` / deps
+ *      outside the compile set / stdlib re-export chains in multi-file mode);
+ *      (b) MACHINE names — a machine-typed state cell `@state: M` annotates the
+ *      cell with the `< machine name=M >` name, which lives in the machineRegistry,
+ *      not the typeRegistry.
+ */
+function isUnrecognizedTypeNameAtom(
+  name: string,
+  typeRegistry: Map<string, ResolvedType>,
+  exemptTypeNames: Set<string>,
+): boolean {
+  if (typeof name !== "string" || name.length === 0) return false;
+  if (!/^[A-Z]/.test(name)) return false;            // PascalCase gate (1)
+  if (BUILTIN_TYPES.has(name)) return false;          // built-ins incl. error/enum types (2)
+  if (name === "asIs") return false;                  // sanctioned escape hatch (3)
+  if (typeRegistry.has(name)) return false;           // declared / forward-ref / alias (4)
+  if (exemptTypeNames.has(name)) return false;        // imported / re-exported / machine name (5)
+  return true;
+}
+
+/**
+ * §14.1.2 — Leaf-base type-name extraction. Walks a RAW type-expression string,
+ * mirroring `resolveTypeExpr`'s OWN branch structure, and invokes `visit` with
+ * the bare leading identifier of every NAME leaf (the position where a typo'd
+ * type name lives). It descends into the compound type forms (union members,
+ * array element, map key+value, inline-struct field types, snippet param,
+ * lifecycle post-type) and CARVES OUT the regions that are not name leaves
+ * (`oneOf([...])` / `notIn([...])` variant-literal args, inline predicates,
+ * function-type shapes, negation, conjunction).
+ *
+ * This is deliberately distinct from the flat `typeTextMentionsAnyToken` atomize:
+ * the `any` token is a fixed string findable anywhere, but an unrecognized NAME
+ * must be classified POSITIONALLY (only a leading-ident leaf in a name position
+ * is a candidate — a variant literal inside `oneOf([.A, .B])`, a predicate arg,
+ * or a field/param NAME must not be classified).
+ *
+ * Recursion is bounded by string length (each recursion strips at least one
+ * structural char) and a depth cap (defensive; real annotations are shallow).
+ */
+function forEachTypeNameLeaf(
+  typeExpr: string,
+  visit: (leafName: string) => void,
+  opts: { emitMapKeys?: boolean } = {},
+  depth: number = 0,
+): void {
+  if (typeof typeExpr !== "string" || depth > 32) return;
+  const emitMapKeys = opts.emitMapKeys !== false; // default: emit key leaves
+  const trimmed = typeExpr.trim();
+  if (!trimmed) return;
+
+  // Lifecycle annotation `(A to B)` / `(A -> B)` — resolve to the post-type
+  // (B). Mirrors resolveTypeExpr's first branch (strip outer parens, recurse RHS
+  // of a top-level arrow; else recurse the inner expr).
+  if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
+    const inner = trimmed.slice(1, -1);
+    const glyph = findTopLevelArrow(inner);
+    if (glyph !== null) {
+      forEachTypeNameLeaf(inner.slice(glyph.idx + glyph.len), visit, opts, depth + 1);
+      return;
+    }
+    forEachTypeNameLeaf(inner, visit, opts, depth + 1);
+    return;
+  }
+
+  // Function type (`fn(...)`, `(...) => Ret`, `(...) -> Ret`). Not a name leaf —
+  // the function-typed-field reject (E-STRUCT-FUNCTION-FIELD) owns this shape; do
+  // not classify its inner atoms as unknown names.
+  if (isFunctionTypeAnnotation(trimmed)) return;
+
+  // Union: A | B — recurse each member.
+  if (trimmed.includes("|")) {
+    const parts = splitTopLevel(trimmed, ["|"]);
+    if (parts.length > 1) {
+      for (const p of parts) forEachTypeNameLeaf(p, visit, opts, depth + 1);
+      return;
+    }
+  }
+
+  // Negation `!type` — conservative asIs in resolveTypeExpr; the `!` prefix
+  // never yields a leading-[A-Za-z] leaf, so nothing to classify.
+  if (trimmed.startsWith("!")) return;
+
+  // Enum-subset refinement `EnumName oneOf([.V, ...])` / `notIn([.V, ...])`.
+  // The leading token IS a name leaf (the base enum) — classify it; the bracket
+  // args are variant literals, NOT name leaves — carve them out (do not recurse).
+  {
+    const m = /^([A-Za-z_$][A-Za-z0-9_$]*)\s+(oneOf|notIn)\s*\(/.exec(trimmed);
+    if (m) {
+      visit(m[1]);
+      return;
+    }
+  }
+
+  // Inline predicate `base(predicate-expr)` where base is a primitive
+  // (number/string/boolean/integer). The base is a primitive (never unknown),
+  // and the predicate region is not a name leaf — carve it out.
+  {
+    const PRED_BASES = new Set(["number", "string", "boolean", "integer"]);
+    const parenIdx = trimmed.indexOf("(");
+    if (parenIdx > 0 && PRED_BASES.has(trimmed.slice(0, parenIdx).trim())) {
+      return;
+    }
+  }
+
+  // Conjunction `&&` — conservative asIs; nothing to classify.
+  if (trimmed.includes("&&")) return;
+
+  // Array `type[]` — recurse the element type.
+  if (trimmed.endsWith("[]")) {
+    forEachTypeNameLeaf(trimmed.slice(0, -2), visit, opts, depth + 1);
+    return;
+  }
+
+  // Value-native map `[KeyT: ValT]` (optional trailing `@ordered`) — recurse
+  // key + value. Slotted after the `[]` array branch (mirrors resolveTypeExpr).
+  {
+    let mapBody = trimmed;
+    if (mapBody.endsWith("@ordered")) mapBody = mapBody.slice(0, -"@ordered".length).trim();
+    if (mapBody.startsWith("[") && mapBody.endsWith("]")) {
+      const innerMap = mapBody.slice(1, -1);
+      const colonIdx = findMapEntryColon(innerMap);
+      if (colonIdx >= 0) {
+        // The map KEY position is owned by E-MAP-KEY-NOT-COMPARABLE (§59.4):
+        // an unknown key name collapses to a non-comparable `asIs` key, which
+        // that check already rejects — so the unknown-name check skips keys to
+        // avoid a double-fire (the any-check still scans keys: `any` is invalid
+        // in every position). The VALUE position is always scanned.
+        if (emitMapKeys) forEachTypeNameLeaf(innerMap.slice(0, colonIdx), visit, opts, depth + 1);
+        forEachTypeNameLeaf(innerMap.slice(colonIdx + 1), visit, opts, depth + 1);
+        return;
+      }
+    }
+  }
+
+  // Snippet types — `snippet` / `snippet?` carry no name leaf; `snippet(p: Type)`
+  // recurses the param type.
+  if (trimmed === "snippet" || trimmed === "snippet?") return;
+  if (trimmed.startsWith("snippet(") && trimmed.endsWith(")")) {
+    const innerSn = trimmed.slice(8, -1);
+    const colonIdx = innerSn.indexOf(":");
+    forEachTypeNameLeaf(colonIdx !== -1 ? innerSn.slice(colonIdx + 1) : innerSn, visit, opts, depth + 1);
+    return;
+  }
+
+  // Inline struct `{ f: T, ... }` — recurse each field's TYPE (field NAMES are
+  // not type leaves).
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    const innerBody = trimmed.slice(1, -1).trim();
+    if (innerBody.length > 0) {
+      for (const rawPart of splitTopLevel(innerBody, [",", "\n"])) {
+        const part = rawPart.trim();
+        if (!part) continue;
+        const colonIdx = part.indexOf(":");
+        if (colonIdx <= 0) continue;
+        const fieldName = part.slice(0, colonIdx).trim();
+        if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(fieldName)) continue;
+        forEachTypeNameLeaf(part.slice(colonIdx + 1), visit, opts, depth + 1);
+      }
+    }
+    return;
+  }
+
+  // LEAF — extract the leading bare identifier (tolerating a trailing `?` sugar)
+  // and discard any trailing validator clause (`Status req`, `string req
+  // length(>=2)`, `lin string`, `Status?`). The `lin` linear-type prefix is
+  // stripped first so the leaf is the underlying type token. The leading-ident
+  // regex matches resolveTypeExpr's own recovery (§14 line 1553).
+  let leafSrc = trimmed;
+  const linMatch = /^lin\s+(.+)$/s.exec(leafSrc);
+  if (linMatch) leafSrc = linMatch[1].trim();
+  const idMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)\??/.exec(leafSrc);
+  if (!idMatch) return;
+  visit(idMatch[1]);
+}
+
+/**
  * §14.x / E-TYPE-ANY-FORBIDDEN — reject the literal type-token `any` in EVERY
  * type-annotation position.
  *
@@ -3717,32 +3925,84 @@ function typeTextMentionsAnyToken(typeText: string): boolean {
  * @param errors    — diagnostic accumulator
  * @param fileSpan  — fallback span when a decl/node has no span
  */
-function checkAnyTypeForbidden(
+/**
+ * §14.1.2 / §21.8 — Collect the set of imported specifier names from a file's
+ * AST. Returns BOTH the original imported name AND the local alias for every
+ * `import { X } / import { X as Y } from '...'` specifier, plus default-import
+ * names. Import nodes are nested inside `${...}` logic blocks (not top-level), so
+ * this deep-walks. Used by `checkUnknownTypeNames` as the single-file-mode
+ * exemption: an imported type name absent from the registry (because its dep was
+ * not compiled in-set) must NOT fire E-TYPE-UNKNOWN-NAME.
+ */
+function collectImportSpecifierNames(topNodes: ASTNodeLike[]): Set<string> {
+  const names = new Set<string>();
+  const seen = new WeakSet<object>();
+  function walk(node: unknown): void {
+    if (!node || typeof node !== "object") return;
+    if (seen.has(node as object)) return;
+    seen.add(node as object);
+    const n = node as Record<string, unknown>;
+    if (n.kind === "import-decl") {
+      const specs = n.specifiers;
+      if (Array.isArray(specs)) {
+        for (const s of specs) {
+          if (!s || typeof s !== "object") continue;
+          const imported = (s as Record<string, unknown>).imported;
+          const local = (s as Record<string, unknown>).local;
+          if (typeof imported === "string" && imported) names.add(imported);
+          if (typeof local === "string" && local) names.add(local);
+        }
+      }
+      const ns = n.names;
+      if (Array.isArray(ns)) {
+        for (const nm of ns) if (typeof nm === "string" && nm) names.add(nm);
+      }
+    }
+    for (const key in n) {
+      const v = n[key];
+      if (Array.isArray(v)) { for (const c of v) walk(c); }
+      else if (v && typeof v === "object") walk(v);
+    }
+  }
+  for (const node of topNodes) walk(node);
+  return names;
+}
+
+/**
+ * §14.1.2 / §14.1.1 — SHARED type-annotation locus traversal. Yields every
+ * place a TYPE EXPRESSION appears in a file, as `(typeText, label, span)`
+ * tuples, so the `any`-token reject (`E-TYPE-ANY-FORBIDDEN`) and the
+ * unknown-name reject (`E-TYPE-UNKNOWN-NAME`) cover IDENTICAL loci by
+ * construction (an undefined NAME and the `any` token are treated the same at
+ * every position).
+ *
+ * Loci (every type-annotation position):
+ *   - named struct / error / tuple decl field types (`decl.raw` field clauses,
+ *     recursing into nested inline-struct field types with a qualified label)
+ *   - enum-variant PAYLOAD field types (`Variant(field: Type, ...)`)
+ *   - type-alias RHS (`type A = Type` — `typeKind: ""`, `raw` is the bare RHS)
+ *   - cell / let / const `typeAnnotation` strings (state-decls etc.); this also
+ *     covers fn / function PARAM types, since each param is a structured object
+ *     `{ name, typeAnnotation }` reached by the generic deep walk (the legacy
+ *     string-param branch was dead — params are never strings)
+ *   - fn / function RETURN-type annotation (`returnTypeAnnotation`, which is NOT
+ *     a `typeAnnotation` field, so it needs an explicit yield)
+ *
+ * The yielded `typeText` is the FULL type-expression at that host position; each
+ * consumer handles compound forms itself (`typeTextMentionsAnyToken` atomizes;
+ * `forEachTypeNameLeaf` recurses union/array/map/inline-struct/etc.). A nested
+ * inline-struct field inside a named-decl body is expanded inline so the
+ * diagnostic LABEL stays precise (`Parent.field`).
+ */
+function forEachTypeAnnotationLocus(
   typeDecls: ASTNodeLike[],
   topNodes: ASTNodeLike[],
-  errors: TSError[],
   fileSpan: Span,
+  visit: (typeText: string, label: string, span: Span) => void,
 ): void {
-  const seenSpans = new Set<string>();
-  function fire(where: string, typeText: string, span: Span): void {
-    // De-dupe: the same decl may be re-visited via multiple node references.
-    const key = `${span.start}:${span.end}:${where}:${typeText.trim()}`;
-    if (seenSpans.has(key)) return;
-    seenSpans.add(key);
-    errors.push(new TSError(
-      "E-TYPE-ANY-FORBIDDEN",
-      `E-TYPE-ANY-FORBIDDEN: '${where}' is annotated with 'any', which is not a ` +
-      `type in scrml — there is no 'any'. Use a concrete type, or 'asIs' for a ` +
-      `deliberate untyped escape hatch. See SPEC §14.`,
-      span,
-      "error",
-    ));
-  }
-
-  // Scan a raw struct/inline-struct body (the inner `{ ... }` field list, braces
-  // optional) for `any`-typed fields, recursing into array-element / nested
-  // inline-struct field types. Mirrors checkFunctionTypedStructFields'
-  // scanStructBodyRaw shape so the field-clause split is identical.
+  // Scan a raw struct/tuple/inline-struct body (the inner `{ ... }` field list,
+  // braces optional). Yields each field's type-expr; recurses into a nested
+  // inline-struct field type so the label stays qualified.
   function scanStructBodyRaw(raw: string, structLabel: string, span: Span): void {
     let body = (raw ?? "").trim();
     if (body.startsWith("{")) body = body.slice(1);
@@ -3757,32 +4017,83 @@ function checkAnyTypeForbidden(
       const fieldName = trimmed.slice(0, colonIdx).trim();
       const fieldType = trimmed.slice(colonIdx + 1).trim();
       if (!fieldName || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(fieldName)) continue;
-      if (typeTextMentionsAnyToken(fieldType)) {
-        fire(structLabel ? `${structLabel}.${fieldName}` : fieldName, fieldType, span);
-        continue;
-      }
-      // Recurse into a nested inline-struct field type (`f: { g: any }` and the
-      // array form `f: { g: any }[]`).
+      const qualified = structLabel ? `${structLabel}.${fieldName}` : fieldName;
+      visit(fieldType, qualified, span);
+      // Recurse into a nested inline-struct field type (`f: { g: T }` and the
+      // array form `f: { g: T }[]`) for a precise nested label.
       let nested = fieldType;
       while (nested.endsWith("[]")) nested = nested.slice(0, -2).trim();
       if (nested.startsWith("{") && nested.endsWith("}")) {
-        scanStructBodyRaw(nested, structLabel ? `${structLabel}.${fieldName}` : fieldName, span);
+        scanStructBodyRaw(nested, qualified, span);
       }
     }
   }
 
-  // 1. Named struct / error declarations.
-  if (Array.isArray(typeDecls)) {
-    for (const decl of typeDecls) {
-      if (!decl) continue;
-      if (decl.typeKind !== "struct" && decl.typeKind !== "error") continue;
-      const span = (decl.span as Span | undefined) ?? fileSpan;
-      scanStructBodyRaw((decl.raw as string) ?? "", (decl.name as string) ?? "", span);
+  // Scan an enum body's variant payloads (`Variant(field: Type, ...)`), yielding
+  // each payload field type. Mirrors parseEnumBody's variant/payload splitting
+  // but extracts only the raw field type-exprs (no resolution — the leaf is
+  // still source text, where a typo'd name is visible).
+  function scanEnumBodyRaw(raw: string, enumLabel: string, span: Span): void {
+    let body = (raw ?? "").trim();
+    if (body.startsWith("{")) body = body.slice(1);
+    if (body.endsWith("}")) body = body.slice(0, -1);
+    body = body.trim();
+    if (!body) return;
+    // Split variants on top-level newline / comma / pipe (parseEnumBody parity).
+    for (const part of splitTopLevel(body, ["\n", ",", "|"])) {
+      const variant = part.trim();
+      if (!variant) continue;
+      const parenIdx = variant.indexOf("(");
+      if (parenIdx === -1) continue;             // unit variant — no payload types
+      let vName = variant.slice(0, parenIdx).trim();
+      if (vName.startsWith(".")) vName = vName.slice(1).trim();
+      if (!/^[A-Z][A-Za-z0-9_]*$/.test(vName)) continue;
+      const closeParenIdx = variant.lastIndexOf(")");
+      if (closeParenIdx <= parenIdx) continue;
+      const payloadStr = variant.slice(parenIdx + 1, closeParenIdx).trim();
+      if (!payloadStr) continue;
+      const fieldParts = splitTopLevel(payloadStr, [","]);
+      for (let i = 0; i < fieldParts.length; i++) {
+        const fp = fieldParts[i];
+        const cIdx = fp.indexOf(":");
+        // Named (`field: Type`) OR positional (a bare type expr, `Ok(int)`).
+        const fieldType = (cIdx === -1 ? fp : fp.slice(cIdx + 1)).trim();
+        const fieldName = cIdx === -1 ? `_${i}` : fp.slice(0, cIdx).trim();
+        if (!fieldType) continue;
+        visit(fieldType, `${enumLabel}.${vName}.${fieldName}`, span);
+      }
     }
   }
 
-  // 2. Cells (state-decls etc.) carrying a `typeAnnotation`, and function-decl
-  // params + return types. Deep-walk the file nodes.
+  // 1. Named type declarations.
+  if (Array.isArray(typeDecls)) {
+    for (const decl of typeDecls) {
+      if (!decl) continue;
+      const span = (decl.span as Span | undefined) ?? fileSpan;
+      const name = (decl.name as string) ?? "";
+      const kind = decl.typeKind;
+      if (kind === "struct" || kind === "error" || kind === "tuple") {
+        scanStructBodyRaw((decl.raw as string) ?? "", name, span);
+      } else if (kind === "enum") {
+        scanEnumBodyRaw((decl.raw as string) ?? "", name, span);
+      } else if (kind === "" || kind === undefined || kind === null) {
+        // Type alias: `type A = <RHS>` — raw is the bare RHS type-expr (the
+        // empty-string kind is ast-builder's alias marker). A brace-body raw is
+        // not an alias (defensive — an inline struct alias would already be a
+        // `struct` kind via the parser).
+        const raw = ((decl.raw as string) ?? "").trim();
+        if (raw && !raw.startsWith("{")) {
+          visit(raw, name, span);
+        }
+      }
+    }
+  }
+
+  // 2. Cells (state-decls etc.) carrying a `typeAnnotation` — this generic walk
+  // ALSO reaches each fn/function param object's `typeAnnotation` — plus the
+  // function-decl RETURN type (a discrete `returnTypeAnnotation` field, not
+  // reached by the `typeAnnotation` visit). Deep-walk the file nodes (mirrors
+  // the prior checkAnyTypeForbidden deep walk so fire-timing is unchanged).
   const seenNodes = new WeakSet<object>();
   function walk(node: unknown): void {
     if (!node || typeof node !== "object") return;
@@ -3790,37 +4101,22 @@ function checkAnyTypeForbidden(
     seenNodes.add(node as object);
     const n = node as Record<string, unknown>;
 
-    // Cell type annotation (`<x>: any`, `<x>: any[]`, `<x>: [string: any]`, ...).
+    // Cell / param type annotation.
     const ann = n.typeAnnotation;
     if (typeof ann === "string" && ann.trim()) {
-      if (typeTextMentionsAnyToken(ann)) {
-        const span = (n.span as Span | undefined) ?? fileSpan;
-        const label = typeof n.name === "string" && n.name ? n.name : "type annotation";
-        fire(label, ann, span);
-      }
+      const span = (n.span as Span | undefined) ?? fileSpan;
+      const label = typeof n.name === "string" && n.name ? n.name : "type annotation";
+      visit(ann.trim(), label, span);
     }
 
-    // Function declaration params + return type.
+    // Function-decl return type (`returnTypeAnnotation` / `returnType` /
+    // `retType`) — not a `typeAnnotation` field, so it needs an explicit yield.
     if (n.kind === "function-decl") {
       const span = (n.span as Span | undefined) ?? fileSpan;
       const fnName = typeof n.name === "string" && n.name ? n.name : "function";
-      const params = n.params;
-      if (Array.isArray(params)) {
-        for (const p of params) {
-          if (typeof p !== "string") continue;
-          const colonIdx = p.indexOf(":");
-          if (colonIdx === -1) continue;
-          const paramName = p.slice(0, colonIdx).trim();
-          const paramType = p.slice(colonIdx + 1).trim();
-          if (typeTextMentionsAnyToken(paramType)) {
-            fire(`${fnName}(${paramName})`, paramType, span);
-          }
-        }
-      }
-      // Return type, when carried as a discrete field. (`-> any`.)
       const ret = (n.returnType ?? n.returnTypeAnnotation ?? n.retType);
-      if (typeof ret === "string" && ret.trim() && typeTextMentionsAnyToken(ret)) {
-        fire(`${fnName}() return`, ret as string, span);
+      if (typeof ret === "string" && ret.trim()) {
+        visit((ret as string).trim(), `${fnName}() return`, span);
       }
     }
 
@@ -3831,6 +4127,135 @@ function checkAnyTypeForbidden(
     }
   }
   for (const node of topNodes) walk(node);
+}
+
+/**
+ * §14.x / E-TYPE-ANY-FORBIDDEN — reject the literal type-token `any` in EVERY
+ * type-annotation position.
+ *
+ * `any` is not a scrml type. There is no `any` (S174: "I have made that a hard
+ * line in scrml. There is no any. I am only begrudgingly allowing 'asIs'
+ * because I don't know everything someone might try with the language."). The
+ * sanctioned untyped escape hatch is `asIs` — a deliberate, named opt-out, NOT
+ * `any`.
+ *
+ * This is `any`-TOKEN-specific (the literal token). The SEPARATE broader leak —
+ * an arbitrary undefined type name (`Frobnicate`) that ALSO silently resolves to
+ * `asIs` — is closed by `checkUnknownTypeNames` (`E-TYPE-UNKNOWN-NAME`, §14.1.2),
+ * which fires at the SAME loci via the same `forEachTypeAnnotationLocus`
+ * traversal so the two checks stay symmetric (an undefined NAME and the `any`
+ * token are rejected identically at every position — struct/error/enum/tuple
+ * decl bodies incl. enum-variant payloads, type-alias RHS, cell typeAnnotation,
+ * fn/function param + return).
+ *
+ * Fire site rationale: `resolveTypeExpr` is span-free and error-free by contract
+ * (it runs in many non-decl contexts and cannot distinguish an `any`→asIs
+ * collapse from a legitimate downstream `asIs`). So this is a span-bearing scan
+ * over the RAW type-annotation text at the decl-binding sites. The `any` token
+ * is registry-INDEPENDENT, so this check runs at its original fire-timing
+ * (before the imported-types seed).
+ *
+ * @param typeDecls — struct/enum/error/tuple/alias decls (same input as buildTypeRegistry)
+ * @param topNodes  — file top-level nodes (deep-walked for cells + fn-decls)
+ * @param errors    — diagnostic accumulator
+ * @param fileSpan  — fallback span when a decl/node has no span
+ */
+function checkAnyTypeForbidden(
+  typeDecls: ASTNodeLike[],
+  topNodes: ASTNodeLike[],
+  errors: TSError[],
+  fileSpan: Span,
+): void {
+  const seenSpans = new Set<string>();
+  forEachTypeAnnotationLocus(typeDecls, topNodes, fileSpan, (typeText, where, span) => {
+    if (!typeTextMentionsAnyToken(typeText)) return;
+    // De-dupe: the same decl may be re-visited via multiple node references.
+    const key = `${span.start}:${span.end}:${where}:${typeText.trim()}`;
+    if (seenSpans.has(key)) return;
+    seenSpans.add(key);
+    errors.push(new TSError(
+      "E-TYPE-ANY-FORBIDDEN",
+      `E-TYPE-ANY-FORBIDDEN: '${where}' is annotated with 'any', which is not a ` +
+      `type in scrml — there is no 'any'. Use a concrete type, or 'asIs' for a ` +
+      `deliberate untyped escape hatch. See SPEC §14.1.1.`,
+      span,
+      "error",
+    ));
+  });
+}
+
+/**
+ * §14.1.2 / E-TYPE-UNKNOWN-NAME — reject an UNRECOGNIZED (truly-undefined) type
+ * NAME in EVERY type-annotation position.
+ *
+ * This closes the silent-`asIs` leak the §14.1.1 `any`-reject deferred: a typo'd
+ * or undefined PascalCase type name (`Frobnicate`, `LaodCardRow`) that
+ * `resolveTypeExpr` would otherwise collapse to `asIs` with ZERO diagnostic
+ * (type-system.ts "Unresolvable — return asIs (conservative; no error here)").
+ * Every type must be defined: a built-in, an `asIs` escape hatch, a same-file
+ * declaration (incl. a forward ref), or an imported type.
+ *
+ * Symmetric to `checkAnyTypeForbidden` by construction — both drive off
+ * `forEachTypeAnnotationLocus`, so the two checks cover identical loci. The
+ * difference is the per-leaf predicate: this check classifies each type-name
+ * LEAF (position-aware via `forEachTypeNameLeaf` — NOT the flat `any`-token
+ * atomize, because an unknown name is only a candidate in a name-LEAF position;
+ * a variant literal inside `oneOf([.A])`, a predicate arg, or a field NAME must
+ * not be classified) against the type registry + the import-specifier set.
+ *
+ * Fire site: this is REGISTRY-DEPENDENT, so — unlike `checkAnyTypeForbidden` —
+ * it MUST run AFTER the imported-types seed (the typeRegistry must already hold
+ * cross-file imported types). The `importSpecifierNames` set additionally
+ * exempts imported names in SINGLE-FILE mode (where no deps were compiled, so
+ * the imported name is genuinely absent from the registry — without this guard
+ * the flagship `<loadRows>: LoadCardRow[]` would RED-fire on a single-file
+ * compile).
+ *
+ * Out of v1 scope (NOT scanned): db-block-scoped explicit annotations (generated
+ * DB type names live in the scope chain, not the typeRegistry; zero corpus
+ * instances — db-types flow via inference); native-parser `/*.scrml` mirrors
+ * (not in any compile gate, S162). Type-as-argument idents (`parseVariant(j, T)`,
+ * `formFor for=T`, `reflect(T)`) carry NO typeAnnotation field and own their own
+ * codes — `forEachTypeAnnotationLocus` never reaches them.
+ *
+ * @param typeDecls — struct/enum/error/tuple/alias decls
+ * @param topNodes  — file top-level nodes (deep-walked for cells + fn-decls)
+ * @param typeRegistry — the BUILT registry (incl. imported types, post-seed)
+ * @param exemptTypeNames — names that resolve through a NON-typeRegistry path
+ *   and must never fire: imported + locally-aliased specifier names (the single-
+ *   file-mode guard) AND machine names (a machine-typed state cell `@state: M`
+ *   annotates the cell with the `< machine name=M >` name, which lives in the
+ *   machineRegistry, not the typeRegistry)
+ * @param errors    — diagnostic accumulator
+ * @param fileSpan  — fallback span
+ */
+function checkUnknownTypeNames(
+  typeDecls: ASTNodeLike[],
+  topNodes: ASTNodeLike[],
+  typeRegistry: Map<string, ResolvedType>,
+  exemptTypeNames: Set<string>,
+  errors: TSError[],
+  fileSpan: Span,
+): void {
+  const seenSpans = new Set<string>();
+  forEachTypeAnnotationLocus(typeDecls, topNodes, fileSpan, (typeText, where, span) => {
+    forEachTypeNameLeaf(typeText, (leafName) => {
+      if (!isUnrecognizedTypeNameAtom(leafName, typeRegistry, exemptTypeNames)) return;
+      const key = `${span.start}:${span.end}:${where}:${leafName}`;
+      if (seenSpans.has(key)) return;
+      seenSpans.add(key);
+      errors.push(new TSError(
+        "E-TYPE-UNKNOWN-NAME",
+        `E-TYPE-UNKNOWN-NAME: '${where}' is annotated with an unrecognized type ` +
+        `name '${leafName}'. No type with that name is defined — it is not a ` +
+        `built-in, not declared in this file, and not imported. Define the type, ` +
+        `fix the spelling, import it, or use 'asIs' for a deliberate untyped ` +
+        `escape hatch. See SPEC §14.1.2.`,
+        span,
+        "error",
+      ));
+    }, { emitMapKeys: false });
+  });
 }
 
 /**
@@ -15937,6 +16362,32 @@ function processFile(
     }
   }
 
+  // §14.1.2 / E-TYPE-UNKNOWN-NAME — reject an unrecognized (truly-undefined)
+  // type NAME in every type-annotation position (the silent-`asIs` leak the
+  // §14.1.1 `any`-reject deferred). REGISTRY-DEPENDENT, so it runs HERE — AFTER
+  // the imported-types seed above — so the registry already holds cross-file
+  // imported types. `importSpecifierNames` additionally exempts imported names
+  // in single-file mode (where no deps were compiled into the registry).
+  {
+    const unknownTopNodes = (fileAST.nodes as ASTNodeLike[] | undefined)
+      ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
+      ?? [];
+    // Exempt set = imported specifier names (single-file-mode guard) + MACHINE
+    // names. A machine-typed state cell (`@state: M` where `< machine name=M >`)
+    // annotates the cell with the MACHINE name — machines are registered in the
+    // machineRegistry (built below), NOT the typeRegistry, so without this
+    // exemption every machine-governed state cell would false-fire.
+    const exemptTypeNames = collectImportSpecifierNames(unknownTopNodes);
+    const unknownMachineDecls = (fileAST.machineDecls as ASTNodeLike[] | undefined)
+      ?? ((fileAST.ast as FileAST | undefined)?.machineDecls as ASTNodeLike[] | undefined)
+      ?? [];
+    for (const md of unknownMachineDecls) {
+      const en = md && (md.engineName as string | undefined);
+      if (typeof en === "string" && en) exemptTypeNames.add(en);
+    }
+    checkUnknownTypeNames(typeDecls, unknownTopNodes, typeRegistry, exemptTypeNames, errors, fileSpan);
+  }
+
   // §14.3 + §14.12 — Build the per-file lifecycle registry. Empty if no struct
   // type declares any `(A to B)` (canonical) or `(A -> B)` (legacy) lifecycle
   // annotation; the runLifecycleAccessCheck call below short-circuits on empty.
@@ -19610,4 +20061,7 @@ export {
   typeContainsFunctionField,
   classifyMapKey,
   checkMapKeyComparability,
+  // §14.1.2 — unknown-type-name reject helpers (exported for typer-unit tests)
+  isUnrecognizedTypeNameAtom,
+  forEachTypeNameLeaf,
 };
