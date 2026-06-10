@@ -28,6 +28,15 @@
 // password.scrml — Argon2id hash + verify, random password generation
 // ---------------------------------------------------------------------------
 
+// auth.js's arithmetic routes through scrml:math — the single sanctioned
+// touch of the host arithmetic surface (closes the stdlib-ouroboros).
+// `max` is ALIASED (mathMax) because createRateLimiter has a LOCAL `max`
+// variable (the rate-limit ceiling) that would otherwise shadow it. The
+// `Date.now()` wall-clock reads stay raw — that is a SEPARATE leak class
+// (scrml:time.now()), out of scope here (JWT/TOTP timing is security-
+// sensitive and routed deliberately, not folded into this Math de-leak).
+import { floor, max as mathMax } from "./math.js";
+
 export async function hashPassword(password) {
   // Argon2id via Bun.password (server-only). Mirrors stdlib/auth/password.scrml
   // line 25-29.
@@ -87,7 +96,7 @@ function _base64urlDecode(str) {
 }
 
 export async function signJwt(payload, secret, expiresIn) {
-  const now = Math.floor(Date.now() / 1000);
+  const now = floor(Date.now() / 1000);
   const exp = now + (expiresIn !== undefined ? expiresIn : 3600);
   const header = { alg: "HS256", typ: "JWT" };
   const claims = { ...payload, iat: now, exp };
@@ -126,7 +135,7 @@ export async function verifyJwt(token, secret) {
   }
 
   // Check expiry first (before signature) so expired tokens get the right reason
-  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+  if (payload.exp && payload.exp < floor(Date.now() / 1000)) {
     return { valid: false, reason: "expired" };
   }
 
@@ -180,7 +189,7 @@ export function createRateLimiter(options) {
       }
       entry.count++;
       const allowed = entry.count <= max;
-      const remaining = Math.max(0, max - entry.count);
+      const remaining = mathMax(0, max - entry.count);
       return { allowed, remaining, resetAt: entry.resetAt };
     },
     reset(key) {
@@ -194,7 +203,7 @@ export function createRateLimiter(options) {
       }
       return {
         count: entry.count,
-        remaining: Math.max(0, max - entry.count),
+        remaining: mathMax(0, max - entry.count),
         resetAt: entry.resetAt,
       };
     },
@@ -230,9 +239,9 @@ export function generateTotpSecret(options) {
 
 export async function verifyTotp(code, secret) {
   // Mirrors stdlib/auth/index.scrml line 148-161 + 167-210.
-  const now = Math.floor(Date.now() / 1000);
+  const now = floor(Date.now() / 1000);
   const timeStep = 30;
-  const counter = Math.floor(now / timeStep);
+  const counter = floor(now / timeStep);
 
   for (const offset of [-1, 0, 1]) {
     const expected = await _hotpGenerate(secret, counter + offset);
@@ -248,7 +257,7 @@ async function _hotpGenerate(base32Secret, counter) {
     const idx = BASE32.indexOf(char);
     if (idx >= 0) bits += idx.toString(2).padStart(5, "0");
   }
-  const keyBytes = new Uint8Array(Math.floor(bits.length / 8));
+  const keyBytes = new Uint8Array(floor(bits.length / 8));
   for (let i = 0; i < keyBytes.length; i++) {
     keyBytes[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2);
   }

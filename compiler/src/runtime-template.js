@@ -53,15 +53,30 @@ function _loadStdlibChunk(name) {
   while ((m = fnRe.exec(source)) !== null) exportedNames.push(m[2]);
   const constRe = /^export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)/gm;
   while ((m = constRe.exec(source)) !== null) exportedNames.push(m[1]);
-  // Strip `export ` from top-level declarations AND any top-level `import ...`
-  // statements. Inlining a shim inside an IIFE for the classic-script runtime
-  // disallows ES-module syntax; functions that referenced an imported symbol
-  // (e.g. \`bun:sqlite\`'s Database) will throw at first call in the browser,
-  // which mirrors today's loud-failure pattern for server-only stdlib paths
-  // reaching client emission.
-  const stripped = source
-    .replace(/^export /gm, "")
-    .replace(/^import[\s\S]*?;[ \t]*$\n?/gm, "");
+
+  // Process the importing shim's body. `export ` is stripped from its own
+  // top-level declarations. Its top-level `import` statements are classified:
+  //
+  //   - SIBLING-SHIM import (a relative `./X.js`): the imported symbols are
+  //     INLINED — their definitions are read out of the sibling file and
+  //     prepended to this IIFE body so they resolve as plain locals. This is
+  //     what lets a client-inlined shim route its arithmetic through
+  //     `scrml:math` (e.g. `import { min, max, ceil } from "./math.js"`)
+  //     without leaving a bare `import` that the classic-script runtime
+  //     cannot parse. Inlining is TRANSITIVE (a sibling may import its own
+  //     siblings) and DEDUPED (a helper is emitted at most once per IIFE).
+  //
+  //   - EXTERNAL import (`bun`, `bun:sqlite`, `node:*`, any bare specifier):
+  //     STRIPPED, preserving today's loud-failure pattern. The referenced
+  //     symbol will ReferenceError at first call in the browser, which is
+  //     intended for server-only stdlib surfaces reaching client emission.
+  const emitted = new Set();
+  const { prelude, body } = _inlineSiblingShimImports(
+    source,
+    dirname(shimPath),
+    emitted,
+  );
+  const stripped = (prelude ? prelude + "\n" : "") + body.replace(/^export /gm, "");
   return (
     `// --- chunk: stdlib-${name} ---\n` +
     `_scrml_stdlib.${name} = (function() {\n` +
@@ -69,6 +84,281 @@ function _loadStdlibChunk(name) {
     `  return { ${exportedNames.join(", ")} };\n` +
     `})();\n`
   );
+}
+
+// Match a single top-level `import { ... } from "<spec>";` statement.
+// Captures the named-binding clause (group 1) and the module specifier
+// (group 2). We only handle the named-import form — every stdlib sibling
+// import is `import { a, b as c } from "./x.js"`; there are no default or
+// namespace imports in the shims.
+const _SHIM_IMPORT_RE = /^import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']\s*;[ \t]*$/gm;
+
+// Strip an `import` statement that is NOT a named-binding form (catches a
+// bare side-effect `import "x";`, default, or namespace import — none exist
+// in the shims today, but keep the loud-fail strip robust).
+const _ANY_IMPORT_RE = /^import[\s\S]*?;[ \t]*$\n?/gm;
+
+/**
+ * Inline sibling-shim imports for one shim source.
+ *
+ * Returns `{ prelude, body }`:
+ *   - `prelude` — the inlined sibling definitions (export-stripped), in
+ *     dependency order, to be prepended to the IIFE body.
+ *   - `body`    — the shim's own source with every `import` statement removed
+ *     (sibling imports replaced by the prelude; external imports stripped).
+ *
+ * `emitted` is a shared Set of already-defined symbol names so a helper is
+ * never double-defined within one IIFE (dedup across the transitive graph).
+ *
+ * Exported for the S177 inliner test (drive the classifier with synthetic
+ * shims in a temp dir without touching the real stdlib directory).
+ */
+export function _inlineSiblingShimImports(source, shimDir, emitted) {
+  // Names this source DEFINES itself — used for the collision guard: if a
+  // sibling import asks for a name this shim already defines, the shim's own
+  // definition wins and the inline is skipped (no shadow / double-define).
+  const ownNames = _collectTopLevelDefinedNames(source);
+
+  const preludeParts = [];
+
+  // Replace each top-level import. Sibling imports → "" here (their defs go
+  // into the prelude); external imports → "" too (loud-fail strip).
+  let body = source.replace(_SHIM_IMPORT_RE, (full, clause, spec) => {
+    if (!_isRelativeSiblingSpec(spec)) {
+      // External (`bun:sqlite`, `node:*`, bare): strip. Referenced symbols
+      // will ReferenceError on the client (intended for server-only surfaces).
+      return "";
+    }
+    const siblingPath = join(shimDir, spec);
+    const siblingSource = readFileSync(siblingPath, "utf8");
+    const siblingDir = dirname(siblingPath);
+
+    for (const binding of _parseImportBindings(clause)) {
+      const { imported, local } = binding;
+      // Each sibling symbol is inlined UNDER ITS LOCAL NAME (renamed in place
+      // for an `as`-alias). This is what keeps a name like `min` collision-safe:
+      // `import { min as mathMin }` defines `function mathMin`, never a duplicate
+      // `function min` that would clash with the importing shim's own `min`.
+      if (emitted.has(local)) continue; // dedup — already in this IIFE
+      if (ownNames.has(local)) continue; // collision: importing shim's def wins
+
+      // Recurse FIRST so a sibling's own transitive deps land before it.
+      const nested = _inlineSiblingShimImports(siblingSource, siblingDir, emitted);
+      if (nested.prelude && !preludeParts.includes(nested.prelude)) {
+        preludeParts.push(nested.prelude);
+      }
+
+      // Extract the sibling's definition of `imported`, RENAMED to `local`.
+      const def = _extractTopLevelDefinition(siblingSource, imported, local);
+      if (def === null) {
+        // Imported symbol not found in the sibling — leave a build-time
+        // breadcrumb. It will ReferenceError if actually called, surfacing
+        // the missing export loudly rather than silently.
+        preludeParts.push(
+          `  // [scrml stdlib-inline] missing export "${imported}" from ${spec}`,
+        );
+        emitted.add(local);
+        continue;
+      }
+      preludeParts.push(def);
+      emitted.add(local);
+    }
+    return "";
+  });
+
+  // Strip any remaining (non-named-form) imports — loud-fail.
+  body = body.replace(_ANY_IMPORT_RE, "");
+
+  return { prelude: preludeParts.join("\n"), body };
+}
+
+// A sibling-shim specifier is a relative path ending in `.js` (`./math.js`,
+// `./sub/y.js`, `../x.js`). Anything else (`bun`, `bun:sqlite`, `node:fs`,
+// a bare package name) is external.
+function _isRelativeSiblingSpec(spec) {
+  return /^\.\.?\//.test(spec) && /\.js$/.test(spec);
+}
+
+// Parse a named-import clause `a, b as c, d` into [{imported, local}].
+function _parseImportBindings(clause) {
+  return clause
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((s) => {
+      const asMatch = /^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/.exec(s);
+      if (asMatch) return { imported: asMatch[1], local: asMatch[2] };
+      return { imported: s, local: s };
+    });
+}
+
+// Collect the names declared by top-level `export? (function|const|let|var)`
+// declarations in a shim source.
+function _collectTopLevelDefinedNames(source) {
+  const names = new Set();
+  let m;
+  const fnRe = /^(?:export\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)/gm;
+  while ((m = fnRe.exec(source)) !== null) names.add(m[1]);
+  const constRe = /^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/gm;
+  while ((m = constRe.exec(source)) !== null) names.add(m[1]);
+  return names;
+}
+
+/**
+ * Extract the full source text of a top-level definition named `symbol`,
+ * with any leading `export ` removed and indented two spaces so it nests
+ * cleanly inside the IIFE. Handles both forms:
+ *
+ *   export function NAME(...) { ... }     — balanced-brace body
+ *   export const NAME = ...;              — statement-terminated (incl.
+ *                                            multi-line object/array RHS)
+ *
+ * `renameTo` (optional) emits the definition under a DIFFERENT identifier
+ * than its source name — used to honor `as`-aliases and to side-step a
+ * name collision with the importing shim's own definitions. The rename is a
+ * single-token rewrite of the declared identifier only (the body is left
+ * verbatim — leaf math/random helpers do not self-reference by name).
+ *
+ * Returns null if the symbol is not found as a top-level definition.
+ */
+function _extractTopLevelDefinition(source, symbol, renameTo) {
+  const target = renameTo || symbol;
+
+  // --- function form ---
+  const fnDeclRe = new RegExp(
+    `^(?:export\\s+)?(?:async\\s+)?function\\s*\\*?\\s*${_escapeRe(symbol)}\\b`,
+    "m",
+  );
+  const fnMatch = fnDeclRe.exec(source);
+  if (fnMatch) {
+    const declStart = fnMatch.index;
+    // Find the opening brace of the function body.
+    const braceOpen = source.indexOf("{", declStart);
+    if (braceOpen !== -1) {
+      const bodyEnd = _matchBalancedBrace(source, braceOpen);
+      if (bodyEnd !== -1) {
+        let raw = source.slice(declStart, bodyEnd + 1).replace(/^export\s+/, "");
+        if (target !== symbol) {
+          // Rewrite only the declared name: `function <symbol>(` → `function <target>(`.
+          raw = raw.replace(
+            new RegExp(`^((?:async\\s+)?function\\s*\\*?\\s*)${_escapeRe(symbol)}\\b`),
+            `$1${target}`,
+          );
+        }
+        return _indent(raw);
+      }
+    }
+  }
+
+  // --- const/let/var form ---
+  const constDeclRe = new RegExp(
+    `^(?:export\\s+)?(?:const|let|var)\\s+${_escapeRe(symbol)}\\b`,
+    "m",
+  );
+  const constMatch = constDeclRe.exec(source);
+  if (constMatch) {
+    const declStart = constMatch.index;
+    const stmtEnd = _matchStatementEnd(source, declStart);
+    if (stmtEnd !== -1) {
+      let raw = source.slice(declStart, stmtEnd + 1).replace(/^export\s+/, "");
+      if (target !== symbol) {
+        raw = raw.replace(
+          new RegExp(`^((?:const|let|var)\\s+)${_escapeRe(symbol)}\\b`),
+          `$1${target}`,
+        );
+      }
+      return _indent(raw);
+    }
+  }
+
+  return null;
+}
+
+// Given the index of a `{`, return the index of its matching `}` (brace-aware,
+// skipping braces inside strings / template literals / line + block comments).
+function _matchBalancedBrace(source, openIdx) {
+  let depth = 0;
+  let i = openIdx;
+  let inStr = null; // '"' | "'" | '`'
+  while (i < source.length) {
+    const ch = source[i];
+    const prev = source[i - 1];
+    if (inStr) {
+      if (ch === inStr && prev !== "\\") inStr = null;
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { inStr = ch; i++; continue; }
+    if (ch === "/" && source[i + 1] === "/") {
+      const nl = source.indexOf("\n", i);
+      if (nl === -1) return -1;
+      i = nl + 1;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      const close = source.indexOf("*/", i + 2);
+      if (close === -1) return -1;
+      i = close + 2;
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+    i++;
+  }
+  return -1;
+}
+
+// Find the end (index of the terminating `;`) of a `const`/`let`/`var`
+// statement starting at `declStart`, tracking brace/bracket/paren depth and
+// strings so a `;` inside a multi-line object/array/template literal does not
+// end the statement early.
+function _matchStatementEnd(source, declStart) {
+  let depth = 0;
+  let i = declStart;
+  let inStr = null;
+  while (i < source.length) {
+    const ch = source[i];
+    const prev = source[i - 1];
+    if (inStr) {
+      if (ch === inStr && prev !== "\\") inStr = null;
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { inStr = ch; i++; continue; }
+    if (ch === "/" && source[i + 1] === "/") {
+      const nl = source.indexOf("\n", i);
+      if (nl === -1) return -1;
+      i = nl + 1;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      const close = source.indexOf("*/", i + 2);
+      if (close === -1) return -1;
+      i = close + 2;
+      continue;
+    }
+    if (ch === "{" || ch === "[" || ch === "(") depth++;
+    else if (ch === "}" || ch === "]" || ch === ")") depth--;
+    else if (ch === ";" && depth === 0) return i;
+    i++;
+  }
+  return -1;
+}
+
+function _escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Indent each line of an extracted definition by two spaces so it nests
+// cleanly inside the IIFE body.
+function _indent(text) {
+  return text
+    .split("\n")
+    .map((line) => (line.length > 0 ? "  " + line : line))
+    .join("\n");
 }
 
 // Inline a stdlib chunk for each shim that ships in compiler/runtime/stdlib/.

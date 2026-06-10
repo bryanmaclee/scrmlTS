@@ -40,6 +40,13 @@
 //     registerLabels (thin wrapper; delegates to runtime helper
 //     _scrml_labels_register)
 
+// data.js's arithmetic routes through scrml:math — the single sanctioned
+// touch of the host arithmetic surface (closes the stdlib-ouroboros). The
+// `min`/`max` arithmetic are ALIASED (mathMin/mathMax) because data.js also
+// exports its OWN `min`/`max` validator factories (validate.scrml) — distinct
+// functions that must not be shadowed.
+import { min as mathMin, max as mathMax, ceil } from "./math.js";
+
 // ---------------------------------------------------------------------------
 // transform.scrml — data transformation utilities (pure, browser-safe)
 // ---------------------------------------------------------------------------
@@ -379,12 +386,12 @@ export function deepMerge(target, source) {
 }
 
 export function clamp(value, minimum, maximum) {
-  return Math.min(Math.max(value, minimum), maximum);
+  return mathMin(mathMax(value, minimum), maximum);
 }
 
 export function paginate(array, page, pageSize) {
   const total = array.length;
-  const totalPages = Math.ceil(total / pageSize);
+  const totalPages = ceil(total / pageSize);
   const currentPage = clamp(page, 1, totalPages || 1);
   const start = (currentPage - 1) * pageSize;
   const items = array.slice(start, start + pageSize);
