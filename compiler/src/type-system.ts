@@ -7255,6 +7255,29 @@ function annotateNodes(
       _ffDefaultSpan,
     );
   }
+  // §41.14.1 (S183) — import-absent detection. When `formFor` is NOT imported
+  // from `scrml:data`, `formForLocals` is empty so the expansion walker above
+  // never runs and a `<formFor>` markup element falls through to emit-html as a
+  // literal `<formFor>` tag — silently rendering nothing (the form is never
+  // generated). `formFor` is a registered structural element (html-elements.js)
+  // with no legitimate non-L22 meaning (not valid HTML, not a hyphenated custom
+  // element, not a PascalCase component), so a literal lowercase `<formFor>` tag
+  // is unambiguously the L22 element ⇒ a hard error is zero-false-positive.
+  // This scan is the `else` arm of the gate above; it mirrors the expansion
+  // walker's exact descent (children / body / bodyChildren / armBodyChildren)
+  // so any `<formFor>` the walker WOULD have caught is caught here too. One
+  // error per offending node (fan-out). See SPEC §41.14.1.
+  if (formForLocals.size === 0) {
+    const _ffMissingSpan: Span = { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+    scanForUnimportedTypeDataElement(
+      _allTopNodes,
+      "formFor",
+      "E-FORMFOR-NOT-IMPORTED",
+      "§41.14.1",
+      errors,
+      _ffMissingSpan,
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // §41.15 / §53.14 — schemaFor function-call recognition + AST rewrite pass.
@@ -7385,6 +7408,24 @@ function annotateNodes(
       errors,
       filePath,
       _tfDefaultSpan,
+    );
+  }
+  // §41.16.1 (S183) — import-absent detection (symmetric with the formFor scan
+  // above). When `tableFor` is NOT imported from `scrml:data`, `tableForLocals`
+  // is empty so the expansion walker never runs and a `<tableFor>` markup
+  // element falls through to emit-html as a literal `<tableFor>` tag — silently
+  // rendering nothing. Same zero-false-positive reasoning as formFor (registered
+  // structural element, no legitimate non-L22 meaning). One error per node.
+  // See SPEC §41.16.1.
+  if (tableForLocals.size === 0) {
+    const _tfMissingSpan: Span = { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+    scanForUnimportedTypeDataElement(
+      _allTopNodes,
+      "tableFor",
+      "E-TABLEFOR-NOT-IMPORTED",
+      "§41.16.1",
+      errors,
+      _tfMissingSpan,
     );
   }
 
@@ -15764,6 +15805,69 @@ function walkAndExpandFormForNodes(
     if (insertIdx < 0) insertIdx = nodes.length;
     nodes.splice(insertIdx, 0, synthLogicNode);
   }
+}
+
+// ---------------------------------------------------------------------------
+// §41.14.1 / §41.16.1 (S183) — import-absent detection for the `scrml:data`
+// markup-element members (`formFor`, `tableFor`).
+//
+// The expansion walkers above (`walkAndExpandFormForNodes` /
+// `walkAndExpandTableForNodes`) are gated on the corresponding import-locals
+// set being non-empty. When the import is absent the walker never runs, so the
+// `<formFor>` / `<tableFor>` markup node is forwarded to emit-html.ts as a
+// LITERAL tag — exit 0, zero diagnostic, and the form/table silently renders as
+// nothing (the S182 engine-`effect=` silent-tree-shake class). User ruled this
+// a hard ERROR (S183).
+//
+// This helper is the `else` arm of that gate. It mirrors the expansion walker's
+// descent EXACTLY (children / body / bodyChildren / armBodyChildren) and matches
+// the same literal-tag predicate (camelCase OR all-lowercase), so any node the
+// real walker WOULD have expanded is also detected here. One `TSError` per
+// offending node (fan-out), severity Error. It does NOT recurse INTO an
+// offending node's children (consistent with the walker's `continue`).
+// ---------------------------------------------------------------------------
+function scanForUnimportedTypeDataElement(
+  nodes: ASTNodeLike[],
+  tagCamel: string,
+  code: "E-FORMFOR-NOT-IMPORTED" | "E-TABLEFOR-NOT-IMPORTED",
+  specRef: string,
+  errors: TSError[],
+  defaultSpan: Span,
+): void {
+  const tagLower = tagCamel.toLowerCase();
+
+  function scan(arr: ASTNodeLike[] | undefined): void {
+    if (!Array.isArray(arr)) return;
+    for (const child of arr) {
+      if (!child || typeof child !== "object") continue;
+      if (child.kind === "markup") {
+        const tag = (child.tag as string | undefined)
+          ?? ((child as ASTNodeLike).tagName as string | undefined);
+        if (tag === tagCamel || tag === tagLower) {
+          const span = ((child.span as Span | undefined) ?? defaultSpan);
+          errors.push(new TSError(
+            code,
+            code + ": `<" + tagCamel + ">` is used but the `" + tagCamel +
+            "` primitive is not imported. The `" + tagCamel + "` markup element " +
+            "is provided by `scrml:data` and requires an import; without it the " +
+            "element is emitted as a literal `<" + tagCamel + ">` HTML tag and " +
+            "renders nothing. Add `${ import { " + tagCamel +
+            " } from 'scrml:data' }` to the file. See SPEC " + specRef + ".",
+            span,
+          ));
+          // Do not recurse into the offending node's own children — mirrors the
+          // expansion walker's `continue` (a real expansion consumes them).
+          continue;
+        }
+      }
+      scan((child as ASTNodeLike).children as ASTNodeLike[] | undefined);
+      scan((child as ASTNodeLike).body as ASTNodeLike[] | undefined);
+      scan((child as ASTNodeLike).bodyChildren as ASTNodeLike[] | undefined);
+      scan((child as ASTNodeLike).armBodyChildren as ASTNodeLike[] | undefined);
+    }
+  }
+
+  scan(nodes);
 }
 
 // ---------------------------------------------------------------------------

@@ -110,13 +110,14 @@ type Event:struct = {
 
 describe("§3: tableFor with date + timestamp fields", () => {
   test("tableFor over Event struct with date + timestamp fields compiles", () => {
-    const src = `
-type Event:struct = {
-    name: string,
-    when: date,
-    expires: timestamp,
-}
-\${
+    const src = `\${
+    import { tableFor } from 'scrml:data'
+
+    type Event:struct = {
+        name: string,
+        when: date,
+        expires: timestamp,
+    }
     <events>: [Event] = []
 }
 <page>
