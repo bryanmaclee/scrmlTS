@@ -55,7 +55,7 @@
         `}.run()
       }
 
-      server function listNotes() {
+      function listNotes() {
         lift ?{`
           SELECT n.id, n.title, n.body, u.display_name AS author
           FROM notes n

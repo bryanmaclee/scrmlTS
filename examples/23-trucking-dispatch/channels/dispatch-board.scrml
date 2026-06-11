@@ -21,7 +21,7 @@ export <channel name="dispatch-board">
         // Publish helper. Callers from outside the channel scope invoke this
         // via the auto-injected client→server bridge. Writes to @boardEvents
         // lower to broadcast({__type:"__sync", __key, __val}) per §38.4.
-        server function publishBoardEvent(eventType, loadId, status) {
+        function publishBoardEvent(eventType, loadId, status) {
             @boardEvents = [...@boardEvents, {
                 type: eventType,
                 loadId: loadId,

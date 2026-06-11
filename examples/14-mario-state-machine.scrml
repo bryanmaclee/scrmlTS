@@ -47,16 +47,16 @@
     // §6.6 derived reactives. const <name> = expr is the canonical derived
     // form. Visible to markup ${@marioEmoji} reads.
     const <marioEmoji> = match @marioState {
-        .Small => "🧍"
-        .Big   => "🦸"
-        .Fire  => "🔥"
-        .Cape  => "🦅"
+        .Small :> "🧍"
+        .Big   :> "🦸"
+        .Fire  :> "🔥"
+        .Cape  :> "🦅"
     }
     const <marioName> = match @marioState {
-        .Small => "SMALL MARIO"
-        .Big   => "SUPER MARIO"
-        .Fire  => "FIRE MARIO"
-        .Cape  => "CAPE MARIO"
+        .Small :> "SMALL MARIO"
+        .Big   :> "SUPER MARIO"
+        .Fire  :> "FIRE MARIO"
+        .Cape  :> "CAPE MARIO"
     }
 
     // §1a — match destructures the payload. `n` is bound to the coins field

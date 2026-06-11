@@ -30,7 +30,7 @@
       <roleFilter> = "all"
       <allUsers>: User[] = []   // S105: hoisted to a reactive cell so tableFor's rows= can reference it
 
-      server function fetchUsers() {
+      function fetchUsers() {
         lift ?{`
           SELECT id, username, email, role, joined
           FROM users

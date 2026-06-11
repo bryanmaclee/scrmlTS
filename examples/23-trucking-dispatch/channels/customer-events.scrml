@@ -22,7 +22,7 @@ export <channel name="customer-events">
     ${
         <customerEvents> = []
 
-        server function publishCustomerEvent(eventType, targetCustomerId, invoiceId, loadId) {
+        function publishCustomerEvent(eventType, targetCustomerId, invoiceId, loadId) {
             @customerEvents = [...@customerEvents, {
                 type: eventType,
                 targetCustomerId: targetCustomerId,

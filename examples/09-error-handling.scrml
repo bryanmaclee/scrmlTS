@@ -3,16 +3,18 @@
 // with renders clauses so they display themselves inside `<errorBoundary>`.
 // Styled with Tailwind utility classes — no #{} block needed for layout.
 //
-// v0.3 program-as-container shape: logic-default body in <program>. NOTE:
-// the type with `renders` clauses (markup interpolation `${email}` inside
-// a renders <p>...</> body) currently requires a ${...} wrapper at this
-// scope level due to a BS-layer bug where the splitter mis-reads markup-
-// context interpolation as logic-context. Tracked as a deferred compiler
-// bug; remove the wrapper once fixed.
+// submit() does real server work: it queues the contact message into an
+// outbox table via a `?{}` INSERT (the canonical "write to outbox, a
+// worker delivers the email" pattern). Because the body touches a `?{}`
+// SQL block, §12 body-content inference places submit on the SERVER — no
+// `server` keyword required (Insight 26). A zero-row insert surfaces the
+// SubmitFailed variant, so the error path is real, not hypothetical.
 
-<program>
+<program db="contact.db">
 
-${
+<db src="contact.db" tables="contact_messages">
+
+  ${
     // Declare error enum first so the type is in scope for the failable functions below.
     type ContactError:enum = {
         EmptyName
@@ -40,10 +42,26 @@ ${
         if (not @email.includes("@")) fail .InvalidEmail(@email)
     }
 
-    // submit() is server-side and failable. The compiler escalates to a server route
-    // because it touches external I/O. We treat a hypothetical server call here.
-    server function submit(name: string, email: string, body: string) ! ContactError {
-        // In real code this would call an email API. Returning success for demonstration.
+    // submit() queues the message server-side and is failable. The `?{}`
+    // INSERT escalates the function to the server (§12 Trigger 1) — the
+    // database write never runs on the client. A real app's outbox worker
+    // would pick up the queued row and deliver the email; here a zero-row
+    // insert (the DB rejected the write) surfaces SubmitFailed.
+    function submit(name: string, email: string, body: string) ! ContactError {
+        ?{`
+          CREATE TABLE IF NOT EXISTS contact_messages (
+            id          integer primary key,
+            name        text not null,
+            email       text not null,
+            body        text not null,
+            received_at timestamp DEFAULT CURRENT_TIMESTAMP
+          )
+        `}.run()
+        const result = ?{`
+          INSERT INTO contact_messages (name, email, body)
+          VALUES (${name}, ${email}, ${body})
+        `}.run()
+        if (result.changes == 0) fail .SubmitFailed("message could not be queued")
     }
 
     function handleSubmit() {
@@ -69,9 +87,9 @@ ${
         @sending   = false
         @submitted = true
     }
-}
+  }
 
-<errorBoundary>
+  <errorBoundary>
     <div class="max-w-lg mx-auto mt-8 flex flex-col gap-4">
         <h1 class="text-2xl font-bold text-gray-800">Contact Us</>
 
@@ -100,6 +118,8 @@ ${
             </button>
         </form>
     </div>
+  </>
+
 </>
 
 </program>

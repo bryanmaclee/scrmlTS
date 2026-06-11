@@ -29,7 +29,7 @@
   // is pub/sub-subscribed together.
   //
   // **Canonical channel-scoped V5-strict pattern (SPEC §38.4):** the
-  // `postMessage` server function declared inside the channel body writes
+  // the `postMessage` function declared inside the channel body writes
   // directly to the channel cell `@messages`. The compiler lowers each
   // channel-cell write to a `broadcast({__type:"__sync",__key,__val})` wire
   // frame per SPEC §38.4 line 15998 (S83 Wave 4A — Bug 5 follow-on to C18).
@@ -39,7 +39,7 @@
     ${
       <messages> = []
 
-      server function postMessage(author, body) {
+      function postMessage(author, body) {
         @messages = [...@messages, { author, body, ts: Date.now() }]
       }
     }

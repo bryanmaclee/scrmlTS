@@ -42,7 +42,7 @@
       ?{`DELETE FROM contacts WHERE id = ${id}`}.run()
     }
 
-    server function loadContacts() {
+    function loadContacts() {
       lift ?{`SELECT id, name, email, phone FROM contacts ORDER BY name`}.all()
     }
   }

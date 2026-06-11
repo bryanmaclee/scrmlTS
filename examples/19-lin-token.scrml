@@ -11,124 +11,146 @@
 // single-use redirect IDs, idempotency keys). The compiler refuses to
 // let you accidentally re-use them or silently drop them.
 //
-// The login() function is marked .idempotent() because the demo
-// mintTicket uses Date.now() (non-monotone per the static classifier);
-// real apps would either persist via INSERT ... ON CONFLICT DO NOTHING
-// (intrinsic monotone) or rely on the default shadow-table backend
-// that `<program db=>` provides.
+// mintTicket() does real server work: it generates a cryptographically
+// secure token (scrml:crypto.generateToken) and persists it server-side
+// via an idempotent `?{}` upsert (INSERT ... ON CONFLICT DO NOTHING).
+// Because the body touches a `?{}` SQL block, §12 body-content inference
+// places mintTicket on the SERVER — the token mint never moves
+// client-side, which is the whole point for a security-bearing value.
+// (Server placement is INFERRED; no `server` keyword — Insight 26.)
 
-<program>
+<program db="tickets.db">
 
-  <username> = ""
-  <password> = ""
-  <result>   = ""
+  <db src="tickets.db" tables="tickets">
 
-  // Server function takes a `lin`-annotated parameter (§35.2.1). The
-  // function body MUST consume `ticket` exactly once on every
-  // execution path — enforced at compile time, with E-LIN-001 (never
-  // used), E-LIN-002 (used twice), or E-LIN-003 (used in some
-  // branches not all). Template-literal interpolation `${ticket}`
-  // counts as a consumption event per §35.3 rule 1.
-  //
-  // The function bodies below use template-literal interpolation +
-  // `//` line comments — both work cleanly at `<program>` direct-child
-  // position without the `${...}` wrapper (S94 BS-batch v2 closed the
-  // residual orphan-brace comment-extraction gap).
-  function redeem(lin ticket: string, username: string) {
-    return `Redeemed ticket=${ticket} for user=${username}`
-  }
+    ${
+      import { generateToken } from 'scrml:crypto'
 
-  server function mintTicket(username, password) {
-    if (username == "" || password == "") return ""
-    return `tk_${username}_${Date.now()}`
-  }
+      <username> = ""
+      <password> = ""
+      <result>   = ""
 
-  // `.idempotent()` asserts the function's CPS batches are
-  // monotone-by-construction (§19.9.7) — necessary here because
-  // mintTicket() uses Date.now() which the static classifier flags
-  // non-monotone (non-deterministic RHS); a real auth workflow would
-  // persist tickets server-side with INSERT ... ON CONFLICT DO
-  // NOTHING (idempotent upsert).
-  function login().idempotent() {
-    // `lin` declaration — exactly-once consumption rule (§35.3).
-    // The compiler tracks `ticket` from declaration to consumption
-    // and refuses to let it be referenced twice or dropped on any
-    // branch.
-    lin ticket = mintTicket(@username, @password)
+      // Server function takes a `lin`-annotated parameter (§35.2.1). The
+      // function body MUST consume `ticket` exactly once on every
+      // execution path — enforced at compile time, with E-LIN-001 (never
+      // used), E-LIN-002 (used twice), or E-LIN-003 (used in some
+      // branches not all). Template-literal interpolation `${ticket}`
+      // counts as a consumption event per §35.3 rule 1.
+      //
+      // The function bodies below use template-literal interpolation +
+      // `//` line comments — both work cleanly inside the `${...}` logic
+      // block.
+      function redeem(lin ticket: string, username: string) {
+        return `Redeemed ticket=${ticket} for user=${username}`
+      }
 
-    // Single consumption — passing to the redeem server fn (which
-    // itself declares the parameter as `lin`, so the
-    // consume-exactly-once rule continues inside that function
-    // body).
-    const message = redeem(ticket, @username)
-    @result = message
+      // mintTicket persists each ticket server-side via an idempotent
+      // upsert. The `?{}` SQL block escalates the function to the server
+      // (§12 Trigger 1) — token minting stays off the client. ON CONFLICT
+      // DO NOTHING makes the persist intrinsically monotone (re-minting
+      // the same token is a no-op), so no `.idempotent()` assertion is
+      // needed on the caller.
+      function mintTicket(username, password) {
+        if (username == "" || password == "") return ""
+        const token = `tk_${username}_${generateToken(16)}`
+        ?{`
+          CREATE TABLE IF NOT EXISTS tickets (
+            token     text primary key,
+            username  text not null,
+            minted_at timestamp DEFAULT CURRENT_TIMESTAMP
+          )
+        `}.run()
+        ?{`
+          INSERT INTO tickets (token, username)
+          VALUES (${token}, ${username})
+          ON CONFLICT DO NOTHING
+        `}.run()
+        return token
+      }
 
-    // Trying to reference `ticket` again here would be E-LIN-002:
-    //   console.log(ticket)   // ← compile error
-  }
+      function login() {
+        // `lin` declaration — exactly-once consumption rule (§35.3).
+        // The compiler tracks `ticket` from declaration to consumption
+        // and refuses to let it be referenced twice or dropped on any
+        // branch.
+        lin ticket = mintTicket(@username, @password)
 
-  // Login-shell + hint styles — co-located with the outer login wrapper.
-  #{
-    .login {
-      max-width: 420px;
-      margin: 2rem auto;
-      font-family: sans-serif;
+        // Single consumption — passing to the redeem server fn (which
+        // itself declares the parameter as `lin`, so the
+        // consume-exactly-once rule continues inside that function
+        // body).
+        const message = redeem(ticket, @username)
+        @result = message
+
+        // Trying to reference `ticket` again here would be E-LIN-002:
+        //   log(ticket)   // ← compile error
+      }
     }
-    .hint {
-      color: #6b7280;
-      font-size: 0.9rem;
-      background: #f3f4f6;
-      padding: 0.75rem 1rem;
-      border-radius: 6px;
-    }
-  }
-  <div class="login">
-    <h1>One-shot ticket login</>
-    <p class="hint">
-      The `lin` keyword binds a value with exactly-once-consumption semantics.
-      The compiler refuses to let `ticket` be silently discarded or used twice.
-    </p>
 
-    <!-- Form + button styles — co-located with the login form below. -->
+    // Login-shell + hint styles — co-located with the outer login wrapper.
     #{
-      form {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-        margin-top: 1rem;
+      .login {
+        max-width: 420px;
+        margin: 2rem auto;
+        font-family: sans-serif;
       }
-      input {
-        padding: 0.5rem;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-      }
-      button {
-        padding: 0.5rem 1rem;
-        background: #2563eb;
-        color: #fff;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-      }
-    }
-    <form onsubmit=login()>
-      <input type="text"     bind:value=@username placeholder="Username" required/>
-      <input type="password" bind:value=@password placeholder="Password" required/>
-      <button type="submit">Mint + Redeem ticket</button>
-    </form>
-
-    <!-- Result-banner styles — co-located with the result paragraph below. -->
-    #{
-      .result {
-        margin-top: 1rem;
+      .hint {
+        color: #6b7280;
+        font-size: 0.9rem;
+        background: #f3f4f6;
         padding: 0.75rem 1rem;
-        background: #ecfdf5;
-        color: #065f46;
         border-radius: 6px;
-        font-family: monospace;
       }
     }
-    <p class="result" if=(@result != "")>${@result}</p>
-  </div>
+    <div class="login">
+      <h1>One-shot ticket login</>
+      <p class="hint">
+        The `lin` keyword binds a value with exactly-once-consumption semantics.
+        The compiler refuses to let `ticket` be silently discarded or used twice.
+      </p>
+
+      <!-- Form + button styles — co-located with the login form below. -->
+      #{
+        form {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          margin-top: 1rem;
+        }
+        input {
+          padding: 0.5rem;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+        }
+        button {
+          padding: 0.5rem 1rem;
+          background: #2563eb;
+          color: #fff;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+        }
+      }
+      <form onsubmit=login()>
+        <input type="text"     bind:value=@username placeholder="Username" required/>
+        <input type="password" bind:value=@password placeholder="Password" required/>
+        <button type="submit">Mint + Redeem ticket</button>
+      </form>
+
+      <!-- Result-banner styles — co-located with the result paragraph below. -->
+      #{
+        .result {
+          margin-top: 1rem;
+          padding: 0.75rem 1rem;
+          background: #ecfdf5;
+          color: #065f46;
+          border-radius: 6px;
+          font-family: monospace;
+        }
+      }
+      <p class="result" if=(@result != "")>${@result}</p>
+    </div>
+
+  </>
 
 </program>

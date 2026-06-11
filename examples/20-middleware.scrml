@@ -4,7 +4,7 @@
 //   1. Compiler-auto tier — `<program>` attributes (cors=, log=,
 //      headers=, ratelimit=, csrf=) generate full middleware handlers
 //      with no developer code. Single attributes for the common 80%.
-//   2. Escape-hatch tier — `server function handle(request, resolve)`
+//   2. Escape-hatch tier — the reserved `handle(request, resolve)` function
 //      is the onion-model interceptor for the remaining 20%. Code
 //      before resolve() runs as pre-middleware, code after runs as
 //      post-middleware. Calling resolve() exactly once is enforced
@@ -22,12 +22,12 @@
   //   [CORS preflight] → [rate limit] → handle() PRE → [CSRF check] →
   //   [route dispatch] → handle() POST → [security headers] → [logging]
   //
-  // The `server function handle()` body uses `//` line comments inside
+  // The `handle()` body uses `//` line comments inside
   // the body — both work cleanly at `<program>` direct-child position
   // without the `${...}` wrapper (S94 BS-batch v2 closed the residual
   // orphan-brace comment-extraction gap so multi-line function bodies
   // with comments survive the bare-decl auto-lift intact).
-  server function handle(request, resolve) {
+  function handle(request, resolve) {
     const reqId = crypto.randomUUID()
     const start = Date.now()
 

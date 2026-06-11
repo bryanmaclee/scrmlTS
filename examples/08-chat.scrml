@@ -29,7 +29,7 @@
       return `${hh}:${mm}`
     }
 
-    server function loadMessages() {
+    function loadMessages() {
       lift ?{`
         SELECT id, author_id, body, sent_at
         FROM messages

@@ -27,7 +27,7 @@ export <channel name="load-events">
     ${
         <loadEvents> = []
 
-        server function publishLoadEvent(eventType, loadId, status, location) {
+        function publishLoadEvent(eventType, loadId, status, location) {
             @loadEvents = [...@loadEvents, {
                 type: eventType,
                 loadId: loadId,

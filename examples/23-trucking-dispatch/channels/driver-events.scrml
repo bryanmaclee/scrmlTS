@@ -24,7 +24,7 @@ export <channel name="driver-events">
     ${
         <driverEvents> = []
 
-        server function publishDriverEvent(eventType, targetDriverId, fromUserId, body, loadId) {
+        function publishDriverEvent(eventType, targetDriverId, fromUserId, body, loadId) {
             @driverEvents = [...@driverEvents, {
                 type: eventType,
                 targetDriverId: targetDriverId,

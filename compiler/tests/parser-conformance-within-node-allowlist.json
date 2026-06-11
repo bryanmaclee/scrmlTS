@@ -149,11 +149,11 @@
   },
   "examples/09-error-handling.scrml": {
     "COUNT-LENGTH": 3,
-    "EXTRA-FIELD": 27,
-    "FIELD-SHAPE": 24,
+    "EXTRA-FIELD": 29,
+    "FIELD-SHAPE": 26,
     "KIND-NAME": 7,
-    "MISSING-FIELD": 60,
-    "SPAN-COORD": 78
+    "MISSING-FIELD": 62,
+    "SPAN-COORD": 93
   },
   "examples/10-inline-tests.scrml": {
     "COUNT-LENGTH": 1,
@@ -230,10 +230,10 @@
   "examples/19-lin-token.scrml": {
     "COUNT-LENGTH": 5,
     "EXTRA-FIELD": 12,
-    "FIELD-SHAPE": 9,
-    "KIND-NAME": 1,
+    "FIELD-SHAPE": 12,
+    "KIND-NAME": 2,
     "MISSING-FIELD": 37,
-    "SPAN-COORD": 69
+    "SPAN-COORD": 77
   },
   "examples/20-middleware.scrml": {
     "EXTRA-FIELD": 6,
