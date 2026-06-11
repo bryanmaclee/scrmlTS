@@ -17,7 +17,7 @@
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 0 |
 | MED | 6 |
-| LOW | 11 |
+| LOW | 13 |
 | Nominal (spec-ahead-of-impl) | 9 |
 <!-- @generated:gap-counts END -->
 
@@ -1689,6 +1689,20 @@ SPEC §4.18 landed Wave 1 S111 — the code-default body mode + `"..."` display-
 <!-- @gap id=nominal-7 sev=NOMINAL status=nominal -->
 
 §13.5 — built-in `Loading / Loaded(T) / Failed(Error)` enum for modeling async fetch state. Pattern-matchable with exhaustive checking. Specced, not yet implemented.
+
+---
+
+### G-TAILWIND-DYNAMIC-CLASS-PREFIX — `W-TAILWIND-UNRECOGNIZED-CLASS` false-positives on the static prefix of a dynamic class `class="prefix-${expr}"` — `NEW S183; LOW; lint false-positive`
+<!-- @gap id=g-tailwind-dynamic-class-prefix sev=LOW status=open -->
+
+**Surfaced S183 dog-food (round 4, `<each>` sweep); isolated to plain markup.** A dynamic class `class="driver-${@status}"` fires `W-TAILWIND-UNRECOGNIZED-CLASS` on the static prefix `'driver-'`. Root: `findUnrecognizedClasses` (`compiler/src/tailwind-classes.js:2268`) masks `${...}` interpolations to WHITESPACE (length-preserving, line ~2283 `maskInterpolations`), so `driver-${@status}` splits on the now-whitespace mask into the standalone token `driver-` (a runtime-concatenation fragment ending in `-`, never a complete utility) which fails `getTailwindCSS()` -> lints. Fully-dynamic classes (`class="${cond ? 'a' : 'b'}"`) are correctly masked-to-nothing; only the MIXED static-prefix-glued-to-interpolation case mis-fires. Isolated S183: fires in plain `<div class="driver-${@status}">` with NO `<each>`/struct; control `class="flex gap-2 badge-${@n}"` passes `flex`/`gap-2` but fires on `'badge-'`. **High-frequency** (state/BEM/theme class names). LOW (info-level, non-fatal). **Fix:** skip any `\S+` class token that overlaps OR is directly adjacent (no whitespace) to a `${}` interpolation region. **Fix dispatched S183** (`tailwind-dynamic-class-prefix-2026-06-11`).
+
+---
+
+### G-LIFECYCLE-STRUCT-FIELD-CONST-NOTFIRE — struct-field `(not to string)` pre-transition access did not fire `E-TYPE-001` on the PRIMER §6.5 example — `NEW S183; LOW; CANDIDATE (needs verification)`
+<!-- @gap id=g-lifecycle-struct-field-const-notfire sev=LOW status=open -->
+
+**Surfaced S183 dog-food (round 5).** The PRIMER §6.5 verbatim worked example — `type User:struct = { ..., passwordHash: (not to string) }; const u: User = {..., passwordHash: not}; const leak = u.passwordHash` (annotated `// E-TYPE-001 - pre-transition access`) — compiled CLEAN (exit 0), NO `E-TYPE-001`. This is §5-Landing-1's STATED scope ("per-access transition-state tracking for **struct fields**", SHIPPED S130 `1feaedc9` + 25 tests), so it SHOULD fire. **CANDIDATE, not yet a confirmed bug** (verify-before-claim / S138 reverse-direction): Landing-1 shipped + tested, so the most likely cause is a sub-path the tracker doesn't observe (e.g. top-level-`${}` `const u: User = {...}` construction + member-read, vs the form Landing-1's tests exercise) rather than a wholesale regression. **Needs a focused gate-logic check** (does E-TYPE-001 fire on Landing-1's own test form vs the primer's `const`-bound top-level form?) before classifying bug-vs-form. Cross-ref §5 lifecycle table Landing 1 + B-prereq.
 
 ---
 
