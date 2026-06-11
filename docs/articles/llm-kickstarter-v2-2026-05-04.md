@@ -314,16 +314,16 @@ See SPEC §14.12 for the full normative specification.
 
 ---
 
-### 3.3 Function forms — `function` / `fn` / `server function` / `pure` (§48 + §33)
+### 3.3 Function forms — `function` / `fn` (§48 + §33). Server placement is INFERRED.
 
-scrml has FOUR function-declaration shapes, each with distinct semantics. Pick the one that matches your intent; the compiler enforces the discipline.
+scrml has TWO canonical function-declaration shapes. Client-vs-server placement is INFERRED (§12) — you don't write `server`. The `pure` modifier and the explicit `server function` modifier are deprecated.
 
-| Form | Where it can fire side effects | What the compiler enforces | Example |
+| Form | Side effects | What the compiler enforces | Example |
 |---|---|---|---|
-| `function` | client-side: DOM writes, state mutation, event handlers, transition triggers | nothing extra — the workhorse form | `function handleClick() { @count = @count + 1 }` |
-| `fn` (= `pure function`) | nowhere — body is pure (§33.6 S32: `fn` ≡ `pure function`) | no SQL, no DOM, no outer-scope mutation, no non-determinism (`Date.now()`, `Math.random()`), no async; must return a value at every path | `fn double(n: int) -> int { return n * 2 }` |
-| `server function` | server-side: SQL, file I/O, env vars; auto-bound to a route | server-only resources allowed; client call is compiled to a fetch | `server function loadUsers() { return ?{`SELECT * FROM users`}.all() }` |
-| `pure function` | nowhere — synonym for `fn`; explicit form | identical to `fn`; `pure fn` is REDUNDANT and fires `W-PURE-REDUNDANT` | `pure function double(n: int) -> int { return n * 2 }` |
+| `function` | DOM, state, event handlers — OR `?{}`/file-IO/env (then INFERRED server) | nothing extra; client-vs-server placement is INFERRED per §12 | `function handleClick() { @count = @count + 1 }` |
+| `fn` | nowhere — body is pure | no SQL, no DOM, no outer-scope mutation, no non-determinism (`Date.now()`, `Math.random()`), no async; must return a value at every path | `fn double(n: int) -> int { return n * 2 }` |
+
+**Server placement is inferred — don't write `server function`.** A `function` that touches a server-only resource (`?{}` SQL, `Bun.*`, file I/O, env) auto-escalates to the server (§12); the client call is compiled to a fetch. The explicit `server` modifier on a `function` is deprecated and fires `W-DEPRECATED-SERVER-MODIFIER` — write `function` and let inference place it. (Recipes below still show the explicit `server function` form pending the corpus migration — `g-server-keyword-drift`.) **The one exception is `server fn`** — a pure helper pinned to the server: a pure `fn` has no trigger to infer from, so `server` is load-bearing there and is NOT deprecated. **`pure function` / `pure fn` are deprecated** (`W-PURE-DEPRECATED`, S176 — supersedes the old `W-PURE-REDUNDANT`); use `fn`. Run `bun scrml migrate --fix`.
 
 **Reach discipline (Pillar 5b):** when computing a value with no side effects, use `fn`. The discipline is signal: the call site reads as "this is a calculation, not a state machine." `function` is the escape hatch for impure work — event handlers, complex DOM-coupled logic, transitions.
 

@@ -183,14 +183,17 @@ A caught error variant is displayed via its OWN `renders` clause (§19.2) when i
 
 **Body-split / CPS (§19.9.3 — footnote).** Server-function calls inside non-top-level positions (inside `if` branches, inside `match` arms, inside loop bodies) are compiled-to-CPS — the compiler splits the function body at server-call boundaries and routes the continuation through a stub. Multi-batch CPS (§19.9.9, S114 Ext 1) extends this to multi-server-call sequences. Adopters never write the CPS form — it's compiler-managed; the source stays uncolored. Failures route through `!{}` handlers naturally; the CPS plumbing is invisible.
 
-**Function forms — `function` / `fn` / `server function` / ~~`pure`~~ (§48 + §33; S135 cluster M catch-up, F-049 + F-039; `pure` DEPRECATED 2026-06-09).**
+**Function forms — `function` / `fn` (§48 + §33). Server placement is INFERRED, not a written form; the `pure` modifier and the explicit `server function` modifier are deprecated.**
 
-scrml has THREE canonical function-declaration shapes (the `pure` modifier is deprecated — `fn` is the canonical pure form):
+scrml has TWO canonical function-declaration shapes:
 
-- **`function`** — the workhorse; client-side; can fire any side effects (DOM, state mutation, event handlers).
-- **`fn`** — THE canonical pure form (§33/§48.11); body prohibitions: no SQL, no DOM, no outer-scope mutation, no non-determinism (`Date.now()`/`Math.random()`), no async, must return at every path. `lift` inside `fn` is `E-SYNTAX-002` — `fn` returns markup, never lifts. (Server-side pure: `server fn`.)
-- **`server function`** — server-side; can use SQL, file I/O, env vars; auto-bound to a route (§12 inference); client call compiles to a fetch.
-- **~~`pure function`~~ / ~~`pure fn`~~** — **DEPRECATED** (2026-06-09). The `pure` modifier is deprecated language-wide; every `pure`-modifier form fires `W-PURE-DEPRECATED` (supersedes the old `W-PURE-REDUNDANT`). Use `fn` (the canonical pure form), or `server fn` for `pure server function`. Run `bun scrml migrate --fix`. Mirrors the `<machine>`→`<engine>` deprecation. Bare `function` (no modifier) stays the impure form.
+- **`function`** — the workhorse; can fire any side effects (DOM, state mutation, event handlers). Client-vs-server placement is INFERRED (§12) — you don't annotate it.
+- **`fn`** — THE canonical pure form (§33/§48.11); body prohibitions: no SQL, no DOM, no outer-scope mutation, no non-determinism (`Date.now()`/`Math.random()`), no async, must return at every path. `lift` inside `fn` is `E-SYNTAX-002` — `fn` returns markup, never lifts.
+
+**Server placement is INFERRED (§12), not written.** Any `function` touching a server-only resource (`?{}` SQL, `Bun.*`, file I/O, env) auto-escalates to server; the client call compiles to a fetch. **You don't write `server` on a `function`** — the explicit modifier is deprecated and fires `W-DEPRECATED-SERVER-MODIFIER` wherever the body already escalates (≈ everywhere `server function` appears). User intent (S175): *"there is no explicit `server function`."* (Worked examples across spec/primer still show the explicit form pending the §12-inference corpus migration — `g-server-keyword-drift`.)
+
+- **`server fn` is the EXCEPTION — NOT deprecated.** A pure `fn` has no escalation trigger to infer from, so `server` is LOAD-BEARING there: it pins a pure helper to the server. (This is also why the `server` modifier can't be fully retired — `server function` is redundant, `server fn` is not.)
+- **~~`pure function`~~ / ~~`pure fn`~~ — DEPRECATED** (2026-06-09). The `pure` modifier is deprecated language-wide; every `pure`-modifier form fires `W-PURE-DEPRECATED` (supersedes the old `W-PURE-REDUNDANT`). Use `fn`, or `server fn` for a pure server helper. Run `bun scrml migrate --fix` (covers `pure` + `<machine>` today; a `server function`→`function` migration is scoped — `g-server-keyword-drift`). Mirrors the `<machine>`→`<engine>` deprecation. Bare `function` stays the impure form.
 
 **Mutual recursion + hoisting (§48.6.4, S98)** — `fn` declarations at file scope hoist exactly like `function`; mutual recursion works without forward-ref ceremony. `pinned fn` opts out (forward-ref becomes `E-STATE-PINNED-FORWARD-REF`).
 
