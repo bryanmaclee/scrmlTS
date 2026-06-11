@@ -17,7 +17,7 @@
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 0 |
 | MED | 7 |
-| LOW | 11 |
+| LOW | 12 |
 | Nominal (spec-ahead-of-impl) | 9 |
 <!-- @generated:gap-counts END -->
 
@@ -54,6 +54,9 @@ Surfaced by the function-boundary recon: in `23-trucking-dispatch` callback prop
 
 ### G-FN-SQL-UNENFORCED — `fn`+`?{}` SQL compiles clean (E-FN-001 unenforced) + I-FN-PROMOTABLE false-fires on inferred-server fns — `NEW S179; MED`
 **Spec-vs-impl divergence (BUG, per `feedback_dont_soft_classify_bugs`).** §48.3.1 / `E-FN-001` says `?{}` SQL inside a `fn` body SHALL be a compile error. But a live `export fn f() -> R[] { return ?{ select … }.all() }` **compiles CLEAN** — surfaced by S179 dog-fooding, PA-verified. **Scope NARROW** (probed): `E-FN-003` (state mutation) + `E-FN-004` (non-det `Date.now`) BOTH fire correctly; ONLY `E-FN-001` (SQL) is unenforced. **Mechanism:** the `?{}` server-escalates the `fn` at Route Inference (Stage 5, BEFORE TS); the fn is reclassified server, so the fn-purity walker `checkFnBodyProhibitions` (`type-system.ts:17666`, which HAS the E-FN-001 check) is skipped for it. **Sibling symptom — I-FN-PROMOTABLE false-fire:** `lint-i-fn-promotable.js:230` skips only `node.isServer` (the deprecated `server` KEYWORD), NOT body-content-escalation — so a keyword-free `function` with `?{}` (server-by-inference) wrongly gets the "promote to `fn`" lint (a promotion that would error E-FN-001). Same keyword-vs-inference blind spot as `g-server-keyword-drift`. **Fix (narrow):** (A) fire E-FN-001 on a `fn`-declared fn with `?{}`, independent of RI escalation; (B) extend the I-FN-PROMOTABLE skip-list to also skip inferred-server (body-escalated) fns. DISPATCHED S179 `e-fn-001-sql-enforce-2026-06-10` (agent). <!-- @gap id=g-fn-sql-unenforced sev=MED status=open -->
+
+### G-DISPLAY-TEXT-OVERQUOTE — `"..."`-wrapped sole content of a plain-markup element renders literal quotes, no diagnostic — `NEW S179; LOW`
+**Ergonomic footgun (S179 dog-fooding; user-ratified "a lint is the right move there").** The §4.18 code-default-body model: a bare run in an engine state-child / match-arm / `:`-shorthand body needs `"..."` display-text quoting; but text inside a NESTED plain-markup element (`<p>`, `<span>`, etc.) is FREE-TEXT (verbatim). An adopter carrying the code-default `"..."` habit into a nested plain-markup element writes `<p>"On the way."</p>` → emits `<p>"On the way."</p>` with **literal quote marks**, **NO diagnostic**. Spec-CORRECT (free-text is verbatim) but surprising. **Empirical (S179, dog-fooding the `<engine>` centerpiece — which itself compiled clean):** `<p>"On the way."</p>` inside an `<engine>` state-child body emits `return "<p>\"On the way.\"</p>"`; bare `<p>On the way.</p>` is clean (control confirmed). **Fix:** a LINT (e.g. `W-DISPLAY-TEXT-OVERQUOTE`, info/warning) when a `"..."`-wrapped string literal is the SOLE content of a plain-markup element inside a code-default-body context — message: "the quotes will render literally; did you mean bare text (`<p>On the way.</p>`)?". Low-priority ergonomic improvement, not a correctness bug. <!-- @gap id=g-display-text-overquote sev=LOW status=open -->
 
 ---
 
