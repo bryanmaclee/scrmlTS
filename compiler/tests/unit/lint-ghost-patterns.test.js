@@ -310,6 +310,49 @@ describe("§7 W-LINT-007 — JSX component prop braces", () => {
     const diags = lint(source);
     expect(hasCode(diags, "W-LINT-007")).toBe(false);
   });
+
+  // S184 Bug 2 — V5-strict typed-cell-decl object-literal RHS false-positive.
+  // `<u>: User = { ... }` has `User = {`; `User` (the cell TYPE name) is
+  // preceded by `: ` (colon-SPACE), which the `(?<!:\w*)` lookbehind can't
+  // bridge, so it fired falsely. The fix exempts the typed-cell-decl
+  // object-literal shape WITHOUT weakening the genuine JSX prop catch.
+  test("Bug 2 negative: <u>: User = { id: 1, ... } typed-cell decl does NOT trigger W-LINT-007", () => {
+    const source = "<u>: User = { id: 1, email: \"a@b.com\", passwordHash: not }";
+    const diags = lint(source);
+    expect(hasCode(diags, "W-LINT-007")).toBe(false);
+  });
+
+  test("Bug 2 negative: <c>: Cfg = {} empty-object typed-cell decl does NOT trigger W-LINT-007", () => {
+    const diags = lint("<c>: Cfg = {}");
+    expect(hasCode(diags, "W-LINT-007")).toBe(false);
+  });
+
+  test("Bug 2 negative: <c>: Cfg = { \"name\": \"x\" } string-key typed-cell decl does NOT trigger W-LINT-007", () => {
+    const diags = lint("<c>: Cfg = { \"name\": \"x\" }");
+    expect(hasCode(diags, "W-LINT-007")).toBe(false);
+  });
+
+  test("Bug 2 catch-preserved: real <Comp prop={val}> STILL triggers W-LINT-007", () => {
+    const diags = lint("<Card title={myTitle}>");
+    expect(hasCode(diags, "W-LINT-007")).toBe(true);
+  });
+
+  test("Bug 2 catch-preserved: object-valued JSX prop <Comp style={ {k:v} }> STILL triggers (not a typed-cell decl)", () => {
+    // Object-literal RHS but NO `:`-then-`>` to the left of `style` → signal 1
+    // fails → fires. Guards against over-exemption on object-valued JSX props.
+    const diags = lint("<Card style={ {color: \"red\"} }>");
+    expect(hasCode(diags, "W-LINT-007")).toBe(true);
+  });
+
+  test("Bug 2 full-compile: typed-cell struct-literal decl produces no W-LINT-007 in lintDiagnostics", () => {
+    const source =
+      "type User:struct = { id: number, email: string, passwordHash: (not to string) }\n" +
+      "<u>: User = { id: 1, email: \"a@b.com\", passwordHash: not }\n" +
+      dollars(" const x = @u.id ") + "\n";
+    const result = compileSource(source);
+    const lintDiags = result.lintDiagnostics || [];
+    expect(lintDiags.some(d => d.code === "W-LINT-007")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

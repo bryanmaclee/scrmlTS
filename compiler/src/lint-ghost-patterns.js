@@ -511,6 +511,73 @@ function isMarkupValuedBracedAttr(source, braceOffset) {
   return true;
 }
 
+/**
+ * Returns true if the W-LINT-007 match is a V5-strict typed-cell-declaration
+ * object-literal RHS — `<u>: User = { id: 1, ... }` — NOT a JSX
+ * `<Comp prop={val}>` braced attribute.
+ *
+ * Why the existing `(?<!:\w*)`/`(?<!type )` exclusions miss this: in
+ * `<u>: User = {`, the captured identifier `User` is the cell's TYPE name; it
+ * is preceded by `: ` (colon-SPACE). The lookbehind `(?<!:\w*)` cannot bridge
+ * the whitespace (`:\w*` requires the colon to immediately precede word chars),
+ * so the type annotation goes unrecognized and `User = {` fires falsely on a
+ * canonical, common scrml shape (S184 Bug 2).
+ *
+ * Discriminated from a genuine JSX scalar attribute by requiring BOTH:
+ *   1. TYPE-ANNOTATION POSITION — looking left from the captured identifier,
+ *      after optional whitespace there is a `:`, and before THAT colon (after
+ *      optional whitespace) there is a `>` — i.e. the colon is the type
+ *      annotation on a `<ident>` state-cell header (`<u>: User`). A JSX prop
+ *      `prop={val}` has no `:`-then-`>` to its left.
+ *   2. OBJECT-LITERAL SHAPE — the braced RHS opens an object literal: its first
+ *      top-level non-whitespace content is a `key:` pair (an identifier or
+ *      string key immediately followed by `:`). A JSX `{expr}` value has no
+ *      top-level `key:` before a comma / `}`.
+ * Both must hold; the AND keeps the genuine `<Comp prop={ {k: v} }>` style and
+ * any scalar `{expr}` braced attribute firing (signal 1 fails for JSX props).
+ *
+ * @param {string} source
+ * @param {number} identOffset — offset of the captured identifier (match.index)
+ * @param {number} braceOffset — offset of the opening `{` (matchEnd - 1)
+ * @returns {boolean}
+ */
+function isTypedCellDeclObjectLiteral(source, identOffset, braceOffset) {
+  if (source === undefined || identOffset === undefined || braceOffset === undefined) {
+    return false;
+  }
+  // Signal 1 — type-annotation position: `<ident> : Type = {`. Walk left from
+  // the captured identifier past whitespace, require `:`, then past whitespace
+  // require `>` (the close of the `<ident>` state-cell header).
+  let j = identOffset - 1;
+  while (j >= 0 && /\s/.test(source[j])) j--;
+  if (j < 0 || source[j] !== ":") return false;
+  j--;
+  while (j >= 0 && /\s/.test(source[j])) j--;
+  if (j < 0 || source[j] !== ">") return false;
+
+  // Signal 2 — object-literal RHS: first top-level content after `{` is `key:`.
+  let k = braceOffset + 1;
+  while (k < source.length && /\s/.test(source[k])) k++;
+  // Empty object `{}` is an object literal, not a JSX scalar — exempt.
+  if (k < source.length && source[k] === "}") return true;
+  // Key: bare identifier or a quoted string key.
+  if (k < source.length && (source[k] === '"' || source[k] === "'")) {
+    const quote = source[k];
+    k++;
+    while (k < source.length && source[k] !== quote) {
+      if (source[k] === "\\") k++;
+      k++;
+    }
+    k++; // past closing quote
+  } else {
+    const keyStart = k;
+    while (k < source.length && /[A-Za-z0-9_$]/.test(source[k])) k++;
+    if (k === keyStart) return false; // no identifier key
+  }
+  while (k < source.length && /\s/.test(source[k])) k++;
+  return k < source.length && source[k] === ":";
+}
+
 // ---------------------------------------------------------------------------
 // Pattern definitions
 // ---------------------------------------------------------------------------
@@ -642,12 +709,22 @@ const PATTERNS = [
     // fire — `isMarkupValuedBracedAttr` returns false for any value-side
     // that doesn't start with `<` + tag-name char. The regex's last char
     // is the `{`, so `braceOffset = matchEnd - 1`.
+    //
+    // S184 Bug 2 fix — exempt the V5-strict typed-cell-decl object-literal RHS
+    // `<u>: User = { id: 1, ... }`. The captured identifier `User` is the cell
+    // TYPE name, preceded by `: ` (colon-SPACE) which the `(?<!:\w*)` lookbehind
+    // can't bridge, so `User = {` fired falsely on this canonical, common scrml
+    // shape. `isTypedCellDeclObjectLiteral` requires BOTH the type-annotation
+    // position (`<ident> : Type = {`) AND an object-literal RHS (`{ key: ... }`),
+    // so a genuine JSX scalar `<Comp prop={val}>` still fires (it has no
+    // `:`-then-`>` to the left of the prop name).
     skipIf: (offset, logicRanges, _cssRanges, commentRanges, _tildeRanges, functionBodyRanges, stringRanges, _tagOpenerRanges, source, matchEnd) =>
       inRange(offset, logicRanges) ||
       inRange(offset, commentRanges) ||
       inRange(offset, stringRanges) ||
       inRange(offset, functionBodyRanges || []) ||
-      (source !== undefined && matchEnd !== undefined && isMarkupValuedBracedAttr(source, matchEnd - 1)),
+      (source !== undefined && matchEnd !== undefined && isMarkupValuedBracedAttr(source, matchEnd - 1)) ||
+      (source !== undefined && matchEnd !== undefined && isTypedCellDeclObjectLiteral(source, offset, matchEnd - 1)),
   },
 
   // Pattern 8: {cond && <El>} — React conditional rendering

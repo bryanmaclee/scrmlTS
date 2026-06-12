@@ -18649,28 +18649,53 @@ function checkLifecycleFieldAccess(
    * same text the parser also stored as `value`). Without dedup, every read
    * fires twice.
    *
+   * The dedup key is WHITESPACE-NORMALIZED (runs of whitespace collapsed,
+   * whitespace around `.` removed). The structured `exprNode` reconstruction
+   * renders an access tightly (`@u.passwordHash`) while the raw `node.init`
+   * carries the source spacing (`@u . passwordHash`); these are the SAME
+   * fragment in two renderings. Without normalization they key as distinct
+   * Set entries, both survive the join, and `extractAccesses` (whose `\s*\.\s*`
+   * regex is whitespace-tolerant) matches the access twice → a spurious
+   * DOUBLE E-TYPE-001 on a single pre-transition read (the count is wrong,
+   * not the set of firing reads). Normalizing the key collapses the two
+   * renderings to one fragment so each distinct access is scanned once.
+   *
    * For let-decl with an `escape-hatch` initExpr (the parser falls back to a
    * raw-text escape-hatch when an expression isn't structurally parsed, e.g.
    * the V5-strict `< User>\n...` shape where subsequent statements get
    * subsumed into the initialiser's raw text), this captures the full raw
    * body — including subsequent assignments and reads that the parser
    * couldn't separate. The checker then walks that combined text normally.
+   * Distinct accesses inside ONE fragment (`@u.a @u.b`) normalize to one key
+   * but stay in a single Set entry, so all are still scanned.
    */
   function statementText(node: ASTNodeLike): string {
-    const seen = new Set<string>();
+    // Whitespace-insensitive dedup: collapse whitespace runs and strip spaces
+    // hugging a `.` so the structurally-emitted and raw renderings of the same
+    // access collapse to a single fragment.
+    const normalizeKey = (s: string): string =>
+      s.replace(/\s*\.\s*/g, ".").replace(/\s+/g, " ").trim();
+    const seenKeys = new Set<string>();
+    const fragments: string[] = [];
+    const addFragment = (s: string): void => {
+      const key = normalizeKey(s);
+      if (key.length === 0 || seenKeys.has(key)) return;
+      seenKeys.add(key);
+      fragments.push(s);
+    };
     const nodeAny = node as Record<string, unknown>;
     const exprNodeField = nodeAny.exprNode ?? nodeAny.initExpr;
     if (exprNodeField && typeof exprNodeField === "object" && (exprNodeField as { kind?: string }).kind) {
       try {
-        seen.add(emitStringFromTree(exprNodeField as import("./types/ast.ts").ExprNode));
+        addFragment(emitStringFromTree(exprNodeField as import("./types/ast.ts").ExprNode));
       } catch { /* fall through */ }
     }
-    if (typeof node.value === "string") seen.add(node.value);
-    if (typeof node.expr === "string") seen.add(node.expr);
-    if (typeof node.text === "string") seen.add(node.text);
-    if (typeof node.raw === "string") seen.add(node.raw);
-    if (typeof node.init === "string") seen.add(node.init);
-    return Array.from(seen).join(" ");
+    if (typeof node.value === "string") addFragment(node.value);
+    if (typeof node.expr === "string") addFragment(node.expr);
+    if (typeof node.text === "string") addFragment(node.text);
+    if (typeof node.raw === "string") addFragment(node.raw);
+    if (typeof node.init === "string") addFragment(node.init);
+    return fragments.join(" ");
   }
 
   // Q6-narrow (S134) — §6.8.3: reset-target extraction + state revert helpers.
