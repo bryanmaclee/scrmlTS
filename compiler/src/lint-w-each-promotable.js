@@ -33,6 +33,15 @@
  *   - C-style `for (let i = 0; ...; ...)` loops (Landing 1 baseline
  *     covers the `for-of/in` form; C-style → `<each of=N>` mapping
  *     is a future extension).
+ *   - COMPILER-GENERATED iteration (`_tableForSynth`-marked for-stmts). A
+ *     `<tableFor for=T rows=@x>` expands (in the TS pass) to an equivalent
+ *     `for (row of @x) { lift <tr/> }` carrying `_tableForSynth: true`
+ *     (emit-table-for.ts). That iteration is synthesized by the compiler,
+ *     NOT authored by the adopter, so promoting it to `<each>` would suggest
+ *     rewriting code the adopter never wrote — and tableFor IS already the
+ *     canonical declarative form for type-driven rows (§41.16). The lint
+ *     skips any `_tableForSynth`-marked for-stmt (S184
+ *     g-ghost-lint-canonical-form-false-positive Fix B).
  *
  * @module lint-w-each-promotable
  */
@@ -195,6 +204,11 @@ export function runWEachPromotable(files) {
   for (const file of files) {
     const filePath = file.filePath || "";
     walkForStmts(file, (forStmt) => {
+      // Compiler-generated iteration is NOT adopter-authored — never promote it.
+      // `<tableFor>` expands to a `_tableForSynth`-marked for-stmt (emit-table-for.ts);
+      // suggesting an `<each>` rewrite there would target code the adopter never
+      // wrote (and tableFor is already the canonical declarative form, §41.16).
+      if (forStmt._tableForSynth) return;
       if (!iterableIsReactiveCell(forStmt)) return;
       if (!bodyHasLift(forStmt)) return;
       const span = forStmt.span || {};

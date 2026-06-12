@@ -578,6 +578,111 @@ function isTypedCellDeclObjectLiteral(source, identOffset, braceOffset) {
   return k < source.length && source[k] === ":";
 }
 
+/**
+ * Returns true if the brace at `braceOffset` opens a canonical §16.6
+ * parametric-snippet-fill body — i.e. its first non-whitespace content is a
+ * parenthesized-param arrow lambda whose body RETURNS MARKUP:
+ * `( <params> ) => <Tag...`. This is the call-site shape for filling a
+ * parametric snippet slot (PRIMER §6.4(5) / §16.6; SPEC §955):
+ * `<Card body={ (label) => <p>${label}</p> } />` — the lambda receives the
+ * slot's typed argument(s) and returns markup.
+ *
+ * Why W-LINT-007 (the JSX `<Comp prop={val}>` ghost) false-fires here: the
+ * `prop={` opener matches the regex, and the markup-value exemption
+ * (`isMarkupValuedBracedAttr` — peek `<Tag` after `{`) misses because the
+ * first non-whitespace char after `{` is `(` (the lambda), not `<`.
+ *
+ * Discrimination is TWO-FOLD and BOTH are required:
+ *   1. The body opens with a parenthesized-param arrow head `( ... ) =>`. A
+ *      genuine JSX scalar `prop={value}` / `{fn()}` / `{a + b}` has no leading
+ *      `( ... ) =>`. A bare arrow `{x => ...}` (no parens) also does not match.
+ *   2. The arrow RETURNS MARKUP — after `=>`, the first non-whitespace char is
+ *      `<` + a tag-name letter (the `isMarkupValuedBracedAttr` shape). This is
+ *      what separates the §16.6 snippet fill (`(label) => <p>...`) from a
+ *      genuine JSX scalar arrow expression `onClick={(e) => fn()}` (returns a
+ *      call, NOT markup) — the latter MUST still fire W-LINT-007 (R25 Bug 44).
+ *
+ * Scan: from `{`, skip whitespace, require `(`, walk to the matching `)`
+ * (paren-depth balanced, tolerant of nested parens inside default params),
+ * skip whitespace, require `=>`, skip whitespace, require `<` + tag-name letter.
+ *
+ * @param {string} source
+ * @param {number} braceOffset — offset of the `{` in source
+ * @returns {boolean}
+ */
+function bracedBodyOpensParenArrowLambda(source, braceOffset) {
+  if (source === undefined || braceOffset === undefined) return false;
+  let i = braceOffset + 1;
+  while (i < source.length && /\s/.test(source[i])) i++;
+  if (source[i] !== "(") return false;
+  // Walk the parenthesized param list to its matching close paren.
+  let depth = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0) { i++; break; }
+    }
+    i++;
+  }
+  if (depth !== 0) return false; // unbalanced — not a clean lambda head
+  while (i < source.length && /\s/.test(source[i])) i++;
+  // Require the `=>` arrow.
+  if (!(source[i] === "=" && source[i + 1] === ">")) return false;
+  i += 2;
+  // Require the arrow body to RETURN MARKUP — `=> <Tag`. A non-markup arrow
+  // body (`=> fn()`, `=> a + b`) is a genuine JSX scalar arrow → still fires.
+  while (i < source.length && /\s/.test(source[i])) i++;
+  if (source[i] !== "<") return false;
+  const next = source[i + 1];
+  return !!next && /[A-Za-z]/.test(next);
+}
+
+/**
+ * Returns true if the `=` at `eqOffset` immediately follows a `prop=` whose
+ * braced body opens a parametric-snippet-fill lambda — i.e. the on-event /
+ * attr-name `=` at `eqOffset` is followed (after whitespace) by `{ ( ... ) =>`.
+ * Used by the W-LINT-004 (`on[A-Z]=`) skipIf, where the match ends at the `=`
+ * and the `{` follows. `matchEnd` points one past the `=` (at the `{` or a
+ * leading space).
+ *
+ * @param {string} source
+ * @param {number} matchEnd — offset one past the attribute-name `=`
+ * @returns {boolean}
+ */
+function isSnippetFillAttrAssign(source, matchEnd) {
+  if (source === undefined || matchEnd === undefined) return false;
+  let i = matchEnd;
+  while (i < source.length && /\s/.test(source[i])) i++;
+  if (source[i] !== "{") return false;
+  return bracedBodyOpensParenArrowLambda(source, i);
+}
+
+/**
+ * Returns true if the `(` at `parenOffset` is the param-list head of a
+ * parametric-snippet-fill lambda that fills a `prop={` slot — i.e. looking
+ * LEFT from the `(`, past whitespace, the previous non-whitespace char is `{`,
+ * and that `{` opens a parenthesized-arrow body. Used by the W-LINT-021
+ * (Angular `(event)=`) skipIf, whose match is the lambda PARAM `(label) =`
+ * (it grabs the `=` of the `=>` arrow); the real attribute prop is to the
+ * left of the `{`.
+ *
+ * A genuine Angular `(click)=handler` has no `{` immediately to the left of
+ * its `(` (it is a top-level attribute name), so it still fires.
+ *
+ * @param {string} source
+ * @param {number} parenOffset — offset of the `(` (lambda param-list head)
+ * @returns {boolean}
+ */
+function isSnippetFillLambdaParam(source, parenOffset) {
+  if (source === undefined || parenOffset === undefined) return false;
+  let j = parenOffset - 1;
+  while (j >= 0 && /\s/.test(source[j])) j--;
+  if (j < 0 || source[j] !== "{") return false;
+  return bracedBodyOpensParenArrowLambda(source, j);
+}
+
 // ---------------------------------------------------------------------------
 // Pattern definitions
 // ---------------------------------------------------------------------------
@@ -643,7 +748,15 @@ const PATTERNS = [
     correction: "onchange=handler()",
     see: "§5",
     code: "W-LINT-004",
-    skipIf: (offset, logicRanges, _cssRanges, commentRanges) => inRange(offset, logicRanges) || inRange(offset, commentRanges),
+    // S184 g-ghost-lint Fix A — exempt the §16.6 parametric-snippet-fill call
+    // site `onPick={ (label) => <markup/> }`. The `on[A-Z]=` matches `onPick=`;
+    // the braced body that follows is a parenthesized-arrow lambda (the snippet
+    // fill), NOT a React `onChange={handler}` scalar. A genuine
+    // `onChange={handler}` (no `( ... ) =>` body) STILL fires.
+    skipIf: (offset, logicRanges, _cssRanges, commentRanges, _tildeRanges, _functionBodyRanges, _stringRanges, _tagOpenerRanges, source, matchEnd) =>
+      inRange(offset, logicRanges) ||
+      inRange(offset, commentRanges) ||
+      isSnippetFillAttrAssign(source, matchEnd),
   },
 
   // Pattern 5: value={expr} where { is NOT preceded by $ — JSX attribute braces
@@ -718,13 +831,21 @@ const PATTERNS = [
     // position (`<ident> : Type = {`) AND an object-literal RHS (`{ key: ... }`),
     // so a genuine JSX scalar `<Comp prop={val}>` still fires (it has no
     // `:`-then-`>` to the left of the prop name).
+    //
+    // S184 g-ghost-lint Fix A — exempt the §16.6 parametric-snippet-fill call
+    // site `<Card body={ (label) => <p/> } />`. The `prop={` matches; the
+    // markup-value exemption misses because the first body char is `(` (the
+    // lambda), not `<`. `bracedBodyOpensParenArrowLambda` peeks for a
+    // `( ... ) =>` body (the snippet fill). A genuine JSX scalar `prop={value}`
+    // / `{fn()}` / `{a + b}` has no `( ... ) =>` body so STILL fires.
     skipIf: (offset, logicRanges, _cssRanges, commentRanges, _tildeRanges, functionBodyRanges, stringRanges, _tagOpenerRanges, source, matchEnd) =>
       inRange(offset, logicRanges) ||
       inRange(offset, commentRanges) ||
       inRange(offset, stringRanges) ||
       inRange(offset, functionBodyRanges || []) ||
       (source !== undefined && matchEnd !== undefined && isMarkupValuedBracedAttr(source, matchEnd - 1)) ||
-      (source !== undefined && matchEnd !== undefined && isTypedCellDeclObjectLiteral(source, offset, matchEnd - 1)),
+      (source !== undefined && matchEnd !== undefined && isTypedCellDeclObjectLiteral(source, offset, matchEnd - 1)) ||
+      (source !== undefined && matchEnd !== undefined && bracedBodyOpensParenArrowLambda(source, matchEnd - 1)),
   },
 
   // Pattern 8: {cond && <El>} — React conditional rendering
@@ -1026,8 +1147,20 @@ const PATTERNS = [
     correction: "scrml uses bare event-handler attributes: `onclick=fn()`, `onsubmit=fn()`, etc. No parens around the event name. Per SPEC §5.2.2 the bare-call auto-wraps as `function(event){ fn(); }`.",
     see: "§5.2",
     code: "W-LINT-021",
-    skipIf: (offset, logicRanges, _cssRanges, commentRanges) =>
-      inRange(offset, logicRanges) || inRange(offset, commentRanges),
+    // S184 g-ghost-lint Fix A — exempt the §16.6 parametric-snippet-fill lambda
+    // param `<Card body={ (label) => <p/> } />`. The `(event)=` regex grabs the
+    // lambda param `(label) =` (the `=` is the `=>` arrow's first char). When
+    // the `(` is the param-list head of a `prop={ ( ... ) => }` snippet fill, it
+    // is not an Angular binding. The match.index may be the leading whitespace
+    // (`(?:^|\s)`), so locate the actual `(` first. A genuine `(click)=handler`
+    // has no `{` to the left of its `(` so STILL fires.
+    skipIf: (offset, logicRanges, _cssRanges, commentRanges, _tildeRanges, _functionBodyRanges, _stringRanges, _tagOpenerRanges, source, matchEnd) => {
+      if (inRange(offset, logicRanges) || inRange(offset, commentRanges)) return true;
+      if (source === undefined) return false;
+      let p = offset;
+      while (p < (matchEnd ?? source.length) && source[p] !== "(") p++;
+      return source[p] === "(" && isSnippetFillLambdaParam(source, p);
+    },
   },
 
   // Pattern 24: Angular `[(ngModel)]=` two-way binding + `[prop]=` property
