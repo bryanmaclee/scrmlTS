@@ -69,14 +69,54 @@ describe("E-TYPE-045 fires — bare `not @x` in every expression position", () =
     expect(fires045(src, "bare-while")).toBe(true);
   });
 
-  test("attribute `if=` (bare)", () => {
-    const src = `\${
-    let loaded = true
+  test("attribute `if=` (genuinely bare — `if=not @y`, S188 follow-up hole)", () => {
+    // The bare (non-parenthesized) prefix-`not` in an UNQUOTED attribute value
+    // was the SOLE uncovered position after the choke-point landing: the
+    // tokenizer shredded `not @y` into ATTR_IDENT "not" + a stray `@y`, so the
+    // negation never reached the lowering choke-point. Now captured as a single
+    // ATTR_EXPR -> stamped -> harvest fires E-TYPE-045 exactly once.
+    const src = `<program>
+\${
+    <y> = true
 }
-<program>
-    <p if=(not @loaded)>Loading</>
+    <p if=not @y>z</>
 </>`;
-    expect(fires045(src, "bare-attr")).toBe(true);
+    expect(fires045(src, "attr-bare-if")).toBe(true);
+  });
+
+  test("attribute `show=` (genuinely bare — `show=not @y`)", () => {
+    const src = `<program>
+\${
+    <y> = true
+}
+    <p show=not @y>z</>
+</>`;
+    expect(fires045(src, "attr-bare-show")).toBe(true);
+  });
+
+  test("attribute `if=` member operand (bare — `if=not obj.ok`)", () => {
+    const src = `<program>
+\${
+    <o> = { ok: true }
+}
+    <p if=not @o.ok>z</>
+</>`;
+    expect(fires045(src, "attr-bare-member")).toBe(true);
+  });
+
+  test("attribute compound condition (`if=@x && not @y`) — §5.5.2 unquoted-compound shred", () => {
+    // A compound boolean attr condition must be parenthesized (§5.5.2). The
+    // unquoted form shreds `@x && not @y`; the leading bare `not` of the shred
+    // is still a prefix-`not`-as-negation and MUST surface E-TYPE-045 (naming
+    // the real cause) rather than only a misleading downstream E-SCOPE-001.
+    const src = `<program>
+\${
+    <x> = true
+    <y> = true
+}
+    <p if=@x && not @y>z</>
+</>`;
+    expect(fires045(src, "attr-bare-compound")).toBe(true);
   });
 
   test("`${...}` interpolation (bare)", () => {
@@ -188,7 +228,7 @@ describe("E-TYPE-045 fires — parenthesized `not (expr)` in every position", ()
   });
 });
 
-describe("E-TYPE-045 fires once — no double-fire on the if/while paren form", () => {
+describe("E-TYPE-045 fires once — no double-fire", () => {
   test("single fire on if-condition paren", () => {
     const src = `\${
     let flag = true
@@ -196,6 +236,33 @@ describe("E-TYPE-045 fires once — no double-fire on the if/while paren form", 
 }
 <program><p>x</></>`;
     const all = codes(compileWholeScrml(src, "single-fire").errors);
+    const n = all.filter((c) => c === "E-TYPE-045").length;
+    expect(n).toBe(1);
+  });
+
+  test("single fire on parenthesized-attr `if=(not @y)` (no double with the bare-attr path)", () => {
+    // The paren-attr form already routed through the choke-point and fired.
+    // The S188 follow-up adds a bare-attr capture path; ensure the paren-attr
+    // form still fires EXACTLY once (the harvest dedups by span).
+    const src = `<program>
+\${
+    <y> = true
+}
+    <p if=(not @y)>z</>
+</>`;
+    const all = codes(compileWholeScrml(src, "single-fire-paren-attr").errors);
+    const n = all.filter((c) => c === "E-TYPE-045").length;
+    expect(n).toBe(1);
+  });
+
+  test("single fire on bare-attr `if=not @y` (no double)", () => {
+    const src = `<program>
+\${
+    <y> = true
+}
+    <p if=not @y>z</>
+</>`;
+    const all = codes(compileWholeScrml(src, "single-fire-bare-attr").errors);
     const n = all.filter((c) => c === "E-TYPE-045").length;
     expect(n).toBe(1);
   });
@@ -278,6 +345,32 @@ describe("E-TYPE-045 does NOT fire — valid `not` (absence) forms", () => {
     <p>Item not found.</>
 </>`;
     expect(fires045(src, "valid-prose-not")).toBe(false);
+  });
+
+  test("`if=not` (no operand) is the absence VALUE, not negation (attr-bare guard)", () => {
+    // A bare `if=not` with NO operand following is the unified absence value as
+    // a boolean attr value — NOT a prefix-negation. It must stay ATTR_IDENT and
+    // never fire E-TYPE-045.
+    const src = `<program>
+\${
+    <y> = true
+}
+    <p if=not>z</>
+</>`;
+    expect(fires045(src, "valid-attr-if-not-absence")).toBe(false);
+  });
+
+  test("an attribute literally NAMED `not` (`not=@y`) is not prefix-negation", () => {
+    // `<p not=@y>` is a (non-standard) attribute whose NAME is `not` with value
+    // `@y` — it carries an `=`, so it is not the stray-bareword prefix-`not`
+    // shred. E-TYPE-045 MUST NOT fire here.
+    const src = `<program>
+\${
+    <y> = true
+}
+    <p not=@y>z</>
+</>`;
+    expect(fires045(src, "valid-attr-named-not")).toBe(false);
   });
 
   test("outer `not (x is not)` STILL fires (the inner is-not is valid; the outer prefix-not is negation)", () => {

@@ -28,3 +28,33 @@ BLOCKERS: none.
 - Coherence verified: branch-tip == FINAL_SHA 1d24f62; main 0-behind/2-ahead origin (PA docs commits); no leak.
 - Independent R26 (S138 dual-verify) against the worktree build: f1/f2 (ternary bare/paren) FIRE ✓; valid forms clean ✓; flagship 36 files 0-error ✓. **BUT** caught a RESIDUAL HOLE: bare-`not` in ATTRIBUTE values does NOT fire — h1 `<p if=not @y>`, h2 `<p if=@x && not @y>`, h6 `<p show=not @y>` (all silent); h3/h4/h5 (logic/interp/paren-attr) fire correctly. The agent's Phase-5 "bare-&&" was the LOGIC-`&&` (fires); the attr-`&&` was untested.
 - DECISION: landed the agent's complete work (45 files file-delta; known-gaps.md kept OPEN — merged by hand to preserve the 4 S188 dog-food gaps the agent's older base didn't have). g-not-negation stays OPEN with the residual-hole note. Focused follow-up dispatched to close the attr-value bare-`not` hole (likely codegen rewrite.ts Locus-3) + add the missing test. Gap → RESOLVED after the follow-up.
+
+## FOLLOW-UP Phase 0 — attr-bare hole diagnosis (2026-06-12, agent-a409100175ee4ffa1)
+pwd: /home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/agent-a409100175ee4ffa1
+Merged base HEAD 736166b4 (contains choke-point fix). bun install + pretest OK.
+
+ROOT CAUSE (empirically isolated — NOT the brief's codegen `_rewriteNotSegment` hypothesis):
+The hole is UPSTREAM at the TOKENIZER attr-value boundary (tokenizer.ts:522 unquoted-value reader), not codegen.
+- `if=(not @y)` (h5, PAREN): tokenizes as ATTR_EXPR `(not @y)` -> value.kind="expr" -> parseExprToNode -> exprNode STAMPED `_notPrefixNegation=true` -> harvest fires E-TYPE-045. CORRECT.
+- `if=not @y` (h1, BARE): unquoted-value reader reads ONLY the ident `not` (stops at space) -> emits ATTR_IDENT "not" -> value.kind="variable-ref", exprNode.kind="lit" (the absence VALUE `not`, NOT a negation). The `@y` operand becomes a STRAY bareword attribute (name="@y"). `not @y` never reaches parseExprToNode as one expression -> never stamps -> never fires. Silent mis-compile (operand dropped).
+- `show=not @y` (h6): identical to h1.
+- `if=@x && not @y` (h2): unquoted reader reads `@x`, then `&&`/`not`/`@y` shred into stray attrs -> E-SCOPE-001.
+
+SCOPE CORRECTION (surfaced to PA):
+- h2's `&&` shredding is PRE-EXISTING and `not`-INDEPENDENT: `if=@x && @y` (NO not at all) ALSO fires E-SCOPE-001. Unquoted COMPOUND boolean expressions are not supported by the tokenizer — SPEC §5.5.2 grammar (SPEC.md:1718-1724) enumerates exactly 4 unquoted attr-condition forms: `@var` / `obj.prop` / `(expression)` paren / `fn()`. A compound `@x && not @y` MUST be parenthesized. The canonical `if=(@x && not @y)` ALREADY FIRES E-TYPE-045 (verified). So h2 silent-on-045 is a symptom of the broader unquoted-compound limitation, NOT the bare-`not` hole.
+- The genuine, isolated bare-`not`-in-attr hole = h1 + h6 (`not <operand>` as the FIRST/sole token after `=`). That is what this fix closes, at the tokenizer, by capturing `not <operand>` as a single ATTR_EXPR -> routes through the SAME choke-point as paren-attr -> stamps -> harvest fires EXACTLY ONCE (span-dedup). No second emit site (rejects brief approach A — `_rewriteNotSegment` never sees `not @y` for bare-attr since the tokenizer already shredded it).
+
+MECHANISM CHOSEN: approach (B) realized at the tokenizer. After the unquoted ident-read, if ident==="not" AND a negation operand follows (`@`/ident/`(` after whitespace), capture the full `not <operand>` run as ATTR_EXPR (NOT ATTR_IDENT). Bare `if=not` (no operand) stays ATTR_IDENT (valid absence-value form). Single source of truth; harvest dedups by span; no double-fire on paren-attr (h5).
+
+NEXT: Phase 1 implement the tokenizer capture; re-run h1-h6 matrix.
+BLOCKERS: none.
+
+## FOLLOW-UP Phase 1-3 COMPLETE (2026-06-12, agent-a409100175ee4ffa1)
+- Phase 1 (impl, commit 4f2e7373):
+  - tokenizer.ts: new `isPrefixNotOperandAhead(raw,pos)` helper + unquoted-value-reader branch capturing bare `not <operand>` as one ATTR_EXPR (h1/h6) -> parseExprToNode -> stamp -> harvest fires once. Bare `if=not` (no operand) stays ATTR_IDENT (absence value).
+  - ast-builder.js (parseAttributes): post-loop scan fires E-TYPE-045 on the §5.5.2-malformed unquoted-compound shred (`if=@x && not @y`, h2 — stray `not`+operand pair) + splices the strays so no misleading E-SCOPE-001 cascade.
+- Phase 2 (tests, commit 60885e56): e-type-045-prefix-not-all-positions.test.js 24->31 cases. Corrected the mislabeled "attribute if= (bare)" case (it used the PAREN form — the reason the suite stayed green despite the hole). Added: bare if=/show=/member, compound shred, single-fire (paren-attr + bare-attr), valid if=not absence + literal not= attr. 31 pass / 0 fail.
+- Phase 3 (gap flip): known-gaps g-not-negation-unenforced status open->resolved; header + S188 PARTIAL note rewritten to RESOLVED with the empirically-corrected root (tokenizer shred, NOT codegen rewrite.ts). The 4 sibling S188 dog-food gaps UNCHANGED. No SPEC change (§42.10 already broad; §5.5.2 already requires compound attr conditions parenthesized).
+- SCOPE finding surfaced: h2 (`if=@x && not @y`) is a SPEC-MALFORMED unquoted-compound shape — `if=@x && @y` (NO not) ALSO shreds to E-SCOPE-001; SPEC §5.5.2 grammar admits exactly 4 unquoted attr-condition forms (`@var`/`obj.prop`/`(expr)`/`fn()`). The canonical `if=(@x && not @y)` already fired. Made h2 fire E-TYPE-045 anyway (brief mandate + name-the-real-cause) via the ast-builder shred scan, WITHOUT expanding unquoted-compound capture (which would contradict §5.5.2).
+NEXT: Phase 4 R26 empirical via CLI; full suite.
+BLOCKERS: none.

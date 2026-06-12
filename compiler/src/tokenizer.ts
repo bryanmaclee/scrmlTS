@@ -225,6 +225,48 @@ function isBareExprContinuation(raw: string, pos: number): boolean {
   return false;
 }
 
+/**
+ * S188 follow-up — detect whether the chars at `pos` (immediately AFTER the
+ * keyword `not` in an unquoted attribute value) begin a prefix-`not`-as-negation
+ * operand, e.g. the `@y` in `if=not @y` or the `obj.ok` in `show=not obj.ok`.
+ *
+ * Returns true ONLY when, after skipping inline whitespace (` ` / `\t`), the
+ * next char begins a negation operand: an `@`-sigil reactive ref, an identifier
+ * start (`[A-Za-z_$]`), or an opening paren `(`. In that case the unquoted-value
+ * reader captures the whole `not <operand>` run as a single ATTR_EXPR so it
+ * routes through the parseExprToNode lowering choke-point and fires E-TYPE-045
+ * (SPEC §42.10 — `not` is the absence VALUE, not boolean negation).
+ *
+ * Returns FALSE — leaving `not` to fall through to ATTR_IDENT as the valid
+ * absence VALUE — when:
+ *   - no operand follows (end of value / tag close `>` / `/>`); `if=not` alone
+ *     is the absence-value form, not negation.
+ *   - the operand char does not begin an expression (e.g. a digit cannot start
+ *     a negation operand in this grammar; quoted strings / arrays are handled by
+ *     their own value branches before the unquoted reader and never reach here).
+ *
+ * Requires that the boundary between `not` and the operand be inline whitespace
+ * (mirrors the choke-point `not[ \t]+<operand>` detector, which deliberately
+ * never bridges a newline — 6nz-s / S127). A newline after `not` => absence
+ * value, not negation.
+ */
+function isPrefixNotOperandAhead(raw: string, pos: number): boolean {
+  let i = pos;
+  let sawInlineWs = false;
+  while (i < raw.length && (raw[i] === " " || raw[i] === "\t")) { i++; sawInlineWs = true; }
+  // A negation operand must be separated from `not` by inline whitespace (the
+  // unquoted-value reader already terminated the `not` ident at this boundary,
+  // so `pos` sits on that whitespace for the bare form). With no whitespace and
+  // no further chars, there is no operand.
+  if (!sawInlineWs) return false;
+  if (i >= raw.length) return false;
+  const c = raw[i];
+  // Tag-close after `not` => standalone absence value (`<p if=not>`).
+  if (c === ">" || (c === "/" && i + 1 < raw.length && raw[i + 1] === ">")) return false;
+  // Operand starts: `@`-ref, identifier, or parenthesized sub-expression.
+  return c === "@" || c === "(" || /[A-Za-z_$]/.test(c);
+}
+
 // ---------------------------------------------------------------------------
 // Attribute tokenizer — used by markup and state block headers
 // ---------------------------------------------------------------------------
@@ -551,6 +593,66 @@ export function tokenizeAttributes(raw: string, baseOffset: number, baseLine: nu
               advance();
             }
             tokens.push(makeToken("ATTR_CALL", JSON.stringify({ name: ident, args }), vs, absOff(), vl, vc));
+          } else if (ident === "not" && isPrefixNotOperandAhead(raw, pos)) {
+            // S188 follow-up (g-not-negation-enforce attr-bare hole) — bare
+            // prefix-`not`-as-negation in an UNQUOTED attribute value, e.g.
+            // `<p if=not @y>` / `<p show=not @y>`. SPEC §42.10 forbids prefix
+            // `not` as boolean negation (E-TYPE-045); the negation operator is
+            // `!`. The paren form `if=(not @y)` already tokenizes as ATTR_EXPR
+            // and fires via the type-system harvest of the lowering choke-point
+            // stamp. The BARE form did NOT: the unquoted-value reader stopped at
+            // the space after `not`, emitting ATTR_IDENT "not" (the absence
+            // VALUE) and stranding the operand (`@y`) as a stray bareword
+            // attribute — so `not @y` never reached parseExprToNode, never
+            // stamped `_notPrefixNegation`, and silently mis-compiled.
+            //
+            // Fix: when the unquoted value is exactly the keyword `not` followed
+            // (after inline whitespace) by a negation operand, capture the whole
+            // `not <operand>` run as a single ATTR_EXPR. It then routes through
+            // the SAME parseExprToNode choke-point as every other position, gets
+            // stamped, and the harvest fires E-TYPE-045 exactly ONCE (span-dedup
+            // guards against any double-fire). The operand is read in
+            // expression-mode (paren/brace/bracket/string-tracked) up to the
+            // attribute boundary so member chains / call operands are captured
+            // whole. Bare `if=not` with NO operand following stays ATTR_IDENT
+            // (the valid absence-value form) — never reached here.
+            let expr = ident; // "not"
+            // Consume the inline whitespace between `not` and the operand so the
+            // captured ATTR_EXPR is `not <operand>` (the choke-point lowering's
+            // `not[ \t]+<operand>` detector matches this verbatim).
+            while (pos < raw.length && (raw[pos] === " " || raw[pos] === "\t")) {
+              expr += raw[pos];
+              advance();
+            }
+            // Read the operand in expression-mode up to the attribute boundary
+            // (whitespace at depth 0 outside strings, or tag close `>` / `/>`).
+            let parenDepth = 0;
+            let braceDepth = 0;
+            let bracketDepth = 0;
+            let stringCh: string | null = null;
+            while (pos < raw.length) {
+              const c2 = raw[pos];
+              if (stringCh !== null) {
+                if (c2 === "\\" && pos + 1 < raw.length) { expr += c2 + raw[pos + 1]; advance(2); continue; }
+                if (c2 === stringCh) stringCh = null;
+                expr += c2; advance(); continue;
+              }
+              const atDepthZero = parenDepth === 0 && braceDepth === 0 && bracketDepth === 0;
+              if (atDepthZero) {
+                if (c2 === "/" && raw[pos + 1] === ">") break;
+                if (c2 === ">") break;
+                if (/[ \t\r\n\f]/.test(c2)) break;
+              }
+              if (c2 === '"' || c2 === "'" || c2 === "`") { stringCh = c2; expr += c2; advance(); continue; }
+              if (c2 === "(") { parenDepth++; expr += c2; advance(); continue; }
+              if (c2 === ")") { parenDepth--; expr += c2; advance(); continue; }
+              if (c2 === "[") { bracketDepth++; expr += c2; advance(); continue; }
+              if (c2 === "]") { bracketDepth--; expr += c2; advance(); continue; }
+              if (c2 === "{") { braceDepth++; expr += c2; advance(); continue; }
+              if (c2 === "}") { braceDepth--; expr += c2; advance(); continue; }
+              expr += c2; advance();
+            }
+            tokens.push(makeToken("ATTR_EXPR", expr, vs, absOff(), vl, vc));
           } else if (isEventHandlerAttrName(name) && isBareExprContinuation(raw, pos)) {
             // S97 — SPEC §5.2.3 bare-assignment event handler.
             //

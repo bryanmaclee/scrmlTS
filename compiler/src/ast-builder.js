@@ -2165,6 +2165,49 @@ function parseAttributes(tokens, filePath, errors, isComponent = false) {
     i++;
   }
 
+  // S188 follow-up (g-not-negation-enforce attr-bare hole) — bare prefix-`not`
+  // INSIDE an unquoted COMPOUND attribute condition, e.g. `<p if=@x && not @y>`.
+  // SPEC §5.5.2 requires a compound boolean attr condition to be parenthesized;
+  // the unquoted compound form is not a supported single-expression value, so
+  // the tokenizer shreds `@x && not @y` into the `if` value `@x` plus stray
+  // bareword attributes `&&`(dropped) / `not` / `@y`. The leading bare `not` of
+  // such a shred is a prefix-`not`-as-negation (E-TYPE-045) — the SAME violation
+  // as `if=not @y` (h1, captured at the tokenizer) — but here it surfaces as a
+  // stray attribute pair `{name:"not", absent}` immediately followed by an
+  // operand attribute. Detect that signature and fire E-TYPE-045 at the `not`
+  // span so the real cause is named (instead of only the misleading downstream
+  // E-SCOPE-001 on the stranded operand). The valid attribute literally named
+  // `not` (`<p not=@y>`) is NOT matched — it carries a non-absent value (it has
+  // an `=`), so `a.value.kind !== "absent"`.
+  for (let ai = 0; ai < attrs.length - 1; ai++) {
+    const a = attrs[ai];
+    const b = attrs[ai + 1];
+    if (
+      a && b &&
+      a.name === "not" && a.value && a.value.kind === "absent" &&
+      typeof b.name === "string" &&
+      // The following stray attribute is the negation operand: an `@`-ref or a
+      // bare identifier (absent value — itself a stray bareword, not a real
+      // `name=value` attribute).
+      b.value && b.value.kind === "absent" &&
+      (b.name.startsWith("@") || /^[A-Za-z_$][A-Za-z0-9_$.]*$/.test(b.name))
+    ) {
+      errors.push(new TABError(
+        "E-TYPE-045",
+        "E-TYPE-045: prefix `not` is not valid as boolean negation — `not` is the " +
+        "unified absence value, not a logical-negation operator. Use `!expr` (bare) " +
+        "or `!(expr)` (parenthesized) for boolean negation, or `expr is not` to check " +
+        "for absence (§42). (A compound attribute condition must be parenthesized — " +
+        "e.g. `if=(@a && !@b)` — per §5.5.2.)",
+        a.span,
+      ));
+      // Drop the stray `not` + operand so they don't cascade into a misleading
+      // E-SCOPE-001 on the unresolved operand bareword.
+      attrs.splice(ai, 2);
+      ai--;
+    }
+  }
+
   return attrs;
 }
 
