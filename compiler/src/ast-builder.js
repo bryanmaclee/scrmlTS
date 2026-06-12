@@ -3358,7 +3358,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         depth--;
         if (depth === 0) { lastTok = consume(); break; }
       }
+      // S184 (lifecycle-field-comment-leak): a COMMENT token's `.text` is the
+      // comment CONTENT with the leading `//` or `/*` glyph already stripped by
+      // the tokenizer (readLineComment / readBlockComment). Pushing that text
+      // into the braced-body `raw` leaks the bare comment words into the
+      // struct-field type-expr string — e.g. a field annotated
+      //   passwordHash: (not to string)   // ...transitions to string...
+      // reaches the type system as `(not to string) ...transitions to string...`,
+      // defeating the `endsWith(")")` lifecycle-wrap gate in
+      // isFunctionTypeAnnotation and mis-firing E-STRUCT-FUNCTION-FIELD on a
+      // valid lifecycle field. Consume the comment token (advance past it) but
+      // do NOT contribute its text to the body, exactly as the tokenizer's own
+      // token-walk helpers skip COMMENT tokens (tokenizer.ts ~995).
       lastTok = consume();
+      if (lastTok.kind === "COMMENT") continue;
       parts.push(lastTok.text);
       partLines.push(lastTok.span?.line ?? 0);
     }

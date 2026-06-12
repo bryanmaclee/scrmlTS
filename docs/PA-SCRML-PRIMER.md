@@ -481,11 +481,13 @@ type User:struct = {
     passwordHash: (not to string)        // starts absent; transitions to string after hashing
 }
 
-const u: User = { id: 1, email: "a@b.com", passwordHash: not }
-const hash = u.passwordHash               // E-TYPE-001 — pre-transition access
+<u>: User = { id: 1, email: "a@b.com", passwordHash: not }
 
-u.passwordHash = hashPassword(rawPassword)
-const hashAfter = u.passwordHash          // OK — post-transition access
+function hashUserPassword(raw: string) {
+    const leaked    = @u.passwordHash      // E-TYPE-001 — pre-transition read
+    @u.passwordHash = hashPassword(raw)    // transition: a string value is assigned
+    const ok        = @u.passwordHash      // OK — post-transition read
+}
 ```
 
 The annotation is a **type-system** mechanism, NOT a state-machine. For variant-graph progression with explicit `from` / `to` declarations, use an engine (§7 / Tier 2). Engines and lifecycle annotations are complementary; the engine-cell carve-out below preserves the separation.

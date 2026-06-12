@@ -85,6 +85,7 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 > `bun scripts/state.ts --write` regenerates it; `--check` gates it.
 
 <!-- @generated:recent-sessions START (do not edit — `bun scripts/state.ts --write`) -->
+- `3e539003` — wrap(s183): hand-off CLOSE + changelog S183 + master-list (23837->23855) + 6c maps refresh (065fa06c->1734b81b, e4bf4105) + 6d state-regen + 6b worktree-cleanup x3 (formfor/reframe/tailwind) + handoff-187 rotation. 4 arcs: formfor/tablefor unimported hard-error + fn/pure canonicity reframe + tailwind dynamic-class fix + maps; 8-round dog-food sweep (2 bugs fixed + g-lifecycle candidate) — **pushed**
 - `065fa06c` — wrap(s182): hand-off CLOSE + changelog S182 + master-list (23830->23837) + known-gaps (g-formfor-unimported-silent filed; LOW 11->12) + 6d state-regen + master-inbox pa-base-vendoring notice + handoff-186 rotation — **pushed**
 - `06d6c37d` — wrap(s181): hand-off CLOSE + changelog S181 + master-list (23816->23830) + known-gaps (g-server-keyword-error-msg + g-display-text-overquote RESOLVED + SSE-DD keep-deferred) + 6d state-regen (gap-counts MED6/LOW11 + recent-sessions) + 6b worktree-cleanup x2 + handoff-185 rotation — **pushed**
 - `b81fe03f` — wrap(s180): hand-off CLOSE + changelog S180 + master-list (23779->23816) + known-gaps (g-server-keyword-drift RESOLVED + g-sse-server-keyword + g-server-keyword-error-msg) + 6d state-regen + 6b worktree-cleanup x6 + handoff-184 rotation — **pushed**
@@ -92,7 +93,6 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 - `0729e529` — wrap(s178): hand-off CLOSE + changelog S178 + master-list (23734->23757, MED 7->6) + 6d state-doc + 6b worktree-cleanup ×2 + handoff-182 rotation — **pushed**
 - `7c41cad2` — wrap(s177): hand-off CLOSE + changelog S177 (3 arcs) + master-list test-marker (23680->23734) + 6c maps refresh (35172d78->c48c4f71) + 6d state-doc — **pushed**
 - `0aa54fc2` — wrap(s176): hand-off CLOSE + changelog S176 (4 arcs) + master-list test-marker (23538->23680) + 6c maps refresh (049954e0->35172d78) + 6d state-doc + handoff-180 rotation — **pushed**
-- `efdec093` — wrap(s175): 6c maps refresh (f0b3cb04->049954e0) — **pushed**
 <!-- @generated:recent-sessions END -->
 
 ## A. Compiler core

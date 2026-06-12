@@ -249,11 +249,13 @@ type User:struct = {
     passwordHash: (not to string)        // starts absent; transitions to string after hashing
 }
 
-const u: User = { id: 1, email: "a@b.com", passwordHash: not }
-const hash = u.passwordHash               // E-TYPE-001 — pre-transition access
+<u>: User = { id: 1, email: "a@b.com", passwordHash: not }
 
-u.passwordHash = hashPassword(rawPw)
-const hashAfter = u.passwordHash          // OK — transitioned
+function hashUserPassword(raw: string) {
+    const leaked    = @u.passwordHash      // E-TYPE-001 — pre-transition read
+    @u.passwordHash = hashPassword(raw)    // transition: a string value is assigned
+    const ok        = @u.passwordHash      // OK — post-transition read
+}
 ```
 
 The canonical glyph is `to` — a contextual keyword inside the parens (parallel to `from` in `import`). The legacy `->` glyph still parses but lints `W-LIFECYCLE-LEGACY-ARROW`. Use `to` in new code.

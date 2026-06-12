@@ -17,7 +17,7 @@
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 0 |
 | MED | 6 |
-| LOW | 12 |
+| LOW | 11 |
 | Nominal (spec-ahead-of-impl) | 9 |
 <!-- @generated:gap-counts END -->
 
@@ -1702,9 +1702,11 @@ SPEC §4.18 landed Wave 1 S111 — the code-default body mode + `"..."` display-
 ---
 
 ### G-LIFECYCLE-STRUCT-FIELD-CONST-NOTFIRE — struct-field `(not to string)` pre-transition access did not fire `E-TYPE-001` on the PRIMER §6.5 example — `NEW S183; LOW; CANDIDATE (needs verification)`
-<!-- @gap id=g-lifecycle-struct-field-const-notfire sev=LOW status=open -->
+<!-- @gap id=g-lifecycle-struct-field-const-notfire sev=LOW status=resolved -->
 
 **Surfaced S183 dog-food (round 5).** The PRIMER §6.5 verbatim worked example — `type User:struct = { ..., passwordHash: (not to string) }; const u: User = {..., passwordHash: not}; const leak = u.passwordHash` (annotated `// E-TYPE-001 - pre-transition access`) — compiled CLEAN (exit 0), NO `E-TYPE-001`. This is §5-Landing-1's STATED scope ("per-access transition-state tracking for **struct fields**", SHIPPED S130 `1feaedc9` + 25 tests), so it SHOULD fire. **CANDIDATE, not yet a confirmed bug** (verify-before-claim / S138 reverse-direction): Landing-1 shipped + tested, so the most likely cause is a sub-path the tracker doesn't observe (e.g. top-level-`${}` `const u: User = {...}` construction + member-read, vs the form Landing-1's tests exercise) rather than a wholesale regression. **Needs a focused gate-logic check** (does E-TYPE-001 fire on Landing-1's own test form vs the primer's `const`-bound top-level form?) before classifying bug-vs-form. Cross-ref §5 lifecycle table Landing 1 + B-prereq.
+
+**RESOLVED S184 — verified doc-vs-impl (NOT a tracker regression), Direction-1 fix.** Empirical probe: the Landing-1 tracker fires correctly on the idiomatic `<state>`-cell struct binding (`<u>: User = {…}` + `@u.passwordHash` → E-TYPE-001 fires; `<state>: (not to User)` form fires too). PRIMER §6.5 + kickstarter §3.2 taught the feature with a plain local `const u: User = {…}` binding read via bare `u.passwordHash` — a TS idiom that is none of §14.12.3's enumerated positions and that the tracker doesn't observe. Both examples rewritten to the cell-form this session. **Side-find fixed same arc:** a trailing `//`/`/* */` comment on a `(not to string)` lifecycle struct-field line leaked into the type-expr → false `E-STRUCT-FUNCTION-FIELD` (blocked valid scrml; hit the canonical SPEC §14.12.1 / PRIMER / kickstarter examples as printed). Root-caused upstream of the PA hypothesis: `ast-builder.js` `collectBracedBody`/`parseLogicBody` pushed COMMENT-token text into `decl.raw`; fixed by skipping COMMENT tokens at collection (one central guard; +12 tests; 0 regressions). PA-independent R26 verified (0 E-STRUCT-FUNCTION-FIELD on the comment form; E-TYPE-001 fires; real `() -> void` field still rejected — no over-strip). Dispatch `lifecycle-field-comment-leak-2026-06-11`. **Carry-forward candidates (confirmed, UNFILED pending user disposition):** (1) E-TYPE-001 double-fire on a single read; (2) W-LINT-007 ghost false-positive on struct object literals; (3) inline-struct *real* function fields not rejected at all (pre-existing inline-path gap, agent-surfaced).
 
 ---
 
