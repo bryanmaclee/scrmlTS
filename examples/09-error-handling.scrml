@@ -39,7 +39,7 @@
         if (@name == "")  fail .EmptyName
         if (@email == "") fail .EmptyEmail
         // Minimal email check — just needs an @.
-        if (not @email.includes("@")) fail .InvalidEmail(@email)
+        if (!@email.includes("@")) fail .InvalidEmail(@email)
     }
 
     // submit() queues the message server-side and is failable. The `?{}`
@@ -97,7 +97,7 @@
             <p class="text-green-600 font-bold">Thanks! We'll be in touch.</>
         </div>
 
-        <form if=(not @submitted) onsubmit=handleSubmit()>
+        <form if=(!@submitted) onsubmit=handleSubmit()>
             <label class="flex flex-col gap-1 text-sm mb-3">
                 Name
                 <input type="text" class="p-2 border border-gray-300 rounded text-base" bind:value=@name placeholder="Your name">

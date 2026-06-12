@@ -154,7 +154,7 @@
       <ul>
         ${ for (let t of @tasks) {
           lift <li class="task">
-            <input type="checkbox" checked=t.completed onchange=toggle(t.id, not t.completed)/>
+            <input type="checkbox" checked=t.completed onchange=toggle(t.id, !t.completed)/>
             <span class="title" class:done=t.completed>${t.title}</span>
             <button class="rm" onclick=remove(t.id)>×</button>
           </li>

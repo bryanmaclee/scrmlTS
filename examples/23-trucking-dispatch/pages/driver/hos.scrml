@@ -151,7 +151,7 @@
             if (cur == "driving"       && newStatus == "on_duty")        { allowed = true }
             if (cur == "sleeper_berth" && newStatus == "on_duty")        { allowed = true }
             if (cur == "sleeper_berth" && newStatus == "off_duty")       { allowed = true }
-            if (not allowed) return { error: `Cannot transition from ${cur} to ${newStatus}.` }
+            if (!allowed) return { error: `Cannot transition from ${cur} to ${newStatus}.` }
 
             ?{`UPDATE drivers SET current_status = ${newStatus} WHERE id = ${driver.id}`}.run()
 
@@ -319,7 +319,7 @@
         </header>
 
         <main class="max-w-3xl mx-auto px-6 py-8">
-            <p if=(not @loaded) class="text-slate-500">Loading…</p>
+            <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
             <div if=(@loaded && !@currentDriver) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
                 ${@errorMessage}

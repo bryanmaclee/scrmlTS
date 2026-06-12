@@ -48,7 +48,7 @@
       // (body-content inference promotes via ?{}).
       function postNote(authorEmail, title, body) {
         const user = lookupUser(authorEmail)
-        if (not user) return
+        if (!user) return
         ?{`
           INSERT INTO notes (user_id, title, body, published)
           VALUES (${user.id}, ${title}, ${body}, 1)

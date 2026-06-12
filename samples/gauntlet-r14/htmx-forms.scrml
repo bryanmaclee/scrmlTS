@@ -29,7 +29,7 @@
             let nameErr = checkRequired(@name, "Name")
             let emailErr = checkRequired(@email, "Email")
             let emailFmt = checkEmail(@email)
-            @errors = [nameErr, emailErr, emailFmt].filter(e => not (e is not))
+            @errors = [nameErr, emailErr, emailFmt].filter(e => !(e is not))
             return @errors.length == 0
         }
 

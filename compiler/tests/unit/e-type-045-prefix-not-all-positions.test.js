@@ -1,0 +1,294 @@
+/**
+ * E-TYPE-045 — prefix-`not`-as-negation enforcement (SPEC §42.10).
+ *
+ * S188 (g-not-negation-enforce): `not` is the unified absence VALUE, not a
+ * boolean-negation operator. Prefix-`not`-as-negation SHALL fire E-TYPE-045 in
+ * EVERY expression position and BOTH forms (bare `not @x` + paren `not (expr)`).
+ * The negation operator is `!`.
+ *
+ * Enforcement locus: the expression-parser lowering choke-point
+ * (`preprocessForAcorn`) stamps `_notPrefixNegation` on the returned ExprNode;
+ * `harvestNotPrefixNegation` (type-system) emits E-TYPE-045 once per stamped
+ * node. This file is the all-positions / both-forms / valid-form-preservation
+ * regression surface for that path.
+ */
+
+import { describe, test, expect } from "bun:test";
+import { resolve, dirname } from "path";
+import { writeFileSync, rmSync, existsSync, mkdirSync } from "fs";
+import { compileScrml } from "../../src/api.js";
+
+const testDir = dirname(new URL(import.meta.url).pathname);
+let tmpCounter = 0;
+
+function compileWholeScrml(source, testName = `etype045-${++tmpCounter}`) {
+  const tmpDir = resolve(testDir, `_tmp_${testName}`);
+  const tmpInput = resolve(tmpDir, `${testName}.scrml`);
+  mkdirSync(tmpDir, { recursive: true });
+  writeFileSync(tmpInput, source);
+  try {
+    const result = compileScrml({
+      inputFiles: [tmpInput],
+      write: false,
+      outputDir: resolve(tmpDir, "out"),
+    });
+    return { errors: result.errors ?? [] };
+  } finally {
+    if (existsSync(tmpInput)) rmSync(tmpInput);
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+function codes(errors) {
+  return errors.map((e) => e.code);
+}
+function fires045(src, name) {
+  return codes(compileWholeScrml(src, name).errors).includes("E-TYPE-045");
+}
+
+// =============================================================================
+// FORBIDDEN positions — E-TYPE-045 MUST fire (bare + paren, all positions).
+// =============================================================================
+
+describe("E-TYPE-045 fires — bare `not @x` in every expression position", () => {
+  test("if-condition (bare)", () => {
+    const src = `\${
+    let ready = true
+    if (not @ready) { let _b = 1 }
+}
+<program><p>x</></>`;
+    expect(fires045(src, "bare-if")).toBe(true);
+  });
+
+  test("while-condition (bare)", () => {
+    const src = `\${
+    let go = true
+    while (not @go) { @go = false }
+}
+<program><p>x</></>`;
+    expect(fires045(src, "bare-while")).toBe(true);
+  });
+
+  test("attribute `if=` (bare)", () => {
+    const src = `\${
+    let loaded = true
+}
+<program>
+    <p if=(not @loaded)>Loading</>
+</>`;
+    expect(fires045(src, "bare-attr")).toBe(true);
+  });
+
+  test("`${...}` interpolation (bare)", () => {
+    const src = `\${
+    let on = true
+}
+<program>
+    <p>\${ not @on ? "off" : "on" }</>
+</>`;
+    expect(fires045(src, "bare-interp")).toBe(true);
+  });
+
+  test("ternary operand (bare)", () => {
+    const src = `\${
+    let on = true
+    let label = not @on ? "off" : "on"
+}
+<program><p>\${@label}</></>`;
+    expect(fires045(src, "bare-ternary")).toBe(true);
+  });
+
+  test("`&&` operand (bare)", () => {
+    const src = `\${
+    let a = true
+    let b = true
+    let r = (not @a) && @b
+}
+<program><p>\${@r}</></>`;
+    expect(fires045(src, "bare-and")).toBe(true);
+  });
+
+  test("return position (bare)", () => {
+    const src = `\${
+    let x = true
+    fn check() {
+        return not @x
+    }
+}
+<program><p>x</></>`;
+    expect(fires045(src, "bare-return")).toBe(true);
+  });
+
+  test("call-argument position (bare)", () => {
+    const src = `\${
+    let x = true
+    fn use(v) { return v }
+    let r = use(not @x)
+}
+<program><p>\${@r}</></>`;
+    expect(fires045(src, "bare-callarg")).toBe(true);
+  });
+
+  test("member-access operand (bare `not obj.prop`)", () => {
+    const src = `\${
+    let o = { ok: true }
+    if (not o.ok) { let _b = 1 }
+}
+<program><p>x</></>`;
+    expect(fires045(src, "bare-member")).toBe(true);
+  });
+});
+
+describe("E-TYPE-045 fires — parenthesized `not (expr)` in every position", () => {
+  test("if-condition (paren) — the legacy-supported path", () => {
+    const src = `\${
+    let flag = true
+    if (not (flag)) { let _b = 1 }
+}
+<program><p>x</></>`;
+    expect(fires045(src, "paren-if")).toBe(true);
+  });
+
+  test("attribute `if=` (paren)", () => {
+    const src = `\${
+    let x = 1
+}
+<program>
+    <p if=(not (@x == 1))>y</>
+</>`;
+    expect(fires045(src, "paren-attr")).toBe(true);
+  });
+
+  test("`${...}` interpolation (paren)", () => {
+    const src = `\${
+    let x = 1
+}
+<program>
+    <p>\${ not (@x == 1) ? "a" : "b" }</>
+</>`;
+    expect(fires045(src, "paren-interp")).toBe(true);
+  });
+
+  test("ternary operand (paren)", () => {
+    const src = `\${
+    let x = 1
+    let r = not (@x == 1) ? "a" : "b"
+}
+<program><p>\${@r}</></>`;
+    expect(fires045(src, "paren-ternary")).toBe(true);
+  });
+
+  test("derived-RHS / let-init (paren)", () => {
+    const src = `\${
+    let x = 1
+    let inverted = not (@x == 1)
+}
+<program><p>\${@inverted}</></>`;
+    expect(fires045(src, "paren-derived")).toBe(true);
+  });
+});
+
+describe("E-TYPE-045 fires once — no double-fire on the if/while paren form", () => {
+  test("single fire on if-condition paren", () => {
+    const src = `\${
+    let flag = true
+    if (not (flag)) { let _b = 1 }
+}
+<program><p>x</></>`;
+    const all = codes(compileWholeScrml(src, "single-fire").errors);
+    const n = all.filter((c) => c === "E-TYPE-045").length;
+    expect(n).toBe(1);
+  });
+});
+
+// =============================================================================
+// VALID forms — E-TYPE-045 MUST NOT fire (absence value, not negation).
+// =============================================================================
+
+describe("E-TYPE-045 does NOT fire — valid `not` (absence) forms", () => {
+  test("`x is not` absence predicate", () => {
+    const src = `\${
+    let x = "" | not
+    let absent = @x is not
+}
+<program><p>\${@absent}</></>`;
+    expect(fires045(src, "valid-is-not")).toBe(false);
+  });
+
+  test("`x is not not` presence predicate", () => {
+    const src = `\${
+    let x = "" | not
+    let present = @x is not not
+}
+<program><p>\${@present}</></>`;
+    expect(fires045(src, "valid-is-not-not")).toBe(false);
+  });
+
+  test("`let x = not` assignment-position absence value", () => {
+    const src = `\${
+    let x: string | not = not
+}
+<program><p>x</></>`;
+    expect(fires045(src, "valid-assign-not")).toBe(false);
+  });
+
+  test("`return not` value-completion absence", () => {
+    const src = `\${
+    fn maybe() {
+        return not
+    }
+}
+<program><p>x</></>`;
+    expect(fires045(src, "valid-return-not")).toBe(false);
+  });
+
+  test("canonical `!@x` boolean negation compiles clean", () => {
+    const src = `\${
+    let ready = true
+    if (!@ready) { let _b = 1 }
+}
+<program><p>x</></>`;
+    expect(fires045(src, "valid-bang")).toBe(false);
+  });
+
+  test("regex-literal `not` interior is not negation (GITI-017 guard)", () => {
+    const src = `\${
+    fn classify(input) {
+        if (/not a repo/i.test(input)) return "nope"
+        return "ok"
+    }
+}
+<program><p>x</></>`;
+    expect(fires045(src, "valid-regex-not")).toBe(false);
+  });
+
+  test("string-literal `not` interior is not negation", () => {
+    const src = `\${
+    let msg = "this is not negation"
+}
+<program><p>\${@msg}</></>`;
+    expect(fires045(src, "valid-string-not")).toBe(false);
+  });
+
+  test("markup text `not` prose is not negation", () => {
+    const src = `\${
+    let x = 1
+}
+<program>
+    <p>Item not found.</>
+</>`;
+    expect(fires045(src, "valid-prose-not")).toBe(false);
+  });
+
+  test("outer `not (x is not)` STILL fires (the inner is-not is valid; the outer prefix-not is negation)", () => {
+    // `not (e is not)` = NOT(e is absent) = "e is present". The OUTER prefix-`not`
+    // is the forbidden boolean-negation form (use `!(e is not)`); the inner
+    // `is not` is the valid absence predicate. E-TYPE-045 MUST fire on the outer.
+    const src = `\${
+    let e = "" | not
+    let present = not (@e is not)
+}
+<program><p>\${@present}</></>`;
+    expect(fires045(src, "outer-not-inner-isnot")).toBe(true);
+  });
+});

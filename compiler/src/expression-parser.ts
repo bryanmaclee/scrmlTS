@@ -1006,7 +1006,11 @@ function rewriteIsPredicates(s: string): string {
 }
 
 /** Pre-process scrml-specific operators for Acorn parsing. Returns transformed string. */
-function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): string {
+function preprocessForAcorn(
+  raw: string,
+  opts?: { tildeActive?: boolean },
+  detector?: { notPrefixNegation: boolean },
+): string {
   let s = raw.trim();
 
   // Bug 1 fix-B (S88 dispatch — 14-mario): the `::` enum-variant access alias
@@ -1167,7 +1171,19 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
     // 6nz-s (S127): `[ \t]*` not `\s*` — never bridge a statement boundary
     // (a real `not (...)` negation keeps its operand on the same logical line;
     // `not\n(` is standalone absence followed by a separate parenthesised stmt).
+    //
+    // §42.10 ENFORCEMENT (S188 g-not-negation-enforce): whichever substitution
+    // fires is EXACTLY the SPEC-forbidden prefix-`not`-as-negation (all valid
+    // `not` — `is not`, `= not`, `return not`, `f(not)`, regex/string interiors —
+    // is excluded BEFORE this point; cross-ref the §29 SCOPE rationale). We STILL
+    // lower `not`→`!` so error-recovery output stays coherent, AND additionally
+    // record the detection in `detector` so parseExprToNode can attach the
+    // diagnostic onto the returned ExprNode (type-system harvests → E-TYPE-045).
+    // `detector` is undefined for pure-lowering callers (rewriteExpr /
+    // rewriteNotKeyword direct-call unit tests, no sink) → behaviour unchanged.
+    const beforeParen = code;
     code = code.replace(/(?<![A-Za-z0-9_$@])not[ \t]*\(/g, "!(");
+    if (detector && code !== beforeParen) detector.notPrefixNegation = true;
 
     // §45.7 operator-form: `not <operand>` — unary boolean negation → `!<operand>`.
     // Acorn does not know `not` is a unary operator, so without this rewrite it
@@ -1204,10 +1220,12 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
     //       negation operand, so `not const` / `not return` / `not if` (even on
     //       one line) is standalone absence, not negation. Defensive complement
     //       to (a) for any same-line keyword-adjacency.
+    const beforeBare = code;
     code = code.replace(
       /(?<![A-Za-z0-9_$@.])not[ \t]+(?!(?:const|let|var|return|if|else|for|while|do|switch|case|break|continue|function|new|typeof|void|delete|in|instanceof|class|import|export|yield|await|throw|try|catch|finally|with|debugger|default)(?![A-Za-z0-9_$]))(@?[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:\[[^\]]*\])*)/g,
       "!$1"
     );
+    if (detector && code !== beforeBare) detector.notPrefixNegation = true;
     return code;
   });
 
@@ -2257,6 +2275,22 @@ function convertParams(params: ESNode[], filePath: string, baseOffset: number): 
  * @returns A structured ExprNode. Returns EscapeHatchExpr on parse failure.
  */
 export function parseExprToNode(raw: string, filePath: string, offset: number, opts?: { tildeActive?: boolean }): ExprNode {
+  // §42.10 ENFORCEMENT (S188 g-not-negation-enforce): a detector object captures
+  // whether preprocessForAcorn lowered a prefix-`not`-as-negation (bare `not @x`
+  // OR parenthesized `not (expr)`) ANYWHERE in this expression. When it fires we
+  // stamp `_notPrefixNegation` onto the returned ExprNode; the type-system harvest
+  // walk (harvestNotPrefixNegation) emits E-TYPE-045 once per stamped node. This
+  // covers ALL expression positions + BOTH forms with a single source of truth
+  // (the lowering choke-point), since every expression flows through this fn once.
+  const _notDetector = { notPrefixNegation: false };
+  const _node = _parseExprToNodeInner(raw, filePath, offset, opts, _notDetector);
+  if (_notDetector.notPrefixNegation && _node && typeof _node === "object") {
+    (_node as Record<string, unknown>)._notPrefixNegation = true;
+  }
+  return _node;
+}
+
+function _parseExprToNodeInner(raw: string, filePath: string, offset: number, opts?: { tildeActive?: boolean }, _notDetector?: { notPrefixNegation: boolean }): ExprNode {
   if (!raw || typeof raw !== "string" || !raw.trim()) {
     // Empty expression — return an absence-literal placeholder.
     // §42 absence canon (S90 M-7C-D-12 Track 1): canonical `litType: "not"`
@@ -2273,7 +2307,7 @@ export function parseExprToNode(raw: string, filePath: string, offset: number, o
   let processed = trimmed;
 
   // Preprocessing for scrml-specific operators
-  processed = preprocessForAcorn(processed, { tildeActive: opts?.tildeActive });
+  processed = preprocessForAcorn(processed, { tildeActive: opts?.tildeActive }, _notDetector);
 
   // Standard parseExpression preprocessing (SQL, input-state, worker refs)
   // parseExpression already does this, but we also do it here so we can

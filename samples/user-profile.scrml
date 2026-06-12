@@ -69,10 +69,10 @@ ${
 
 <div class="profile-page" style="font-family: system-ui, sans-serif;">
 
-    <div class="error-banner" if=(not (@error is not))>${@error}</>
-    <div class="success-banner" if=(not (@success is not))>${@success}</>
+    <div class="error-banner" if=(!(@error is not))>${@error}</>
+    <div class="success-banner" if=(!(@success is not))>${@success}</>
 
-    <section class="profile-view" if=(not (@user is not))>
+    <section class="profile-view" if=(!(@user is not))>
         <div class="profile-header">
             <h1>${@user.display_name}</>
             <p class="profile-email">${@user.email}</>

@@ -50,7 +50,7 @@ function compile(path) {
   return compileScrml({ inputFiles: [path], outputDir: FIXTURE_OUTPUT, write: false });
 }
 
-let glueFx, negFx, regexFx;
+let glueFx, negFx, bangFx, regexFx;
 
 beforeAll(() => {
   mkdirSync(FIXTURE_DIR, { recursive: true });
@@ -85,13 +85,28 @@ function clearIt() {
 </program>
 `);
 
-  // Real boolean negation — must still lower `not <operand>` to `!<operand>`.
+  // §42.10 ENFORCEMENT (S188): prefix-`not`-as-negation is forbidden — `not @ready`
+  // MUST now fire E-TYPE-045. This fixture is the forbidden form (asserts reject).
   negFx = fix("neg.scrml", `<program>
 <ready> = false
 <flag> = true
 function check() {
     if (not @ready) return 1
     if (not @flag) return 2
+    return 0
+}
+<button onclick=\${ @ready = check() > 0 }>check</button>
+<div>\${@ready}</div>
+</program>
+`);
+
+  // Canonical boolean negation via `!` — MUST compile clean + emit `!`.
+  bangFx = fix("bang.scrml", `<program>
+<ready> = false
+<flag> = true
+function check() {
+    if (!@ready) return 1
+    if (!@flag) return 2
     return 0
 }
 <button onclick=\${ @ready = check() > 0 }>check</button>
@@ -168,15 +183,24 @@ describe("§3 standalone `@x = not` assignment is not mis-lowered", () => {
 // §4: real negation `not <operand>` still lowers to `!`
 // ---------------------------------------------------------------------------
 
-describe("§4 real negation `not <operand>` still lowers to `!`", () => {
-  test("compile succeeds", () => {
+describe("§42.10 boolean negation — prefix `not` REJECTED, `!` is canonical", () => {
+  // S188 g-not-negation-enforce: `not @ready` (prefix-as-negation) is forbidden
+  // and MUST fire E-TYPE-045 in every expression position (here: if-condition).
+  test("prefix `not @operand` fires E-TYPE-045 (forbidden)", () => {
     const result = compile(negFx);
+    const codes = result.errors.map((e) => e.code);
+    expect(codes).toContain("E-TYPE-045");
+  });
+
+  // The canonical `!` form is the supported boolean negation — compiles clean.
+  test("canonical `!@operand` compiles clean (no E-TYPE-045)", () => {
+    const result = compile(bangFx);
     expect(result.errors).toEqual([]);
   });
 
-  test("`not @ready` / `not @flag` emit boolean negation (`!`), not absence", () => {
-    const result = compile(negFx);
-    const js = result.outputs.get(negFx).clientJs;
+  test("`!@ready` / `!@flag` emit boolean negation (`!`), not absence", () => {
+    const result = compile(bangFx);
+    const js = result.outputs.get(bangFx).clientJs;
     // The negation operator must appear against the reactive read. The exact
     // reactive accessor differs by codegen, so assert the `!`-against-read shape
     // and that we did NOT drop the operand into a standalone `null`.
@@ -185,9 +209,9 @@ describe("§4 real negation `not <operand>` still lowers to `!`", () => {
   });
 
   test("emitted client JS is syntactically valid (node --check clean)", () => {
-    const result = compile(negFx);
-    const js = result.outputs.get(negFx).clientJs;
-    const tmp = join(FIXTURE_OUTPUT, "_neg_check.js");
+    const result = compile(bangFx);
+    const js = result.outputs.get(bangFx).clientJs;
+    const tmp = join(FIXTURE_OUTPUT, "_bang_check.js");
     mkdirSync(FIXTURE_OUTPUT, { recursive: true });
     writeFileSync(tmp, js);
     expect(() => execFileSync("node", ["--check", tmp])).not.toThrow();

@@ -17095,7 +17095,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-REPLAY-003 | §51.14 | A replay-mode block performs an action whose ordering across replays is not stable (e.g., async-source iteration with non-deterministic interleaving). (Catalog addition S78 audit; emitted at `compiler/src/type-system.ts:8611`.) | Error |
 | E-TYPE-041 | §14, §17.6 | `not` (the absence sentinel) assigned to a variable of non-optional type `T`. `not` is only assignable to `T \| not` optional types. (Catalog addition S78 audit; emitted at `compiler/src/type-system.ts:4279`.) | Error |
 | E-TYPE-042 | §17.6, §45 | Absence checked with `== not`, `=== not`, `== null`, etc. The only normative absence check is `x is not`. (Catalog addition S78 audit; emitted at `compiler/src/codegen/rewrite.ts:669`.) | Error |
-| E-TYPE-045 | §17.6 | `not` used in prefix position as a boolean negation operator (`not (expr)`). `not` is the absence value, not a negation operator — use `!` for boolean negation. (Catalog addition S78 audit; emitted at `compiler/src/type-system.ts:5556`.) | Error |
+| E-TYPE-045 | §17.6, §42.10 | `not` used in prefix position as a boolean negation operator — bare `not @x` OR parenthesized `not (expr)`, in ANY expression position (if/while condition, attr `if=`, `${...}` interpolation, ternary, `&&`/`\|\|`, return, call-arg, derived-RHS). `not` is the absence value, not a negation operator — use `!expr` / `!(expr)` for boolean negation, or `expr is not` for absence. (Catalog addition S78 audit; enforcement broadened to all positions + bare form S188 — detected at the lowering choke-point `compiler/src/expression-parser.ts` `preprocessForAcorn`, emitted by `harvestNotPrefixNegation` at `compiler/src/type-system.ts:15270`.) | Error |
 | E-TYPE-071 | §16.8, §15.14 | `render` invocation appears outside a markup-producing context (component body or markup-typed position). `render` is only valid where its output is consumed as markup. (Catalog addition S78 audit; emitted at `compiler/src/codegen/rewrite.ts:1398`.) | Error |
 | E-TYPE-081 | §18.16 | `partial match` used in a rendering or `lift` context. `partial match` returns `T | not` (a possibly-`not` value; §42), which is incoherent in positions that must produce concrete markup. Resolution: cover all variants, or convert to a value-position match. (Catalog addition S78 audit; emitted at `compiler/src/type-system.ts:3753, 4838`.) | Error |
 | E-PROTECT-003 | §8.10.7 | A `BatchPlan.rowCacheColumns` entry includes a `protect` column that also appears in the handler's client-visible return type. Protected fields must not leak to client-visible cache rows. (Catalog addition S78 audit; emitted at `compiler/src/batch-planner.ts:552`.) | Error |
@@ -21603,7 +21603,7 @@ A function that may return no value SHALL declare its return type as `T | not`. 
 | E-TYPE-042 | Absence checked with `== not`, `=== not`, `== null`, etc. | Error |
 | E-TYPE-043 | Function with non-optional return type has a path returning `not` | Error |
 | E-TYPE-044 | `given` applied to a variable whose type does not include `| not` | Error |
-| E-TYPE-045 | `not` used in prefix position as boolean negation (`not (expr)`) | Error |
+| E-TYPE-045 | `not` used in prefix position as boolean negation — bare `not @x` OR parenthesized `not (expr)`, in any expression position (S188) | Error |
 | E-MATCH-012 | `match` on `T | not` type lacks a `not` arm and lacks an `else` arm | Error |
 
 ### 42.7 Normative Statements
@@ -21681,14 +21681,14 @@ The keyword `not` serves exactly one role in scrml: it is the absence value. It 
 
 - `not` in assignment position (e.g., `let x = not`, `@x = not`) SHALL mean "this variable holds no value."
 - `not` as the right-hand side of `is` (e.g., `x is not`) is the absence predicate operator.
-- The boolean negation operator in scrml is `!`. `!(a == b)` is valid. `not (a == b)` is NOT valid.
-- `not` SHALL NOT appear in prefix position before a boolean expression. The compiler SHALL emit E-TYPE-045.
+- The boolean negation operator in scrml is `!`. `!(a == b)` and `!@x` are valid. `not (a == b)` and `not @x` are NOT valid.
+- `not` SHALL NOT appear in prefix position before a boolean expression — in EITHER form (bare `not @x` / `not f(...)` / `not obj.prop`, OR parenthesized `not (expr)`) and in ANY expression position (if/while condition, attribute `if=`/`while=`, `${...}` interpolation, ternary, `&&`/`||` operand, return, call-arg, derived-cell RHS). The compiler SHALL emit E-TYPE-045 in all such positions.
 
 | Code | Trigger | Severity |
 |---|---|---|
-| E-TYPE-045 | `not` used in prefix position as boolean negation (`not (expr)`) | Error |
+| E-TYPE-045 | `not` used in prefix position as boolean negation — bare `not @x` OR parenthesized `not (expr)`, in any expression position (broadened S188) | Error |
 
-**E-TYPE-045 message:** `not` is the absence value, not a negation operator. Use `!` for boolean negation: `!(expr)`. To check for absence, use `x is not`.
+**E-TYPE-045 message:** `not` is the absence value, not a negation operator. Use `!` for boolean negation: `!expr` (bare) or `!(expr)` (parenthesized). To check for absence, use `x is not`.
 
 ---
 

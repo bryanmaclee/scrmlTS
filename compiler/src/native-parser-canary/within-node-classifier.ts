@@ -135,6 +135,15 @@ const STRIP_KEYS: ReadonlySet<string> = new Set([
                               // semantic divergence.
   "openerEffectBadSlice",     // companion raw-text slice for the above message —
                               // same live-only diagnostic-support metadata class.
+  "_notPrefixNegation",       // S188 (g-not-negation-enforce) — LIVE-only
+                              // diagnostic-support flag stamped by
+                              // parseExprToNode when the lowering choke-point
+                              // detects prefix-`not`-as-negation. Drives
+                              // E-TYPE-045 (§42.10). The native parser
+                              // represents `not` structurally as a `NotValue`
+                              // atom and never goes through this stamp, so it
+                              // never carries the flag; a live-pipeline-internal
+                              // diagnostic field, NOT a semantic divergence.
 ]);
 
 // ---------------------------------------------------------------------------

@@ -148,7 +148,7 @@ ${
             }
             if (node.children.length > 0) {
                 let found = findNode(node.children, id)
-                if (not (found is not)) {
+                if (!(found is not)) {
                     return found
                 }
             }
@@ -297,7 +297,7 @@ ${
             })
         }
         @tree = patchName(@tree, @renamingId, @renameValue)
-        if (not (@selectedNode is not) && @selectedNode.id == @renamingId) {
+        if (!(@selectedNode is not) && @selectedNode.id == @renamingId) {
             @selectedNode = { ...@selectedNode, name: @renameValue }
         }
         @renamingId = not
@@ -506,15 +506,15 @@ ${
             <div class="fb-details-content" if=@detailsOpen>
                 <dl>
                     <dt>Name</>
-                    <dd>${not (@selectedNode is not) ? @selectedNode.name : ""}</>
+                    <dd>${!(@selectedNode is not) ? @selectedNode.name : ""}</>
                     <dt>Type</>
-                    <dd>${not (@selectedNode is not) ? @selectedNode.type : ""}</>
+                    <dd>${!(@selectedNode is not) ? @selectedNode.type : ""}</>
                     <dt>Extension</>
-                    <dd>${not (@selectedNode is not) ? (@selectedNode.ext ? "." + @selectedNode.ext : "none") : ""}</>
+                    <dd>${!(@selectedNode is not) ? (@selectedNode.ext ? "." + @selectedNode.ext : "none") : ""}</>
                     <dt>Size</>
-                    <dd>${not (@selectedNode is not) ? formatSize(@selectedNode.size) : ""}</>
+                    <dd>${!(@selectedNode is not) ? formatSize(@selectedNode.size) : ""}</>
                     <dt>Modified</>
-                    <dd>${not (@selectedNode is not) ? @selectedNode.modified : ""}</>
+                    <dd>${!(@selectedNode is not) ? @selectedNode.modified : ""}</>
                 </dl>
                 <div class="fb-detail-actions">
                     <button onclick=startRename(@selectedNode.id, @selectedNode.name)>Rename</>
@@ -532,7 +532,7 @@ ${
     // ---- Status Bar ----
     <footer class="fb-status">
         <span>${@isSearching ? @searchResults.length + " results" : @tree.length + " items at root"}</>
-        <span if=@selectedNode>Selected: ${not (@selectedNode is not) ? @selectedNode.name : ""}</>
+        <span if=@selectedNode>Selected: ${!(@selectedNode is not) ? @selectedNode.name : ""}</>
     </footer>
 
 </div>

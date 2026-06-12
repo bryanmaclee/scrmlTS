@@ -45,7 +45,7 @@ ${
     <h1>Sign in</>
 
     // Show error only when @error has a value.
-    <div class="error-banner" if=(not (@error is not))>
+    <div class="error-banner" if=(!(@error is not))>
         ${@error}
     </>
 

@@ -170,9 +170,9 @@ describe("§2 generated scaffold contains a working login page (not a placeholde
     // S89 absolute rule — no null / undefined.
     expect(scaffolded).not.toMatch(/\bnull\b/);
     expect(scaffolded).not.toMatch(/\bundefined\b/);
-    // Canonical absence checks (`is not` / `not ok`).
+    // Canonical absence check (`is not`) + boolean negation via `!` (§42.10 / S188).
     expect(scaffolded).toContain("row is not");
-    expect(scaffolded).toContain("if (not ok)");
+    expect(scaffolded).toContain("if (!ok)");
     // No try/catch (canonical scrml).
     expect(scaffolded).not.toMatch(/\bcatch\b/);
     expect(scaffolded).not.toMatch(/\bthrow\b/);

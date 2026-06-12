@@ -231,7 +231,7 @@
               </span>
           </div>
 
-          <p if=(not @loaded) class="text-slate-500">Loading…</p>
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
           <form if=@loaded onsubmit=submit() class="space-y-5 bg-white border border-slate-200 rounded-lg p-6">
 

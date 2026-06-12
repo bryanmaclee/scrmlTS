@@ -169,7 +169,7 @@
                 </div>
             </div>
 
-            <p if=(not @loaded) class="text-slate-500">Loading…</p>
+            <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
             <div if=@loaded class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -184,7 +184,7 @@
                     <div class="space-y-3">
                         ${
                             for (let l of @loadRows) {
-                                if (not isLeftColumn(l.status)) continue
+                                if (!isLeftColumn(l.status)) continue
                                 lift <div><LoadCard load=l customerName=l.customer_name/></div>
                             }
                         }
@@ -202,7 +202,7 @@
                     <div class="space-y-3">
                         ${
                             for (let l of @loadRows) {
-                                if (not isMiddleColumn(l.status)) continue
+                                if (!isMiddleColumn(l.status)) continue
                                 lift <div><LoadCard load=l customerName=l.customer_name/></div>
                             }
                         }
@@ -220,7 +220,7 @@
                     <div class="space-y-3">
                         ${
                             for (let l of @loadRows) {
-                                if (not isRightColumn(l.status)) continue
+                                if (!isRightColumn(l.status)) continue
                                 lift <div><LoadCard load=l customerName=l.customer_name/></div>
                             }
                         }

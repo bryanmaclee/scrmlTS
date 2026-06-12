@@ -96,7 +96,7 @@ ${
         <span class="step-dot" class:active=(@currentStep == Step.Confirm)>3</>
     </div>
 
-    <div class="error-banner" if=(not (@submitError is not))>${@submitError}</>
+    <div class="error-banner" if=(!(@submitError is not))>${@submitError}</>
 
     ${
         match (@currentStep) {

@@ -201,7 +201,7 @@ ${
             </ul>
         </section>
 
-        <section class="order-detail" if=${not (selectedOrder() is not)}>
+        <section class="order-detail" if=${!(selectedOrder() is not)}>
             <h2>Order Detail</>
             ${
                 let detail = selectedOrder()

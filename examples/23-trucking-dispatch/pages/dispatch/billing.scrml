@@ -165,7 +165,7 @@
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (not result.ok) {
+            if (!result.ok) {
                 @errorMessage = "Could not mark invoice paid."
                 return
             }
@@ -234,7 +234,7 @@
               </div>
           </div>
 
-          <p if=(not @loaded) class="text-slate-500">Loading…</p>
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
           <div if=(@errorMessage != "") class="mb-4 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
               ${@errorMessage}
@@ -256,7 +256,7 @@
                   <tbody>
                       ${
                           for (let inv of @invoiceRows) {
-                              if (not matchesFilter(inv, @filter, TODAY_ISO)) continue
+                              if (!matchesFilter(inv, @filter, TODAY_ISO)) continue
                               lift <tr class="border-b border-slate-200 hover:bg-slate-50">
                                   <td class="px-3 py-3 text-sm">
                                       <a class="text-blue-600 hover:underline font-medium" href="/dispatch/loads/${inv.load_id}">

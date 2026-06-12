@@ -147,13 +147,13 @@
       </header>
 
       <main class="max-w-3xl mx-auto px-6 py-8">
-          <p if=(not @loaded) class="text-slate-500">Loading…</p>
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
           <div if=(@loaded && @notFound) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
               Load not found.
           </div>
 
-          <div if=(@loaded && not @notFound && @currentLoad is not) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+          <div if=(@loaded && !@notFound && @currentLoad is not) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
               ${@errorMessage}
           </div>
 

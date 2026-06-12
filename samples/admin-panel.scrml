@@ -130,7 +130,7 @@ ${
         <span class="admin-badge">Admin</>
     </header>
 
-    <div class="error-banner" if=(not (@error is not))>${@error}</>
+    <div class="error-banner" if=(!(@error is not))>${@error}</>
 
     <nav class="admin-tabs">
         <button
@@ -245,7 +245,7 @@ ${
     </div>
 
     // Confirm dialog — shown when @confirmAction has a value.
-    <div class="confirm-overlay" if=(not (@confirmAction is not))>
+    <div class="confirm-overlay" if=(!(@confirmAction is not))>
         <div class="confirm-dialog">
             ${
                 match (@confirmAction) {

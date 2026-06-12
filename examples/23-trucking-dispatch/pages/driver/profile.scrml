@@ -157,7 +157,7 @@
         </header>
 
         <main class="max-w-2xl mx-auto px-6 py-8">
-            <p if=(not @loaded) class="text-slate-500">Loading…</p>
+            <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
             <div if=(@loaded && @currentDriver is not) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
                 ${@errorMessage}
@@ -177,7 +177,7 @@
                 </div>
 
                 <!-- Read-only display when not editing. -->
-                <section if=(not @editing) class="bg-white rounded-lg border border-slate-200 p-6">
+                <section if=(!@editing) class="bg-white rounded-lg border border-slate-200 p-6">
                     <div class="space-y-4">
                         <div>
                             <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Name</div>

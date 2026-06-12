@@ -387,7 +387,7 @@
               </button>
           </div>
 
-          <p if=(not @loaded) class="text-slate-500">Loading…</p>
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
           <p if=(@loaded && @currentLoad is not) class="text-slate-500">${@errorMessage}</p>
 

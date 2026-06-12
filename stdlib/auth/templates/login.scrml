@@ -44,7 +44,7 @@
         }
 
         const ok = verifyPassword(passwordArg, row.password_hash)
-        if (not ok) {
+        if (!ok) {
           return { error: "Invalid email or password" }
         }
 

@@ -107,7 +107,8 @@ describe("§1 trivial generate auth", () => {
     expect(src).toContain(`from 'scrml:auth'`);
     // Use of `not` for absence checks (NOT null/undefined per S89 absolute rule).
     expect(src).toContain("row is not");
-    expect(src).toContain("if (not ok)");
+    // §42.10 (S188): boolean negation is `!`, not prefix-`not` (E-TYPE-045).
+    expect(src).toContain("if (!ok)");
     // No null/undefined tokens (S89 absolute rule).
     expect(src).not.toMatch(/\bnull\b/);
     expect(src).not.toMatch(/\bundefined\b/);

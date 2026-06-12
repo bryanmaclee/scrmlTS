@@ -244,7 +244,7 @@
               <a class="text-blue-600 hover:underline" href="/customer/loads">your loads list</a> until the rate is set.
           </p>
 
-          <p if=(not @loaded) class="text-slate-500">Loading…</p>
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
           <div if=(@loaded && @currentCustomer is not) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
               ${@errorMessage}

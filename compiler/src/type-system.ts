@@ -9560,7 +9560,12 @@ function annotateNodes(
         const rawCondition = ((n as ASTNodeLike).condition as string | undefined) ?? "";
         if (rawCondition) {
           const condSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
-          checkNotPrefixNegation(rawCondition, condSpan, errors);
+          // §42.10 ENFORCEMENT (S188): prefix-`not`-as-negation in an if/while
+          // condition is now harvested centrally via harvestNotPrefixNegation
+          // (the lowering choke-point stamps `_notPrefixNegation` on the parsed
+          // condExpr — covering bare `not @x` too, which the old paren-only
+          // string scan missed). The former checkNotPrefixNegation call is
+          // retired here to avoid a double-fire on the paren form.
           checkIsExpressions(rawCondition, scopeChain, typeRegistry, condSpan, errors);
         }
         // Phase 4d: ExprNode-first — check condExpr for AssignExpr at root
@@ -10978,40 +10983,6 @@ function checkStructFieldAccess(
 // conditions because the ExprNode rewrites `not (expr)` → `!(expr)` and
 // `x is .V` → `__scrml_is_variant__(x, ".V")` before reaching the type checker.
 // ---------------------------------------------------------------------------
-
-/**
- * Check a raw condition string for `not (expr)` prefix negation — forbidden (§42).
- * `not` is the absence value only; boolean negation must use `!`.
- */
-function checkNotPrefixNegation(
-  rawExpr: string,
-  span: Span,
-  errors: TSError[],
-): void {
-  if (!rawExpr || typeof rawExpr !== "string") return;
-  // Walk the string, skipping string-literal content, looking for `not` keyword
-  // followed by `(`. Must not be part of `is not` / `is not not` / `== not` / etc.
-  const NOT_PAREN_RE = /(?<![A-Za-z0-9_$@])not\s*\(/g;
-  let m: RegExpExecArray | null;
-  while ((m = NOT_PAREN_RE.exec(rawExpr)) !== null) {
-    const idx = m.index;
-    // Look backwards for `is ` immediately preceding — that is `is not (…)`, a
-    // parenthesized presence/absence check, which is handled elsewhere.
-    const before = rawExpr.slice(0, idx).trimEnd();
-    if (/\bis$/.test(before)) continue;
-    // Also skip when the preceding token is `==`/`!=`/`===`/`!==` (E-EQ-002 fires).
-    if (/(?:===?|!==?)\s*$/.test(before)) continue;
-    errors.push(new TSError(
-      "E-TYPE-045",
-      "E-TYPE-045: `not (expr)` is not valid as boolean negation — `not` is the unified absence " +
-      "value, not a logical-negation operator. Use `!(expr)` for boolean negation, or " +
-      "`expr is not` to check for absence (§42).",
-      span,
-    ));
-    // Report once per condition to avoid duplicate noise.
-    return;
-  }
-}
 
 /**
  * Check a raw expression string for `<operand> is .<Variant>` patterns and
@@ -15263,6 +15234,74 @@ function validateParseVariantTypeArg(
 }
 
 /**
+ * §42.10 ENFORCEMENT (S188 g-not-negation-enforce) — harvest every ExprNode that
+ * was stamped `_notPrefixNegation` by the expression-parser lowering choke-point
+ * (parseExprToNode → preprocessForAcorn) and emit E-TYPE-045 once per stamped
+ * node. `not` is the unified absence VALUE, not a logical-negation operator
+ * (SPEC §42.10:21685 — "`not` SHALL NOT appear in prefix position before a boolean
+ * expression. The compiler SHALL emit E-TYPE-045."). Covers ALL expression
+ * positions (ternary / `${}` interpolation / derived-RHS / `&&` / return / attr /
+ * if/while) and BOTH forms (bare `not @x` + parenthesized `not (expr)`) with a
+ * single source of truth (the lowering choke-point), retiring the former
+ * if/while-only paren-only `checkNotPrefixNegation` string scan.
+ *
+ * Implementation: a generic structural walk over the whole FileAST object graph.
+ * Whenever an object that looks like an ExprNode (has `kind` + `span`) carries
+ * `_notPrefixNegation === true`, fire once at its span. A visited-set guards
+ * against cycles and double-fire on shared/aliased nodes.
+ */
+function harvestNotPrefixNegation(
+  nodes: ASTNodeLike[],
+  errors: TSError[],
+  filePath: string,
+): void {
+  const seen = new WeakSet<object>();
+  const firedSpans = new Set<string>();
+
+  function fire(span: Span | undefined): void {
+    const s: Span = span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+    // Dedup by span key so two aliases of the same parsed expression (e.g. a
+    // condition stored both as `condition` string-source and a re-parsed
+    // `condExpr` ExprNode) do not double-report the same source location.
+    const key = `${s.file ?? filePath}:${s.start ?? 0}:${s.end ?? 0}`;
+    if (firedSpans.has(key)) return;
+    firedSpans.add(key);
+    errors.push(new TSError(
+      "E-TYPE-045",
+      "E-TYPE-045: prefix `not` is not valid as boolean negation — `not` is the " +
+      "unified absence value, not a logical-negation operator. Use `!expr` (bare) " +
+      "or `!(expr)` (parenthesized) for boolean negation, or `expr is not` to check " +
+      "for absence (§42).",
+      s,
+    ));
+  }
+
+  function visit(v: unknown): void {
+    if (!v || typeof v !== "object") return;
+    if (Array.isArray(v)) {
+      for (const item of v) visit(item);
+      return;
+    }
+    if (seen.has(v as object)) return;
+    seen.add(v as object);
+    const obj = v as Record<string, unknown>;
+    // An ExprNode is the only shape we stamp; it always carries `kind` + `span`.
+    if (obj._notPrefixNegation === true && typeof obj.kind === "string") {
+      fire(obj.span as Span | undefined);
+    }
+    for (const k in obj) {
+      // Skip the stamp itself + back-reference/cache fields that would re-enter
+      // already-visited subgraphs unproductively (the visited-set already guards
+      // correctness; this is a perf hedge for large ASTs).
+      if (k === "_notPrefixNegation") continue;
+      visit(obj[k]);
+    }
+  }
+
+  for (const n of nodes) visit(n);
+}
+
+/**
  * §41.13 — walk an ASTNode tree and find every CallExpr whose callee resolves
  * to a parseVariant local name. Validate args[1] and annotate the call-node
  * with `parseVariantEnum: EnumType` for codegen.
@@ -17834,6 +17873,13 @@ function processFile(
   // TS-I: §6.7.9 animationFrame diagnostics (E-LIFECYCLE-015 / E-LIFECYCLE-017).
   if (allNodes.length > 0) {
     checkAnimationFrame(allNodes, errors, filePath);
+  }
+
+  // TS-J: §42.10 — harvest prefix-`not`-as-negation (E-TYPE-045). Every ExprNode
+  // stamped `_notPrefixNegation` by the expression-parser lowering choke-point is
+  // collected here (all positions + bare/paren forms; single source of truth).
+  if (allNodes.length > 0) {
+    harvestNotPrefixNegation(allNodes, errors, filePath);
   }
 
   // Assemble TypedFileAST.

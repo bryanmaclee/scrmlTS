@@ -280,7 +280,7 @@
               </div>
           </div>
 
-          <p if=(not @loaded) class="text-slate-500">Loading…</p>
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
           <div if=(@errorMessage != "") class="mb-4 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
               ${@errorMessage}

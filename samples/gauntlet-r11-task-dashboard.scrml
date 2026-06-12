@@ -78,15 +78,15 @@ ${
     }
 
     function isEditing() {
-        return not (@editingId is not)
+        return !(@editingId is not)
     }
 
     function hasFormError() {
-        return not (@formError is not)
+        return !(@formError is not)
     }
 
     function hasSaveError() {
-        return not (@saveError is not)
+        return !(@saveError is not)
     }
 
     // CSS class helpers
@@ -175,7 +175,7 @@ ${
         }
         @formError = not
         @saveError = not
-        if (not (@editingId is not)) {
+        if (!(@editingId is not)) {
             @tasks = updateTask(@editingId, @formTitle.trim(), @formStatus, @formPriority)
         } else {
             @tasks = createTask(@formTitle.trim(), @formStatus, @formPriority)
