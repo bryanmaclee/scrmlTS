@@ -617,16 +617,42 @@ function buildMatchArms(
     // a specific variant, so there is no variant payload to bind.
     const tag = entry.variantName; // `_` for the wildcard; PascalCase otherwise
 
-    // Payload bindings — tokenize parenthesized form per §18.0.1 canonical
-    // Tier-1 grammar (`<Ready(rows)>`). Phase 2's parser captures
-    // payloadBindingsRaw as the raw text inside `(...)`; comma-split here.
-    // Skipped for the wildcard arm (no variant → no payload).
+    // Payload bindings — §18.0.1 supports TWO block-form shapes:
+    //   1. PAREN form `<Ready(rows)>` — Phase 2's parser captures the bindings
+    //      in `payloadBindingsRaw` (comma-joined raw text). Comma-split here.
+    //   2. SPACE form `<Done count>` / `<Conflict field detail>` — POSITIONAL
+    //      bareword opener attrs, mirroring the engine state-child shape
+    //      (`<Error msg>`). The bindings land in `entry.attrs` as bareword
+    //      (empty-value) attrs. (Gap 2, payload-binding-gaps-2026-06-11 / S184 —
+    //      before this, the space form bound nothing: the arm render/wire fns
+    //      took no payload param and the body referenced a FREE variable
+    //      `count` -> runtime ReferenceError. The typer mirrors this same
+    //      extraction so the two stages agree on the bound names.)
+    // Reserved arm attrs (`rule`/`effect`) are NEVER bindings (they drive
+    // W-MATCH-RULE-INERT / E-MATCH-EFFECT-FORBIDDEN). Skipped for the wildcard
+    // arm (no variant -> no payload). Order is positional (paren first, then
+    // bareword attrs in opener order) to align with the variant field order.
+    const MATCH_ARM_RESERVED_ATTRS = new Set<string>(["rule", "effect"]);
     const payloadBindings: string[] = [];
-    if (!entry.isWildcard && entry.payloadBindingsRaw) {
-      for (const part of entry.payloadBindingsRaw.split(",")) {
-        const name = part.trim();
-        if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
-          payloadBindings.push(name);
+    if (!entry.isWildcard) {
+      if (entry.payloadBindingsRaw) {
+        for (const part of entry.payloadBindingsRaw.split(",")) {
+          const name = part.trim();
+          if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
+            payloadBindings.push(name);
+          }
+        }
+      }
+      if (Array.isArray(entry.attrs)) {
+        for (const attr of entry.attrs) {
+          const name = attr && typeof attr.name === "string" ? attr.name : "";
+          if (!name || MATCH_ARM_RESERVED_ATTRS.has(name)) continue;
+          // Only bareword (empty-value) attrs are positional payload bindings;
+          // a `name=value` attr is a user attribute, not a binding.
+          if (attr.valueRaw && attr.valueRaw.length > 0) continue;
+          if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) && !payloadBindings.includes(name)) {
+            payloadBindings.push(name);
+          }
         }
       }
     }

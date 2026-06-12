@@ -76,6 +76,7 @@ import { forEachIdentInExprNode, forEachCallInExprNode, classifyLiteralFromExprN
 import { isEventHandlerAttrName } from "./multi-statement-scan.ts";
 import { extractSelectProjection } from "./sql-projection.ts";
 import type { SelectProjection, ProjectedColumn } from "./sql-projection.ts";
+import { parseMatchArms } from "./match-statechild-parser.ts";
 
 // ---------------------------------------------------------------------------
 // Engine state-child grammar metadata (S81 Phase A10 follow-on)
@@ -176,6 +177,67 @@ function extractEngineStateChildPayloadBindings(attrs: unknown): string[] {
     // binding attribute (e.g., custom user attr). Skip silently.
   }
   return out;
+}
+
+// §18.0.1 — reserved `<match>`-arm attribute names that are NEVER payload
+// bindings (they drive SYM-PASS diagnostics: W-MATCH-RULE-INERT /
+// E-MATCH-EFFECT-FORBIDDEN). Filtered out of the binding extraction so a
+// `rule=`/`effect=` attr never leaks into the arm-body scope as a local.
+const TS_MATCH_ARM_RESERVED_ATTRS = new Set<string>(["rule", "effect"]);
+
+// Gap 2 (payload-binding-gaps-2026-06-11 / S184) — extract the payload
+// bindings a `<match>` BLOCK-form arm introduces, keyed by variant name.
+// Mirrors the engine state-child positional binding model (the sibling path
+// that already works): a block-form arm binds its variant's payload fields
+// POSITIONALLY via bareword opener attrs (`<Done count>`, `<Conflict field
+// detail>`) — the same shape engine state-children use (`<Error msg>`). The
+// §18.0.1 PAREN form `<Done(count)>` carries the bindings in
+// `payloadBindingsRaw` (comma-joined raw text) instead; both shapes are
+// supported. Reserved attrs (`rule`/`effect`) are skipped. Non-identifier
+// barewords are filtered (reuses the engine ident regex). The wildcard arm
+// (`<_>`) names no variant -> no payload -> empty.
+function extractMatchArmPayloadBindingsByVariant(
+  armsRaw: unknown,
+): Map<string, string[]> {
+  const byVariant = new Map<string, string[]>();
+  if (typeof armsRaw !== "string" || armsRaw.length === 0) return byVariant;
+  let parsed;
+  try {
+    parsed = parseMatchArms(armsRaw);
+  } catch {
+    return byVariant;
+  }
+  if (!parsed || !Array.isArray(parsed.arms)) return byVariant;
+  for (const arm of parsed.arms) {
+    if (arm.isWildcard) continue;
+    const names: string[] = [];
+    // PAREN form `<Done(count)>` — comma-joined raw payload binding text.
+    if (typeof arm.payloadBindingsRaw === "string" && arm.payloadBindingsRaw.length > 0) {
+      for (const part of arm.payloadBindingsRaw.split(",")) {
+        const name = part.trim();
+        if (TS_ENGINE_PAYLOAD_BINDING_IDENT_RE.test(name)) names.push(name);
+      }
+    }
+    // SPACE form `<Done count>` / `<Conflict field detail>` — bareword opener
+    // attrs (positional), reserved-name filtered.
+    if (Array.isArray(arm.attrs)) {
+      for (const attr of arm.attrs) {
+        const name = (attr as { name?: unknown }).name;
+        if (typeof name !== "string") continue;
+        if (TS_MATCH_ARM_RESERVED_ATTRS.has(name)) continue;
+        if (TS_ENGINE_PAYLOAD_BINDING_IDENT_RE.test(name)) names.push(name);
+      }
+    }
+    if (names.length > 0) {
+      const existing = byVariant.get(arm.variantName);
+      if (existing) {
+        for (const n of names) if (!existing.includes(n)) existing.push(n);
+      } else {
+        byVariant.set(arm.variantName, names);
+      }
+    }
+  }
+  return byVariant;
 }
 
 // ---------------------------------------------------------------------------
@@ -9279,8 +9341,23 @@ function annotateNodes(
           const handlerExpr = arm.handlerExpr;
           if (!handlerExpr) continue;
           scopeChain.push("error-arm");
+          // §19.4.3 — a multi-field error variant binds ALL its payload fields.
+          // The PAREN form `::V(a, b)` is the canonical multi-field shape; the
+          // `!{}` parser (ast-builder.js) captures the bindings as the
+          // comma-JOINED string `arm.binding = "a, b"`. Binding that literal as
+          // a single scope name left `a`/`b` unresolved -> E-SCOPE-001 in the
+          // handler body. Split on `,` and bind EACH field name. The single-field
+          // bare form (`::V a`, no commas) yields a one-element list -> identical
+          // to the prior single-bind behavior (kept working). The SPACE form
+          // `::V a b` stays single-binding by design (S184 ruling — paren-only
+          // canonical for `!{}` multi-field; the parser captures only `a`).
           if (typeof arm.binding === "string" && arm.binding.length > 0) {
-            scopeChain.bind(arm.binding, { kind: "variable", resolvedType: tAsIs() });
+            for (const rawName of arm.binding.split(",")) {
+              const bindName = rawName.trim();
+              if (bindName.length > 0) {
+                scopeChain.bind(bindName, { kind: "variable", resolvedType: tAsIs() });
+              }
+            }
           }
           const armSpan = (arm.span as Span | undefined) ?? gExprSpan;
           checkLogicExprIdents(handlerExpr, armSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
@@ -10152,6 +10229,70 @@ function annotateNodes(
               }
             }
             scopeChain.pop();
+          }
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
+      // §18.0.1 — `<match for=T on=@x>` BLOCK-form arms.
+      //
+      // Gap 2 (payload-binding-gaps-2026-06-11 / S184) — a block-form arm
+      // (`<Done count>...</>`, `<Conflict field detail>...</>`) binds its
+      // variant payload fields into the ARM-BODY scope, exactly like the
+      // JS-style `.V(a,b) => { ... }` arm (case "match-arm-block") and the
+      // engine state-child `<V a b>` (case "engine-decl") siblings already
+      // do. Before this case, the match-block fell through to the default
+      // recursion, which walked the per-arm body markup (`armBodyChildren`,
+      // S177 — one wrapper per arm, `tag` = variant name) WITHOUT the payload
+      // bindings in scope, so a `${count}` interpolation in the arm body fired
+      // a false E-SCOPE-001. Push a fresh arm scope per wrapper and inject the
+      // variant's bindings (extracted from `armsRaw` via parseMatchArms — both
+      // the SPACE form bareword attrs and the PAREN `payloadBindingsRaw`).
+      case "match-block": {
+        const bindingsByVariant = extractMatchArmPayloadBindingsByVariant(
+          (n as { armsRaw?: unknown }).armsRaw,
+        );
+        const armWrappers = (n as { armBodyChildren?: ASTNodeLike[] }).armBodyChildren;
+        if (Array.isArray(armWrappers)) {
+          for (const wrapper of armWrappers) {
+            if (!wrapper || typeof wrapper !== "object") continue;
+            const variant = (wrapper as { tag?: unknown }).tag;
+            const armLabel = typeof variant === "string" ? variant : "anon";
+            scopeChain.push(`match-arm:${armLabel}:${nodeKey(wrapper)}`);
+            const bindings = typeof variant === "string"
+              ? (bindingsByVariant.get(variant) ?? [])
+              : [];
+            for (const bindName of bindings) {
+              if (typeof bindName === "string" && bindName.length > 0) {
+                scopeChain.bind(bindName, { kind: "variable", resolvedType: tAsIs() });
+              }
+            }
+            const armChildren = (wrapper as { children?: unknown }).children;
+            if (Array.isArray(armChildren)) {
+              for (const grand of armChildren) {
+                if (grand && typeof grand === "object" && (grand as ASTNodeLike).kind) {
+                  visitNode(grand as ASTNodeLike);
+                }
+              }
+            }
+            scopeChain.pop();
+          }
+        }
+        // Walk any OTHER array fields generically (e.g. `bodyChildren` — the
+        // raw match-body text node, harmless; future additive arrays). Skip
+        // `armBodyChildren` (already walked above with arm scoping) so the arm
+        // bodies are not re-visited WITHOUT their payload bindings.
+        for (const arrKey of Object.keys(n)) {
+          if (arrKey === "span" || arrKey === "id" || arrKey === "armBodyChildren") continue;
+          const val = (n as Record<string, unknown>)[arrKey];
+          if (Array.isArray(val)) {
+            for (const child of val) {
+              if (child && typeof child === "object" && (child as ASTNodeLike).kind) {
+                visitNode(child as ASTNodeLike);
+              }
+            }
           }
         }
         resolvedType = tAsIs();
