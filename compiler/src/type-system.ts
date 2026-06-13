@@ -10553,6 +10553,61 @@ function annotateNodes(
   }
   preBindExportedNames(topNodes);
 
+  // g-channel-topic-forward-ref (2026-06-12) — Pre-bind file-scope reactive
+  // state cells into the outer scope BEFORE the main top-level walk, so a
+  // FORWARD reference to a later-declared cell resolves for the E-SCOPE-001
+  // attribute walker (visitAttr).
+  //
+  // SPEC §6.9: reactive state cells hoist to file scope — a `@`-ref to a cell
+  // declared later in source order is legal everywhere in the language. The
+  // main walk (`for (const node of topNodes) visitNode(node)` below) binds a
+  // cell into scope only when it REACHES that cell's `state-decl` node, so an
+  // attribute whose node is visited earlier (the dynamic-topic channel form
+  // `<channel name="rooms" topic=@selectedRoom>` with `<selectedRoom>` declared
+  // AFTER the channel, §38.2/§38.6.2) false-fired E-SCOPE-001. Cells declared
+  // BEFORE the channel already resolved — the failure was purely source-order.
+  //
+  // This pre-pass mirrors `preBindExportedNames` (exported names) and the engine
+  // auto-decl pre-bind below: it seeds the NAME so scope-resolution succeeds.
+  // Each cell is bound `asIs` under BOTH the `@name` and bare `name` forms (the
+  // same dual-bind the main state-decl walk uses at the two `scopeChain.bind`
+  // calls below ~8854/8855, so `scopeChain.lookup("@selectedRoom")` resolves).
+  // The main walk re-binds with the RESOLVED type when it reaches the decl: the
+  // state-decl bind's "preserve prior richer type" guard only fires when the
+  // PRIOR bind is richer-than-asIs, so this `asIs` seed never masks the real
+  // type — the resolved type cleanly overrides it.
+  //
+  // SHALL-NOT-overwrite guard (`if (!scopeChain.lookup(...))`) matches the
+  // engine pre-bind: a name already in scope (engine auto-decl, exported name)
+  // is left uncontested so the SYM-layer collision diagnostic surfaces.
+  //
+  // Recursion descends container blocks (`children`/`body`/`nodes`) to reach a
+  // cell nested under `<program>`/`<page>`/`<channel>` body or a `${...}` logic
+  // block, but NOT into a `function-decl` body — function-local declarations are
+  // function-scoped (`let`/`const`), not file-scope reactive cells, and binding
+  // them globally would leak a function-local name into file scope.
+  function preBindReactiveStateCells(nodes: ASTNodeLike[]): void {
+    for (const n of nodes) {
+      if (!n || typeof n !== "object") continue;
+      // Don't hoist function-local declarations into file scope.
+      if (n.kind === "function-decl") continue;
+      if (n.kind === "state-decl" && typeof n.name === "string" && n.name.length > 0) {
+        const cellName = n.name;
+        const atName = `@${cellName}`;
+        if (!scopeChain.lookup(atName) && !scopeChain.lookup(cellName)) {
+          scopeChain.bind(atName, { kind: "reactive", resolvedType: tAsIs(), isServer: false });
+          scopeChain.bind(cellName, { kind: "reactive", resolvedType: tAsIs(), isServer: false });
+        }
+      }
+      // Recurse into container blocks that wrap top-level declarations.
+      for (const key of ["nodes", "body", "children"] as const) {
+        const v = (n as Record<string, unknown>)[key];
+        if (Array.isArray(v)) preBindReactiveStateCells(v as ASTNodeLike[]);
+      }
+    }
+  }
+  preBindReactiveStateCells(topNodes);
+
   // Bug 9 (M9, §51.0.C) — Pre-bind engine auto-declared variables into the
   // scopeChain BEFORE function bodies are visited.
   //
