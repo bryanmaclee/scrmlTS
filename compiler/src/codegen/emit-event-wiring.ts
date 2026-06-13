@@ -1279,7 +1279,28 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       // prior raw-string rewrite (regression-preserving).
       for (const branch of condBranches) {
         let condCode: string;
-        if (branch.condition?.raw) {
+        if (branch.condition?.kind === "call-ref") {
+          // g-attr-if-fn-chain-head-call-misroute (S191): a bare-CALL chain-head /
+          // else-if condition (`if=isHigh()`) must be CALLED, not read as a cell.
+          // The call-ref value carries `.name`/`.args` but no `.raw`, so it would
+          // otherwise fall to the `?.name` variable-ref path → `_scrml_reactive_get("isHigh")`
+          // (reads the fn name as a nonexistent cell → branch never activates).
+          // Build the call string + route through emitExprField (same as the `?.raw`
+          // path): `@`-args rewrite to reactive_get, the fn name is mangled by the
+          // whole-buffer post-pass, and the wrapping `_scrml_effect` dynamic-tracks.
+          const condRaw = `${branch.condition.name}(${(branch.condition.args ?? []).join(", ")})`;
+          let condNode: ExprNode | null = null;
+          try {
+            condNode = parseExprToNode(condRaw, "<if-chain-call-ref>", 0) as ExprNode | null;
+          } catch {
+            condNode = null;
+          }
+          condCode = emitExprField(condNode, condRaw, {
+            mode: "client",
+            derivedNames: ctx.derivedNames,
+            synthCellKeys: ctx.synthCellKeys,
+          });
+        } else if (branch.condition?.raw) {
           let condNode = (branch.condition.exprNode ?? null) as ExprNode | null;
           if (!condNode) {
             try {

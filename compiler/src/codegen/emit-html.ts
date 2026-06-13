@@ -1391,7 +1391,7 @@ export function generateHtml(
       if (
         ifAttrCheck &&
         ifAttrCheck.value &&
-        (ifAttrCheck.value.kind === "variable-ref" || ifAttrCheck.value.kind === "expr") &&
+        (ifAttrCheck.value.kind === "variable-ref" || ifAttrCheck.value.kind === "expr" || ifAttrCheck.value.kind === "call-ref") &&
         !/^[A-Z]/.test(tag) &&
         attrs.every((a: any) => attrIsWiringFree(a, "if")) &&
         isCleanIfSubtree(children)
@@ -1410,6 +1410,18 @@ export function generateHtml(
             const ifBaseVar = ifVarName.split(".")[0];
             const hasDotPath = ifVarName.includes(".");
             registry.addLogicBinding({ placeholderId: markerId, expr: `@${ifVarName}`, isMountToggle: true, templateId, markerId, varName: ifBaseVar, ...(hasDotPath ? { dotPath: ifVarName } : {}) } as any);
+          } else if (ifVal.kind === "call-ref") {
+            // g-attr-if-fn-display-not-mount (S191): a bare-call clean-subtree
+            // condition gets the SAME mount/unmount controller as if=(fn())/if=@var
+            // (not the display-toggle fallback) so `if=fn()` ≡ `if=(fn())`. Build
+            // a raw condExpr from the call (the fn name is mangled by the
+            // whole-buffer post-pass; `_scrml_effect` dynamic-tracks the cells it
+            // reads). Mirrors the call-ref attr-value branch below (~1761).
+            const condRaw = `${ifVal.name}(${(ifVal.args ?? []).join(", ")})`;
+            const condRefs = (ifVal.args ?? [])
+              .filter((a: any) => typeof a === "string" && a.startsWith("@"))
+              .map((a: any) => a.replace(/^@/, "").split(/[.[(]/)[0]);
+            registry.addLogicBinding({ placeholderId: markerId, expr: condRaw, isMountToggle: true, templateId, markerId, condExpr: condRaw, refs: condRefs } as any);
           } else {
             registry.addLogicBinding({ placeholderId: markerId, expr: ifVal.raw, isMountToggle: true, templateId, markerId, condExpr: ifVal.raw, condExprNode: ifVal.exprNode, refs: ifVal.refs } as any);
           }
