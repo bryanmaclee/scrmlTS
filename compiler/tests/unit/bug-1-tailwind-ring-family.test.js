@@ -6,19 +6,22 @@
  * arbitrary forms now set `--tw-ring-color` and emit the composing box-shadow
  * shorthand (`box-shadow: var(--tw-ring-offset-shadow,...), var(--tw-ring-shadow,...),
  * var(--tw-shadow,...)`) with INLINE var() fallbacks (no global preflight block).
- * The WIDTH-only arbitrary form keeps its single-property emit.
+ * The WIDTH arbitrary form was also made C-style (S191 consistency fix) so
+ * `ring-[<width>]` composes too (was single-property at the original Phase-1 cut).
  *
  * Phase-1 landed (no longer deferred): ring-offset-*, ring-inset, ring-{color},
- * shadow-* composition. STILL deferred (Phase 2): bg-gradient-* / from-* / to-*
- * / via-*.
+ * shadow-* composition. Phase 2 (S191, Approach C / §26.7) landed the gradient
+ * family (bg-gradient-to-* / from-* / via-* / to-*) — see
+ * bug-1-tailwind-gradient-family.test.js. Nothing in the bug-1 filed scope
+ * remains deferred (transform/filter are the Phase 3-4 follow-on arc).
  *
  * Coverage:
- *   §1  ring-[length] — width-only form, single-property box-shadow with currentColor (KEPT)
+ *   §1  ring-[length] — C-style: --tw-ring-shadow (currentColor) + compose shorthand (S191 width fix)
  *   §2  ring-[color]  — C-style: sets --tw-ring-color + compose shorthand
  *   §3  ring-[var()] — C-style: var as ring-color + compose shorthand
  *   §4  ring-[keyword] — C-style: currentColor / transparent ring-color + compose shorthand
  *   §5  lint regression — ring-[N] no longer fires W-TAILWIND-UNRECOGNIZED-CLASS
- *   §6  ring-offset-[2px] now RECOGNIZED (no lint); bg-gradient/from/to/via STILL fire (Phase 2)
+ *   §6  ring-offset-[2px] + bg-gradient/from/to/via ALL now RECOGNIZED (no lint) — Phase 1 + Phase 2
  *   §7  responsive + dark variants — md:ring-[3px] (width) / dark:ring-[red] (C-style color) compose
  */
 
@@ -161,8 +164,8 @@ describe("§5: lint regression — ring-* now recognized", () => {
 // §6: still-deferred families STILL fire the lint (regression guard)
 // ---------------------------------------------------------------------------
 
-describe("§6: ring-offset recognized (Phase 1); gradient still fires W-TAILWIND-UNRECOGNIZED-CLASS (Phase 2)", () => {
-  test("ring-offset-2 is now RECOGNIZED — no lint (Phase 1 landed the named utility)", () => {
+describe("§6: ring-offset (Phase 1) + gradient family (Phase 2) ALL recognized — no W-TAILWIND-UNRECOGNIZED-CLASS", () => {
+  test("ring-offset-2 is RECOGNIZED — no lint (Phase 1 landed the named utility)", () => {
     const diags = findUnrecognizedClasses(
       '<div class="ring-offset-2">x</div>',
       "test.scrml"
@@ -170,40 +173,36 @@ describe("§6: ring-offset recognized (Phase 1); gradient still fires W-TAILWIND
     expect(diags).toEqual([]);
   });
 
-  test("bg-gradient-to-r fires the lint (deferred — needs preflight + multi-utility)", () => {
+  test("bg-gradient-to-r is now RECOGNIZED — no lint (Phase 2 landed the gradient family)", () => {
     const diags = findUnrecognizedClasses(
       '<div class="bg-gradient-to-r">x</div>',
       "test.scrml"
     );
-    expect(diags.length).toBeGreaterThan(0);
-    expect(diags[0].code).toBe("W-TAILWIND-UNRECOGNIZED-CLASS");
+    expect(diags).toEqual([]);
   });
 
-  test("from-[#ff0000] fires the lint (deferred — needs gradient stops)", () => {
+  test("from-[#ff0000] is now RECOGNIZED — no lint (Phase 2 arbitrary gradient stop)", () => {
     const diags = findUnrecognizedClasses(
       '<div class="from-[#ff0000]">x</div>',
       "test.scrml"
     );
-    expect(diags.length).toBeGreaterThan(0);
-    expect(diags[0].code).toBe("W-TAILWIND-UNRECOGNIZED-CLASS");
+    expect(diags).toEqual([]);
   });
 
-  test("to-[#0000ff] fires the lint (deferred — needs gradient stops)", () => {
+  test("to-[#0000ff] is now RECOGNIZED — no lint (Phase 2 arbitrary gradient stop)", () => {
     const diags = findUnrecognizedClasses(
       '<div class="to-[#0000ff]">x</div>',
       "test.scrml"
     );
-    expect(diags.length).toBeGreaterThan(0);
-    expect(diags[0].code).toBe("W-TAILWIND-UNRECOGNIZED-CLASS");
+    expect(diags).toEqual([]);
   });
 
-  test("via-[#00ff00] fires the lint (deferred — needs gradient stops)", () => {
+  test("via-[#00ff00] is now RECOGNIZED — no lint (Phase 2 arbitrary gradient stop)", () => {
     const diags = findUnrecognizedClasses(
       '<div class="via-[#00ff00]">x</div>',
       "test.scrml"
     );
-    expect(diags.length).toBeGreaterThan(0);
-    expect(diags[0].code).toBe("W-TAILWIND-UNRECOGNIZED-CLASS");
+    expect(diags).toEqual([]);
   });
 });
 

@@ -974,13 +974,16 @@ Major families shipped S108-S109: grid / flex / aspect / transition / timing / i
 
 **Phase 1 LANDED S191** (ring / ring-offset / shadow, C-style): `ring-{0,1,2,4,8}` + bare `ring` + `ring-inset` + `ring-offset-{w}` + `ring-{color}` named utils + arbitrary `ring-[w]`/`ring-[color]` + `shadow-*` all emit the inline-fallback `box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000)` shorthand → COMPOSE (no more single-property last-write-wins). Default ring color = `currentColor` (user-ratified scrml-divergence from TW blue-500). PA consistency fix: arbitrary `ring-[<width>]` was left single-property by the agent (brief ambiguity) → PA-direct'd to C-style (reuses `ringShadowSetter`/`BOX_SHADOW_COMPOSE`) so it composes like named `ring-{w}`. +11 agent tests +§1/§7 width-form updates; §6 ring-offset guard inverted. PA-R26: `ring-2 ring-offset-2 shadow-lg` + `ring-[3px] shadow-lg` compose, 0 single-property collisions.
 
-**Still open (subsequent phases + sub-arcs):**
-- **Phase 2 — `bg-gradient-*` / `from-*` / `to-*` / `via-*`** (the other filed bug-1 family; closes filed scope). Phase 3 — transform (behavior-change: current translate/scale/rotate use modern individual CSS props, not `--tw-*` vars). Phase 4 — filter/backdrop. All C-style under §26.7.
-- **String-shaped arbitrary values** — `content-["text"]` + `font-[Inter]` need bracket-parser extension. SEPARATE arc (out of the preflight deep-dive).
-- **Safelist / `@apply`** — lint precision for custom-vs-typo classes. SEPARATE arc.
+**Phase 2 LANDED S191** (gradient, C-style) — **bug-1's FILED SCOPE (ring-offset + gradient) is now CLOSED.** NEW `registerGradient`: `bg-gradient-to-{8 directions}` + `from-/via-/to-{color}` (named palette + specials + arbitrary `[#hex]`/`[color]`) compose via `background-image: linear-gradient(<dir>, var(--tw-gradient-stops, transparent, transparent))` + the per-utility `--tw-gradient-*` setters. Fidelity: `from-{color}`'s `--tw-gradient-to` default = the from-color's TRANSPARENT TWIN (v3-faithful `hexToTransparentRgb` for palette hex; literal `transparent` for non-derivable arbitrary non-hex). SPEC §26.7.1. +47 gradient tests; 5 sibling `bg-gradient/from/via/to` regression-guards inverted (agent caught 3 beyond the briefed ring-family §6 — same token class). PA-R26: `bg-gradient-to-r from-blue-500 via-green-500 to-purple-600` resolves blue→green→purple, 0 empty vars, lint-recognized. PA also fixed a stale ring-family test header (width-form described as single-property — a Phase-1 leftover; the §1 tests + code are C-style).
 
-- **Workaround (for not-yet-landed phases):** drop a `#{}` CSS shim block with the rules written by hand.
-- **Status:** Phase 1 LANDED S191. Gradient (Phase 2) next closes the filed scope. String-shaped + safelist remain separate smaller arcs.
+**Still open (BEYOND filed scope + separate sub-arcs):**
+- **Phase 3 — transform** (`translate/scale/rotate/skew`). **Behavior-change:** current arbitrary translate/scale/rotate use modern individual CSS props (last-write-wins); the `--tw-*` model makes them COMPOSE. Widest golden-CSS coverage. **Phase 4 — filter + backdrop-filter.** Both C-style under §26.7. (Completing the Rule-2 "all composing families" ambition; NOT in bug-1's original filed scope — continuation pending user direction.)
+- **String-shaped arbitrary values** — `content-["text"]` + `font-[Inter]` need bracket-parser extension. SEPARATE arc.
+- **Safelist / `@apply`** — lint precision for custom-vs-typo classes. SEPARATE arc.
+- Arbitrary `ring-offset-[<len>]` — the lone remaining ring-family member without a utility (named ring-offset-{w} shipped P1).
+
+- **Workaround (for not-yet-landed surfaces):** drop a `#{}` CSS shim block with the rules written by hand.
+- **Status:** FILED SCOPE CLOSED S191 (Phase 1 ring/shadow + Phase 2 gradient). Phase 3 (transform) / Phase 4 (filter) = beyond-filed composing-family continuation. String-shaped + safelist = separate arcs. **Gap stays `open` for the remainder; the filed bug is resolved.**
 
 ---
 

@@ -16170,7 +16170,7 @@ The `:where()` wrapping inside the `:not()` keeps the opt-out condition at speci
 
 Some Tailwind utility families do NOT map to a single CSS declaration; they **compose** several independent contributions into ONE CSS property. The first such family is **ring / ring-offset / shadow**, which all contribute to a single `box-shadow`. If each member emitted its own single-property `box-shadow:` declaration, two members on one element (`ring-2 shadow-lg`) would collide — CSS class-order last-write-wins, and one obliterates the other. This is incorrect: the author asked for a ring AND a shadow.
 
-scrml resolves this with the **inline-fallback `var()` model** (the once-built foundation for every composing family — ring/shadow is Phase 1; gradient, transform, filter, and backdrop-filter follow). Every composing-family utility emits a shared **composing shorthand** built from `var()` references, and each utility additionally **sets one `--tw-*` custom property** that the shorthand consumes:
+scrml resolves this with the **inline-fallback `var()` model** (the once-built foundation for every composing family — ring/shadow is Phase 1, the gradient family [§26.7.1] is Phase 2; transform, filter, and backdrop-filter follow). Every composing-family utility emits a shared **composing shorthand** built from `var()` references, and each utility additionally **sets one `--tw-*` custom property** that the shorthand consumes:
 
 ```css
 /* the composing shorthand — emitted by EVERY ring / ring-offset / shadow utility */
@@ -16202,7 +16202,37 @@ The `var()` references carry **INLINE fallbacks** (`, 0 0 #0000`). This is the l
 
 **Default ring color = `currentColor` (deliberate scrml divergence).** Tailwind v3 defaults `--tw-ring-color` to `rgb(59 130 246 / 0.5)` (blue-500/50). scrml instead defaults to `currentColor` (the convention already established by scrml's arbitrary `ring-[3px]` width form), via the `var(--tw-ring-color, currentColor)` inline fallback in the ring setter. A bare `ring-2` with no `ring-{color}` therefore draws a `currentColor` ring, not blue. This is intentional consistency with scrml's existing ring convention; adopters wanting blue write `ring-blue-500` explicitly. The corpus does NOT introduce a blue ring default.
 
-**Phase status.** ring / ring-offset / shadow is **Phase 1** of the composing-family arc. gradient (`bg-gradient-to-*` / `from-*` / `via-*` / `to-*`), transform, filter, and backdrop-filter are subsequent phases under the same inline-fallback model; until they land, their class tokens continue to fire `W-TAILWIND-UNRECOGNIZED-CLASS` (§26.5) as deferred-family regression guards.
+#### 26.7.1 Gradient family (Phase 2)
+
+The **gradient** family (`bg-gradient-to-*` / `from-*` / `via-*` / `to-*`) composes a single `background-image: linear-gradient(...)` from FOUR independent custom properties, using the same inline-fallback model as the ring/shadow family above. A `from-blue-500 to-purple-600` pairing is the broken case under single-property emit (each would write its own `background-image`, last-write-wins); composing via `--tw-gradient-stops` makes both stops contribute to one gradient.
+
+**The direction utility (`bg-gradient-to-{dir}`)** sets `background-image` to a `linear-gradient` that reads the composed stops. The eight directions map: `to-t` → `to top`, `to-tr` → `to top right`, `to-r` → `to right`, `to-br` → `to bottom right`, `to-b` → `to bottom`, `to-bl` → `to bottom left`, `to-l` → `to left`, `to-tl` → `to top left`. (Direction is named-only; there is no arbitrary `bg-gradient-to-[…]` form.)
+
+```css
+/* bg-gradient-to-r — the direction; reads the composed stops with the lone-direction fallback */
+.bg-gradient-to-r { background-image: linear-gradient(to right, var(--tw-gradient-stops, transparent, transparent)) }
+```
+
+**The color-stop utilities** (`from-*` / `via-*` / `to-*`, named color scale + specials `white`/`black`/`transparent` + arbitrary `from-[#hex]` / `via-[…]` / `to-[…]`) each set one or more `--tw-gradient-*` vars:
+
+```css
+/* from-{color} — sets the start color, the from-color's TRANSPARENT twin as the to default, and the 2-stop stops */
+.from-blue-500 { --tw-gradient-from: #3b82f6 var(--tw-gradient-from-position,); --tw-gradient-to: rgb(59 130 246 / 0) var(--tw-gradient-to-position,); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgb(59 130 246 / 0)) }
+/* via-{color} — emits the 3-stop stops (from, via, to) + a transparent-twin to default */
+.via-green-500 { --tw-gradient-to: rgb(34 197 94 / 0) var(--tw-gradient-to-position,); --tw-gradient-stops: var(--tw-gradient-from,), #22c55e var(--tw-gradient-via-position,), var(--tw-gradient-to, rgb(34 197 94 / 0)) }
+/* to-{color} — sets only the final stop */
+.to-purple-600 { --tw-gradient-to: #9333ea var(--tw-gradient-to-position,) }
+```
+
+A `bg-gradient-to-r from-blue-500 to-purple-600` element resolves `--tw-gradient-from` to `#3b82f6`, `--tw-gradient-to` to `#9333ea` (the `to-purple-600` rule overrides the from-derived transparent default — same specificity, later source order), and `--tw-gradient-stops` to `#3b82f6, #9333ea`, so `background-image` becomes `linear-gradient(to right, #3b82f6, #9333ea)`. A real two-color gradient, composed.
+
+**Two fidelity decisions (normative for golden-CSS):**
+
+1. **Lone-direction stops fallback.** A `bg-gradient-to-r` with no `from-*`/`via-*`/`to-*` resolves `var(--tw-gradient-stops, transparent, transparent)` to a valid (invisible) two-stop gradient. The inline fallback `transparent, transparent` is a well-formed stop list, so a lone direction never produces malformed CSS.
+
+2. **From-color-derived `--tw-gradient-to` default.** A `from-{color}` defaults `--tw-gradient-to` to the from-color's TRANSPARENT version (v3-faithful — e.g. `from-blue-500` → `rgb(59 130 246 / 0)`), so a from-only gradient fades color → transparent-of-itself. Because the palette is 6-digit hex, the hex → `rgb(r g b / 0)` derivation is a small helper. For ARBITRARY non-hex colors (`from-[red]`, `from-[var(--c)]`) the transparent twin is not derivable, so those fall back to the literal keyword `transparent` (a valid, slight-fidelity-loss fade color). Named specials: `transparent`'s own twin is `transparent` (correct); `white`/`black` derive their hex twins normally.
+
+**Phase status.** ring / ring-offset / shadow is **Phase 1**; the gradient family is **Phase 2** — both landed under this inline-fallback model and their class tokens are RECOGNIZED (no `W-TAILWIND-UNRECOGNIZED-CLASS`). transform, filter, and backdrop-filter are subsequent phases under the same model; until they land, their class tokens continue to fire `W-TAILWIND-UNRECOGNIZED-CLASS` (§26.5) as deferred-family regression guards. The arbitrary-width `ring-offset-[<len>]` form is the lone remaining ring-family member without a utility (no arbitrary-width offset).
 
 ---
 

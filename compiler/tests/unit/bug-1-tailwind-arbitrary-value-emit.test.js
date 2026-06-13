@@ -393,13 +393,14 @@ describe("§12 W-TAILWIND-UNRECOGNIZED-CLASS lint sync — engine + lint single 
   });
 
   test("still-unsupported family (`ring-offset-[2px]`) DOES trigger", () => {
-    // Sanity check — the lint still works for families NOT shipped in this dispatch.
-    // S108 v2 (Bug 1 minor families) added transition/duration/delay/ease + rotate/
-    // scale/translate + outline + outline-offset. S109 (Bug 1 partial closure)
-    // added `ring-[length|color|var|keyword]` via single-property box-shadow
-    // emit. `ring-offset-*` and `bg-gradient-*` / `from-*` / `to-*` / `via-*`
-    // remain deferred — they need preflight `*, ::before, ::after`
-    // custom-property machinery scrml hasn't yet wired up.
+    // Sanity check — the lint still works for families NOT shipped.
+    // S108 v2 added transition/duration/delay/ease + rotate/scale/translate +
+    // outline. S109 added `ring-[length|color|var|keyword]`. S191 §26.7 landed
+    // the ring/shadow (Phase 1) and gradient (Phase 2) COMPOSING families via
+    // Approach C (inline var() fallbacks, no global preflight block) — so
+    // `bg-gradient-*` / `from-*` / `to-*` / `via-*` and named `ring-offset-{w}`
+    // are now RECOGNIZED. The ARBITRARY-width `ring-offset-[<len>]` is the
+    // last genuinely-deferred member (no arbitrary-width offset utility).
     const diags = findUnrecognizedClasses('<div class="ring-offset-[2px]"></div>');
     expect(diags.length).toBeGreaterThan(0);
     expect(diags[0].code).toBe("W-TAILWIND-UNRECOGNIZED-CLASS");

@@ -8,9 +8,11 @@
  *   - Directional translate / scale (modern CSS individual transform props)
  *   - Directional rotate / skew (transform shorthand — no standalone CSS prop)
  *
- * Out of v3 scope (still deferred):
- *   - `ring-*` / `ring-offset-*` (Tailwind compound — box-shadow stack)
- *   - `bg-gradient-*` / `from-*` / `to-*` / `via-*` (gradient compound)
+ * Out of v3 scope at the time of authoring; NOW LANDED (S191 Phase 1+2, §26.7):
+ *   - `ring-*` / `ring-offset-*` named (box-shadow compose) — Phase 1
+ *   - `bg-gradient-*` / `from-*` / `to-*` / `via-*` (gradient compose) — Phase 2
+ * Still genuinely deferred (separate bug-1 sub-items):
+ *   - arbitrary `ring-offset-[<len>]` (no arbitrary-width offset utility)
  *   - `content-["..."]` / `font-[Inter]` (string-shaped values)
  *   - Safelist / `@apply` mechanism
  *
@@ -188,7 +190,7 @@ describe("§8: lint regression — v3 families no longer fire W-TAILWIND-UNRECOG
 // §9: still-deferred families STILL fire the lint
 // ---------------------------------------------------------------------------
 
-describe("§9: still-deferred families STILL fire W-TAILWIND-UNRECOGNIZED-CLASS", () => {
+describe("§9: gradient/ring-offset-named now recognized (S191); arbitrary-ring-offset + string-shaped STILL fire", () => {
   // S109 update: ring-[length] / ring-[color] / ring-[var()] / ring-[keyword]
   // now ship via ARBITRARY_DECL_TRANSFORM single-property emit (box-shadow
   // single-decl, ring-offset still deferred). See
@@ -201,11 +203,10 @@ describe("§9: still-deferred families STILL fire W-TAILWIND-UNRECOGNIZED-CLASS"
     expect(lints[0].code).toBe("W-TAILWIND-UNRECOGNIZED-CLASS");
   });
 
-  test("from-[#ff0000] STILL fires the lint (gradient compound)", () => {
+  test("from-[#ff0000] is now RECOGNIZED — no lint (S191 Phase 2 gradient family landed)", () => {
     const src = `<div class="from-[#ff0000]">x</div>`;
     const lints = findUnrecognizedClasses(src);
-    expect(lints.length).toBeGreaterThan(0);
-    expect(lints[0].code).toBe("W-TAILWIND-UNRECOGNIZED-CLASS");
+    expect(lints).toEqual([]);
   });
 
   test("font-[Inter] STILL fires the lint (string-shaped value; not yet supported)", () => {

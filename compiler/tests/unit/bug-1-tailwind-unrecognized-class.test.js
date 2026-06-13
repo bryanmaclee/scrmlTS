@@ -179,9 +179,9 @@ describe("§2 Arbitrary-value class engine doesn't handle — warning fires", ()
     expect(firedOn(diags, "ring-offset-[2px]")).toBe(true);
   });
 
-  test("`bg-gradient-to-r` fires (still-unsupported — needs preflight + multi-utility)", () => {
+  test("`bg-gradient-to-r` is now RECOGNIZED — does not fire (S191 Phase 2 gradient family)", () => {
     const diags = scan('<div class="bg-gradient-to-r"></div>');
-    expect(firedOn(diags, "bg-gradient-to-r")).toBe(true);
+    expect(firedOn(diags, "bg-gradient-to-r")).toBe(false);
   });
 });
 

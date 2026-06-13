@@ -623,6 +623,133 @@ function registerRing() {
   registry.set("ring-offset-transparent", ".ring-offset-transparent { --tw-ring-offset-color: transparent }");
 }
 
+// ---------------------------------------------------------------------------
+// Composing gradient family (bg-gradient-to-* / from-* / via-* / to-*) —
+// Approach C (§26.7). Same inline-`var()`-fallback model as the box-shadow
+// composing family above (registerRing / registerEffects). A gradient is built
+// from FOUR independent custom properties so partial application composes:
+//
+//   bg-gradient-to-{dir} -> background-image: linear-gradient(<dir>, var(--tw-gradient-stops, ...))
+//   from-{color}         -> --tw-gradient-from + --tw-gradient-to (the from-color's
+//                           transparent twin) + the 2-stop --tw-gradient-stops
+//   via-{color}          -> --tw-gradient-to (transparent twin) + the 3-stop --tw-gradient-stops
+//   to-{color}           -> --tw-gradient-to
+//
+// INLINE FALLBACKS (the Approach-C minimalism choice): no global
+// `*, ::before, ::after` preflight defaults block. Each `var()` reference in
+// the stops / background-image carries its own inline fallback so a partial
+// gradient is well-formed:
+//   - `bg-gradient-to-r` ALONE -> `var(--tw-gradient-stops, transparent, transparent)`
+//     resolves to a valid (invisible) 2-stop gradient (FIDELITY DECISION #1).
+//   - `from-X` ALONE -> the 2-stop stops it sets fade color -> the from-color's
+//     own transparent twin (FIDELITY DECISION #2, Tailwind-v3-faithful).
+//   - `to-X` / `via-X` ALONE set only their var; pairing with a direction
+//     produces the gradient (a lone color with no direction draws nothing,
+//     matching Tailwind).
+//
+// FIDELITY DECISION #2 (from-color-derived `--tw-gradient-to` default): a
+// `from-{color}` defaults `--tw-gradient-to` to the from-color's TRANSPARENT
+// version (e.g. from-blue-500 -> rgb(59 130 246 / 0)) so a from-only gradient
+// fades color -> transparent-of-itself, exactly like Tailwind v3. The palette is
+// 6-digit hex, so the hex->`rgb(r g b / 0)` derivation is a clean 4-line helper
+// (hexToTransparentRgb). For ARBITRARY non-hex from colors (`from-[red]`,
+// `from-[var(--c)]`) the transparent twin is not derivable, so those fall back to
+// the literal keyword `transparent` (a valid, slight-fidelity-loss fade color).
+// ---------------------------------------------------------------------------
+
+// linear-gradient direction for each bg-gradient-to-{dir}.
+const GRADIENT_DIRECTIONS = {
+  "t":  "to top",
+  "tr": "to top right",
+  "r":  "to right",
+  "br": "to bottom right",
+  "b":  "to bottom",
+  "bl": "to bottom left",
+  "l":  "to left",
+  "tl": "to top left",
+};
+
+// The lone-direction stops fallback — a valid (invisible) 2-stop gradient when
+// no from/via/to is present (FIDELITY DECISION #1).
+const GRADIENT_STOPS_FALLBACK = "transparent, transparent";
+
+// hex (#rrggbb) -> the same color at zero alpha, `rgb(r g b / 0)` — the
+// from-color's transparent twin (FIDELITY DECISION #2, Tailwind v3 parity).
+// Returns `transparent` for any non-6-digit-hex input (arbitrary keyword/var
+// colors whose transparent twin is not derivable).
+function hexToTransparentRgb(hex) {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex);
+  if (!m) return "transparent";
+  const r = parseInt(m[1].slice(0, 2), 16);
+  const g = parseInt(m[1].slice(2, 4), 16);
+  const b = parseInt(m[1].slice(4, 6), 16);
+  return `rgb(${r} ${g} ${b} / 0)`;
+}
+
+// The `--tw-gradient-from` + `--tw-gradient-to`(transparent twin) + 2-stop
+// `--tw-gradient-stops` setter body for a `from-{color}`. Shared by the named
+// color scale and the arbitrary `from-[<color>]` form. `var(--tw-gradient-to, ...)`
+// in the stops lets a later `to-*` / `via-*` on the same element override the
+// transparent-twin default.
+function gradientFromSetter(color) {
+  const transparentTwin = hexToTransparentRgb(color);
+  return (
+    `--tw-gradient-from: ${color} var(--tw-gradient-from-position,); ` +
+    `--tw-gradient-to: ${transparentTwin} var(--tw-gradient-to-position,); ` +
+    `--tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, ${transparentTwin})`
+  );
+}
+
+// The `via-{color}` setter — a 3-stop `--tw-gradient-stops` (from, via, to) plus
+// a transparent-twin `--tw-gradient-to` default. `var(--tw-gradient-from,)` lets
+// a `from-*` on the same element supply the first stop (empty if absent).
+function gradientViaSetter(color) {
+  const transparentTwin = hexToTransparentRgb(color);
+  return (
+    `--tw-gradient-to: ${transparentTwin} var(--tw-gradient-to-position,); ` +
+    `--tw-gradient-stops: var(--tw-gradient-from,), ${color} var(--tw-gradient-via-position,), var(--tw-gradient-to, ${transparentTwin})`
+  );
+}
+
+// The `to-{color}` setter — sets only `--tw-gradient-to` (the final stop).
+function gradientToSetter(color) {
+  return `--tw-gradient-to: ${color} var(--tw-gradient-to-position,)`;
+}
+
+function registerGradient() {
+  // bg-gradient-to-{dir} — named directions only (no arbitrary direction in
+  // Phase 2). Sets background-image to a linear-gradient reading the composed
+  // stops, with the lone-direction invisible-gradient fallback (DECISION #1).
+  for (const [dir, css] of Object.entries(GRADIENT_DIRECTIONS)) {
+    registry.set(
+      `bg-gradient-to-${dir}`,
+      `.bg-gradient-to-${dir} { background-image: linear-gradient(${css}, var(--tw-gradient-stops, ${GRADIENT_STOPS_FALLBACK})) }`,
+    );
+  }
+
+  // from-/via-/to-{color}-{shade} — the named color scale. Each sets its
+  // gradient var(s); pairing with a bg-gradient-to-{dir} renders the gradient.
+  for (const [colorName, shades] of Object.entries(COLOR_PALETTE)) {
+    for (const shade of COLOR_SHADES) {
+      const hex = shades[shade];
+      if (!hex) continue;
+      registry.set(`from-${colorName}-${shade}`, `.from-${colorName}-${shade} { ${gradientFromSetter(hex)} }`);
+      registry.set(`via-${colorName}-${shade}`, `.via-${colorName}-${shade} { ${gradientViaSetter(hex)} }`);
+      registry.set(`to-${colorName}-${shade}`, `.to-${colorName}-${shade} { ${gradientToSetter(hex)} }`);
+    }
+  }
+
+  // Special gradient colors (white / black / transparent). transparent's
+  // transparent twin is itself, so hexToTransparentRgb's non-hex fallback
+  // (-> `transparent`) is exactly right for from-transparent / via-transparent.
+  const GRADIENT_SPECIALS = { white: "#ffffff", black: "#000000", transparent: "transparent" };
+  for (const [name, color] of Object.entries(GRADIENT_SPECIALS)) {
+    registry.set(`from-${name}`, `.from-${name} { ${gradientFromSetter(color)} }`);
+    registry.set(`via-${name}`, `.via-${name} { ${gradientViaSetter(color)} }`);
+    registry.set(`to-${name}`, `.to-${name} { ${gradientToSetter(color)} }`);
+  }
+}
+
 function registerEffects() {
   const SHADOWS = {
     "sm": "0 1px 2px 0 rgb(0 0 0 / 0.05)",
@@ -1335,6 +1462,18 @@ const ARBITRARY_DECL_TRANSFORM = {
     // are rejected upstream by the single-token requirement).
     return `box-shadow: 0 0 0 ${v.css} currentColor`;
   },
+  // Gradient color stops (arbitrary value) — Approach C (§26.7). The bracket
+  // value is a single color token (hex / keyword / var / color-fn). For a HEX
+  // from/via color the transparent twin is derived (hexToTransparentRgb);
+  // non-hex (keyword/var) colors fall back to the literal `transparent` for the
+  // `--tw-gradient-to` default (FIDELITY DECISION #2 — arbitrary non-hex tail).
+  // The same gradientFromSetter / gradientViaSetter / gradientToSetter bodies as
+  // the named scale, so `from-[#ff0000]` composes with `bg-gradient-to-r` /
+  // `to-purple-600` on the same element. `bg-gradient-to-{dir}` is named-only
+  // (no arbitrary direction in Phase 2).
+  "from": (v) => gradientFromSetter(v.css),
+  "via":  (v) => gradientViaSetter(v.css),
+  "to":   (v) => gradientToSetter(v.css),
 };
 
 // Overloaded prefixes — property depends on value shape.
@@ -2508,5 +2647,6 @@ registerColors();
 registerBorders();
 registerEffects();
 registerRing();
+registerGradient();
 registerLayout();
 registerProse();

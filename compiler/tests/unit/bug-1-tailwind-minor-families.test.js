@@ -15,10 +15,12 @@
  *   matrix + matrix3d + rotate3d + translate3d + scale3d + skew + skewx + skewy
  *                                                 — modern transform function call shapes
  *
- * Out of v2 scope (still deferred):
+ * Out of v2 scope at authoring; ring/shadow + gradient NOW LANDED (S191, §26.7):
+ *   ring-* / ring-offset-* named (box-shadow compose)  — Phase 1
+ *   bg-gradient-* / from-* / to-* / via-* (gradient compose) — Phase 2
+ * Still genuinely deferred:
  *   transform-* shorthand                         — needs transform-function-list validation
- *   ring-* / ring-offset-* / bg-gradient-*        — Tailwind-compound utilities (box-shadow / gradient stack)
- *   from-* / to-* / via-*                         — gradient stop-color compound
+ *   arbitrary ring-offset-[<len>]                  — no arbitrary-width offset utility
  *   font-* / content-*                            — string-shaped values (font-family quoted; pseudo content)
  *
  * Coverage:
@@ -227,7 +229,7 @@ describe("§9: lint regression — minor families now recognized (do NOT fire li
 // §10: still-deferred families STILL fire the lint
 // ---------------------------------------------------------------------------
 
-describe("§10: still-deferred families STILL fire W-TAILWIND-UNRECOGNIZED-CLASS", () => {
+describe("§10: arbitrary ring-offset STILL fires; gradient from-[…] now recognized (S191 Phase 2)", () => {
   // S109 update: ring-[length|color|var|keyword] now ships single-property
   // emit (see bug-1-tailwind-ring-family.test.js). ring-offset-* remains
   // deferred (needs preflight `*, ::before, ::after` custom-property layer).
@@ -238,10 +240,9 @@ describe("§10: still-deferred families STILL fire W-TAILWIND-UNRECOGNIZED-CLASS
     expect(lints[0].code).toBe("W-TAILWIND-UNRECOGNIZED-CLASS");
   });
 
-  test("from-[#ff0000] STILL fires the lint (deferred — gradient compound)", () => {
+  test("from-[#ff0000] is now RECOGNIZED — no lint (S191 Phase 2 gradient family landed)", () => {
     const src = `<div class="from-[#ff0000]">x</div>`;
     const lints = findUnrecognizedClasses(src);
-    expect(lints.length).toBeGreaterThan(0);
-    expect(lints[0].code).toBe("W-TAILWIND-UNRECOGNIZED-CLASS");
+    expect(lints).toEqual([]);
   });
 });
