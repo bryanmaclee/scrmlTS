@@ -1,0 +1,4 @@
+<program>
+  <sel>: string | not = not
+  <div>${ given s = @sel :> <p>${s}</p> }</div>
+</program>

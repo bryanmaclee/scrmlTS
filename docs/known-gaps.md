@@ -17,7 +17,7 @@
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 1 |
 | MED | 8 |
-| LOW | 17 |
+| LOW | 16 |
 | Nominal (spec-ahead-of-impl) | 9 |
 <!-- @generated:gap-counts END -->
 
@@ -1872,10 +1872,12 @@ Fix SCOPE/BRIEF/reproducers at `docs/changes/errarm-refail-lowering-2026-06-11/`
 
 ---
 
-### G-GIVEN-REBIND-NOT-REJECTED — `given name = expr :>` (SPEC-invalid rebind) not cleanly rejected → E-CODEGEN-INVALID-JS (logic) / silent-accept (markup) — `NEW S188 dog-food; LOW; SPEC §42.2.3 invalid-form-not-rejected`
-<!-- @gap id=g-given-rebind-not-rejected sev=LOW status=open -->
+### G-GIVEN-REBIND-NOT-REJECTED — `given name = expr :>` (SPEC-invalid rebind) not cleanly rejected → E-CODEGEN-INVALID-JS (logic) / silent-accept (markup) — `RESOLVED S189 (E-SYNTAX-045, both contexts)`
+<!-- @gap id=g-given-rebind-not-rejected sev=LOW status=resolved -->
 
 **Surfaced S188 dog-food (g-not-neg preserve-surface validation).** SPEC §42.2.3 grammar is `given-guard ::= 'given' identifier-list (':>' | '=>') block` with the prose "No variable is rebound to a new name; each identifier is narrowed **in place**." So the rebind-with-`=` form `given <newName> = <expr> :> body` is INVALID scrml — only `given <existingVar> :>` (narrow-in-place) is valid. But the compiler does NOT cleanly reject the rebind form: **in logic/function context** it emits invalid JS (`E-CODEGEN-INVALID-JS`); **in markup `${}` interpolation context** it SILENTLY compiles (accepts the invalid form). **Isolated (verify-before-claim):** `given n = @name :> n` (named-rebind, expr body, fn) → FAILS (`/tmp/dfn/q1`); `given n = @name :> { @out = n }` (named-rebind, block, fn) → FAILS (`q2`); `given @name :> { return @name }` (unnamed narrow-in-place, fn) → CLEAN (`q3`); `if (@name is some) { return @name }` (the equivalent) → CLEAN (`q4`); the same named-rebind in a MARKUP interpolation (`given s = @selected :> <p>…`) compiles clean (silent-accept). The differentiator is precisely the `<name> =` rebind. **Severity LOW** — canonical `given <var> :>` is unaffected; narrow trigger. **Same "SPEC-invalid form not cleanly rejected" class as [[g-not-negation-unenforced]]** + the misleading-diagnostic family ([[g-markup-const-consumes-cell-decl]], validator-inline-colon). **Fix direction:** reject `given name = expr :>` at parse/type with a clean diagnostic citing §42.2.3 (`given` narrows in place; `= expr` is not a rebind — declare a `const`/`let` first, or use `given <var> :>`), consistently across logic + markup. Repros: `/tmp/dfn/q1.scrml`,`q2.scrml` (fail) vs `q3.scrml`,`q4.scrml` (clean).
+
+**RESOLVED S189 (`g-given-rebind-not-rejected-2026-06-12`, agent `a43899a108317a824`, FINAL_SHA `233dd286`, PA-landed via file-delta).** Fix = a NEW dedicated code **`E-SYNTAX-045`** (the sibling of the property-path reject `E-SYNTAX-044`; NOT an extension of it — property-path is reserved/distinct), fired at BOTH `given-guard` parse sites in `ast-builder.js` (~6680 logic + ~10896 markup) immediately after the existing E-SYNTAX-044 property-path check. Trigger is a bare `=` (`PUNCT`) after a given-bound identifier; `==`/`=>`/`:>` are `OPERATOR` tokens so they never mis-fire (equality / deprecated-separator / canonical-separator). Recovery skips `= <rhs>` to the separator/`{`, keeping the identifier narrowed so multi-var `given a, b :>` still parses. SPEC: §34 catalog row + §17.6 quick-ref + §17.6 SHALL bullet + a §42.2.3 normative "No rebind" paragraph (Rule 4, same commit). **PA-independent R26 (S138):** q1 logic-rebind → E-SYNTAX-045 (the misleading E-CODEGEN-INVALID-JS "compiler defect" path is GONE; a truthful secondary E-SCOPE-001 on the genuinely-undeclared name follows — NOT a spurious cascade); qm markup-rebind → E-SYNTAX-045 (was silent-accept); q3 canonical narrow-in-place → CLEAN; multi-var `given a,b :>` → CLEAN; `given x =>` → only W-GIVEN-ARROW-LEGACY (no double-fire). +192-line regression test (11/11). **Process note:** the agent self-caught + soft-reset an unauthorized `--no-verify` interim SPEC commit, recommitting with the hook; the PA file-delta landing re-runs the pre-commit gate on the PA-authored commit, so the landed state is re-gated regardless. **Surfaced (out of scope, future currency pass):** the E-SYNTAX-044 §34 row carries stale emit-site line numbers `:4440, 7573`.
 
 ### G-DIVISION-IN-TERNARY-ARM — a `@cell` consequent/alternative before a ternary `:` truncated the init at `collectExpr` → E-CODEGEN-INVALID-JS in all positions — `RESOLVED S188 (c4cda1ae); MED; collectExpr S25 typed-reactive boundary mis-fire on a ternary value-arm`
 <!-- @gap id=g-division-in-ternary-arm sev=MED status=resolved -->

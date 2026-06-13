@@ -1,0 +1,6 @@
+<program>
+  <x>: string | not = not
+  <y>: string | not = not
+  function show() { given @x, @y :> { return @x } }
+  <p>z</p>
+</program>

@@ -17104,6 +17104,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-SYNTAX-042 | §17.6, §45 | `null` or `undefined` appears in a scrml value position. scrml's absence sentinel is `not`; `null`/`undefined` are not valid scrml literals. (Catalog addition S78 audit; emitted at `compiler/src/gauntlet-phase3-eq-checks.js:519, 613`.) | Error |
 | E-SYNTAX-043 | §17.6 | `(x) =>` presence-guard syntax used — replaced by `given x :>`. The old form is removed from the language. (Catalog addition S78 audit; emitted at `compiler/src/ast-builder.js:5002, 7661`.) | Error |
 | E-SYNTAX-044 | §17.6 | Property path in `given` position (e.g., `given obj.field =>`) — reserved; not yet supported in v1. `given` accepts only simple identifiers. (Catalog addition S78 audit; emitted at `compiler/src/ast-builder.js:4440, 7573`.) | Error |
+| E-SYNTAX-045 | §17.6, §42.2.3 | Rebind form `given <name> = <expr> :>` used in a `given` presence guard. `given` narrows in place — no variable is rebound to a new name (§42.2.3: “No variable is rebound to a new name; each identifier is narrowed in place”). The sibling shape of the property-path reject (E-SYNTAX-044): both reject a non-bare-identifier in `given` head position. Bare `=` is the trigger; `==` / `=>` / `:>` (equality, deprecated separator, canonical separator) do NOT fire. Resolution: declare the value first (`let n = <expr>` then `given n :> { ... }`), or narrow an existing variable in place (`given <existingVar> :> { ... }`). Fires for BOTH logic-context and markup-${}-context given-guards (previously logic emitted E-CODEGEN-INVALID-JS and markup silently compiled). (Catalog addition S189 g-given-rebind dog-food; emitted at `compiler/src/ast-builder.js` both given-guard parse sites.) | Error |
 | E-SYNTAX-064 | §17.7.3, §3.4 | The `@.` contextual iteration sigil ("the current iteration value" / `@.field` for a field of the current item) appears OUTSIDE any `<each>` body scope, where it has no referent. Fires at every reachable `@.`-bearing position outside an each-body: an attribute value (`<li title=@.name>` / `class:done=@.done`), a Tier-0 `${for (it of @items) { lift ... }}` handler-call arg (`onclick=ping(@.id)`), and a Tier-0 lifted interpolation (`lift <li>${@.name}</li>`). A Tier-0 `${for...lift}` is NOT an `<each>` body scope — use the bare loop variable (`it.field`) there; in a `<each>` element use `@.` inside the body or bind an alias with `as name` (`<each in=@items as item>` → `item.field`). Replaces the prior confusing leak (raw `@.` reaching codegen → `E-CODEGEN-INVALID-JS`) and the misleading `E-SCOPE-001` on the base `@` token. (Catalog addition S157 Bug 70 — wired the previously-queued code; emitted at `compiler/src/type-system.ts` visitAttr + lift-expr scan.) | Error |
 | E-BATCH-001 | §8.9.3, §19.10.5 | Explicit `transaction { }` block composed with an implicit per-handler transaction. The two cannot compose. Resolution: `.nobatch()` the outer calls, or wrap the whole handler in the explicit `transaction { }`. (Catalog addition S78 audit; emitted at `compiler/src/batch-planner.ts:677`.) | Error |
 | E-BATCH-002 | §8.10 | Batched `IN (...)` parameter count exceeds `SQLITE_MAX_VARIABLE_NUMBER` (32766) and chunking is not statically applicable (e.g., hoisted-loop form). Runtime over-limit also throws this code. (Catalog addition S78 audit; emitted at `compiler/src/codegen/emit-control-flow.ts:373`.) | Error |
@@ -21475,6 +21476,8 @@ Multi-narrowing is all-or-nothing. If any listed variable is `not`, the body is 
 
 `given` is the positive counterpart to `x is not`. Inside the body, each named variable is narrowed — the `| not` component is removed from each variable's type. No variable is rebound to a new name; each identifier is narrowed in place.
 
+**No rebind.** Because `given` narrows in place, the rebind form `given <name> = <expr> :>` is NOT valid scrml — there is no `=` in the `given` head grammar (`given-guard ::= ‘given’ identifier-list (‘:>’ | ‘=>’) block`). A `given` head SHALL contain only an identifier-list. A bare `=` after a `given`-bound identifier SHALL be compile error E-SYNTAX-045 (the sibling of the property-path reject E-SYNTAX-044), in BOTH logic and markup-`${}` contexts. To bind a fresh value, declare it first (`let n = <expr>` then `given n :> { ... }`); to narrow an existing variable, name it directly (`given <existingVar> :> { ... }`). (`==`, `=>`, `:>` after the identifier are NOT rebinds and do not fire: equality, the deprecated separator, the canonical separator respectively.)
+
 **In match arms**, the presence pattern in a `match` block uses `given` in the payload position:
 
 ```scrml
@@ -21601,6 +21604,7 @@ A function that may return no value SHALL declare its return type as `T | not`. 
 | W-ABSENCE-IN-SCRML-SOURCE | `null` or `undefined` token detected in scrml source (regression-guard info lint companion to E-SYNTAX-042 — see §34 row for the full reject grammar and exclusion list) | Info |
 | E-SYNTAX-043 | `(x) =>` presence guard syntax used — replaced by `given x :>` | Error |
 | E-SYNTAX-044 | Property path in `given` position (reserved; not yet supported) | Error |
+| E-SYNTAX-045 | Rebind form `given <name> = <expr> :>` — `given` narrows in place, it does not rebind to a new name (§42.2.3) | Error |
 | E-TYPE-041 | `not` assigned to a variable of non-optional type `T` | Error |
 | E-TYPE-042 | Absence checked with `== not`, `=== not`, `== null`, etc. | Error |
 | E-TYPE-043 | Function with non-optional return type has a path returning `not` | Error |
@@ -21640,6 +21644,7 @@ A function that may return no value SHALL declare its return type as `T | not`. 
 - `given x, y :> body` SHALL narrow `x` and `y` independently. The body SHALL execute only when all listed variables are not `not`.
 - The old `(x) =>` presence guard form SHALL NOT be valid. Any occurrence SHALL be compile error E-SYNTAX-043.
 - `given` SHALL accept only simple identifiers for v1. Property paths SHALL be compile error E-SYNTAX-044.
+- `given` narrows in place; it SHALL NOT rebind a variable to a new name. The rebind form `given <name> = <expr> :>` SHALL be compile error E-SYNTAX-045 (in both logic and markup-`${}` contexts). Declare the value first (`let n = <expr>` then `given n :> { ... }`), or narrow an existing variable in place.
 - A `match` on `T | not` without a `not` arm or `else` arm SHALL be compile error E-MATCH-012.
 - `.get()` on `?{}` results SHALL return `T | not`, not `T | null`.
 

@@ -6673,6 +6673,30 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             if (peek().kind === "IDENT" || peek().kind === "KEYWORD") consume();
           }
         }
+        // §42.2.3: `given` narrows in place; it does NOT rebind to a new name.
+        // Reject `given n = @expr :>` (a rebind), the exact sibling of the
+        // property-path reject above. Bare `=` is PUNCT; `==`/`=>`/`:>` are
+        // OPERATOR tokens, so this never fires on equality or either separator.
+        if (peek().kind === "PUNCT" && peek().text === "=") {
+          errors.push(new TABError(
+            "E-SYNTAX-045",
+            `E-SYNTAX-045: \`given\` narrows in place; \`given ${name} = <expr>\` is not a rebind (§42.2.3). ` +
+            `No variable is rebound to a new name in a \`given\` guard. ` +
+            `Declare the value first (\`let ${name} = <expr>\` then \`given ${name} :> { ... }\`), ` +
+            `or narrow an existing variable in place (\`given <existingVar> :> { ... }\`).`,
+            tokenSpan(identTok, filePath),
+          ));
+          // Recover: skip the `= <rhs>` up to the separator (`:>`/`=>`) or body `{`,
+          // keeping `name` as a narrowed variable so the rest of the guard parses.
+          consume(); // consume `=`
+          while (
+            peek().kind !== "EOF" &&
+            !(peek().kind === "PUNCT" && peek().text === "{") &&
+            !isMatchArrow(peek())
+          ) {
+            consume();
+          }
+        }
         variables.push(name);
         if (peek().kind === "PUNCT" && peek().text === ",") {
           consume(); // consume ','
@@ -10864,6 +10888,30 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           while (peek().kind === "PUNCT" && peek().text === ".") {
             consume(); // consume '.'
             if (peek().kind === "IDENT" || peek().kind === "KEYWORD") consume();
+          }
+        }
+        // §42.2.3: `given` narrows in place; it does NOT rebind to a new name.
+        // Reject `given n = @expr :>` (a rebind), the exact sibling of the
+        // property-path reject above. Bare `=` is PUNCT; `==`/`=>`/`:>` are
+        // OPERATOR tokens, so this never fires on equality or either separator.
+        if (peek().kind === "PUNCT" && peek().text === "=") {
+          errors.push(new TABError(
+            "E-SYNTAX-045",
+            `E-SYNTAX-045: \`given\` narrows in place; \`given ${name} = <expr>\` is not a rebind (§42.2.3). ` +
+            `No variable is rebound to a new name in a \`given\` guard. ` +
+            `Declare the value first (\`let ${name} = <expr>\` then \`given ${name} :> { ... }\`), ` +
+            `or narrow an existing variable in place (\`given <existingVar> :> { ... }\`).`,
+            tokenSpan(identTok, filePath),
+          ));
+          // Recover: skip the `= <rhs>` up to the separator (`:>`/`=>`) or body `{`,
+          // keeping `name` as a narrowed variable so the rest of the guard parses.
+          consume(); // consume `=`
+          while (
+            peek().kind !== "EOF" &&
+            !(peek().kind === "PUNCT" && peek().text === "{") &&
+            !isMatchArrow(peek())
+          ) {
+            consume();
           }
         }
         variables.push(name);

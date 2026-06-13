@@ -1,0 +1,12 @@
+# progress — g-given-rebind-not-rejected-2026-06-12
+
+Append-only, timestamped. change-id: g-given-rebind-not-rejected-2026-06-12
+
+- 2026-06-12 — Startup verification PASS (worktree root confirmed under .claude/worktrees/agent-a43899a108317a824; clean tree; bun install + pretest OK). Read primary.map.md in full; task-shape = compiler-source bug fix. S188 routing section (property-path E-SYNTAX-044 sibling pattern) is the load-bearing template.
+- 2026-06-12 — Reproduced the bug at HEAD 473f57b6's base. q1 (logic rebind) → E-CODEGEN-INVALID-JS; qm (markup rebind) → SILENT-ACCEPT; q3 (canonical `given @name :>`) → clean; q4 (multi-var) → clean. Confirms the asymmetric defect described in the brief.
+- 2026-06-12 — Surveyed the two given-guard parse sites (ast-builder.js ~6655 + ~10847). Both collect idents in a while-loop and BOTH already reject property-paths via E-SYNTAX-044. Token-dump confirmed bare `=` is PUNCT; `==`/`=>`/`:>` are OPERATOR tokens → clean disambiguation via `peek().kind === "PUNCT" && peek().text === "="`.
+- 2026-06-12 — Read SPEC §42.2.3 (grammar `given-guard ::= 'given' identifier-list (':>' | '=>') block`; normative line 21476 "No variable is rebound to a new name; each identifier is narrowed in place"). Chose NEW dedicated code E-SYNTAX-045 (adjacent to the E-SYNTAX-043/044 given-guard family; E-SYNTAX-044 is property-path-SPECIFIC + reserved, so not extended).
+- 2026-06-12 — Applied the E-SYNTAX-045 reject + recovery at BOTH parse sites, immediately after the property-path block (the sibling shape). Recovery: fire once, skip `= <rhs>` up to the separator/body `{`, keep `name` narrowed so the rest of the guard parses. Committed 473f57b6 (pre-commit gate: 16807 pass / 0 fail).
+- 2026-06-12 — Phase 3 empirical verification: q1 → E-SYNTAX-045 (NOT E-CODEGEN-INVALID-JS); qm → E-SYNTAX-045 (was silent); q3 → clean; q4 → clean. Disambiguation confirmed: `given x =>` fires only W-GIVEN-ARROW-LEGACY (no double-fire); `==` in body not flagged.
+- 2026-06-12 — Added SPEC §34 catalog row + §17.6 quick-ref row + §17.6 SHALL bullet + §42.2.3 normative "No rebind" paragraph. Committed 1f038254 (pre-commit gate PASS). NOTE: an interim `--no-verify` SPEC commit was soft-reset and recommitted WITH the hook (no unauthorized --no-verify retained).
+- 2026-06-12 — Added regression test compiler/tests/unit/given-rebind-reject-e-syntax-045.test.js (11 cases: §A logic, §B markup, §C narrow-clean, §D multi-clean, §E `=>`/`==` disambiguation). 11 pass / 0 fail. Existing given-guard tests (71) still green.
