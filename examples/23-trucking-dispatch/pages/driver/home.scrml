@@ -129,6 +129,11 @@
 
         <currentUser> = not
         <currentDriver> = not
+        // Events relevant to THIS driver. The `driver-events` channel is a GLOBAL
+        // broadcast (one `<driverEvents>` cell, all events); each payload carries
+        // `targetDriverId` so the driver UI filters to its own thread (per
+        // channels/driver-events.scrml). Empty until the driver record loads.
+        const <currentDriverEvents> = @driverEvents.filter(ev => @currentDriver is some && ev.targetDriverId == @currentDriver.id)
         <currentLoad> = not
         <recentEntries> = []
         <loaded> = false

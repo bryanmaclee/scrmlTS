@@ -16,8 +16,8 @@
 |---|---|
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 0 |
-| MED | 5 |
-| LOW | 12 |
+| MED | 6 |
+| LOW | 14 |
 | Nominal (spec-ahead-of-impl) | 9 |
 <!-- @generated:gap-counts END -->
 
@@ -992,7 +992,7 @@ Major families shipped S108-S109: grid / flex / aspect / transition / timing / i
 
 ---
 
-### Bug 12 — V-kill READ-side fire — `deferred; named unblocker (var-name canon) LANDED S192, RE-SCOPED by census`
+### Bug 12 — V-kill READ-side fire — `stage-1 + Class-B mechanism LANDED S192; read-side fire WIRED-but-GATED, post-CE relocation needed`
 
 > **S192:** The §51.0.C engine var-name canonicalisation that this gap was pending **LANDED** (`feat(s192)` — four divergent derivations collapsed into one `compiler/src/engine-varname.ts`; the `<machine name=UI>` register-as-`UI` vs `@ui`-read mismatch is CLOSED — register, read, and codegen now agree). But a full-corpus read-side census (1049 files via `runSYM`) then showed canonicalisation is **necessary but NOT sufficient**: 34 legit-but-unresolved reads across 15 files, ZERO genuine typos, in FOUR classes the read-side fire must resolve first. The fire was therefore NOT landed; re-scoped.
 > **S177:** R26-verified the bare `@undecl` read still silently propagates to codegen (`_scrml_reactive_get("undecl")`, no E-STATE-UNDECLARED — symbol-table.ts only handles the pinned-forward-ref case).
@@ -1012,10 +1012,32 @@ S123 V-kill landed write-side enforcement (`@x = expr` at default-logic body-top
 - **Class D** (state-block bare-write `@x=init` in a `<db>` body) — **MIGRATE + DEPRECATE**: info-lint `W-STATE-BLOCK-BARE-WRITE-DECL` (ast-builder.js `scanStateBlockBareWriteDecls`) steers to `${ <x> = init }` (the §38.4 / §6 / 03-contact-book canonical shape); bun-admin db-body decls migrated. (Corrected a stale ast-builder comment that wrongly called the bare form "canonical V5-strict state-block grammar".)
 - Post-stage-1 census (the five S192 census files): svelte-dashboard / modern-007-dnd / phase2-animationframe-094 → 0 unresolved; quiz-app → 2 (`hasPrev`/`hasNext`, an ORTHOGONAL pre-existing block-splitter mis-split on a multiline `<x> = [...]` + bare `<` comparison, NOT A/C/D); bun-admin → 24 (all handler-only declared-by-first-write cells `@newName`/`@editName`/etc. — V-kill writes with no structural decl, the STAGE-2 read-side surface itself, NOT A/C/D).
 
-To land the read-side fire SOUNDLY, the compiler must now resolve **only Class B** at a POST-CE stage (SYM cannot, per-file) OR relocate the whole check to a post-CE pass. An "exempt every unresolved read" carve-out is rejected — the resolved A/C/D classes are normal declared cells, so exempting them would also swallow genuine typos and defeat the diagnostic.
+To land the read-side fire SOUNDLY, the compiler must resolve every legit-but-unresolved read surface. An "exempt every unresolved read" carve-out is rejected — the resolved A/C/D classes are normal declared cells, so exempting them would also swallow genuine typos and defeat the diagnostic.
+
+**STAGE 2 (S192, change-id `sym-cell-registration-completeness-2026-06-13`) — read-side fire WIRED, Class-B exemption mechanism BUILT, but GATED OFF pending a post-CE relocation.** Class B (cross-file channel cells) was resolved at SYM via a bounded name-set exemption (`getCrossFileChannelCellNames` — for each channel-category import binding, resolve the source FileAST and harvest its `<channel>`-body cell names structurally; handles the `@boardEvents` alias≠channel-name≠cell-name case). The 7 flagship typos (`@currentCustomerEvents`/`@currentDriverEvents`) were FIXED (declared as derived filter cells — the fire EARNING ITS KEEP) + the phase1-003 fixture migrated to canonical. **But wiring the fire + running the full unit gate surfaced FOUR MORE legit-but-unresolved read classes the S192 census MISSED** (the census ran via compileScrml/runSYM over 5 specific files which did not exercise these patterns; the over-fires are isolated unit-test minimal-repros — the real examples/ corpus is 0-fire):
+  5. **`<tableFor>`/`<each>` row/loop locals** (`@row`) — introduced by CE component-expansion **POST-SYM, NOT in the SYM-stage AST at all**, so no file-wide SYM binding-set can capture them (a binding-dump probe PROVED `@row`'s absence). The decisive blocker.
+  6. **engine boot-`effect=`/state-child implicit cells** (`@tasks`) — written via a bare `@tasks = …` the WRITE-side V-kill exempts in engine context; the read has no structural decl to resolve to.
+  7. **`<state>`-block cells read from a sibling `function` body or page markup** — registers but the read-position scope misses it (a SYM scope-registration gap; inline `${ <x> = … }` resolves fine).
+  8. **markup-const / `component-def` reads** (`@A` for `const A = <markup>`) — a `component-def` node, not a `state-decl`.
+
+Classes 5/6/8 are ALL POST-SYM-introduced (CE/tableFor/engine expansion), confirming the SCOPE-doc's per-class SYM-exemption approach is insufficient. **The principled fix is to RELOCATE the read-side fire to a post-CE stage** (where CE/tableFor/engine expansion has run, so `@row`/`@tasks`/component-defs resolve normally); the Class-B channel exemption + native-parser guard can then likely be DROPPED. The fire + both exemptions are COMPLETE + regression-guarded (`read-side-state-undeclared.test.js` runs them ENABLED), gated behind `SCRML_READSIDE_UNDECLARED` (OFF by default) so the gate stays green without reverting the mechanism. SPEC §34/§6.1 reflect the wired-but-gated state.
 
 - **Workaround:** declare all cells structurally with `<x> = init` before reading via `@x` in `${...}` bodies (which is the canonical V5-strict pattern anyway; the workaround IS the correct usage).
-- **Status:** deferred S123; **named unblocker (var-name canon) LANDED S192 + census run; STAGE-1 registration completeness (Class A/C/D) LANDED 2026-06-13.** Read-side fire (stage 2) now needs ONLY Class B (cross-file channel post-CE) resolved or a post-CE relocation. Token STAYS `open` (stage-2 not done). Not adopter-visible if V5-strict patterns are followed; only surfaces if adopter typos `@x` against a name that doesn't have a `<x>` decl.
+- **Status:** deferred S123; var-name-canon unblocker + STAGE-1 registration completeness (Class A/C/D) LANDED 2026-06-13; **STAGE 2 (S192) WIRED the read-side fire + BUILT the Class-B channel exemption + FIXED the 7 flagship typos + migrated the phase1-003 fixture — but the fire is GATED OFF** because four MORE POST-SYM read classes (5-8 above: tableFor/each `@row` locals, engine-effect implicit cells, `<state>`-block scope gap, markup-const reads) surfaced when the gate ran. Token STAYS `open` — needs a POST-CE relocation of the fire. Not adopter-visible if V5-strict patterns are followed; only surfaces (with the flag ON) if an adopter typos `@x` against a name with no `<x>` decl. To activate: set `SCRML_READSIDE_UNDECLARED=1` (over-fires on the 4 POST-SYM surfaces until relocated).
+
+---
+
+### Bug 12.a — read-side E-STATE-UNDECLARED post-CE relocation — `the principled fix the stage-2 STOP surfaced`
+<!-- @gap id=g-readside-undeclared-postce sev=MED status=open -->
+
+The S192 stage-2 dispatch PROTOTYPED the read-side fire at SYM (`symbol-table.ts resolveAtNameOnExprNode`, gated behind `SCRML_READSIDE_UNDECLARED`) and found the SYM stage is the WRONG LAYER: the check over-fires on four `@`-name surfaces introduced or made visible POST-SYM (`<tableFor>`/`<each>` `@row` loop locals [CE-introduced, NOT in the SYM AST], engine boot-`effect=` implicit cells, `<state>`-block cells read from a sibling function body, markup-const/`component-def` reads). A per-class SYM-stage exemption was investigated + REJECTED (`@row` is absent from the SYM-stage AST entirely — proven via a binding-dump probe — so no SYM-stage set can capture it). **PA dual-verify (S192) added a fifth:** a derived `const <x> = @classBcell.filter(...)` does not resolve at SYM either, because its RHS reads a post-SYM Class-B cell (caught the agent's "0 false-positives" over-claim on trucking `customer/home` + `driver/home`). **The fix:** relocate the read-side `E-STATE-UNDECLARED` check to a POST-CE stage where CE/tableFor/engine expansion has run, so `@row`/`@tasks`/component-def reads + the Class-B chain resolve through normal cell/local resolution; the Class-B channel scan (`getCrossFileChannelCellNames`) + the native-parser self-host guard can then likely be DROPPED (those cells materialise post-CE). **NOT LANDED** — per the S192 salvage-and-rescope decision the gated SYM-stage fire was NOT pulled to main; the prototype lives on the stage-2 branch `worktree-agent-af9b984e883af80a2` (FINAL_SHA `22205aba` — the fire + `getCrossFileChannelCellNames` + `read-side-state-undeclared.test.js`) as the reference to port from when relocating post-CE. Only the flagship app-fix (the 7 `const <current*Events>` filtered cells) + the phase1-003 fixture migration landed from that branch. Larger unit than the original SCOPE doc anticipated (its "adversarial 5th-class check: NEGATIVE" was empirically wrong — the census ran via compileScrml, which silently propagates null resolutions). Closes bug-12-vkill on the read-side when it lands post-CE.
+
+---
+
+### Bug 12.b — `export <channel>` body collapses to raw text pre-codegen — `Option 2b root fix that would retire the Class-B scan`
+<!-- @gap id=g-export-channel-body-text sev=LOW status=open -->
+
+The `export <channel>` body routes through `liftBareDeclarations` → collapses to raw TEXT before auto-lift (the `export` keyword path), so its cells are not STRUCTURALLY parsed until a deep codegen reparse (emit-channel). The S192 stage-2 Class-B exemption (`getCrossFileChannelCellNames`) works around this by scanning the imported channel file's source FileAST — empirically the SYM-stage tabResults FileAST DOES carry the channel body as structural `state-decl` nodes (the divergence from the SCOPE doc's text-scan assumption — the structural walk is the primary mechanism, with a `shorthandBodyRaw` text-scan fallback). **Option 2b** = parse `export <channel>` bodies STRUCTURALLY at TAB (like NON-export channels, which already parse structurally), retiring the `export`-keyword text-collapse routing. This is the proper root fix: it would let cross-file channel cells register/resolve through the normal MOD/SYM path, RETIRING the Option-1 Class-B channel-body scan entirely (and is a prerequisite-simplifier for the bug-12.a post-CE relocation). Has codegen-contract blast radius (emit-channel's reparse assumes the text form), so deferred as a separate unit. Cross-ref: stage-2 work `sym-cell-registration-completeness-2026-06-13` (Class-B mechanism + the structural-vs-text divergence).
 
 ---
 

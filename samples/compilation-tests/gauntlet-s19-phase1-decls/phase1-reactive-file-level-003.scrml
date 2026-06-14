@@ -1,5 +1,13 @@
-// @reactive declared at file top level (outside any ${}) — §6.1 / §7.6
-@count = 0
-@theme = "light"
+// Reactive cells declared at file top level — §6.1 / §7.6.
+// MIGRATED S192 (bug-12-vkill stage-2): the legacy file-top BARE-WRITE form
+// (`@count = 0` outside any `<program>`/`${}` host) is non-canonical — it parses
+// as inert text (the write is silently dropped) so the `${@count}` reads
+// resolve to an undeclared cell. The canonical form is a structural declaration
+// `<count> = 0` in a default-logic host; under v0.3 a `<program>` body auto-lifts
+// bare top-level declarations (§40.8). See E-STATE-UNDECLARED §6.1.1 V-kill.
+<program>
+    <count> = 0
+    <theme> = "light"
 
-<p>${@theme} / ${@count}</>
+    <p>${@theme} / ${@count}</>
+</>

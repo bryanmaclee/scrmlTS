@@ -98,6 +98,11 @@
 
         <currentUser> = not
         <currentCustomer> = not
+        // Events relevant to THIS customer. The `customer-events` channel is a
+        // GLOBAL broadcast (one `<customerEvents>` cell, all events); each payload
+        // carries `targetCustomerId` so the customer UI filters to its own account
+        // (per channels/customer-events.scrml). Empty until the account loads.
+        const <currentCustomerEvents> = @customerEvents.filter(ev => @currentCustomer is some && ev.targetCustomerId == @currentCustomer.id)
         <activeLoadRows> = []
         <recentInvoiceRows> = []
         <loaded> = false
