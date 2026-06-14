@@ -2,20 +2,22 @@
 //
 // A canonical-scrml dog-food game. The world is in "flux": unobserved geometry
 // is indeterminate and only takes shape inside your vision; it RE-ROLLS each
-// time you leave and return — UNLESS you spend memory to lock it. v1 builds the
-// single-player TEXT (ASCII) mode; the 8-bit "pages" + doom-esque "spa" render
-// modes are stubbed behind a RenderMode engine for later.
+// time you leave and return — UNLESS you spend memory to lock it. You explore a
+// shifting maze toward a fixed exit, spending scarce memory so your path home
+// doesn't dissolve. v1 is single-player TEXT mode; the 8-bit "pages" + doom-esque
+// "spa" render modes come later.
 //
-// THE FLUX MECHANIC (this layer):
-//   - vision: a Chebyshev sight bubble (radius @vision) around the player.
-//   - shift:  each non-memory cell carries a per-cell nonce; it bumps every time
-//             the cell leaves your vision, so re-observing it re-rolls its shape.
-//   - memory: "Remember" world-locks the cell you stand on (cost 1) — it stops
-//             shifting. "Pin home" (cost +1) also keeps it visible THROUGH the
-//             fog as a persistent landmark. Two tiers, each its own expense.
+// MECHANICS:
+//   - vision: a Chebyshev sight bubble (radius @vision = @level + 1) around you.
+//   - shift:  each non-memory cell carries a nonce that bumps when it leaves your
+//             vision, so re-observing it re-rolls its shape.
+//   - memory: "Remember" world-locks the cell you stand on (cost 1 — it stops
+//             shifting). "Pin home" (cost +1) also keeps it visible THROUGH fog.
+//   - goal:   a seed-fixed exit (X). A compass hint always points to it. Reach it
+//             to win; exploring earns XP → levels → more vision + memory budget.
 //
-//   §40.8 <program> container · §6.6 derived cells · §48 pure fn · §14.3/§14.4
-//   structs+enums · §18 match · §6.5.1 COW array reassign (no deep reactivity)
+//   §40.8 <program> · §6.6 derived cells · §48 pure fn · §14.3/§14.4 structs+enums
+//   §18 match · §6.5.1 COW array reassign (no deep reactivity)
 
 <program>
 
@@ -27,23 +29,28 @@
     <px>       = 7
     <py>       = 4
     <seed>     = 42
-    <vision>   = 2            // Chebyshev sight radius; becomes level-driven in the sheet layer
-    <budget>   = 6           // memory-budget — the scarce resource you spend to lock cells
+    <level>    = 1
+    <xp>       = 0
+    <budget>   = 6
+    <won>      = false
     <nonce>    = Array(135).fill(0)   // per-cell re-roll counter (cols*rows = 135), COW-reassigned
-    <memories>: Memory[] = []         // locked cells (frozen terrain); home=true also shows in fog
+    <memories>: Memory[] = []
 
-    // Derived board — recomputes + re-renders ${@board} when any dep changes.
-    const <board> = renderBoard(@px, @py, @seed, @cols, @rows, @vision, @nonce, @memories)
+    // Derived progression + goal + board (recompute from their deps).
+    const <vision>   = @level + 1                     // L1 -> see 1 ring beyond; grows with level
+    const <goalX>    = goalAxis(@seed, 97, @cols)     // seed-fixed exit (interior cell)
+    const <goalY>    = goalAxis(@seed, 53, @rows)
+    const <goalDir>  = compass(@goalX - @px, @goalY - @py)
+    const <goalDist> = chebyDist(@goalX - @px, @goalY - @py)
+    const <board>    = renderBoard(@px, @py, @seed, @cols, @rows, @vision, @nonce, @memories, @goalX, @goalY)
 
     // --- world generation (pure) ----------------------------------------------
 
     // Deterministic cell hash. No seeded PRNG exists in scrml, so we hand-roll a
     // multiplicative hash; named intermediates keep every product < 2^53 (ints are
     // JS doubles) AND dodge the emitStringFromTree (a+b)%c paren-drop. `nonce` is
-    // mixed in so a re-observed cell re-rolls.
+    // mixed EARLY so a re-observed cell visibly re-rolls (a late mix barely moves %100).
     fn hashCell(seed: int, x: int, y: int, nonce: int) -> int {
-        // nonce mixed EARLY so it cascades through all three multiplications —
-        // a late mix only nudges the final %100 by a few and rarely re-rolls.
         let h = seed % 100003 + nonce * 6151 + 101
         let a = h * 131 + x * 2654435 + 1
         h = a % 2147483647
@@ -54,8 +61,8 @@
         return h
     }
 
-    // Terrain for a cell at a given nonce. Border frame + center spawn clearing
-    // are STABLE (never shift — keeps the game navigable); the interior re-rolls.
+    // Terrain for a cell at a given nonce. Border frame + center spawn clearing are
+    // STABLE (never shift — keeps the game navigable); the interior re-rolls.
     fn cellTerrain(seed: int, x: int, y: int, cols: int, rows: int, nonce: int) -> Terrain {
         if (x <= 0 || x >= cols - 1 || y <= 0 || y >= rows - 1) { return .Wall }
         let cw = cols - 1
@@ -75,7 +82,6 @@
         return .Mountain
     }
 
-    // Terrain at a cell using its CURRENT nonce (from the @nonce array).
     fn terrainAtCell(seed: int, x: int, y: int, cols: int, rows: int, nonce: int[]) -> Terrain {
         let idx = y * cols + x
         let n = 0
@@ -91,7 +97,17 @@
         }
     }
 
-    // --- vision + memory lookup (pure) ----------------------------------------
+    // Seed-fixed goal axis — biased to a FAR band (one of the outer thirds), so
+    // the exit is always a real journey from the center spawn, never next door.
+    fn goalAxis(seed: int, salt: int, span: int) -> int {
+        let h = hashCell(seed, salt, salt, 0)
+        let spread = h % 3
+        if (h % 2 == 0) { return spread + 2 }        // far-low band: [2 .. 4]
+        let hi = span - 3
+        return hi - spread                            // far-high band: [span-5 .. span-3]
+    }
+
+    // --- vision + hints + memory lookup (pure) --------------------------------
 
     fn inVision(px: int, py: int, x: int, y: int, r: int) -> bool {
         let dx = x - px
@@ -103,6 +119,28 @@
         return m <= r
     }
 
+    fn chebyDist(dx: int, dy: int) -> int {
+        let ax = dx
+        if (ax < 0) { ax = -ax }
+        let ay = dy
+        if (ay < 0) { ay = -ay }
+        if (ay > ax) { return ay }
+        return ax
+    }
+
+    // Compass toward the goal — letters only (distance is a sibling derived int,
+    // so we never concat string+int).
+    fn compass(dx: int, dy: int) -> string {
+        if (dx == 0 && dy == 0) { return "HERE" }
+        let ns = ""
+        if (dy < 0) { ns = "N" }
+        if (dy > 0) { ns = "S" }
+        let ew = ""
+        if (dx > 0) { ew = "E" }
+        if (dx < 0) { ew = "W" }
+        return ns + ew
+    }
+
     fn findMemoryIdx(mems: Memory[], x: int, y: int) -> int {
         for (let i = 0; i < mems.length; i++) {
             let mm = mems[i]
@@ -111,10 +149,10 @@
         return -1
     }
 
-    // --- render ---------------------------------------------------------------
-    // player > in-vision (memory:frozen | live:rolled) > home-memory-in-fog > flux void
+    // --- board render (pure) --------------------------------------------------
+    // player > goal(in vision) > memory(frozen) > live(rolled) > home-memory-in-fog > flux void
 
-    fn renderBoard(px: int, py: int, seed: int, cols: int, rows: int, vision: int, nonce: int[], mems: Memory[]) -> string {
+    fn renderBoard(px: int, py: int, seed: int, cols: int, rows: int, vision: int, nonce: int[], mems: Memory[], goalX: int, goalY: int) -> string {
         let out = ""
         for (let y = 0; y < rows; y++) {
             for (let x = 0; x < cols; x++) {
@@ -123,10 +161,14 @@
                 } else {
                     let mi = findMemoryIdx(mems, x, y)
                     if (inVision(px, py, x, y, vision)) {
-                        if (mi >= 0) {
-                            out = out + glyphFor(mems[mi].terrain)
+                        if (x == goalX && y == goalY) {
+                            out = out + "X"
                         } else {
-                            out = out + glyphFor(terrainAtCell(seed, x, y, cols, rows, nonce))
+                            if (mi >= 0) {
+                                out = out + glyphFor(mems[mi].terrain)
+                            } else {
+                                out = out + glyphFor(terrainAtCell(seed, x, y, cols, rows, nonce))
+                            }
                         }
                     } else {
                         if (mi >= 0 && mems[mi].home) {
@@ -142,10 +184,19 @@
         return out
     }
 
-    // --- movement + the shift (impure) ----------------------------------------
+    // --- progression + movement (impure) --------------------------------------
+
+    function awardXp(amount: int) {
+        @xp = @xp + amount
+        let need = @level * 10
+        if (@xp >= need) {
+            @level = @level + 1
+            @budget = @budget + 2
+        }
+    }
 
     // Bump the nonce of every cell that WAS in vision but is NOT after the move —
-    // those re-roll on next sighting. COW: returns a fresh array (no deep reactivity).
+    // those re-roll on next sighting. COW: returns a fresh array.
     fn bumpLeftVision(nonce: int[], opx: int, opy: int, npx: int, npy: int, vision: int, cols: int, rows: int) -> int[] {
         let result = nonce.slice()
         for (let y = 0; y < rows; y++) {
@@ -162,14 +213,24 @@
     }
 
     function move(dx: int, dy: int) {
+        if (@won) { return }
         let nx = @px + dx
         let ny = @py + dy
         if (nx < 0 || nx >= @cols || ny < 0 || ny >= @rows) { return }
-        let t = terrainAtCell(@seed, nx, ny, @cols, @rows, @nonce)
-        if (t != Terrain::Floor) { return }
+        let isGoal = nx == @goalX && ny == @goalY
+        if (!isGoal) {
+            let t = terrainAtCell(@seed, nx, ny, @cols, @rows, @nonce)
+            if (t != Terrain::Floor) { return }
+        }
         @nonce = bumpLeftVision(@nonce, @px, @py, nx, ny, @vision, @cols, @rows)
         @px = nx
         @py = ny
+        if (isGoal) {
+            @won = true
+            awardXp(20)
+        } else {
+            awardXp(1)
+        }
     }
 
     // --- memory actions (impure) ----------------------------------------------
@@ -201,29 +262,38 @@
         @budget = @budget - 1
     }
 
+    function newGame() {
+        @px = 7
+        @py = 4
+        @level = 1
+        @xp = 0
+        @budget = 6
+        @won = false
+        @nonce = Array(135).fill(0)
+        @memories = []
+    }
+
     // --- render ---------------------------------------------------------------
 
     <div class="flex justify-center items-center min-h-screen text-white font-mono bg-[#0d0d12]">
         <div class="bg-gray-900 rounded-2xl p-8 border border-gray-700 shadow-2xl">
             <h1 class="text-center text-lg text-emerald-400 mb-1">FLUX</>
-            <p class="text-center text-xs text-gray-500 mb-5">shifting-labyrinth explorer</>
+            <p class="text-center text-xs text-gray-500 mb-4">shifting-labyrinth explorer</>
+
+            <p class="text-center text-emerald-300 text-sm font-bold mb-3" if=(@won)>★ YOU REACHED THE EXIT ★</>
 
             <!-- NB: NOT <pre> — §4.17 makes <pre>/<code> raw-content (${...} literal). -->
-            <div class="whitespace-pre text-emerald-400 text-sm leading-tight bg-black rounded-lg p-4 mb-5">${@board}</div>
+            <div class="whitespace-pre text-emerald-400 text-sm leading-tight bg-black rounded-lg p-4 mb-4">${@board}</div>
 
+            <div class="flex justify-between bg-black rounded-lg p-3 mb-2 text-xs">
+                <div class="flex items-center gap-2"><span class="text-gray-400 uppercase">LVL</><span>${@level}</></>
+                <div class="flex items-center gap-2"><span class="text-gray-400 uppercase">XP</><span>${@xp}</></>
+                <div class="flex items-center gap-2"><span class="text-gray-400 uppercase">MEM</><span class="text-emerald-400">${@budget}</></>
+                <div class="flex items-center gap-2"><span class="text-gray-400 uppercase">SEEN</><span>${@memories.length}</></>
+            </>
             <div class="flex justify-between bg-black rounded-lg p-3 mb-5 text-xs">
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400 uppercase">POS</>
-                    <span>${@px}, ${@py}</>
-                </>
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400 uppercase">MEM</>
-                    <span class="text-emerald-400">${@budget}</>
-                </>
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-400 uppercase">LOCKED</>
-                    <span>${@memories.length}</>
-                </>
+                <div class="flex items-center gap-2"><span class="text-gray-400 uppercase">POS</><span>${@px}, ${@py}</></>
+                <div class="flex items-center gap-2"><span class="text-gray-400 uppercase">EXIT</><span class="text-yellow-400">${@goalDir} ${@goalDist}</></>
             </>
 
             <div class="grid grid-cols-3 gap-2 w-40 mx-auto mb-4">
@@ -238,10 +308,11 @@
                 <span></>
             </>
 
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-2 gap-2 mb-2">
                 <button class="py-2 bg-emerald-700 text-white text-xs rounded cursor-pointer border-0" onclick=lockMemory()>REMEMBER (1)</>
                 <button class="py-2 bg-emerald-900 text-white text-xs rounded cursor-pointer border-0" onclick=pinHome()>PIN HOME (1)</>
             </>
+            <button class="w-full py-2 bg-gray-700 text-white text-xs rounded cursor-pointer border-0" onclick=newGame()>NEW GAME</>
         </>
     </>
 
