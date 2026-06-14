@@ -1,0 +1,89 @@
+// Example 28: Flux — the shifting-labyrinth explorer (v1, text mode)
+//
+// A canonical-scrml dog-food game. The world is in "flux" — unobserved
+// geometry is indeterminate and only takes shape inside your vision; it
+// re-rolls when you leave unless you spend memory to lock it. v1 builds the
+// single-player TEXT (ASCII) mode; the 8-bit "pages" + doom-esque "spa"
+// render modes are stubbed behind the RenderMode engine for later.
+//
+// KEYSTONE SPIKE (this revision): the question that gates the whole design —
+// does an ASCII grid RE-RENDER reactively when the player moves? We render a
+// derived board string built by a pure `fn` whose deps (@px/@py) are captured
+// at the derived-cell RHS, then interpolate ${@board} into a <pre>. Same
+// reactive mechanism as Mario's `const <marioEmoji> = match ...` → ${@marioEmoji}.
+//
+//   §40.8  — <program> as logic-default container (cells/fns/derived as children)
+//   §6.6   — const <derived> reactive cell recomputes on dep change
+//   §48    — pure `fn` (board-building is pure compute; deps passed as args)
+//   §5.2.2 — onclick=fn(args) bare-call event handlers
+
+<program>
+
+    <cols> = 15
+    <rows> = 9
+    <px>   = 7
+    <py>   = 4
+
+    // Derived board. Reads @px/@py/@cols/@rows on the RHS → those are its deps;
+    // recomputes + re-renders ${@board} whenever the player moves.
+    const <board> = renderBoard(@px, @py, @cols, @rows)
+
+    // Pure board builder. `#` = border wall, `.` = floor, `@` = player.
+    // (v1 spike: fixed walls only; shifting-flux terrain lands next.)
+    fn renderBoard(px: int, py: int, cols: int, rows: int) -> string {
+        let out = ""
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                if (x == px && y == py) {
+                    out = out + "@"
+                } else {
+                    if (x == 0 || x == cols - 1 || y == 0 || y == rows - 1) {
+                        out = out + "#"
+                    } else {
+                        out = out + "."
+                    }
+                }
+            }
+            out = out + "\n"
+        }
+        return out
+    }
+
+    // Movement — clamped to the interior (the border ring is wall).
+    function move(dx: int, dy: int) {
+        let nx = @px + dx
+        let ny = @py + dy
+        if (nx <= 0 || nx >= @cols - 1 || ny <= 0 || ny >= @rows - 1) { return }
+        @px = nx
+        @py = ny
+    }
+
+    <div class="flex justify-center items-center min-h-screen text-white font-mono bg-[#0d0d12]">
+        <div class="bg-gray-900 rounded-2xl p-8 border border-gray-700 shadow-2xl">
+            <h1 class="text-center text-lg text-emerald-400 mb-1">FLUX</>
+            <p class="text-center text-xs text-gray-500 mb-5">shifting-labyrinth explorer</>
+
+            <!-- NB: NOT <pre> — §4.17 makes <pre>/<code> raw-content (${...} is literal there).
+                 A <div> with whitespace-pre renders the \n-joined board AND interpolates. -->
+            <div class="whitespace-pre text-emerald-400 text-sm leading-tight bg-black rounded-lg p-4 mb-5">${@board}</div>
+
+            <div class="flex justify-between bg-black rounded-lg p-3 mb-5 text-xs">
+                <span class="text-gray-400 uppercase">POS</>
+                <span>${@px}, ${@py}</>
+            </>
+
+            <div class="grid grid-cols-3 gap-2 w-40 mx-auto">
+                <span></>
+                <button class="py-2 bg-gray-700 text-white text-sm rounded cursor-pointer border-0" onclick=move(0, -1)>N</>
+                <span></>
+                <button class="py-2 bg-gray-700 text-white text-sm rounded cursor-pointer border-0" onclick=move(-1, 0)>W</>
+                <span></>
+                <button class="py-2 bg-gray-700 text-white text-sm rounded cursor-pointer border-0" onclick=move(1, 0)>E</>
+                <span></>
+                <button class="py-2 bg-gray-700 text-white text-sm rounded cursor-pointer border-0" onclick=move(0, 1)>S</>
+                <span></>
+            </>
+        </>
+    </>
+
+</program>
