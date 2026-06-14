@@ -750,6 +750,132 @@ function registerGradient() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Composing transform family (translate-{x,y} / scale-{x,y} / rotate / skew-{x,y})
+// — Approach C (§26.7). Same inline-`var()`-fallback model as the box-shadow
+// (registerRing / registerEffects) and gradient (registerGradient) families.
+//
+// THE BEHAVIOR CHANGE (Phase 3 crux): the directional transform utilities used
+// to emit MODERN INDIVIDUAL CSS transform props (`translate-x-4` -> `translate:
+// 1rem 0`, `scale-x-50` -> `scale: .5 1`, `rotate-z-[45deg]` -> `transform:
+// rotateZ(45deg)`). Two single-axis utilities on ONE element each wrote their
+// own `translate:` / `scale:` declaration -> CSS last-write-wins clobbered all
+// but the last (the bug-1 blocker, same class as ring/shadow). They now SET ONE
+// `--tw-*` custom property each and emit a single composing `transform:`
+// shorthand, so `translate-x-4 translate-y-2` composes BOTH axes.
+//
+// INLINE FALLBACKS (the Approach-C minimalism choice): every `var()` reference
+// in the shorthand carries its own inline fallback — translate/rotate/skew
+// default to `0`, scale defaults to `1` (the identity for an unset axis). An
+// element with ONLY `translate-x-4` resolves the other six vars to their
+// identity defaults -> `translate(1rem, 0) rotate(0) skewX(0) skewY(0)
+// scaleX(1) scaleY(1)` -> a valid, x-only translate. NO global
+// `*, ::before, ::after { --tw-translate-x: 0; ... }` preflight defaults block
+// is needed -> preserves the §26.1/§26.2 "only what's used" minimalism axiom.
+//
+// ESCAPE HATCH: the full-shorthand arbitrary forms (`transform-[rotate(45deg)]`,
+// `scale-[1.5]`, `translate-[10px_20px]`, `rotate-[matrix(...)]`) do NOT route
+// through this model — the author wrote the whole transform, so they keep their
+// literal `transform:` / `scale:` / `translate:` emit (ARBITRARY_PREFIX_MAP).
+//
+// 3D EXCLUSION: `rotate-x` / `rotate-y` / `rotate-z` (3D rotation) have no
+// `--tw-*` var in Tailwind v3's 2D transform model, so they STAY literal
+// (`transform: rotateX(<v>)`) and do NOT compose with the 2D shorthand — same
+// escape-hatch shape. (The modern `rotate` CSS prop equals rotate-z, but the
+// scrml 2D model's `--tw-rotate` is the 2D `rotate(<angle>)` function.)
+// ---------------------------------------------------------------------------
+
+// The composing shorthand emitted by EVERY directional transform utility
+// (translate-{x,y}, scale-{x,y}, the 2D rotate, skew-{x,y}). Each `var()`
+// reference carries its inline identity fallback (translate/rotate/skew -> `0`,
+// scale -> `1`) so partial application is always valid CSS.
+const TRANSFORM_COMPOSE =
+  "transform: translate(var(--tw-translate-x, 0), var(--tw-translate-y, 0)) rotate(var(--tw-rotate, 0)) skewX(var(--tw-skew-x, 0)) skewY(var(--tw-skew-y, 0)) scaleX(var(--tw-scale-x, 1)) scaleY(var(--tw-scale-y, 1))";
+
+// A directional transform setter: set one `--tw-*` var + emit the shorthand.
+function transformSetter(varName, value) {
+  return `--tw-${varName}: ${value}; ${TRANSFORM_COMPOSE}`;
+}
+
+// ---------------------------------------------------------------------------
+// Named transform utilities (translate / scale / rotate / skew, §26.7) —
+// each sets a `--tw-*` var + the composing shorthand.
+// ---------------------------------------------------------------------------
+
+// scale-{N} value scale (N is a percentage; value = N/100). Bare `scale-N`
+// sets BOTH scaleX + scaleY; `scale-x-N` / `scale-y-N` set one axis.
+const SCALE_VALUES = {
+  "0": "0", "50": ".5", "75": ".75", "90": ".9", "95": ".95",
+  "100": "1", "105": "1.05", "110": "1.1", "125": "1.25", "150": "1.5",
+};
+
+// rotate-{N} / skew-{N} angle scales (degrees). Negatives via the `-rotate-N`
+// / `-skew-x-N` leading-minus class form.
+const ROTATE_VALUES = ["0", "1", "2", "3", "6", "12", "45", "90", "180"];
+const SKEW_VALUES = ["0", "1", "2", "3", "6", "12"];
+
+// translate-{scale} uses the spacing scale plus the common fraction + full
+// steps (Tailwind's translate scale extends spacing with percentages).
+const TRANSLATE_SCALE = {
+  ...SPACING_SCALE,
+  "1/2": "50%", "1/3": "33.333333%", "2/3": "66.666667%",
+  "1/4": "25%", "2/4": "50%", "3/4": "75%", "full": "100%",
+};
+
+function registerTransform() {
+  // translate-{x,y}-{scale} (+ negatives via `-translate-{x,y}-{scale}`).
+  // Each sets --tw-translate-x or --tw-translate-y + the composing shorthand.
+  for (const [scale, value] of Object.entries(TRANSLATE_SCALE)) {
+    const xCls = `translate-x-${scale}`;
+    const yCls = `translate-y-${scale}`;
+    registry.set(xCls, `.${escapeCssClass(xCls)} { ${transformSetter("translate-x", value)} }`);
+    registry.set(yCls, `.${escapeCssClass(yCls)} { ${transformSetter("translate-y", value)} }`);
+    // Negatives — skip `0`/`px` (no meaningful negative) keeps the registry
+    // lean; `-translate-x-4` negates the rem/percentage value.
+    if (scale !== "0" && value !== "0px") {
+      const negX = `-translate-x-${scale}`;
+      const negY = `-translate-y-${scale}`;
+      registry.set(negX, `.${escapeCssClass(negX)} { ${transformSetter("translate-x", `-${value}`)} }`);
+      registry.set(negY, `.${escapeCssClass(negY)} { ${transformSetter("translate-y", `-${value}`)} }`);
+    }
+  }
+
+  // scale-{N} (both axes) + scale-x-{N} / scale-y-{N} (one axis).
+  for (const [n, v] of Object.entries(SCALE_VALUES)) {
+    // Bare scale-N sets BOTH scaleX and scaleY (Tailwind v3 behavior).
+    const bare = `scale-${n}`;
+    registry.set(bare, `.${escapeCssClass(bare)} { --tw-scale-x: ${v}; --tw-scale-y: ${v}; ${TRANSFORM_COMPOSE} }`);
+    const xCls = `scale-x-${n}`;
+    const yCls = `scale-y-${n}`;
+    registry.set(xCls, `.${escapeCssClass(xCls)} { ${transformSetter("scale-x", v)} }`);
+    registry.set(yCls, `.${escapeCssClass(yCls)} { ${transformSetter("scale-y", v)} }`);
+  }
+
+  // rotate-{N} (the 2D rotate) + negatives (`-rotate-N`).
+  for (const n of ROTATE_VALUES) {
+    const cls = `rotate-${n}`;
+    registry.set(cls, `.${escapeCssClass(cls)} { ${transformSetter("rotate", `${n}deg`)} }`);
+    if (n !== "0") {
+      const neg = `-rotate-${n}`;
+      registry.set(neg, `.${escapeCssClass(neg)} { ${transformSetter("rotate", `-${n}deg`)} }`);
+    }
+  }
+
+  // skew-{x,y}-{N} + negatives (`-skew-x-N`).
+  for (const n of SKEW_VALUES) {
+    const xCls = `skew-x-${n}`;
+    const yCls = `skew-y-${n}`;
+    registry.set(xCls, `.${escapeCssClass(xCls)} { ${transformSetter("skew-x", `${n}deg`)} }`);
+    registry.set(yCls, `.${escapeCssClass(yCls)} { ${transformSetter("skew-y", `${n}deg`)} }`);
+    if (n !== "0") {
+      const negX = `-skew-x-${n}`;
+      const negY = `-skew-y-${n}`;
+      registry.set(negX, `.${escapeCssClass(negX)} { ${transformSetter("skew-x", `-${n}deg`)} }`);
+      registry.set(negY, `.${escapeCssClass(negY)} { ${transformSetter("skew-y", `-${n}deg`)} }`);
+    }
+  }
+}
+
 function registerEffects() {
   const SHADOWS = {
     "sm": "0 1px 2px 0 rgb(0 0 0 / 0.05)",
@@ -1402,25 +1528,33 @@ const ARBITRARY_PREFIX_MAP = {
 const ARBITRARY_DECL_TRANSFORM = {
   "col-span": (v) => `grid-column: span ${v.css} / span ${v.css}`,
   "row-span": (v) => `grid-row: span ${v.css} / span ${v.css}`,
-  // Directional translate/scale (S108 Bug 1 v3) — emit modern CSS individual
-  // transform properties. Single-axis form sets only the named axis; the
-  // other axis is `0` (translate) / `1` (scale) per CSS default. Adopters
-  // mixing translate-x + translate-y on the same element get the last one
-  // declared (CSS class order); coordinated multi-axis adopters should use
-  // `translate-[<x>_<y>]` (single utility with the list shape) instead.
-  "translate-x": (v) => `translate: ${v.css} 0`,
-  "translate-y": (v) => `translate: 0 ${v.css}`,
-  "scale-x":     (v) => `scale: ${v.css} 1`,
-  "scale-y":     (v) => `scale: 1 ${v.css}`,
-  // Directional rotate / skew (S108 Bug 1 v3) — emit `transform: <fn>(<value>)`.
-  // The modern `rotate` CSS property is equivalent to rotate-z; `rotate-x` and
-  // `rotate-y` are 3D-only and require the `transform` shorthand (no standalone
-  // CSS prop). Skew has no standalone CSS prop at all — always transform.
+  // Directional translate / scale / skew (arbitrary value) — Approach C (§26.7,
+  // S191 Phase 3). These now SET ONE `--tw-*` var + emit TRANSFORM_COMPOSE so an
+  // arbitrary directional transform COMPOSES with another axis or a named
+  // transform on the same element (`translate-x-[10px] translate-y-2` -> both
+  // axes in one shorthand) instead of each writing its own single-property
+  // `translate:` / `scale:` declaration (CSS last-write-wins clobbered all but
+  // the last — the bug-1 blocker). The other axes resolve to their inline
+  // identity fallback (translate/skew -> `0`, scale -> `1`). The full-shorthand
+  // escape hatch `translate-[<x>_<y>]` / `scale-[<n>]` stays literal (it routes
+  // through ARBITRARY_PREFIX_MAP, NOT here).
+  "translate-x": (v) => `--tw-translate-x: ${v.css}; ${TRANSFORM_COMPOSE}`,
+  "translate-y": (v) => `--tw-translate-y: ${v.css}; ${TRANSFORM_COMPOSE}`,
+  "scale-x":     (v) => `--tw-scale-x: ${v.css}; ${TRANSFORM_COMPOSE}`,
+  "scale-y":     (v) => `--tw-scale-y: ${v.css}; ${TRANSFORM_COMPOSE}`,
+  "skew-x":      (v) => `--tw-skew-x: ${v.css}; ${TRANSFORM_COMPOSE}`,
+  "skew-y":      (v) => `--tw-skew-y: ${v.css}; ${TRANSFORM_COMPOSE}`,
+  // 3D rotate (arbitrary value) — STAYS literal `transform: <fn>(<value>)` (the
+  // ESCAPE-HATCH / 3D-EXCLUSION, S191 Phase 3). Tailwind v3's 2D `--tw-*`
+  // transform model has NO 3D-rotate var, so `rotate-x` / `rotate-y` / `rotate-z`
+  // do NOT compose with the 2D shorthand — they each write a self-contained
+  // `transform: rotateX(<v>)` single-property declaration. (A 2D rotate uses the
+  // NAMED `rotate-{N}` form -> `--tw-rotate` + the composing shorthand; the bare
+  // arbitrary `rotate-[<angle>]` stays the literal `rotate:` escape hatch — like
+  // `scale-[1.5]` / `translate-[10px]` — via ARBITRARY_PREFIX_MAP, not here.)
   "rotate-x": (v) => `transform: rotateX(${v.css})`,
   "rotate-y": (v) => `transform: rotateY(${v.css})`,
   "rotate-z": (v) => `transform: rotateZ(${v.css})`,
-  "skew-x":   (v) => `transform: skewX(${v.css})`,
-  "skew-y":   (v) => `transform: skewY(${v.css})`,
   // Ring (arbitrary value) — Approach C, kind-dispatched (§26.7).
   //
   //   `ring-[3px]`         -> `box-shadow: 0 0 0 3px currentColor`     (length — width-only form, kept)
@@ -2648,5 +2782,6 @@ registerBorders();
 registerEffects();
 registerRing();
 registerGradient();
+registerTransform();
 registerLayout();
 registerProse();

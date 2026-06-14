@@ -16232,7 +16232,41 @@ A `bg-gradient-to-r from-blue-500 to-purple-600` element resolves `--tw-gradient
 
 2. **From-color-derived `--tw-gradient-to` default.** A `from-{color}` defaults `--tw-gradient-to` to the from-color's TRANSPARENT version (v3-faithful — e.g. `from-blue-500` → `rgb(59 130 246 / 0)`), so a from-only gradient fades color → transparent-of-itself. Because the palette is 6-digit hex, the hex → `rgb(r g b / 0)` derivation is a small helper. For ARBITRARY non-hex colors (`from-[red]`, `from-[var(--c)]`) the transparent twin is not derivable, so those fall back to the literal keyword `transparent` (a valid, slight-fidelity-loss fade color). Named specials: `transparent`'s own twin is `transparent` (correct); `white`/`black` derive their hex twins normally.
 
-**Phase status.** ring / ring-offset / shadow is **Phase 1**; the gradient family is **Phase 2** — both landed under this inline-fallback model and their class tokens are RECOGNIZED (no `W-TAILWIND-UNRECOGNIZED-CLASS`). transform, filter, and backdrop-filter are subsequent phases under the same model; until they land, their class tokens continue to fire `W-TAILWIND-UNRECOGNIZED-CLASS` (§26.5) as deferred-family regression guards. The arbitrary-width `ring-offset-[<len>]` form is the lone remaining ring-family member without a utility (no arbitrary-width offset).
+#### 26.7.2 Transform family (Phase 3)
+
+The **transform** family (`translate-{x,y}-*` / `scale-{x,y}-*` / `scale-*` / `rotate-*` / `skew-{x,y}-*`) composes a SINGLE `transform:` declaration from SEVEN independent custom properties, using the same inline-fallback model. A `translate-x-4 translate-y-2` pairing is the broken case under the prior single-property emit (each wrote its own `translate:` individual CSS property, last-write-wins clobbered the sibling axis); composing via the `--tw-translate-*` / `--tw-rotate` / `--tw-skew-*` / `--tw-scale-*` vars makes both axes contribute to one transform.
+
+**Behavior change (S191).** Prior to Phase 3 the directional utilities emitted MODERN INDIVIDUAL CSS transform props (`translate-x-[v]` → `translate: <v> 0`, `scale-x-[v]` → `scale: <v> 1`, `skew-x-[v]` → `transform: skewX(<v>)`). Two single-axis utilities on one element each wrote a separate declaration, so CSS class-order last-write-wins obliterated all but the last (the bug-1 blocker, same class as ring/shadow). They now SET ONE `--tw-*` var each and emit the composing shorthand.
+
+```css
+/* the composing shorthand — emitted by EVERY directional transform utility */
+transform: translate(var(--tw-translate-x, 0), var(--tw-translate-y, 0)) rotate(var(--tw-rotate, 0)) skewX(var(--tw-skew-x, 0)) skewY(var(--tw-skew-y, 0)) scaleX(var(--tw-scale-x, 1)) scaleY(var(--tw-scale-y, 1));
+```
+
+The `var()` references carry **INLINE identity fallbacks** — translate/rotate/skew default to `0`, scale defaults to `1` (the identity for an unset axis). An element with ONLY `translate-x-4` resolves the other six vars to their identity defaults, so the shorthand is valid CSS that applies an x-only translate. As with ring/shadow and gradient, **no global `*, ::before, ::after { --tw-translate-x: 0; … }` preflight defaults block is emitted** — preserving the §26.1/§26.2 minimalism axiom.
+
+**Per-utility setters:**
+
+```css
+/* translate-{x,y}-{scale} (spacing scale + fractions + full; + negatives via -translate-…) */
+.translate-x-4 { --tw-translate-x: 1rem; transform: <shorthand>; }
+.-translate-y-2 { --tw-translate-y: -0.5rem; transform: <shorthand>; }
+/* scale-{N} sets BOTH axes; scale-x-{N} / scale-y-{N} set one (N is a percentage, value = N/100) */
+.scale-50 { --tw-scale-x: .5; --tw-scale-y: .5; transform: <shorthand>; }
+.scale-x-110 { --tw-scale-x: 1.1; transform: <shorthand>; }
+/* rotate-{N} — the 2D rotate; + negatives (-rotate-N) */
+.rotate-45 { --tw-rotate: 45deg; transform: <shorthand>; }
+/* skew-{x,y}-{N} — degrees; + negatives (-skew-x-N) */
+.skew-x-6 { --tw-skew-x: 6deg; transform: <shorthand>; }
+```
+
+A `translate-x-4 translate-y-2 rotate-45 scale-x-110` element resolves `--tw-translate-x` to `1rem`, `--tw-translate-y` to `0.5rem`, `--tw-rotate` to `45deg`, and `--tw-scale-x` to `1.1` (the other vars fall to their identity fallbacks), so the single composed `transform:` applies all four — no axis is lost to last-write-wins.
+
+**Escape hatch (full-shorthand arbitrary stays literal).** `transform-[<full-css>]` (`transform-[rotate(45deg)_scale(1.5)]`, `transform-[matrix(…)]`) and the full-shorthand arbitrary forms `scale-[<n>]`, `translate-[<x>_<y>]`, `rotate-[<angle>]` do NOT route through the `--tw-*` model — the author supplied the whole value, so they keep their literal `transform:` / `scale:` / `translate:` emit.
+
+**3D-rotate exclusion.** Tailwind v3's `--tw-*` transform model is 2D-only — there is no 3D-rotate var. `rotate-x` / `rotate-y` / `rotate-z` therefore STAY literal (`transform: rotateX(<v>)`) and do NOT compose with the 2D shorthand (the same escape-hatch shape). The 2D `--tw-rotate` is the `rotate(<angle>)` function in the composing shorthand, set by the named `rotate-{N}` / arbitrary `rotate-[<angle>]` form. (A bare `skew-[<angle>]` with no axis is not a utility — `skew-x-*` / `skew-y-*` are the directional forms — so it continues to fire `W-TAILWIND-UNRECOGNIZED-CLASS`.)
+
+**Phase status.** ring / ring-offset / shadow is **Phase 1**; the gradient family is **Phase 2**; the **transform** family (translate / scale / rotate / skew directional + named, §26.7.2) is **Phase 3** — all landed under this inline-fallback model and their class tokens are RECOGNIZED (no `W-TAILWIND-UNRECOGNIZED-CLASS`). filter and backdrop-filter are subsequent phases under the same model; until they land, their class tokens continue to fire `W-TAILWIND-UNRECOGNIZED-CLASS` (§26.5) as deferred-family regression guards. The arbitrary-width `ring-offset-[<len>]` form is the lone remaining ring-family member without a utility (no arbitrary-width offset); the bare `skew-[<angle>]` axis-less form has no utility (use `skew-x-*` / `skew-y-*`).
 
 ---
 
