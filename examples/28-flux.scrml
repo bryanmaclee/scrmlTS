@@ -6,42 +6,94 @@
 // single-player TEXT (ASCII) mode; the 8-bit "pages" + doom-esque "spa"
 // render modes are stubbed behind the RenderMode engine for later.
 //
-// KEYSTONE SPIKE (this revision): the question that gates the whole design —
-// does an ASCII grid RE-RENDER reactively when the player moves? We render a
-// derived board string built by a pure `fn` whose deps (@px/@py) are captured
-// at the derived-cell RHS, then interpolate ${@board} into a <pre>. Same
-// reactive mechanism as Mario's `const <marioEmoji> = match ...` → ${@marioEmoji}.
+// LAYERS LANDED SO FAR:
+//   1. keystone — derived <board> string in a <div whitespace-pre> re-renders
+//      reactively on move (NOT <pre>: §4.17 raw-content emits ${...} literally).
+//   2. terrain — a hand-rolled deterministic hash (scrml has NO seeded PRNG, so
+//      we build one from + * % only, kept < 2^53 since ints are JS doubles) +
+//      corridor-biased labyrinth + a spawn clearing + Wall/Mountain collision.
 //
-//   §40.8  — <program> as logic-default container (cells/fns/derived as children)
+//   §40.8  — <program> as logic-default container
 //   §6.6   — const <derived> reactive cell recomputes on dep change
-//   §48    — pure `fn` (board-building is pure compute; deps passed as args)
+//   §48    — pure `fn` (terrain + board are pure compute; deps passed as args)
+//   §14.4  — type Terrain:enum; §18 match for the glyph map
 //   §5.2.2 — onclick=fn(args) bare-call event handlers
 
 <program>
+
+    type Terrain:enum = { Floor, Wall, Mountain }
 
     <cols> = 15
     <rows> = 9
     <px>   = 7
     <py>   = 4
+    <seed> = 42
 
-    // Derived board. Reads @px/@py/@cols/@rows on the RHS → those are its deps;
-    // recomputes + re-renders ${@board} whenever the player moves.
-    const <board> = renderBoard(@px, @py, @cols, @rows)
+    // Derived board. Reads its deps on the RHS (@px/@py/@seed/@cols/@rows) →
+    // recomputes + re-renders ${@board} whenever any of them changes.
+    const <board> = renderBoard(@px, @py, @seed, @cols, @rows)
 
-    // Pure board builder. `#` = border wall, `.` = floor, `@` = player.
-    // (v1 spike: fixed walls only; shifting-flux terrain lands next.)
-    fn renderBoard(px: int, py: int, cols: int, rows: int) -> string {
+    // --- world generation (pure) ----------------------------------------------
+
+    // Deterministic cell hash. No seeded PRNG exists in scrml (scrml:random is
+    // unseeded Math.random + fn-forbidden), so we hand-roll a multiplicative
+    // hash. Every intermediate product is kept < 2^53 (ints are JS doubles —
+    // no bitwise ops, no u32 wrap), so multipliers stay small (h<2.1e9 * 131).
+    // NB: named intermediates (not `(a+b) % c`) — the latter trips a Phase-1
+    // ExprNode round-trip bug (emitStringFromTree drops the precedence parens:
+    // `(a+b)%c` -> `a+b%c`). Real codegen is correct, but the corpus-invariant
+    // idempotency audit flags it. Filed as a dog-food gap; intermediates are
+    // also just cleaner. Each step stays < 2^53 (h<2.1e9 * 131 ~ 2.7e11).
+    fn hashCell(seed: int, x: int, y: int) -> int {
+        let h = seed % 100003 + 101
+        let a = h * 131 + x * 2654435 + 1
+        h = a % 2147483647
+        let b = h * 131 + y * 2654435 + 1
+        h = b % 2147483647
+        let c = h * 131 + 7919
+        h = c % 2147483647
+        return h
+    }
+
+    // Terrain for a cell: bordered frame, a guaranteed spawn clearing at the
+    // center, corridor lanes on a 4-grid (labyrinth-not-open per the design),
+    // hash-driven interior with a cave/mountain mix.
+    fn cellTerrain(seed: int, x: int, y: int, cols: int, rows: int) -> Terrain {
+        if (x <= 0 || x >= cols - 1 || y <= 0 || y >= rows - 1) { return .Wall }
+        // named intermediates avoid the `(cols-1)/2` -> `cols-1/2` paren-drop (same Phase-1 bug)
+        let cw = cols - 1
+        let ch = rows - 1
+        let cx = cw / 2
+        let cy = ch / 2
+        let ddx = x - cx
+        let ddy = y - cy
+        if (ddx >= -1 && ddx <= 1 && ddy >= -1 && ddy <= 1) { return .Floor }
+        let r = hashCell(seed, x, y) % 100
+        if (x % 4 == 0 || y % 4 == 0) {
+            if (r < 88) { return .Floor }
+            return .Wall
+        }
+        if (r < 50) { return .Floor }
+        if (r < 85) { return .Wall }
+        return .Mountain
+    }
+
+    fn glyphFor(t: Terrain) -> string {
+        match t {
+            .Floor    :> "."
+            .Wall     :> "#"
+            .Mountain :> "^"
+        }
+    }
+
+    fn renderBoard(px: int, py: int, seed: int, cols: int, rows: int) -> string {
         let out = ""
         for (let y = 0; y < rows; y++) {
             for (let x = 0; x < cols; x++) {
                 if (x == px && y == py) {
                     out = out + "@"
                 } else {
-                    if (x == 0 || x == cols - 1 || y == 0 || y == rows - 1) {
-                        out = out + "#"
-                    } else {
-                        out = out + "."
-                    }
+                    out = out + glyphFor(cellTerrain(seed, x, y, cols, rows))
                 }
             }
             out = out + "\n"
@@ -49,14 +101,19 @@
         return out
     }
 
-    // Movement — clamped to the interior (the border ring is wall).
+    // --- movement (collision-checked) -----------------------------------------
+
     function move(dx: int, dy: int) {
         let nx = @px + dx
         let ny = @py + dy
-        if (nx <= 0 || nx >= @cols - 1 || ny <= 0 || ny >= @rows - 1) { return }
+        if (nx < 0 || nx >= @cols || ny < 0 || ny >= @rows) { return }
+        let t = cellTerrain(@seed, nx, ny, @cols, @rows)
+        if (t != Terrain::Floor) { return }
         @px = nx
         @py = ny
     }
+
+    // --- render ---------------------------------------------------------------
 
     <div class="flex justify-center items-center min-h-screen text-white font-mono bg-[#0d0d12]">
         <div class="bg-gray-900 rounded-2xl p-8 border border-gray-700 shadow-2xl">
