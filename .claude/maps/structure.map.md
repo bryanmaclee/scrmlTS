@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-06-13T19:47:13-06:00  commit: 7f2092cf
+# updated: 2026-06-14T00:00:00-06:00  commit: 0cafe665
 
 ## Entry Points
 compiler/bin/scrml.js — CLI binary registered as `scrml`; thin Bun launcher
@@ -12,7 +12,7 @@ compiler/src/codegen/index.ts — codegen subsystem entry; re-exports CgInput/Cg
 ## Directory Ownership
 
 compiler/  — Bun workspace; the entire compiler toolchain plus tests
-compiler/src/  — compiler pipeline source (33 .js + 109+ .ts files): block-splitter, ast-builder, tokenizer, type-system, auth-graph, dependency-graph, engine-graph (S149), component-expander (CE stage), engine-statechild-parser (custom raw-text engine-arm parser), runtime-template (client runtime JS source), **sql-projection.ts (NEW S175, 419L — SELECT-projection extractor for the typed-SQL-row arc: `extractSelectProjection(query)` → `SelectProjection` {columns / `t.col` qualified / `AS` aliases / FROM-JOIN alias map}; graceful degradation on the deferred long tail)**, etc.
+compiler/src/  — compiler pipeline source (33 .js + 110+ .ts files): block-splitter, ast-builder, tokenizer, type-system, auth-graph, dependency-graph, engine-graph (S149), component-expander (CE stage), engine-statechild-parser (custom raw-text engine-arm parser), runtime-template (client runtime JS source), **sql-projection.ts (NEW S175, 419L — SELECT-projection extractor for the typed-SQL-row arc: `extractSelectProjection(query)` → `SelectProjection` {columns / `t.col` qualified / `AS` aliases / FROM-JOIN alias map}; graceful degradation on the deferred long tail)**; **engine-varname.ts (NEW S192, 41L — the ONE canonical §51.0.C acronym-run var-name rule: `autoDeriveEngineVarName(typeName)` exported; imported by symbol-table.ts / type-system.ts / codegen/emit-machines.ts / ast-builder.js — collapses 4 divergent derivation sites into one)**; etc.
 compiler/src/codegen/  — 60+ emit-*.ts modules; errors.ts (CGError class + code catalog); ir.ts (IR shapes); emit-error-boundary.ts (+320L §19.6); **log-loc.ts (NEW S174, 224L — location resolver for the `log()` builtin: `resolveLogLoc(span)`→"basename:line" from byte offset, `registerFileSource`/`resetLogLoc` per-compile cache, `fileDeclaresLog(fileAST)` shadow detector, `SERVER_LOG_HELPER` raw-string runtime chunk for `_scrml_log`/`_scrml_log_render`)**; emit-client.ts (_scrml_modules cross-file registry S152 #6; detectRuntimeChunks descends into engine bodyChildren + each-block bodyChildren, S153; S174: includes the `'log'` client chunk ONLY when an emitted line contains `_scrml_log(`); emit-server.ts (S174: prepends `SERVER_LOG_HELPER` to the server bundle ONLY when the final emitted JS contains a `_scrml_log(` call); emit-expr.ts (S174: `log(...)` call lowering ~L1630 — `_scrml_log(side, loc, ...args)` for the builtin / plain call for a shadowed `log` / `(void 0)` no-op under `_logProductionStrip`; `setLogShadowedInFile`/`setLogProductionStrip` toggles + `resolveLogLoc` import); emit-each.ts (Tier-1 `<each>` render fns + dep-first read + `_scrml_each_renderers` registration + Bug 62 engine-ctx threading, S153-S156; Bug 64/R28-1c S158: `EachReconcileCtx` stack + `maybeWrapEachPerItemEffect` + push/pop/current for live-keyed per-item TEXT/class: bindings; Bug 73 S159: `iterScopeReferencedInHandler` + `maybeWrapEachPerItemHandler` for live-keyed Tier-1 per-item EVENT HANDLERS); emit-lift.js (Tier-0 `${for…lift}`; Bug 65 S157 engine-ctx threading; Bug 64: push/pop reconcile ctx; Bug 72 S158 `tryEmitNestedLiftEach`; Bug 73 S159: `maybeWrapLiftPerItemHandler`/`maybeWrapLiftCallableHandler` + shared `_liftIterScopeReferenced`); emit-engine.ts (engine substrate codegen; S155 message-arm dispatch table); emit-match.ts (block-form match arms); emit-variant-guard.ts (engine/match arm-swap dispatcher; calls `_scrml_remount_each`, S153); build-source-map.ts + source-map.ts + srcmap-provenance.ts (source-map provenance subsystem, S149-S150); emit-html.ts (Bug 60 S157: `enclosingCompoundStack` + `lookupQualifiedStateCell` fallback for render-by-tag inside nested compound wrappers)
 compiler/src/codegen/compat/  — compatibility shims for legacy pipeline shapes
 compiler/src/commands/  — CLI subcommand implementations: build.js compile.js (S174: `--production`/`--prod` flag at compile.js:170 sets `production:true`, threaded to compileScrml — §20.6 log() strip) dev.js (per-file watcher rewrite, S152; S174: `POST /_scrml/log` client-log forwarding endpoint ~L459 for the §20.6.3 dev unified-view) generate.js init.js migrate.js promote.js serve.js
@@ -613,6 +613,69 @@ W-TAILWIND-UNRECOGNIZED-CLASS lint; if=fn() = a codegen routing fix). SPEC §26.
   - **call-ref attr-value branch [:1773]** (`g-attr-if-fn-call-misroute`, S191) — when `val.kind === "call-ref"` and `name === "if" || "show"`, the bare call is routed as a reactive conditional (emits `data-scrml-bind-if`/`data-scrml-bind-show` placeholder + `registry.addLogicBinding`), NOT a nonexistent `if`/`show` DOM event binding; mirrors the `val.kind === "expr"` paren-form path (`if=(fn())`). `@`-prefixed args are harvested into `condRefs` (advisory; dynamic `_scrml_effect` tracking covers the rest). §5.1 line 1352.
   - **clean-subtree if= handler [:1413]** (`g-attr-if-fn-display-not-mount`, S191) — a bare-call clean-subtree `if=` condition gets the SAME mount/unmount controller as `if=(fn())`/`if=@var` (not the display-toggle fallback), so `if=fn()` ≡ `if=(fn())`. Gate broadened at [:1394] (`call-ref` added alongside `variable-ref`/`expr`).
 - compiler/src/codegen/emit-event-wiring.ts — `_update_chain_<id>()` chain-condition emitter [:1267] now handles a `call-ref` chain-head / else-if condition [:1282] (`g-attr-if-fn-chain-head-call-misroute`, S191): a bare-CALL `if=isHigh()` is CALLED (call string built → `parseExprToNode` → `emitExprField`), not read as a cell (the call-ref carries `.name`/`.args` but no `.raw`, so it would otherwise fall to the variable-ref path → `_scrml_reactive_get("isHigh")` → branch never activates).
+
+## Key S192 Source Changes (engine var-name canonicalization + bug-12-vkill read-side `E-STATE-UNDECLARED` fire)
+
+Three arcs; +2 NEW §34 codes (`W-CONST-AT-DEPRECATED` Info + `E-STATE-UNDECLARED` Error relocated to TS
+post-CE); +1 NEW compiler/src module (`engine-varname.ts`). ZERO codegen change. ZERO new AST node
+shapes. 8 new test files (984 total). `0cafe665`.
+
+### engine-varname.ts — NEW shared module (sym-cell-registration-completeness-2026-06-13, §51.0.C)
+**Root problem:** `autoDeriveEngineVarName` was implemented 4 divergent ways across SYM / type-system
+§51.9 / codegen / ast-builder that disagreed on acronym-leading and multi-word names (`URL` → `uRL` /
+`URL` / `url`; `MarioState` registered verbatim on the legacy path). The divergence produced a SYM
+register/read mismatch that silently blocked the §6.1.2 read-side `E-STATE-UNDECLARED` fire (bug-12-vkill).
+
+- **compiler/src/engine-varname.ts (NEW, 41L)** — exports `autoDeriveEngineVarName(typeName: string): string`.
+  Implements the §51.0.C acronym-run rule via ONE idempotent regex (`ENGINE_VARNAME_RE`):
+  lowercase the leading uppercase-run, keeping the letter that starts the next CamelCase word as uppercase.
+  Examples: `MarioState`→`marioState`, `UIState`→`uiState`, `URL`→`url`, `HTTPClient`→`httpClient`.
+  Now the SINGLE source of truth imported by all 4 former divergent sites.
+- **compiler/src/symbol-table.ts** — SYM cell-registration:
+  - `autoDeriveEngineVarName` imported (line 5150, re-exported from here for backward compat); used at
+    `varName = autoDeriveEngineVarName(engineDecl.engineName/governedType)` [lines 5500/5502] in the
+    engine-decl walker.
+  - NEW `walkRegisterRefBindings(nodes, fileScope, visited)` [PASS 1.d, lines 5358+]: registers
+    `ref=@name` element-ref bindings as lightweight scope records (`_cellKind:"ref"`) so `lookupStateCell`
+    no longer returns null for ref-bound cells — closes the Class-C read-side census null-set. First-writer-
+    wins / dev-intent-wins; registers at FILE scope (runtime `_scrml_reactive_set` is file-global).
+  - NEW `W-CONST-AT-DEPRECATED` fires at lines 8688/8711 (Info-level, §6.6.1 / §34): the legacy
+    `const @x = expr` derived-cell form (structuralForm:false) is deprecated; steers to `const <x> = expr`.
+    Deprecation-cycle shape: warn-window → reserved `E-CONST-AT-DEPRECATED` end-of-window (mirrors W-PURE-DEPRECATED).
+- **compiler/src/type-system.ts** — read-side `E-STATE-UNDECLARED` fire relocated POST-CE [line 6240]:
+  - Previously the SYM-stage prototype could not see CE-inlined channel cells / `<each>` row locals /
+    engine boot cells; TS runs post-CE and owns a COMPLETE `@name` resolution table (scopeChain).
+  - Walker at ~line 6240: a `@name` ident-read that resolves to NEITHER a reactive cell / loop-local /
+    import binding fires `E-STATE-UNDECLARED` [line 6282] (Error, §6.1.2 + §6.2).
+  - Exemptions: `@.` / `@.field` (each contextual sigil, E-SYNTAX-064 path), `@_internal` (underscore
+    convention), `@TypeName` (declared type — `typeRegistry.has(atBase)`), `@fnName` (known fn — guard).
+  - NEW `W-CONST-AT-DEPRECATED` wired in the type pass [line 8688]: state-decl walker checks
+    `shape:"derived" && isConst:true && structuralForm:false` → fires Info nudge + points to `scrml migrate --fix`.
+  - `engineNameToProjectedVar(name)` [line 5263] now simply delegates to `autoDeriveEngineVarName(name)`.
+- **compiler/src/ast-builder.js** — imports `autoDeriveEngineVarName` [line 54]; uses the ONE canonical
+  rule at engine-decl parse sites [lines 13817/13894/13902/13904] in place of the former local derivation.
+- **compiler/src/codegen/emit-machines.ts** — imports `autoDeriveEngineVarName` [line 20]; uses it
+  at derived-decl emission fallback [line 282] in place of the former local derivation.
+
+### migrate.js — Migration 4b: `const @name` → `const <name>` (`W-CONST-AT-DEPRECATED`)
+- **compiler/src/commands/migrate.js** — **Migration 4b** [line 174, the §6.6.1 const-at form]:
+  `const @name = ...` / `const @name: T = ...` → `const <name> = ...` / `const <name>: T = ...`.
+  Regex anchored on a LINE-LEADING `const @ident` so comment / prose mentions of `` `const @x` ``
+  are NOT rewritten. Applied automatically (non-`--fix`, non-`--program-shape`; same tier as Migrations
+  1–3 [whitespace-after-`<` / `<machine>` keyword / `pure` modifier]). Counted as `migrations.constAt`
+  in the report. Help text + doc updated [lines 14-15 / 181 / 249-256 / 2364 / 2899].
+
+### S192 New Test Files (8 new; 984 total test files at HEAD)
+| File | Tests | What it covers |
+|------|-------|----------------|
+| unit/const-at-deprecated-lint.test.js | 15 | W-CONST-AT-DEPRECATED lint fires on `const @x`; canonical `const <x>` clean |
+| unit/v-kill-readside-undeclared.test.js | 6 | E-STATE-UNDECLARED fires on genuine `@typo` reads; in-scope cells exempt |
+| unit/ref-binding-sym-registration.test.js | 6 | `ref=@name` registers into SYM scope; `@name` read no longer undeclared |
+| unit/state-block-bare-write-decl-lint.test.js | 10 | state-block bare-write lint coverage |
+| unit/engine-binding-b14.test.js | 49 | engine var-name canonicalization (B14 — acronym-run, multi-word, legacy-machine forms) |
+| unit/native-reactive-write-deepset-mutation.test.js | — | native reactive deepset/mutation parity |
+| tests/unit/cluster-c-decl-boundary.test.js | — | (pre-existing extended by S192 wrap) |
+| tests/parser-conformance-canary.test.js | — | parser-conformance canary extended |
 
 ## Ignored / Generated Paths
 node_modules/, compiler/node_modules/, dist/, compiler/dist/, compiler/native-parser/dist/,
