@@ -16,8 +16,8 @@
 |---|---|
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 0 |
-| MED | 4 |
-| LOW | 14 |
+| MED | 5 |
+| LOW | 16 |
 | Nominal (spec-ahead-of-impl) | 9 |
 <!-- @generated:gap-counts END -->
 
@@ -135,6 +135,21 @@ Pre-existing UNIFORM gap surfaced by the `now()` capability work: the §48 fn-bo
 - **Severity:** silent-wrong-output (valid JS; the browser ignores the raw `<formFor>`/`<Badge>` tag; the form/component never renders — the §1 HIGH shape) on a CANONICAL composition (render a component/form per state variant). The render paths are already correct (r27-c6 proved the engine render emits the expanded formFor once expansion reaches it) — it is PURELY the walker recursion. The empty-`onsubmit=${}` loud-gate-catch is one sub-case, not the whole bug. Kept MED (zero current corpus usage — which is NOT a downgrade reason per Rule 2: the corpus is empty because the composition is undertested, not unwanted) + fix-in-flight this session.
 - **Fix shape:** extend both walkers to recurse `.bodyChildren` + `.arms`; sweep for sibling passes (tableFor, others) with the same `.children`-only blind spot; **happy-dom RENDER tests** (this whole class hid because there were only compile/emit-string tests, no render verification — the canary lesson).
 - **Cross-refs:** r27-c6 (RESOLVED S177, the formFor-in-engine slice); fix dispatch BRIEF below.
+
+---
+
+## §S193 — gaps filed S193 (2026-06-14, Flux dog-food)
+
+> Surfaced building `examples/28-flux.scrml` (the "Flux" shifting-labyrinth game — the S191 next-purpose dog-food replacing Mario). All three are compiler/tooling findings the game's canonical-scrml code hit; none blocks the game (worked around in-example), each is a real drift.
+
+### G-EMIT-STRING-TREE-PAREN-DROP — Phase-1 ExprNode round-trip drops precedence-required parens `(a+b)%c` → `a+b%c` — `NEW S193; MED; open`
+The corpus-invariant idempotency audit (`compiler/tests/integration/expr-node-corpus-invariant.test.js`) re-serializes every corpus expression via `emitStringFromTree` (Phase-1 `parseExprToNode` → emit → reparse) and requires a stable round-trip. It FAILS on the natural form `(h * 131 + x * 2654435 + 1) % 2147483647` and `(cols - 1) / 2`: the re-emit drops the parens → `h * 131 + x * 2654435 + 1 % 2147483647` / `cols - 1 / 2`, **inverting precedence** (`%`/`/` bind tighter than `+`/`-`). So a lower-precedence binary subtree used as an operand of a higher-precedence binary op loses its required parens on re-serialization. **Real codegen is UNAFFECTED** — the emitted `*.client.js` preserves the parens (`h = (h * 131 + ...) % 2147483647;`), verified on the Flux build; the bug is in the Phase-1 ExprNode→string serializer, not the production emit path. Impact: any corpus example containing `(low-prec) <high-prec-op> ...` cannot pass the idempotency gate (the pre-commit hook correctly blocked the Flux terrain commit until worked around). Fix locus: `emitStringFromTree` (the ExprNode pretty-printer) — emit parens when a child binary's precedence is lower than the parent op's. Worked around in Flux with named intermediates (`let a = ...; h = a % N`). <!-- @gap id=g-emit-string-tree-paren-drop sev=MED status=open -->
+
+### G-INTERP-IN-RAW-CONTENT — `${...}` inside `<pre>`/`<code>` emits LITERALLY with no diagnostic — `NEW S193; LOW; open`
+`<pre>...${@board}...</pre>` compiles clean (exit 0) and emits the literal text `${@board}` into the HTML — because §4.17 makes `<pre>`/`<code>` raw-content elements where scrml tokens (`${...}`, `<Tag>`, brace sigils) are intentionally NOT recognized. The behavior is spec-correct, but **silent**: a `${...}`-shaped run (visually an interpolation) is shipped verbatim with zero warning, so an author who reaches for the natural `<pre>${board}</pre>` gets broken output and no signal. Candidate: a `W-INTERP-IN-RAW-CONTENT` info-lint when a `${...}`/`<Tag>`-shaped token appears inside a raw-content element body (steer to `<div class="whitespace-pre">` or `<pre>` + explicit escaping). Worked around in Flux with `<div class="whitespace-pre">`. <!-- @gap id=g-interp-in-raw-content sev=LOW status=open -->
+
+### G-ROUTE-001-LOCAL-COMPUTED-WRITE — E-ROUTE-001 over-fires on a pure-`fn` LOCAL computed-index array write — `NEW S193; LOW; open`
+A pure `fn` that does `let result = nonce.slice(); ... result[idx] = result[idx] + 1; return result` emits `warning [E-ROUTE-001]: Computed member access detected ... cannot statically determine the accessed property name ... it will not be detected by route inference`. But `result` is a freshly-`slice()`'d LOCAL array inside a pure `fn` — it can never be a protected-field access, and route inference has nothing to do with a pure local. The warning is a false positive on the local-computed-index-write class (route inference flags ALL computed member-assigns, not just ones reachable to protected DB/wire fields). Benign (warning only; compiles + runs; no workaround needed), but noise that erodes the diagnostic surface. Fix: scope E-ROUTE-001 to computed writes whose receiver can reach a protected/route-relevant binding, excluding pure-`fn`-local arrays. <!-- @gap id=g-route-001-local-computed-write sev=LOW status=open -->
 
 ---
 
