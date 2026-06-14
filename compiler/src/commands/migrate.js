@@ -11,6 +11,9 @@
  *   2. `<machine>` keyword (W-DEPRECATED-001):   `<machine` → `<engine`.
  *   3. `pure` modifier   (W-PURE-DEPRECATED):  `pure function`/`pure fn` → `fn`;
  *                                              `[server ]pure[ server ]function` → `server fn`.
+ *   4b. `const @name` derived cell (W-CONST-AT-DEPRECATED, sym-cell-registration-
+ *                                  completeness): `const @name = ...` → `const <name> = ...`
+ *                                  (the SOLE derived-decl form per §6.6.1).
  *
  * Migrations gated by `--fix` (AST/compile-aware — see the migrateFile tier):
  *   - arm-arrow `:>`, given-guard `:>`, `:`-shorthand inside-opener (SPEC §18.2 /
@@ -168,8 +171,19 @@ const KNOWN_KEYWORDS = new Set([
  *   rewritten. Idempotent — a `fn NAME(` produced by a prior run has no leading
  *   `pure` to match. Applied after Migrations 1+2 in the same pass.
  *
+ * Migration 4 — legacy derived cell `const @name` (W-CONST-AT-DEPRECATED,
+ *   sym-cell-registration-completeness-2026-06-13):
+ *   `const @name = ...` / `const @name: T = ...` → `const <name> = ...` /
+ *   `const <name>: T = ...`. The canonical (and per SPEC §6.6.1 SOLE) derived-cell
+ *   form is `const <name>`; the `@`-form is not recognized inside a markup element
+ *   body (silently drops the cell). The regex anchors on a LINE-LEADING `const @ident`
+ *   (after optional indentation), so `//`-comments and inline prose mentioning
+ *   `const @x` are not rewritten (a comment line starts with `//`, not `const`).
+ *   Idempotent — a `const <name>` from a prior run has no `@` to match. Applied
+ *   after Migrations 1-3 in the same pass.
+ *
  * @param {string} source — raw source text
- * @returns {{ rewritten: string, changed: boolean, migrations: { whitespace: number, machine: number, pure: number } }}
+ * @returns {{ rewritten: string, changed: boolean, migrations: { whitespace: number, machine: number, pure: number, constAt: number } }}
  */
 export function applyMigrations(source) {
   let result = source;
@@ -230,6 +244,22 @@ export function applyMigrations(source) {
     }
   );
 
+  // Migration 4: legacy derived cell `const @name` (W-CONST-AT-DEPRECATED) →
+  // canonical `const <name>`. Anchored LINE-LEADING (start-of-line + optional
+  // indentation) so comment / prose mentions of `const @x` are not rewritten.
+  // Captures an optional `: type` segment up to the `=` and re-emits it verbatim.
+  //   `const @doubled = ...`            → `const <doubled> = ...`
+  //   `const @total: number = ...`      → `const <total>: number = ...`
+  // Idempotent: a `const <name>` from a prior run carries no `@`.
+  let constAtCount = 0;
+  result = result.replace(
+    /^([ \t]*)const @([A-Za-z_$][\w$]*)(\s*(?::[^=\n]+?)?\s*=)/gm,
+    (_match, indent, name, tail) => {
+      constAtCount++;
+      return `${indent}const <${name}>${tail}`;
+    }
+  );
+
   return {
     rewritten: result,
     changed: result !== source,
@@ -237,6 +267,7 @@ export function applyMigrations(source) {
       whitespace: whitespaceCount,
       machine: machineCount,
       pure: pureCount,
+      constAt: constAtCount,
     },
   };
 }
@@ -2330,6 +2361,8 @@ Migrations shipped:
   - \`<machine>\` keyword     (W-DEPRECATED-001): \`<machine\` → \`<engine\`
   - \`pure\` modifier        (W-PURE-DEPRECATED): \`pure function\`/\`pure fn\` → \`fn\`;
                             \`[server ]pure[ server ]function\` → \`server fn\`
+  - \`const @name\` cell     (W-CONST-AT-DEPRECATED): \`const @name = ...\` →
+                            \`const <name> = ...\` (the SOLE derived-decl form, §6.6.1)
 
 Optional migrations (opt-in flags):
   - v0.3 program-shape      (--program-shape, SPEC §40.8): rewrites legacy
@@ -2799,6 +2832,7 @@ export function runMigrate(args) {
   let totalGivenGuardArrow = 0;
   let totalColonShorthandPlacement = 0;
   let totalServerFnKeyword = 0;
+  let totalConstAt = 0;
   const failures = [];
   const reportRows = []; // for --report aggregation
 
@@ -2825,6 +2859,7 @@ export function runMigrate(args) {
         totalGivenGuardArrow += r.migrations.givenGuardArrow ?? 0;
         totalColonShorthandPlacement += r.migrations.colonShorthandPlacement ?? 0;
         totalServerFnKeyword += r.migrations.serverFnKeyword ?? 0;
+        totalConstAt += r.migrations.constAt ?? 0;
       }
       if (dryRun && r.diff && !report) {
         console.log(r.diff);
@@ -2861,6 +2896,7 @@ export function runMigrate(args) {
     if (totalGivenGuardArrow > 0) console.log(`    ${c.dim(`given-guard \`:>\` migrations:`)} ${totalGivenGuardArrow}`);
     if (totalColonShorthandPlacement > 0) console.log(`    ${c.dim(`\`:\`-shorthand inside-opener migrations:`)} ${totalColonShorthandPlacement}`);
     if (totalServerFnKeyword > 0) console.log(`    ${c.dim(`\`server\` keyword strips (\`server function\` -> \`function\`):`)} ${totalServerFnKeyword}`);
+    if (totalConstAt > 0) console.log(`    ${c.dim(`\`const @name\` -> \`const <name>\` migrations:`)} ${totalConstAt}`);
   }
   if (unchangedCount > 0) {
     console.log(`  ${c.dim(`${unchangedCount} unchanged`)}`);

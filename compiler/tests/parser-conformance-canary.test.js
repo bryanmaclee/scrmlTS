@@ -247,9 +247,25 @@ describe("dual-pipeline-canary — classifyDivergence LIVE-PHANTOM branch", () =
     expect(v.class).not.toBe("LIVE-PHANTOM");
   });
 
-  test("the real bun-admin corpus file classifies LIVE-PHANTOM (smoke — wires both pipelines + the predicate)", () => {
-    const path =
-      __dirname + "/../../samples/compilation-tests/gauntlet-r10-bun-admin.scrml";
+  test("the frozen LIVE-PHANTOM fixture classifies LIVE-PHANTOM (smoke — wires both pipelines + the predicate)", () => {
+    // The whole-file end-to-end smoke for the LIVE-PHANTOM divergence class.
+    // bun-admin was the corpus's SOLE LIVE-PHANTOM exemplar — its legacy
+    // expression-form derived cell `const @lowStockCount = ...filter(p => p.q <
+    // p.t)...` AND its bare `@x = init` markup-body state-block decls together
+    // produced the phantom state-frame admission native rejects. The S192
+    // sym-cell-registration-completeness migration canonicalized BOTH (Class A:
+    // `const @lowStockCount`→`const <lowStockCount>`; Class D: the bare `@x =
+    // init` decls re-homed into a `${ <x> = init }` logic block), which REMOVES
+    // the phantom entirely — a genuine improvement (the legacy shapes WERE the
+    // pathology; a corpus scan confirms zero other LIVE-PHANTOM/state files).
+    //
+    // The migration left the corpus with NO LIVE-PHANTOM exemplar. To keep this
+    // smoke exercising the LIVE-PHANTOM end-to-end path (a hand-rolled synthetic
+    // can't reproduce the whole-file two-parser fingerprint), the pre-migration
+    // legacy bun-admin shape is FROZEN as a dedicated fixture
+    // (`live-phantom-fixture.scrml`). This permanently decouples the parser-
+    // divergence canary from the live corpus's canonicalization state.
+    const path = __dirname + "/parser-conformance/live-phantom-fixture.scrml";
     const src = readFileSync(path, "utf8");
     const v = classifyDivergence(path, src);
     expect(v.class).toBe("LIVE-PHANTOM");
@@ -259,6 +275,18 @@ describe("dual-pipeline-canary — classifyDivergence LIVE-PHANTOM branch", () =
     // DIFF-deep-seq.
     expect(v.detail.deepFirstDivergence).not.toBe(null);
     expect(v.detail.deepFirstDivergence.liveKind).toBe("state");
+  });
+
+  test("the MIGRATED bun-admin corpus file no longer admits the phantom (LIVE-PHANTOM eliminated by canonicalization)", () => {
+    // Companion to the above: the canonical Class-A `const <lowStockCount>` +
+    // Class-D `${ <x> = init }` forms remove the sole corpus LIVE-PHANTOM
+    // admission. The migrated file MUST NOT classify LIVE-PHANTOM — confirming
+    // the migration closed the pathology, not merely shifted the fixture.
+    const path =
+      __dirname + "/../../samples/compilation-tests/gauntlet-r10-bun-admin.scrml";
+    const migrated = readFileSync(path, "utf8");
+    const v = classifyDivergence(path, migrated);
+    expect(v.class).not.toBe("LIVE-PHANTOM");
   });
 });
 

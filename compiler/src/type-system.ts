@@ -8632,6 +8632,42 @@ function annotateNodes(
             }
           }
         }
+        // §6.6.1 / §34 — W-CONST-AT-DEPRECATED (sym-cell-registration-completeness-
+        // 2026-06-13, Class A MIGRATE+DEPRECATE ruling S192). The legacy
+        // expression-form derived cell `const @x = expr` (ADR Option-A FOLD,
+        // S60) is non-canonical: SPEC §6.6.1 states `const <name> = expr` SHALL
+        // be the sole derived-decl syntax. The legacy form still parses+registers
+        // in logic / top-level contexts, but is NOT recognized inside a markup
+        // element body (where `const <x>` IS), so it silently drops the cell —
+        // the Class-A read-side census null-set. Steer to the canonical `<x>`
+        // form. The ast-builder stamps `const @x` as a derived state-decl with
+        // `structuralForm:false` (vs the canonical `const <x>` `structuralForm:
+        // true`); this triple uniquely identifies the legacy form (typed +
+        // untyped). Info-level — the Info-severity precedent is W-MATCH-ARROW-LEGACY
+        // (also an info-level deprecation steering lint). The deprecation-CYCLE
+        // shape (warn-window -> reserved E-CONST-AT-DEPRECATED end-of-window)
+        // mirrors W-PURE-DEPRECATED / W-MATCH-ARROW-LEGACY both.
+        if (
+          (n as ASTNodeLike).shape === "derived" &&
+          (n as ASTNodeLike).isConst === true &&
+          (n as ASTNodeLike).structuralForm === false
+        ) {
+          const constAtSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          const constAtName = (n.name as string | undefined) ?? "<derived>";
+          errors.push(new TSError(
+            "W-CONST-AT-DEPRECATED",
+            `W-CONST-AT-DEPRECATED: the legacy derived-cell form \`const @${constAtName} = ...\` is deprecated; ` +
+            `the canonical derived-cell form is \`const <${constAtName}> = ...\` (SPEC §6.6.1 — \`const <name>\` is the sole derived-decl syntax).
+` +
+            `  \`const @${constAtName} = expr\` -> \`const <${constAtName}> = expr\`.
+` +
+            `  Inside a markup element body NEITHER form is a valid derived-decl: the \`@\`-form silently drops the cell, and the \`<>\`-form loud-errors E-CTX-001 (its \`<name>\` parses as an element open-tag). The canonical \`const <name>\` form is for logic / top-level / \`\${...}\` contexts.
+` +
+            `  Run \`bun scrml migrate --fix\` to rewrite automatically.`,
+            constAtSpan,
+            "info",
+          ));
+        }
         // §53.4 — If a type annotation is present and predicated, classify the assignment zone.
         const reactAnnot = (n as ASTNodeLike).typeAnnotation as string | undefined;
         if (reactAnnot) {

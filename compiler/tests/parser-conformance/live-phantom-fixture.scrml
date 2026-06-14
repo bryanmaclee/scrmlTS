@@ -16,36 +16,31 @@
 
 < db src="./products.db" protect="cost_price" tables="products, categories, stock_movements">
 
+    // ========================================
+    // REACTIVE STATE
+    // ========================================
+    @products = []
+    @categories = []
+    @selectedCategory = not
+    @searchQuery = ""
+    @editingProduct = not
+    @showEditForm = false
+    @showCreateForm = false
+    @statusMessage = ""
+    @page = 1
+    @pageSize = 20
+
+    // FRICTION NOTE: const @derived -- this is the scrml derived value syntax.
+    // No TypeScript type annotation on the derived expression. In TS I'd write
+    // `const lowStock: Product[] = ...` but there's no type annotation syntax here.
+    // The compiler must infer the type from the SQL result shape -- which it can't
+    // do yet because §14.8 schema-derived types are not connected to ?{} results.
+    const @lowStockCount = @products.filter(p => p.stock_qty < p.low_stock_threshold).length
+
+    // ========================================
+    // SCHEMA BOOTSTRAP (server function called on mount)
+    // ========================================
     ${
-        // ========================================
-        // REACTIVE STATE
-        // ========================================
-        // A <db> body is markup context (SPEC §4) — cell declarations live in a
-        // ${...} logic block using the structural form `<x> = init` (the canonical
-        // <db> shape, see examples/03-contact-book.scrml / 08-chat.scrml). A bare
-        // `@x = init` directly in the markup body is silently dropped (W-STATE-
-        // BLOCK-BARE-WRITE-DECL).
-        <products> = []
-        <categories> = []
-        <selectedCategory> = not
-        <searchQuery> = ""
-        <editingProduct> = not
-        <showEditForm> = false
-        <showCreateForm> = false
-        <statusMessage> = ""
-        <page> = 1
-        <pageSize> = 20
-
-        // FRICTION NOTE: const <derived> -- this is the scrml derived value syntax.
-        // No TypeScript type annotation on the derived expression. In TS I'd write
-        // `const lowStock: Product[] = ...` but there's no type annotation syntax here.
-        // The compiler must infer the type from the SQL result shape -- which it can't
-        // do yet because §14.8 schema-derived types are not connected to ?{} results.
-        const <lowStockCount> = @products.filter(p => p.stock_qty < p.low_stock_threshold).length
-
-        // ========================================
-        // SCHEMA BOOTSTRAP (server function called on mount)
-        // ========================================
         server function initSchema() {
             ?{`CREATE TABLE IF NOT EXISTS categories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

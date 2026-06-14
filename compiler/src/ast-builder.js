@@ -840,6 +840,15 @@ function shiftBlockSpans(blocks, delta, lineDelta = 0) {
  * @param {object[]} blocks  — Block[] from the Block Splitter
  * @returns {object[]}  — transformed Block[] (new array, no mutation)
  */
+
+// FIX 1 (sym-cell-registration-completeness-2026-06-13 fixup, S192): the set of
+// state-block opener names whose body silently DROPS a bare `@x = init` (it is a
+// read/write of a pre-declared cell, NOT a declaration — §38.4). BS classifies
+// the canonical no-space opener (`<db>`/`<state>`/`<schema>`) as `type=markup`
+// and the deprecated whitespace opener (`< db>`) as `type=state`; both forms
+// must be scanned for the bare-write-decl lint. (`engine`/`machine` are EXCLUDED
+// — they route to engine-decl, a different grammar with no bare-`@x=` decl site.)
+const _STATE_BLOCK_BARE_WRITE_NAMES = new Set(["db", "state", "schema"]);
 function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aSynthCounter = { next: 0 }, isDefaultLogicBody = false) {
   const result = [];
   for (let i = 0; i < blocks.length; i++) {
@@ -851,9 +860,23 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aS
     if (block.type === "state") {
       // STATE blocks (`<state>` / `<db>` / etc.) are NOT default-logic-body
       // contexts (Unit CC's §40.8 surface). Pass isDefaultLogicBody=false
-      // explicitly to ensure bare `@x = []` inside `<db>` bodies (canonical
-      // reactive-cell declaration in V5-strict state-block grammar) is NOT
-      // lifted into a Unit CC fire site.
+      // explicitly so a bare `@x = init` text line directly in the state-block
+      // body is NOT lifted into the Unit CC HARD-error fire site.
+      //
+      // BUT — per SPEC §38.4 ("bare names are LOCALS only") + §6 V5-strict, a
+      // bare `@x = init` directly in a state-block markup body is NOT a
+      // declaration: `@x` is a READ/WRITE of a pre-declared cell. The canonical
+      // state-block cell declaration is the STRUCTURAL form inside a `${...}`
+      // logic block (`${ <x> = init }`) — exactly the 03-contact-book / 08-chat
+      // canonical shape. A bare `@x = init` in the markup body is silently
+      // DROPPED (it becomes inert text — neither registered nor emitted), so the
+      // cell never resolves. We surface the INFO-level lint
+      // W-STATE-BLOCK-BARE-WRITE-DECL (Class D, sym-cell-registration-
+      // completeness-2026-06-13) steering to `${ <x> = init }`. INFO-not-error:
+      // the §34 E-WRITE-NOT-IN-LOGIC-CONTEXT row explicitly excludes state-block
+      // bodies; promoting to a hard error there is a bigger call (deferred to a
+      // reserved E-STATE-BLOCK-BARE-WRITE-DECL).
+      scanStateBlockBareWriteDecls(block.children || [], errors, filePath);
       const newChildren = liftBareDeclarations(block.children || [], errors, filePath, "state", _p3aSynthCounter, false);
       result.push({ ...block, children: newChildren });
       continue;
@@ -868,6 +891,23 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aS
     // the bare-decl auto-lift inside <program>.
     // (Fix for Scope C finding A5 — see scrml-support/archive/changes/fix-bare-decl-markup-text-lift/.)
     if (block.type === "markup") {
+      // FIX 1 (sym-cell-registration-completeness-2026-06-13 fixup, S192):
+      // The CANONICAL no-space state-block opener (`<db>` / `<state>` /
+      // `<schema>`) is classified by BS as `type=markup` (only the DEPRECATED
+      // whitespace opener `< db>` is `type=state`). The `type==="state"` branch
+      // above runs `scanStateBlockBareWriteDecls` ONLY on the whitespace form,
+      // so the bare-write-decl lint was SILENT on exactly the canonical `<db>`
+      // an adopter writes — the very silent-drop site it exists to catch.
+      // `buildBlock` normalizes these markup-classified state-block names back to
+      // `type=state` (via `_STATE_FORM_LIFECYCLE`), but that runs AFTER this lift
+      // pass. Re-run the scan here on the markup-classified state-block names so
+      // the lint covers the canonical form too. Engine/machine route to
+      // engine-decl (a different grammar; no bare `=` decl site) and are
+      // excluded.
+      if (_STATE_BLOCK_BARE_WRITE_NAMES.has(block.name)) {
+        scanStateBlockBareWriteDecls(block.children || [], errors, filePath);
+      }
+
       // Top-level <program> remains a declaration site for its direct text
       // children. Any other markup tag is prose context — its text children
       // must be passed through unchanged.
@@ -888,6 +928,21 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aS
       const isChannelRoot = parentType !== "markup" && block.name === "channel";
       const isPageRoot = parentType !== "markup" && block.name === "page";
       const childContext = (isProgramRoot || isChannelRoot || isPageRoot) ? "state" : "markup";
+
+      // FIX 2 (sym-cell-registration-completeness-2026-06-13 fixup, S192):
+      // legacy `const @x = expr` directly in a MARKUP ELEMENT BODY (a non-decl-
+      // site element like `<div>`, or a state-block body `<db>`/`<state>`/
+      // `<schema>`) is NOT recognized as a declaration — it stays inert text and
+      // is silently DROPPED. The AST-node-gated W-CONST-AT-DEPRECATED check
+      // (type-system.ts) is structurally blind to that drop site, so scan for it
+      // HERE — the bounded mirror of `scanStateBlockBareWriteDecls`. Only when
+      // `childContext === "markup"` (i.e. NOT a `<program>`/`<page>`/`<channel>`
+      // declaration-site root, where `const @x` lifts and the AST-path lint
+      // already fires) so there is no double-fire.
+      if (childContext === "markup") {
+        scanMarkupBodyConstAtDecls(block.children || [], errors, filePath);
+      }
+
       // Unit CC (S123) — propagate a precise default-logic-body marker (true
       // only for direct children of <program>/<page>/<channel> markup, the
       // canonical §40.8 default-logic-mode surface). The existing
@@ -1395,6 +1450,129 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aS
     result.push(block);
   }
   return result;
+}
+
+/**
+ * Class D (sym-cell-registration-completeness-2026-06-13) — scan a STATE-block
+ * body's direct text children for a bare `@name = init` line and emit the
+ * INFO-level lint `W-STATE-BLOCK-BARE-WRITE-DECL` per occurrence.
+ *
+ * A state-block body (`<db>` / `<state>`) is markup context (SPEC §4 line 359);
+ * per §38.4 ("bare names are LOCALS only") + §6 V5-strict, a bare `@x = init`
+ * there is NOT a declaration — it is silently dropped (becomes inert text), so
+ * the cell never resolves at SYM. The canonical form is the structural decl in
+ * a `${...}` logic block: `${ <x> = init }` (03-contact-book / 08-chat). The
+ * lint steers there. `bun scrml migrate` does not yet auto-fix this (the
+ * rewrite must re-home the decl into a `${}` block — an AST relocation, not a
+ * text swap); the lint names the manual rewrite.
+ *
+ * Detection mirrors Unit CC's `TOPLEVEL_AT_WRITE_RE`: a LINE whose leading
+ * non-whitespace token is `@IDENT = ...` (the `=` not part of `==`). Comment
+ * lines (`//`-led) and nested deeper markup are not scanned — only the state
+ * block's DIRECT text children (the markup-body level).
+ *
+ * @param {object[]} children — the state block's child Block[] (BS shape)
+ * @param {object[]} errors   — diagnostic sink (W- prefix → result.warnings)
+ * @param {string} filePath
+ */
+function scanStateBlockBareWriteDecls(children, errors, filePath) {
+  if (!Array.isArray(children)) return;
+  for (const child of children) {
+    if (!child || child.type !== "text" || typeof child.raw !== "string") continue;
+    const raw = child.raw;
+    const baseStart = child.span && typeof child.span.start === "number" ? child.span.start : 0;
+    const baseLine = child.span && typeof child.span.line === "number" ? child.span.line : 1;
+    // Walk lines; track the running offset so each fire carries an accurate span.
+    let offset = 0;
+    const lines = raw.split("\n");
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      const m = line.match(/^(\s*)@([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)/);
+      if (m) {
+        const name = m[2];
+        const colStart = (m[1] ? m[1].length : 0);
+        const span = {
+          file: filePath,
+          start: baseStart + offset + colStart,
+          end: baseStart + offset + line.length,
+          line: baseLine + li,
+          col: colStart + 1,
+        };
+        errors.push(new TABError(
+          "W-STATE-BLOCK-BARE-WRITE-DECL",
+          `W-STATE-BLOCK-BARE-WRITE-DECL: bare \`@${name} = ...\` directly in a ` +
+          `state-block (\`<db>\` / \`<state>\`) body is not a declaration and is ` +
+          `silently dropped — the cell never resolves. A state-block body is markup ` +
+          `context (SPEC §4); bare names are LOCALS only (§38.4). Declare the cell in ` +
+          `a \`\${...}\` logic block using the structural form: ` +
+          `\`\${ <${name}> = ... }\` (the canonical \`<db>\` shape — see ` +
+          `examples/03-contact-book.scrml / 08-chat.scrml). ` +
+          `Reserved end-of-window: E-STATE-BLOCK-BARE-WRITE-DECL.`,
+          span,
+        ));
+      }
+      offset += line.length + 1; // +1 for the consumed "\n"
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FIX 2 (sym-cell-registration-completeness-2026-06-13 fixup, S192)
+// W-CONST-AT-DEPRECATED — markup-element-body silent-drop scan.
+//
+// The AST-node-gated W-CONST-AT-DEPRECATED check (type-system.ts, gated on
+// shape==="derived" && isConst===true && structuralForm===false) only fires
+// when `const @x` produced a derived state-decl AST node — i.e. in logic /
+// top-level / `${...}` contexts. Inside a MARKUP ELEMENT BODY (a non-decl-site
+// element like `<div>`, or a state-block body `<db>`/`<state>`), `const @x` is
+// NOT recognized as a declaration — it stays inert text and is silently
+// DROPPED. The AST-path check is structurally BLIND to exactly that drop site.
+//
+// This is the bounded MIRROR of `scanStateBlockBareWriteDecls`: same text-node
+// walk, same per-line regex strategy, same span computation, same per-match
+// fire — only the regex prefix differs (`const @name =` vs bare `@name =`).
+// Caller restricts it to non-declaration-site markup bodies (NOT
+// `<program>`/`<page>`/`<channel>` direct bodies, where `const @x` lifts and
+// the AST-path lint already fires) so there is no double-fire.
+// ---------------------------------------------------------------------------
+function scanMarkupBodyConstAtDecls(children, errors, filePath) {
+  if (!Array.isArray(children)) return;
+  for (const child of children) {
+    if (!child || child.type !== "text" || typeof child.raw !== "string") continue;
+    const raw = child.raw;
+    const baseStart = child.span && typeof child.span.start === "number" ? child.span.start : 0;
+    const baseLine = child.span && typeof child.span.line === "number" ? child.span.line : 1;
+    let offset = 0;
+    const lines = raw.split("\n");
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      // Legacy derived-cell form `const @name = ...` at line start (allowing
+      // leading indentation). `(?!=)` rejects the `==` comparison shape.
+      const m = line.match(/^(\s*)const\s+@([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)/);
+      if (m) {
+        const name = m[2];
+        const colStart = (m[1] ? m[1].length : 0);
+        const span = {
+          file: filePath,
+          start: baseStart + offset + colStart,
+          end: baseStart + offset + line.length,
+          line: baseLine + li,
+          col: colStart + 1,
+        };
+        errors.push(new TABError(
+          "W-CONST-AT-DEPRECATED",
+          `W-CONST-AT-DEPRECATED: the legacy derived-cell form \`const @${name} = ...\` is deprecated; ` +
+          `the canonical derived-cell form is \`const <${name}> = ...\` (SPEC §6.6.1 — \`const <name>\` is the sole derived-decl syntax).\n` +
+          `  \`const @${name} = expr\` -> \`const <${name}> = expr\`.\n` +
+          `  Inside a markup element body the \`@\`-form is not recognized and silently drops the cell; declare it in a \`${"$"}{...}\` logic block (the canonical \`const <${name}>\` form is for logic / top-level / \`${"$"}{...}\` contexts).\n` +
+          `  Run \`bun scrml migrate --fix\` to rewrite automatically.`,
+          span,
+        ));
+        errors[errors.length - 1].severity = "info";
+      }
+      offset += line.length + 1; // +1 for the consumed "\n"
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

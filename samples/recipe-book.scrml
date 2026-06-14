@@ -49,11 +49,13 @@ ${
 
 // Derived filtered list -- scrml's const @name (§6.6) maps to Svelte's $derived
 // Lazy pull: re-evaluates when @recipes, @searchQuery, or @selectedCategory changes
-const @filteredRecipes = @recipes.filter(r => {
-    let matchesSearch = @searchQuery == "" || r.title.toLowerCase().includes(@searchQuery.toLowerCase())
-    let matchesCategory = @selectedCategory == "All" || r.category == @selectedCategory
-    return matchesSearch && matchesCategory
-})
+${
+    const <filteredRecipes> = @recipes.filter(r => {
+        let matchesSearch = @searchQuery == "" || r.title.toLowerCase().includes(@searchQuery.toLowerCase())
+        let matchesCategory = @selectedCategory == "All" || r.category == @selectedCategory
+        return matchesSearch && matchesCategory
+    })
+}
 
 // ==========================================================================
 // Markup

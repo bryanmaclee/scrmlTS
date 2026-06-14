@@ -56,10 +56,10 @@ type Question:struct = {
 
 // Derived reactive values (§6.6) — lazy pull with dirty flags
 // Re-evaluate when upstream @variables change, not at write time.
-const @currentQuestion = @questions[@currentIndex]
-const @scorePercent = @questions.length > 0 ? Math.round((@score </> @questions.length) * 100) : 0
-const @hasNext = @currentIndex < @questions.length - 1
-const @hasPrev = @currentIndex > 0
+const <currentQuestion> = @questions[@currentIndex]
+const <scorePercent> = @questions.length > 0 ? Math.round((@score </> @questions.length) * 100) : 0
+const <hasNext> = @currentIndex < @questions.length - 1
+const <hasPrev> = @currentIndex > 0
 
 // =========================================================================
 // Timer — interval state type (§6.7.5)

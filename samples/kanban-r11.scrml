@@ -40,9 +40,9 @@ ${
 
     // const @derived — equivalent of createMemo in SolidJS
     // Re-evaluates lazily when upstream @vars change (§6.6, lazy pull + dirty flags)
-    const @todoCount = @todoCards.length
-    const @inProgressCount = @inProgressCards.length
-    const @doneCount = @doneCards.length
+    const <todoCount> = @todoCards.length
+    const <inProgressCount> = @inProgressCards.length
+    const <doneCount> = @doneCards.length
 
     // Column highlight state — separate boolean per column
     // Workaround for lack of enum-typed class: directives.

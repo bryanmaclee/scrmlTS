@@ -44,7 +44,7 @@
         // This is the closest thing to Vue's computed(). The dirty-flag approach
         // means scrml won't re-filter on every keystroke unless @searchTerm changes.
 
-        const @filteredEmployees = @searchTerm
+        const <filteredEmployees> = @searchTerm
             ? @employees.filter(e =>
                 e.name.toLowerCase().includes(@searchTerm.toLowerCase()) ||
                 e.department.toLowerCase().includes(@searchTerm.toLowerCase()) ||
@@ -52,7 +52,7 @@
               )
             : @employees
 
-        const @sortedEmployees = @filteredEmployees.slice().sort((a, b) => {
+        const <sortedEmployees> = @filteredEmployees.slice().sort((a, b) => {
             let av = a[@sortCol]
             let bv = b[@sortCol]
             if (typeof av == "number") {
@@ -65,14 +65,14 @@
                 : bs < as ? -1 : bs > as ? 1 : 0
         })
 
-        const @totalPages = Math.ceil(@filteredEmployees.length / @pageSize)
+        const <totalPages> = Math.ceil(@filteredEmployees.length / @pageSize)
 
-        const @paginatedEmployees = @sortedEmployees.slice(
+        const <paginatedEmployees> = @sortedEmployees.slice(
             (@currentPage - 1) * @pageSize,
             @currentPage * @pageSize
         )
 
-        const @allOnPageSelected = @paginatedEmployees.length > 0 &&
+        const <allOnPageSelected> = @paginatedEmployees.length > 0 &&
             @paginatedEmployees.every(e => @selectedIds.includes(e.id))
 
         // --- Actions ---

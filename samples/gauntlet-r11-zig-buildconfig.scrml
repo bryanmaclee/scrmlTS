@@ -87,7 +87,7 @@ ${
     // no equivalent hazard. If Zig had reactive semantics, stale reads would be a
     // compile error or require explicit flush(). Defining stale reads as "correct
     // behavior" rather than as an error is the friction point here.
-    const @targetCount = @targets.length
+    const <targetCount> = @targets.length
 }
 
 ${

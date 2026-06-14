@@ -85,7 +85,7 @@ ${
     // hazard because Zig has no reactive system. But if there were, you would require
     // explicit flush() calls rather than making stale reads "defined behavior". The
     // opt-in flush() is good; the "stale is defined" framing is the concern.
-    const @buildCommand = buildCommandFor(@platform, @optLevel, @stripDebug, @enableLTO, @enableSingleThreaded, @deps)
+    const <buildCommand> = buildCommandFor(@platform, @optLevel, @stripDebug, @enableLTO, @enableSingleThreaded, @deps)
 }
 
 ${

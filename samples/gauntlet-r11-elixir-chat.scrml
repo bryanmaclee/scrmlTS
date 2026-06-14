@@ -23,10 +23,10 @@ ${
 }
 
 // Derived reactive: isEmpty re-evaluates whenever @messages changes (§6.6)
-const @isEmpty = @messages.length == 0
+const <isEmpty> = @messages.length == 0
 
 // Derived reactive: hasPendingScroll is true when new messages were added
-const @hasPendingScroll = @newMessageCount > 0
+const <hasPendingScroll> = @newMessageCount > 0
 
 ${
     // --- Helpers ---

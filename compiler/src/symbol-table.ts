@@ -300,8 +300,16 @@ export type ScopeKind = "file" | "function" | "engine" | "component" | "compound
  *                         mechanism for ALL reactive cells; downstream passes
  *                         dispatch on `_cellKind === "engine"` for engine-
  *                         specific behavior.
+ * - `"ref"`             — `ref=@name` element-reference binding (§Class-C
+ *                         registration-completeness, 2026-06-13). The ref
+ *                         name is a reactive cell at runtime
+ *                         (emit-bindings.ts `_scrml_reactive_set(name,
+ *                         querySelector(...))`); registering a lightweight
+ *                         resolvable record here lets `lookupStateCell`
+ *                         resolve `@name` reads of the bound element. NO
+ *                         codegen change — SYM-registration only.
  */
-export type CellKind = "plain" | "bindable" | "markup-typed" | "compound-parent" | "engine";
+export type CellKind = "plain" | "bindable" | "markup-typed" | "compound-parent" | "engine" | "ref";
 
 /**
  * Phase A1b Step B14 — engine-specific metadata attached to a StateCellRecord
@@ -5345,6 +5353,123 @@ function walkRegisterEngines(
   }
 }
 
+// ---------------------------------------------------------------------------
+// PASS 1.d — `ref=@name` element-ref binding registration (Class C,
+// sym-cell-registration-completeness-2026-06-13, REGISTER ruling S192)
+// ---------------------------------------------------------------------------
+//
+// A `ref=@name` attribute on a markup element binds the runtime DOM element
+// to a reactive cell: codegen (emit-bindings.ts:331-335) emits
+// `_scrml_reactive_set(encode(name), document.querySelector('[data-scrml-ref=
+// "name"]'))`, so `@name` reads of the element ARE reactive-cell reads at
+// runtime. Pre-fix, the ref name was NEVER registered into any scope's
+// `stateCells`, so `lookupStateCell(@name)` returned null and every
+// `stateCells`-walking consumer under-served the ref (the Class-C census
+// null-set). Refs ARE canonical scrml (genuine gap, not a deprecated form), so
+// per the S192 ruling we REGISTER a lightweight resolvable record.
+//
+// SYM-registration ONLY — codegen is unchanged (emit-bindings.ts already emits
+// the wiring independently of SYM; this pass does not touch it).
+//
+// Shape: a synth-style record (no fresh AST decl node — the markup element node
+// is the span anchor), `_cellKind: "ref"`. First-writer-wins / dev-intent-wins:
+// if a real state-decl OR a prior ref already registered `name` in fileScope,
+// we DO NOT overwrite it (a structural `<name>` decl is the authoritative cell;
+// a duplicate `ref=@name` on two elements registers once). All refs register at
+// FILE scope (the runtime `_scrml_reactive_set` store is file-global), matching
+// the resolution surface reads expect.
+function walkRegisterRefBindings(
+  nodes: any,
+  fileScope: Scope,
+  visited: WeakSet<object>,
+): void {
+  if (!nodes) return;
+  if (Array.isArray(nodes)) {
+    for (const n of nodes) walkRegisterRefBindings(n, fileScope, visited);
+    return;
+  }
+  if (typeof nodes !== "object") return;
+  if (visited.has(nodes)) return;
+  visited.add(nodes);
+
+  const node = nodes as any;
+
+  const attrs = node.attrs ?? node.attributes;
+  if (Array.isArray(attrs)) {
+    for (const a of attrs) {
+      if (!a || a.name !== "ref") continue;
+      const v = a.value;
+      if (!v || v.kind !== "variable-ref" || typeof v.name !== "string") continue;
+      const refName = v.name.replace(/^@/, "");
+      if (refName.length === 0) continue;
+      // dev-intent-wins / first-writer-wins: a real cell or a prior ref keeps
+      // the slot. lookupStateCell-from-fileScope is a single-scope read here
+      // (fileScope.parent is null), so `.get` on fileScope is sufficient and
+      // avoids re-registering when a top-level `<name>` decl already owns it.
+      if (fileScope.stateCells.has(refName)) continue;
+      registerRefBinding(refName, node, fileScope);
+    }
+  }
+
+  // Recurse into the common AST containers + the lift-expr markup tree (a
+  // `lift <div ref=@x>` inside a `${ for ... }` render-site carries its markup
+  // under `expr.node`). Mirror the PASS-1 / engine-walker recursion shape.
+  if (Array.isArray(node.children)) walkRegisterRefBindings(node.children, fileScope, visited);
+  if (Array.isArray(node.body)) walkRegisterRefBindings(node.body, fileScope, visited);
+  if (Array.isArray(node.bodyChildren)) walkRegisterRefBindings(node.bodyChildren, fileScope, visited);
+  if (Array.isArray(node.consequent)) walkRegisterRefBindings(node.consequent, fileScope, visited);
+  if (Array.isArray(node.alternate)) walkRegisterRefBindings(node.alternate, fileScope, visited);
+  if (Array.isArray(node.nodes)) walkRegisterRefBindings(node.nodes, fileScope, visited);
+  if (Array.isArray(node.arms)) {
+    for (const arm of node.arms) {
+      if (arm && Array.isArray(arm.body)) walkRegisterRefBindings(arm.body, fileScope, visited);
+    }
+  }
+  if (node.kind === "lift-expr" && node.expr && node.expr.kind === "markup" && node.expr.node) {
+    walkRegisterRefBindings([node.expr.node], fileScope, visited);
+  }
+}
+
+/**
+ * Register a single `ref=@name` element-ref binding into the file scope as a
+ * lightweight resolvable StateCellRecord. The markup element `anchorNode`
+ * supplies the span; there is no fresh AST decl node (mirrors the B11 synth
+ * record pattern). `_cellKind` is stamped `"ref"` (non-enumerable, consistent
+ * with engine cells). Returns the created record.
+ */
+function registerRefBinding(
+  refName: string,
+  anchorNode: any,
+  fileScope: Scope,
+): StateCellRecord {
+  const record: StateCellRecord = {
+    name: refName,
+    qualifiedPath: refName,
+    // No fresh decl node; the markup element node anchors the span. Cast to the
+    // ReactiveDeclNode field type — consumers read span/name off it, not decl-
+    // specific shape (synth records do the same with the compound parent node).
+    declNode: anchorNode as unknown as ReactiveDeclNode,
+    scope: fileScope,
+    structuralForm: true,
+    shape: "plain",
+    isConst: false,
+    isPinned: false,
+    isCompoundParent: false,
+    isCompoundChild: false,
+    hasValidators: false,
+    hasDefaultExpr: false,
+    hasTypeAnnotation: false,
+  };
+  Object.defineProperty(record, "_cellKind", {
+    value: "ref" as CellKind,
+    enumerable: false,
+    configurable: true,
+    writable: true,
+  });
+  fileScope.stateCells.set(refName, record);
+  return record;
+}
+
 /**
  * Register a single engine-decl into the file scope. Validates the chosen
  * variable name against same-scope state cells; fires
@@ -10196,6 +10321,14 @@ export function runSYM(input: SYMInput): SYMResult {
   const errors: SYMDiagnostic[] = [];
   const visitedB14 = new WeakSet<object>();
   walkRegisterEngines(ast.nodes, fileScope, errors, filePath, visitedB14);
+
+  // PASS 1.d (Class C): Register `ref=@name` element-ref bindings into the file
+  // scope so `lookupStateCell(@name)` resolves them (the ref name is a reactive
+  // cell at runtime via emit-bindings.ts `_scrml_reactive_set`). Runs AFTER
+  // PASS 1 + 1.c so real state-decls / engine cells already own their slots
+  // (dev-intent-wins / first-writer-wins). SYM-registration only; no codegen.
+  const visitedRef = new WeakSet<object>();
+  walkRegisterRefBindings(ast.nodes, fileScope, visitedRef);
 
   // PASS 2 (B2): Walk local-decl nodes (let/const/tilde/lin); look up each
   // by name in the current-scope parent chain; fire E-NAME-COLLIDES-STATE

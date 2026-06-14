@@ -57,7 +57,7 @@ ${
     // const @name = expr syntax — lazy pull with dirty flags
     // Rails equivalent: Post.where(status: :published).count
     // Key difference: this is client-side derived from @posts array, not DB query
-    const @publishedCount = @posts.filter(p => p.status == "Published").length
+    ${ const <publishedCount> = @posts.filter(p => p.status == "Published").length }
 
     // =====================================================================
     // Load on mount (like Rails before_action :load_posts)

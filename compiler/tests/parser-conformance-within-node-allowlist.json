@@ -600,10 +600,9 @@
     "FIELD-SHAPE": 1
   },
   "samples/blog-cms.scrml": {
-    "COUNT-LENGTH": 2,
-    "EXTRA-FIELD": 4,
-    "FIELD-SHAPE": 2,
     "MISSING-FIELD": 1,
+    "EXTRA-FIELD": 4,
+    "COUNT-LENGTH": 2,
     "SPAN-COORD": 2
   },
   "samples/card.scrml": {
@@ -1369,12 +1368,12 @@
     "SPAN-COORD": 10
   },
   "samples/compilation-tests/gauntlet-r10-bun-admin.scrml": {
-    "COUNT-LENGTH": 1,
-    "EXTRA-FIELD": 65,
-    "FIELD-SHAPE": 3,
-    "KIND-NAME": 1,
-    "MISSING-FIELD": 6,
-    "SPAN-COORD": 9
+    "KIND-NAME": 40,
+    "FIELD-SHAPE": 132,
+    "MISSING-FIELD": 433,
+    "EXTRA-FIELD": 130,
+    "COUNT-LENGTH": 10,
+    "SPAN-COORD": 439
   },
   "samples/compilation-tests/gauntlet-r10-elixir-chat.scrml": {
     "COUNT-LENGTH": 5,
@@ -1441,12 +1440,12 @@
     "SPAN-COORD": 331
   },
   "samples/compilation-tests/gauntlet-r10-svelte-dashboard.scrml": {
-    "COUNT-LENGTH": 3,
-    "EXTRA-FIELD": 41,
-    "FIELD-SHAPE": 57,
     "KIND-NAME": 13,
-    "MISSING-FIELD": 154,
-    "SPAN-COORD": 229
+    "FIELD-SHAPE": 61,
+    "MISSING-FIELD": 144,
+    "EXTRA-FIELD": 41,
+    "COUNT-LENGTH": 3,
+    "SPAN-COORD": 245
   },
   "samples/compilation-tests/gauntlet-r10-ts-components.scrml": {
     "COUNT-LENGTH": 5,
@@ -1457,19 +1456,19 @@
     "SPAN-COORD": 127
   },
   "samples/compilation-tests/gauntlet-r10-vue-datatable.scrml": {
-    "COUNT-LENGTH": 3,
-    "EXTRA-FIELD": 118,
+    "KIND-NAME": 36,
     "FIELD-SHAPE": 91,
-    "KIND-NAME": 37,
-    "MISSING-FIELD": 373,
+    "MISSING-FIELD": 371,
+    "EXTRA-FIELD": 104,
+    "COUNT-LENGTH": 3,
     "SPAN-COORD": 468
   },
   "samples/compilation-tests/gauntlet-r10-zig-buildconfig.scrml": {
-    "COUNT-LENGTH": 2,
-    "EXTRA-FIELD": 79,
-    "FIELD-SHAPE": 74,
     "KIND-NAME": 23,
-    "MISSING-FIELD": 254,
+    "FIELD-SHAPE": 74,
+    "MISSING-FIELD": 242,
+    "EXTRA-FIELD": 77,
+    "COUNT-LENGTH": 2,
     "SPAN-COORD": 260
   },
   "samples/compilation-tests/gauntlet-s19-phase1-decls/_helper-component.scrml": {
@@ -5906,9 +5905,9 @@
     "SPAN-COORD": 30
   },
   "samples/expense-tracker.scrml": {
-    "COUNT-LENGTH": 2,
+    "FIELD-SHAPE": 1,
     "EXTRA-FIELD": 4,
-    "FIELD-SHAPE": 1
+    "COUNT-LENGTH": 2
   },
   "samples/file-manager-r11.scrml": {
     "COUNT-LENGTH": 1,
@@ -5920,10 +5919,10 @@
   },
   "samples/gauntlet-r11-elixir-chat.scrml": {
     "KIND-NAME": 12,
-    "FIELD-SHAPE": 21,
+    "FIELD-SHAPE": 23,
     "MISSING-FIELD": 107,
     "EXTRA-FIELD": 30,
-    "SPAN-COORD": 112
+    "SPAN-COORD": 121
   },
   "samples/gauntlet-r11-go-url-shortener.scrml": {
     "COUNT-LENGTH": 1,
@@ -5938,9 +5937,9 @@
     "SPAN-COORD": 368
   },
   "samples/gauntlet-r11-zig-buildconfig.scrml": {
-    "COUNT-LENGTH": 2,
+    "FIELD-SHAPE": 1,
     "EXTRA-FIELD": 7,
-    "FIELD-SHAPE": 1
+    "COUNT-LENGTH": 2
   },
   "samples/gauntlet-r11/rust-state-machine.scrml": {
     "COUNT-LENGTH": 2,
@@ -6268,11 +6267,11 @@
     "SPAN-COORD": 235
   },
   "samples/kanban-r11.scrml": {
-    "COUNT-LENGTH": 1,
-    "EXTRA-FIELD": 93,
-    "FIELD-SHAPE": 58,
     "KIND-NAME": 35,
+    "FIELD-SHAPE": 58,
     "MISSING-FIELD": 307,
+    "EXTRA-FIELD": 87,
+    "COUNT-LENGTH": 1,
     "SPAN-COORD": 241
   },
   "samples/login.scrml": {
@@ -6292,12 +6291,12 @@
     "SPAN-COORD": 131
   },
   "samples/quiz-app.scrml": {
+    "KIND-NAME": 3,
+    "FIELD-SHAPE": 14,
+    "MISSING-FIELD": 9,
+    "EXTRA-FIELD": 31,
     "COUNT-LENGTH": 3,
-    "EXTRA-FIELD": 28,
-    "FIELD-SHAPE": 15,
-    "KIND-NAME": 2,
-    "MISSING-FIELD": 7,
-    "SPAN-COORD": 78
+    "SPAN-COORD": 84
   },
   "samples/react-dev-lin-lift-edge-cases.scrml": {
     "COUNT-LENGTH": 1,
@@ -6315,10 +6314,9 @@
     "SPAN-COORD": 20
   },
   "samples/recipe-book.scrml": {
-    "COUNT-LENGTH": 2,
-    "EXTRA-FIELD": 4,
-    "FIELD-SHAPE": 2,
     "MISSING-FIELD": 1,
+    "EXTRA-FIELD": 4,
+    "COUNT-LENGTH": 2,
     "SPAN-COORD": 2
   },
   "samples/rust-dev-debate-dashboard.scrml": {

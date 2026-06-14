@@ -45,7 +45,7 @@
     // expressions in all its examples. I am going to write the derived values
     // using direct expressions and see what the compiler accepts.
 
-    const @total = @count * 1
+    const <total> = @count * 1
     // ^ Trivial derived -- will get W-DERIVED-001 if @count is not a dep.
     // Actually: @count IS a dep here. This derives cleanly.
     // Real intent: keep a running sum. But const @name is immutable, so
@@ -63,9 +63,9 @@
     // and document the friction.
 
     // Safe derived: count-based stats (scalar operations, spec-clean)
-    const @doubleCount = @count * 2
-    const @countSquared = @count * @count
-    const @isEven = @count * 0
+    const <doubleCount> = @count * 2
+    const <countSquared> = @count * @count
+    const <isEven> = @count * 0
     // ^ FRICTION: I need a boolean. @count % 2 == 0 should work as an
     // expression but the spec examples never show modulo or strict equality
     // in derived expressions. Arithmetic only in the worked examples.
