@@ -42,7 +42,7 @@ bun compiler/src/cli.js compile examples/01-hello.scrml -o dist/
 | `06-kanban-board.scrml` | Enum-driven columns (bar-form `\|`), array `.map()` mutation, CSS grid |
 | `07-admin-dashboard.scrml` | `^{}` meta block + `reflect(User)` — table headers generated from the type |
 | `08-chat.scrml` | Single-user message log: optimistic update + DB persistence (NOT real-time — see 15) |
-| `09-error-handling.scrml` | `!{}` exhaustive error matching, enum error types with `renders` clauses |
+| `09-error-handling.scrml` | Errors-as-states: failable functions + `!{}` route each failure into a `Phase` enum's `.Failed(err)`; `<match for=Phase>` renders the held error — the failure mode lives in the type, no boolean error flags (§19) |
 | `10-inline-tests.scrml` | `~{}` inline tests — compile-time assertions, stripped from production |
 | `11-meta-programming.scrml` | `^{}` meta blocks, `emit()`, `reflect()` — the compiler as a programmable tool |
 | `12-snippets-slots.scrml` | Named content slots in components — `slot=`, `${render slotName()}`, snippet props |

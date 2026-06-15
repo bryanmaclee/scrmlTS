@@ -1,40 +1,71 @@
-// Example 09: Error handling — failable functions, fail keyword, !{} inline handler.
-// A contact form that can fail at validation or submission. Error types are enums
-// with renders clauses so they display themselves inside `<errorBoundary>`.
-// Styled with Tailwind utility classes — no #{} block needed for layout.
+// Example 09: Error handling — errors-as-states (failable functions + `!{}`).
+// A contact form whose every failure mode lives in the type. There is no
+// `<isError>` / `<errorMsg>` boolean pair: the lifecycle IS a state enum.
+//
+// The lesson, in one sentence: a failable function surfaces failures with
+// `fail`; the call-site `!{}` handler does ONE thing — route each error
+// variant into the `Phase` enum's `.Failed(err)` state. The `<match>` then
+// renders whatever state the form is in, and the `<Failed err>` arm displays
+// the held error directly. Failure is just another state the UI patterns.
+//
+// ContactError carries the failure modes (EmptyName / EmptyEmail /
+// InvalidEmail / SubmitFailed). Phase carries the lifecycle, with the error
+// held inside `.Failed(err: ContactError)`. `validate()` and `submit()` are
+// both failable (`! ContactError`); `handleSubmit()` lifts their failures
+// into `@phase = .Failed(err)` and their success into `@phase = .Succeeded`.
 //
 // submit() does real server work: it queues the contact message into an
-// outbox table via a `?{}` INSERT (the canonical "write to outbox, a
-// worker delivers the email" pattern). Because the body touches a `?{}`
-// SQL block, §12 body-content inference places submit on the SERVER — no
-// `server` keyword required (Insight 26). A zero-row insert surfaces the
-// SubmitFailed variant, so the error path is real, not hypothetical.
+// outbox table via a `?{}` INSERT (the canonical "write to outbox, a worker
+// delivers the email" pattern). Because the body touches a `?{}` SQL block,
+// §12 body-content inference places submit on the SERVER — no `server`
+// keyword required (Insight 26). A zero-row insert surfaces SubmitFailed,
+// so the error path is real, not hypothetical.
+//
+// NOTE — this is NOT the `<errorBoundary>` idiom. The variant-`renders`
+// clause + `<errorBoundary fallback=...>` pair (§19.6) is a SEPARATE,
+// render-context catch mechanism for `!`-calls that sit inside markup. This
+// example handles failure in LOGIC context (`!{}`) and holds it as state, so
+// it uses neither.
 
 <program db="contact.db">
 
 <db src="contact.db" tables="contact_messages">
 
   ${
-    // Declare error enum first so the type is in scope for the failable functions below.
+    // The failure modes — each a variant, some carrying a payload. No
+    // `renders` clauses: those belong to the `<errorBoundary>` idiom (§19.6),
+    // not to errors-as-states. The message text is derived below by a pure fn.
     type ContactError:enum = {
         EmptyName
-            renders <p class="text-red-600 text-sm">Name is required.</>
         EmptyEmail
-            renders <p class="text-red-600 text-sm">Email is required.</>
         InvalidEmail(email: string)
-            renders <p class="text-red-600 text-sm">${email} is not a valid email address.</>
         SubmitFailed(reason: string)
-            renders <div class="bg-red-50 border border-red-500 rounded p-3 text-red-600">Submission failed: ${reason}</>
     }
+
+    // The lifecycle — the error is HELD inside `.Failed(err)`. This single
+    // enum replaces the old `<submitted>` / `<sending>` boolean pair.
+    type Phase:enum = { Editing, Submitting, Succeeded, Failed(err: ContactError) }
+
+    <phase>: Phase = .Editing
 
     <name>  = ""
     <email> = ""
     <body>  = ""
 
-    <submitted> = false
-    <sending>   = false
+    // Turn a held error into a display string. A JS-style value-return
+    // `match` (expression position) — each arm yields a string. The payload
+    // fields (`email`, `reason`) are in scope inside their arm.
+    fn errorMessage(e: ContactError) -> string {
+        return match e {
+            .EmptyName            :> "Name is required."
+            .EmptyEmail           :> "Email is required."
+            .InvalidEmail(email)  :> email + " is not a valid email address."
+            .SubmitFailed(reason) :> "Submission failed: " + reason
+        }
+    }
 
-    // validate() is pure and failable. Returns nothing on success.
+    // validate() is failable. It returns nothing on success and `fail`s a
+    // ContactError variant otherwise.
     function validate() ! ContactError {
         if (@name == "")  fail .EmptyName
         if (@email == "") fail .EmptyEmail
@@ -64,61 +95,71 @@
         if (result.changes == 0) fail .SubmitFailed("message could not be queued")
     }
 
+    // handleSubmit() is the whole lesson. Each `!{}` handler does ONE thing:
+    // bind the error and route it into `@phase = .Failed(err)`. The bound
+    // `err` is the full ContactError (its payload rides along); it lands in
+    // the held state, and the `<Failed err>` arm displays it. No variant is
+    // enumerated, none is discarded. Success advances to `.Succeeded`.
     function handleSubmit() {
-        @sending = true
+        @phase = .Submitting
 
-        // validate() is failable — handle each variant. Each arm returns
-        // (early-exit on validation failure). Success continues to submit.
-        let validated = validate() !{
-            | .EmptyName        :> { @sending = false; return }
-            | .EmptyEmail       :> { @sending = false; return }
-            | .InvalidEmail(e)  :> { @sending = false; return }
-            | .SubmitFailed(_)  :> { @sending = false; return }
+        validate() !{
+            | err :> { @phase = .Failed(err); return }
         }
 
-        // submit() is also failable. Each error arm early-exits with status.
-        let result = submit(@name, @email, @body) !{
-            | .SubmitFailed(e)  :> { @sending = false; return }
-            | .EmptyName        :> { @sending = false; return }
-            | .EmptyEmail       :> { @sending = false; return }
-            | .InvalidEmail(_)  :> { @sending = false; return }
+        submit(@name, @email, @body) !{
+            | err :> { @phase = .Failed(err); return }
         }
 
-        @sending   = false
-        @submitted = true
+        @phase = .Succeeded
     }
   }
 
-  <errorBoundary>
-    <div class="max-w-lg mx-auto mt-8 flex flex-col gap-4">
-        <h1 class="text-2xl font-bold text-gray-800">Contact Us</>
+  <div class="max-w-lg mx-auto mt-8 flex flex-col gap-4">
+      <h1 class="text-2xl font-bold text-gray-800">Contact Us</>
 
-        <div if=@submitted>
-            <p class="text-green-600 font-bold">Thanks! We'll be in touch.</>
-        </div>
+      <match for=Phase on=@phase>
 
-        <form if=(!@submitted) onsubmit=handleSubmit()>
-            <label class="flex flex-col gap-1 text-sm mb-3">
-                Name
-                <input type="text" class="p-2 border border-gray-300 rounded text-base" bind:value=@name placeholder="Your name">
-            </label>
+          <Editing>
+              <form onsubmit=handleSubmit()>
+                  <label class="flex flex-col gap-1 text-sm mb-3">
+                      Name
+                      <input type="text" class="p-2 border border-gray-300 rounded text-base" bind:value=@name placeholder="Your name">
+                  </label>
 
-            <label class="flex flex-col gap-1 text-sm mb-3">
-                Email
-                <input type="email" class="p-2 border border-gray-300 rounded text-base" bind:value=@email placeholder="you@example.com">
-            </label>
+                  <label class="flex flex-col gap-1 text-sm mb-3">
+                      Email
+                      <input type="email" class="p-2 border border-gray-300 rounded text-base" bind:value=@email placeholder="you@example.com">
+                  </label>
 
-            <label class="flex flex-col gap-1 text-sm mb-3">
-                Message
-                <textarea class="p-2 border border-gray-300 rounded text-base" bind:value=@body placeholder="What's on your mind?"></textarea>
-            </label>
+                  <label class="flex flex-col gap-1 text-sm mb-3">
+                      Message
+                      <textarea class="p-2 border border-gray-300 rounded text-base" bind:value=@body placeholder="What is on your mind?"></textarea>
+                  </label>
 
-            <button type="submit" class="px-6 py-2 bg-gray-800 text-white rounded cursor-pointer text-base border-0 hover:bg-gray-700" disabled=@sending>
-                ${@sending ? "Sending…" : "Send Message"}
-            </button>
-        </form>
-    </div>
-  </>
+                  <button type="submit" class="px-6 py-2 bg-gray-800 text-white rounded cursor-pointer text-base border-0 hover:bg-gray-700">
+                      Send Message
+                  </button>
+              </form>
+          </>
+
+          <Submitting>
+              <p class="text-gray-600">Sending your message...</p>
+          </>
+
+          <Succeeded>
+              <p class="text-green-600 font-bold">Thanks! We will be in touch.</p>
+          </>
+
+          <Failed err>
+              <p class="text-red-600 font-bold">${errorMessage(err)}</p>
+              <button onclick=handleSubmit() class="px-6 py-2 bg-gray-800 text-white rounded cursor-pointer text-base border-0 hover:bg-gray-700">
+                  Try again
+              </button>
+          </>
+
+      </>
+  </div>
 
 </>
 

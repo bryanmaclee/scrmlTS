@@ -147,12 +147,12 @@
     "SPAN-COORD": 201
   },
   "examples/09-error-handling.scrml": {
-    "COUNT-LENGTH": 3,
-    "EXTRA-FIELD": 29,
-    "FIELD-SHAPE": 26,
-    "KIND-NAME": 7,
-    "MISSING-FIELD": 62,
-    "SPAN-COORD": 93
+    "COUNT-LENGTH": 4,
+    "EXTRA-FIELD": 34,
+    "FIELD-SHAPE": 25,
+    "KIND-NAME": 5,
+    "MISSING-FIELD": 50,
+    "SPAN-COORD": 61
   },
   "examples/10-inline-tests.scrml": {
     "COUNT-LENGTH": 1,
