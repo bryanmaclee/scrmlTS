@@ -15,9 +15,9 @@
 | Severity | Open |
 |---|---|
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
-| HIGH | 2 |
-| MED | 10 |
-| LOW | 19 |
+| HIGH | 1 |
+| MED | 8 |
+| LOW | 20 |
 | Nominal (spec-ahead-of-impl) | 9 |
 <!-- @generated:gap-counts END -->
 
