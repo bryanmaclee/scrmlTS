@@ -691,8 +691,24 @@ function findStructuralBodyEnd(source, startPos, outerTagName) {
         isAfterCloseColonShorthand = true;
       }
     }
-    if (!isSelfClosing && !isColonShorthand && !isAfterCloseColonShorthand) {
+    if (
+      !isSelfClosing &&
+      !isColonShorthand &&
+      !isAfterCloseColonShorthand &&
+      !VOID_ELEMENTS.has(openerName)
+    ) {
       // Non-self-close, non-shorthand opener — pushes onto the stack.
+      //
+      // §24 void elements (`<input>`, `<br>`, `<img>`, …) are SELF-TERMINATING
+      // even in their bare (un-self-closed) form — they admit no children. A
+      // bare void opener inside a STRUCTURAL_RAW_BODY (match / each) body must
+      // NOT push onto the tag-stack; otherwise the next `</>` / `</tag>` closer
+      // (e.g. a match arm's `</>` or the outer `</match>`) is mis-consumed as
+      // the void element's closer, the stack never unwinds, and the scan runs
+      // to EOF — surfacing a misleading E-CTX-001 "Unclosed <match>" instead of
+      // parsing the void as a leaf. `readTagName` lowercased `openerName`, so
+      // the VOID_ELEMENTS lookup is case-correct. (The self-closed `<input/>`
+      // form already short-circuits via `isSelfClosing` above.)
       tagStack.push(openerName);
     }
     i = openerEnd;

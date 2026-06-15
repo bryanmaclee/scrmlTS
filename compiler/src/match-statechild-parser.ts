@@ -51,6 +51,21 @@
  * Callers add the match-block's span.start to get absolute positions.
  */
 
+// §24 HTML void elements — self-terminating, admit no children. A void
+// opener (bare `<input>` or self-closed `<input/>`) inside a match-arm body
+// must NOT be treated as a nesting container by `findArmCloser`; otherwise a
+// bare void opener increments the close-finder's nesting `depth` and the
+// arm's own `</>` / `</Variant>` closer is mis-consumed as the void's closer,
+// so the arm appears unclosed → a misleading E-MATCH-PARSE-001. Mirrors the
+// VOID_ELEMENTS set in block-splitter.js (the BS-stage companion that captures
+// the match body raw); kept local because this file is otherwise import-free
+// (parallel to the engine-statechild-parser scanner). Names are lowercased at
+// the lookup site, matching the §24 registry casing.
+const VOID_ELEMENTS = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img", "input",
+  "link", "meta", "source", "track", "wbr",
+]);
+
 export interface MatchArmAttr {
   name: string;     // attribute name (e.g. "rule", "effect")
   valueRaw: string; // raw attribute value (or empty for bareword attrs)
@@ -382,13 +397,23 @@ export function parseMatchArms(armsRaw: string): MatchParseResult {
             continue;
           }
         }
-        // Opener `<TAG>` — increment depth (but skip self-closing).
+        // Opener `<TAG>` — increment depth (but skip self-closing AND §24
+        // void elements, which are self-terminating leaves with no children).
         if (/[A-Za-z_]/.test(armsRaw[p + 1])) {
+          // Read the opener tag name (so a bare void element does not push the
+          // close-finder's nesting depth). Tag-name chars: letters, digits,
+          // `_`, `-` per the HTML/scrml element grammar; lowercased for the
+          // §24 VOID_ELEMENTS lookup.
+          let nameEnd = p + 1;
+          while (nameEnd < len && /[A-Za-z0-9_-]/.test(armsRaw[nameEnd])) nameEnd++;
+          const openerTagName = armsRaw.slice(p + 1, nameEnd).toLowerCase();
+          const isVoidOpener = VOID_ELEMENTS.has(openerTagName);
           // Scan to opener's `>` or `/>`
           let q = p + 1;
           let qBrace = 0;
           let qDQ = false;
           let qSQ = false;
+          let foundOpenerEnd = false;
           while (q < len) {
             const qc = armsRaw[q];
             if (qDQ) { if (qc === '"') qDQ = false; else if (qc === "\\") q++; q++; continue; }
@@ -401,19 +426,40 @@ export function parseMatchArms(armsRaw: string): MatchParseResult {
               if (qc === "/" && q + 1 < len && armsRaw[q + 1] === ">") {
                 // Self-closing — don't increment depth
                 q += 2;
-                p = q;
+                foundOpenerEnd = true;
                 break;
               }
               if (qc === ">") {
-                depth++;
+                // §24 void elements are self-terminating even in their bare
+                // (un-self-closed) form — they admit no children, so a bare
+                // `<input>` / `<br>` / `<img>` must NOT increment the nesting
+                // depth (mirrors the self-closing branch above and the BS-stage
+                // VOID_ELEMENTS gate). Otherwise the arm's `</>` / `</Variant>`
+                // closer is mis-consumed as this void's closer → the arm looks
+                // unclosed → a misleading E-MATCH-PARSE-001.
+                if (!isVoidOpener) depth++;
                 q++;
-                p = q;
+                foundOpenerEnd = true;
                 break;
               }
             }
             q++;
           }
-          if (p < q) continue;
+          // Resume scanning from just past the opener's terminating `>` / `/>`.
+          // (Previously this used `p = q` inside the loop then `if (p < q)
+          // continue`, which — since `p === q` after the assignment — ALWAYS
+          // fell through to the trailing `p++`. That dropped the byte
+          // immediately after the opener; harmless when it was body text, but
+          // it SKIPPED the `<` of a closer that sat flush against the opener
+          // `>` — e.g. `<input></Editing>` — so the arm's real closer was
+          // missed and a misleading E-MATCH-PARSE-001 fired. Resuming at `q`
+          // and `continue`-ing unconditionally fixes both the void-leaf cases
+          // and the latent flush-closer case.)
+          p = q;
+          if (foundOpenerEnd) continue;
+          // EOF inside the opener (malformed) — `q === len`; `p === len` now,
+          // so the outer `while (p < len)` exits and findArmCloser returns null
+          // (the caller fires E-MATCH-PARSE-001 for the genuinely-malformed arm).
         }
       }
       p++;
