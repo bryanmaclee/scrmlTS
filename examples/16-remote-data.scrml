@@ -1,49 +1,88 @@
-// Example 16: RemoteData — async loading state via enum + match (§13.5).
-// Demonstrates v0.3 program-as-container shape + the canonical scrml
-// pattern for "fetch + show loading + show error + show data" UX.
-// Instead of three booleans (`<loading>`, `<error>`, `<data>`) that
-// can drift into impossible combinations, a single enum carries the
-// state. The compiler enforces exhaustive match — every variant must
-// be rendered, and adding a new variant forces every render site to
-// update. Styling uses co-located scoped `#{}` blocks per markup
-// section (S86 styling rule).
+// Example 16: Async loading as a typed Phase enum (§11.5 + §18.0.1).
+//
+// The lesson: async loading is NOT three drifting booleans
+// (`@isLoading`, `@isError`, `@data`) — it is ONE typed Phase enum
+// whose variants ARE the loading lifecycle. You render it with the
+// Tier-1 STRUCTURAL match block `<match for=ContactsPhase on=@phase>`:
+// every variant gets one arm, the compiler enforces exhaustiveness,
+// and adding a variant forces every render site to handle it.
+//
+// The Tier ladder (§1, §11.5):
+//   Tier 0 — `if (@phase is .Loading)` chains            (don't)
+//   Tier 1 — `<match for=ContactsPhase on=@phase>`       (THIS file —
+//            structural exhaustiveness, no transition enforcement)
+//   Tier 2 — `<engine for=ContactsPhase initial=.Idle>`  (promote here
+//            when you need `rule=` transition enforcement +
+//            `<onTransition>` effects; state-children carry over
+//            verbatim, only the wrapper changes — §51)
+//
+// Errors are STATES (§19): the fetch is a failable function, and its
+// `!{}` handler at the call site does exactly one thing — route the
+// failure INTO the .Failed phase variant. No `<isError>` / `<errorMsg>`
+// cells; the failure mode lives in the type and renders as an arm.
+//
+// Styling uses co-located scoped `#{}` blocks per markup section (S86).
 
 <program>
 
 <db src="contacts.db" tables="contacts">
 
+  // Logic block (§6.2). The type/cell/function decls live in a `${...}`
+  // block here: inside a `<db>` markup container the logic block is
+  // load-bearing (unlike `<program>` top level, where v0.3 default-logic
+  // mode auto-lifts bare decls).
   ${
-    // The four phases of any remote-data fetch (§13.5.2):
-    //   NotAsked — initial state, before any fetch begins
-    //   Loading  — fetch in flight
-    //   Ready    — data arrived; payload carries the value
-    //   Failed   — fetch threw; payload carries the message
-    type ContactsState:enum = {
-      NotAsked
+    // A contact row. The success payload is TYPED — `.Loaded(rows)`
+    // carries `Contact[]`, so the `<each>` body knows `@.name` / `@.email`.
+    type Contact:struct = {
+      id:    int
+      name:  string
+      email: string
+    }
+
+    // The domain-specific error type for this screen (§19). Errors are
+    // states: the fetch fails with a ContactsError, and the call-site
+    // `!{}` routes that failure into the .Failed phase variant below.
+    type ContactsError:enum = {
+      QueryFailed(reason: string)
+    }
+
+    // The four phases of this fetch (§11.5). Per-screen enum — NOT a
+    // generic stdlib RemoteData<T>; naming the variants in app context
+    // produces better match blocks and error messages.
+    //   Idle    — initial state, before any fetch begins
+    //   Loading — request in flight
+    //   Loaded  — data arrived; payload carries the typed rows
+    //   Failed  — fetch failed; payload carries the message
+    type ContactsPhase:enum = {
+      Idle
       Loading
-      Ready(rows)
+      Loaded(rows: Contact[])
       Failed(message: string)
     }
 
-    <state>: ContactsState = .NotAsked
+    <phase>: ContactsPhase = .Idle
 
-    function fetchContacts() {
-      return ?{`SELECT id, name, email FROM contacts ORDER BY name`}.all()
+    // Failable fetch (§19). The `! ContactsError` signature declares this
+    // can fail. The `?{}` SQL escalates the function to the server via §12
+    // inference; the server-call boundary is implicitly failable (a network
+    // / query failure surfaces as a ContactsError that the call-site `!{}`
+    // must handle).
+    function fetchContacts() ! ContactsError {
+      const rows = ?{`SELECT id, name, email FROM contacts ORDER BY name`}.all()
+      return rows
     }
 
-    // Note: no `try/catch` — server functions handle errors via `!{}` /
-    // failable-fn syntax (see example 09). For brevity here, the demo
-    // path assumes success; production code would wire the .Failed
-    // branch via a failable server function returning `! ContactsError`.
-    // `fetchContacts()` is called as an unbound expression: its result
-    // initializes `~` (SPEC §32). The next line consumes `~` directly
-    // into the .Ready variant payload. No `const rows = ...` needed —
-    // naming an intermediate value used only on the next line is a
-    // cost the language doesn't impose.
+    // load() writes bare `.Variant`s through @phase. The `!{}` handler is
+    // the errors-as-states lift: on failure it routes the error into the
+    // .Failed phase variant (advancing pedagogical gap G2 — the failure
+    // path is LIVE, not a dead branch).
     function load() {
-      @state = ContactsState::Loading
-      fetchContacts()
-      @state = ContactsState::Ready(~)
+      @phase = .Loading
+      const rows = fetchContacts() !{
+        | err :> { @phase = .Failed("Couldn't load contacts."); return }
+      }
+      @phase = .Loaded(rows)
     }
   }
 
@@ -76,8 +115,8 @@
       <button onclick=load()>Reload</button>
     </header>
 
-    <!-- Per-state-arm styles — co-located with the match block below.
-         Each arm's markup uses one of these classes (.hint / .loading /
+    <!-- Per-arm styles — co-located with the match block below. Each
+         arm's markup uses one of these classes (.hint / .loading /
          .error / .rows / .rows li / .email). -->
     #{
       .hint    { color: #6b7280; }
@@ -98,25 +137,42 @@
         margin-left: 0.5rem;
       }
     }
-    ${
-      match @state {
-        .NotAsked     :> { lift <p class="hint">Press Reload to fetch contacts.</p> }
-        .Loading      :> { lift <p class="loading">Loading…</p> }
-        .Ready(rows)  :> {
-          lift <ul class="rows">
-            ${ for (let r of rows) {
-              lift <li>${r.name} <span class="email">${r.email}</span></li>
-            } }
-          </ul>
-        }
-        .Failed(msg)  :> {
-          lift <div class="error">
-            <p>Failed: ${msg}</p>
-            <button onclick=load()>Retry</button>
-          </>
-        }
-      }
-    }
+
+    <!-- Tier-1 structural match: one arm per variant, exhaustive.
+         Bare-variant arm tags (§18.0.1) infer their qualifier from
+         for=ContactsPhase; payload binds positionally (`<Loaded rows>`,
+         `<Failed message>`). -->
+    <match for=ContactsPhase on=@phase>
+
+      <Idle>
+        <p class="hint">Press Reload to fetch contacts.</p>
+      </>
+
+      <Loading>
+        <p class="loading">Loading…</p>
+      </>
+
+      <Loaded rows>
+        <!-- Tier-1 each renders the typed rows; the empty branch folds
+             in the zero-rows case (one fewer Phase variant). -->
+        <ul class="rows">
+          <each in=rows key=@.id>
+            <li>${@.name} <span class="email">${@.email}</span></li>
+            <empty>
+              <li class="hint">No contacts yet.</li>
+            </empty>
+          </each>
+        </ul>
+      </>
+
+      <Failed message>
+        <div class="error">
+          <p>Failed: ${message}</p>
+          <button onclick=load()>Retry</button>
+        </div>
+      </>
+
+    </match>
   </div>
 
 </>

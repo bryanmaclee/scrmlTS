@@ -1,16 +1,21 @@
-// Example 04: Live Search — reactive filtering with Tailwind utilities.
+// Example 04: Live Search — reactive filtering via a derived cell + <each>.
 // Demonstrates v0.3 program-as-container shape (logic-default body, no
-// file-top `${...}` wrapper) + @query bound to input + derived filtering
-// via for/lift (bare `if (!matches) continue` skip pattern). No `#{}` CSS
-// — all visual styling is Tailwind utility classes co-located on each
-// element (S86 styling rule: inline utility for visual style by default).
+// file-top `${...}` wrapper) + @query bound to input + a DERIVED REACTIVE
+// CELL `const <filtered>` that re-evaluates automatically whenever @query
+// or @people changes (§6.6.2). The filter logic lives in a named cell, not
+// inside the render; the markup is purely structural — `<each in=@filtered>`
+// with an `<empty>` zero-state. No `#{}` CSS — all visual styling is
+// Tailwind utility classes co-located on each element (S86 styling rule:
+// inline utility for visual style by default).
 
 <program>
 
+  type Person:struct = { id: number, name: string, role: string }
+
   <query> = ""
 
-  // Static data — in production this could come from a ?{} query.
-  const people = [
+  // Reactive data — in production this could come from a ?{} query.
+  <people>: Person[] = [
     { id: 1, name: "Ada Lovelace",    role: "Mathematician" },
     { id: 2, name: "Grace Hopper",    role: "Computer Scientist" },
     { id: 3, name: "Alan Turing",     role: "Logician" },
@@ -18,6 +23,14 @@
     { id: 5, name: "Barbara Liskov",  role: "Computer Scientist" },
     { id: 6, name: "Donald Knuth",    role: "Author" },
   ]
+
+  // Derived reactive cells: each re-evaluates whenever its upstream @-reads
+  // change (§6.6.2). The filter logic moves OUT of the render INTO named
+  // cells — @filtered recomputes on every @query or @people change.
+  const <q>        = @query.toLowerCase()
+  const <filtered> = @people.filter((p) =>
+    p.name.toLowerCase().includes(@q) || p.role.toLowerCase().includes(@q)
+  )
 
   <div class="max-w-lg mx-auto mt-8 px-4">
     <h1 class="text-2xl font-bold text-gray-800 mb-4">People</>
@@ -30,19 +43,15 @@
     >
 
     <ul class="p-0">
-      ${
-        const q = @query.toLowerCase()
-        for (let p of people) {
-          const matches = p.name.toLowerCase().includes(q) ||
-                          p.role.toLowerCase().includes(q)
-          if (!matches) continue
-
-          lift <li class="flex justify-between py-3 px-2 border-b border-gray-200">
-            <span class="font-semibold">${p.name}</span>
-            <span class="text-gray-500 text-sm">${p.role}</span>
-          </li>
-        }
-      }
+      <each in=@filtered key=@.id as person>
+        <li class="flex justify-between py-3 px-2 border-b border-gray-200">
+          <span class="font-semibold">${person.name}</span>
+          <span class="text-gray-500 text-sm">${person.role}</span>
+        </li>
+        <empty>
+          <li class="py-3 px-2 text-gray-400 text-center">No people match your search.</li>
+        </empty>
+      </each>
     </ul>
   </div>
 

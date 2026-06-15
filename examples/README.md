@@ -37,8 +37,8 @@ bun compiler/src/cli.js compile examples/01-hello.scrml -o dist/
 | `01-hello.scrml` | Bare markup and the three closer forms — the syntax in ten lines |
 | `02-counter.scrml` | Reactive state with `<count> = 0` (V5-strict decl), `@count` access, `bind:value`, bare-call `onclick=fn()` |
 | `03-contact-book.scrml` | Full-stack in one file: `protect=` state, `?{}` SQL, server-classified functions (auto-inferred via body content), form binding |
-| `04-live-search.scrml` | Reactive filtering with `for`/`lift`/`if (continue)`, no derived-state boilerplate |
-| `05-multi-step-form.scrml` | Wizard UI: enum steps, components, `if=`/`else-if=`/`else` chain on component instances |
+| `04-live-search.scrml` | Reactive filtering via a derived `const <filtered>` cell + Tier-1 `<each>`/`<empty>` over a reactive typed collection — the filter lives in a named reactive cell, not inline in the render |
+| `05-multi-step-form.scrml` | Wizard UI as an `<engine for=Step>`: `rule=` state-children per step + decl-coupled validators gating Next/Submit via `@signup.isValid` + `<errors of=>` (§51 + §55) |
 | `06-kanban-board.scrml` | Enum-driven columns (bar-form `\|`), array `.map()` mutation, CSS grid |
 | `07-admin-dashboard.scrml` | `^{}` meta block + `reflect(User)` — table headers generated from the type |
 | `08-chat.scrml` | Single-user message log: optimistic update + DB persistence (NOT real-time — see 15) |
@@ -49,7 +49,7 @@ bun compiler/src/cli.js compile examples/01-hello.scrml -o dist/
 | `13-worker.scrml` | `<program name="worker">` — web workers as nested programs with typed messaging |
 | `14-mario-state-machine.scrml` | Enum state machine: `type:enum`, payload destructuring, derived machines (§51.9) |
 | `15-channel-chat.scrml` | Real-time chat — `<channel>` inside `<program>` for WebSocket sync (Insight 30 placement; auto-sync from being inside channel body — `@shared` modifier removed v0.next) (§38) |
-| `16-remote-data.scrml` | Async loading state via enum + `match` (Loading / Ready / Failed pattern). Pattern is canonical scrml; the named `RemoteData:enum` stdlib type itself is specced-not-yet-implemented (§13.5) |
+| `16-remote-data.scrml` | Async loading as a typed Phase enum rendered with the Tier-1 `<match for=ContactsPhase>` block (Idle / Loading / Loaded / Failed), `<each>`/`<empty>` rows, failure routed into `.Failed` via `!{}`; promote to `<engine>` when transitions need enforcing — the Tier ladder (§18 + §17.7 + §19) |
 | `17-schema-migrations.scrml` | `<schema>` declarative DB schema — compiler diffs + generates migration SQL (§39) |
 | `18-state-authority.scrml` | `<x server>` server-authoritative state (§52 Tier 2, scaffold) |
 | `19-lin-token.scrml` | `lin` linear types — exactly-once consumption guarantee (§35) |

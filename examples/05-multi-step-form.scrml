@@ -1,40 +1,47 @@
-// Example 05: Multi-Step Form — wizard UI with components, enums, match.
-// Demonstrates v0.3 program-as-container shape (logic-default body, no
-// file-top `${...}` wrapper) + type:enum + match exhaustive dispatch +
-// component instances + `class:active=` dynamic class. Styling uses
-// co-located scoped `#{}` blocks placed immediately before each markup
-// section (S86 styling rule: split per section, never one centralised
+// Example 05: Multi-Step Form — the wizard AS an engine.
+//
+// The lesson: a multi-step wizard is a state machine, so model it with an
+// `<engine>` over a `Step` enum — NOT a hand-built `<currentStep>` cell plus
+// `next()`/`back()` transition tables plus an `if=/else-if=/else` instance
+// chain. The engine's `rule=` contract IS the transition table; each
+// state-child's body IS the per-step render; decl position IS mount.
+//
+//   §51.0 — engine over the Step enum. `<engine for=Step initial=.Info>`
+//           auto-declares the reactive `@step` cell (§51.0.C). One
+//           state-child per step; `rule=` declares the legal moves OUT of
+//           that step (§51.0.F). Transitions fire from INSIDE a state-child
+//           body via `onclick=${ @step = .Next }` — the from-state is
+//           statically known there, so the rule= contract is checked at
+//           compile time.
+//
+//   §55   — decl-coupled validators. The form is one `<signup>` compound
+//           whose fields carry validators (`<firstName req length(>=2)>`).
+//           The compiler auto-synthesizes the validity surface with NO
+//           authoring: `@signup.isValid`, `@signup.firstName.isValid`,
+//           `@signup.firstName.errors`. Those gate Next per step and gate
+//           the final Submit (correct wizard UX). `<errors of=...>` (§55.8)
+//           renders the per-field errors as a first-class element.
+//
+// Styling uses co-located scoped `#{}` blocks placed immediately before each
+// markup section (S86 styling rule: split per section, never one centralised
 // block). Steps: Info → Preferences → Confirm.
 
 <program>
 
   type Step:enum = { Info, Preferences, Confirm }
 
-  <currentStep>: Step = .Info
-
-  <firstName>  = ""
-  <lastName>   = ""
-  <email>      = ""
-  <theme>      = "light"
-  <newsletter> = false
-
-  <submitted> = false
-
-  function next() {
-    match @currentStep {
-      .Info        :> { @currentStep = Step::Preferences }
-      .Preferences :> { @currentStep = Step::Confirm }
-      .Confirm     :> { }
-    }
-  }
-
-  function back() {
-    match @currentStep {
-      .Info        :> { }
-      .Preferences :> { @currentStep = Step::Info }
-      .Confirm     :> { @currentStep = Step::Preferences }
-    }
-  }
+  // The form is a single compound cell. Each field carries its validators
+  // inline (§55.2); declaring the field also declares its render-spec via
+  // the `= <input/>` coupling, so `<signup><firstName/></>` in markup expands
+  // to the bound input. The validity surface (`@signup.isValid`,
+  // `@signup.firstName.errors`, …) is auto-synthesized — no authoring.
+  <signup>
+    <firstName req length(>=2)> = <input type="text"/>
+    <lastName  req>             = <input type="text"/>
+    <email     req>             = <input type="email"/>
+    <theme>      = "light"
+    <newsletter> = false
+  </>
 
   function persistSignup(firstName, lastName, email, theme, newsletter) {
     ?{`
@@ -44,58 +51,8 @@
   }
 
   function submit() {
-    if (@submitted) { return }
-    @submitted = true
-    persistSignup(@firstName, @lastName, @email, @theme, @newsletter)
-    @currentStep = Step::Confirm
+    persistSignup(@signup.firstName, @signup.lastName, @signup.email, @signup.theme, @signup.newsletter)
   }
-
-  // Step components — must precede the markup that references them in
-  // the file (E-COMPONENT-020 if forward-ref).
-  const InfoStep = <div class="step">
-      <h2>Your Info</>
-      <label>First Name <input type="text" bind:value=@firstName required></label>
-      <label>Last Name  <input type="text" bind:value=@lastName  required></label>
-      <label>Email      <input type="email" bind:value=@email    required></label>
-      <div class="step-nav">
-        <span></span>
-        <button onclick=next()>Next</button>
-      </div>
-    </div>
-
-    const PreferencesStep = <div class="step">
-      <h2>Preferences</>
-      <label>
-        Theme:
-        <select bind:value=@theme>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-          <option value="system">System</option>
-        </select>
-      </label>
-      <label class="checkbox-label">
-        <input type="checkbox" bind:value=@newsletter>
-        Subscribe to newsletter
-      </label>
-      <div class="step-nav">
-        <button onclick=back()>Back</button>
-        <button onclick=next()>Next</button>
-      </div>
-    </div>
-
-    const ConfirmStep = <div class="step">
-      <h2>Confirm</>
-      <dl>
-        <dt>Name</dt>   <dd>${@firstName} ${@lastName}</dd>
-        <dt>Email</dt>  <dd>${@email}</dd>
-        <dt>Theme</dt>  <dd>${@theme}</dd>
-        <dt>Newsletter</dt> <dd>${@newsletter ? "Yes" : "No"}</dd>
-      </dl>
-      <div class="step-nav">
-        <button onclick=back()>Back</button>
-        <button onclick=submit()>Submit</button>
-      </div>
-    </div>
 
   // Wizard-chrome styles — co-located with the outer wizard markup.
   #{
@@ -120,15 +77,14 @@
   }
   <div class="wizard">
     <div class="progress">
-      <span class:active=(@currentStep == Step::Info)>1. Info</span>
-      <span class:active=(@currentStep == Step::Preferences)>2. Preferences</span>
-      <span class:active=(@currentStep == Step::Confirm)>3. Confirm</span>
+      <span class:active=(@step == Step::Info)>1. Info</span>
+      <span class:active=(@step == Step::Preferences)>2. Preferences</span>
+      <span class:active=(@step == Step::Confirm)>3. Confirm</span>
     </div>
 
-    <!-- Step-content styles — co-located with the step component
-         instances they scope. The `.step` shape is shared across all
-         three components (InfoStep / PreferencesStep / ConfirmStep) so
-         a single block here covers the rendered step markup. -->
+    <!-- Step-content styles — co-located with the engine whose state-child
+         bodies they scope. The `.step` shape is shared across all three
+         step bodies, so a single block here covers every rendered step. -->
     #{
       .step {
         display: flex;
@@ -157,10 +113,73 @@
       }
     }
 
-    <!-- Conditional component rendering via if= chain (§17.1.1). -->
-    <InfoStep        if=(@currentStep == Step::Info)/>
-    <PreferencesStep else-if=(@currentStep == Step::Preferences)/>
-    <ConfirmStep     else/>
+    <!-- The wizard IS this engine. `initial=.Info` is the first screen; each
+         state-child body is the render for that step; `rule=` lists the legal
+         next steps. The engine renders at THIS position (decl IS mount). -->
+    <engine for=Step initial=.Info>
+
+      <Info rule=.Preferences>
+        <!-- Info → Preferences only. Next is gated on the three fields on this step. -->
+        <div class="step">
+          <h2>Your Info</h2>
+          <label>First Name <signup><firstName/></></label>
+          <errors of=@signup.firstName/>
+          <label>Last Name <signup><lastName/></></label>
+          <errors of=@signup.lastName/>
+          <label>Email <signup><email/></></label>
+          <errors of=@signup.email/>
+          <div class="step-nav">
+            <span></span>
+            <button
+              disabled=(!@signup.firstName.isValid || !@signup.lastName.isValid || !@signup.email.isValid)
+              onclick=${ @step = .Preferences }>Next</button>
+          </div>
+        </div>
+      </>
+
+      <Preferences rule=(.Info | .Confirm)>
+        <!-- Preferences ↔ Info | Confirm. No validators here — optional choices, so no gating. -->
+        <div class="step">
+          <h2>Preferences</h2>
+          <label>
+            Theme:
+            <select bind:value=@signup.theme>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="system">System</option>
+            </select>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" bind:value=@signup.newsletter>
+            Subscribe to newsletter
+          </label>
+          <div class="step-nav">
+            <button onclick=${ @step = .Info }>Back</button>
+            <button onclick=${ @step = .Confirm }>Next</button>
+          </div>
+        </div>
+      </>
+
+      <Confirm rule=.Preferences>
+        <!-- Confirm → Preferences (Back) or the terminal Submit. Submit is gated on the -->
+        <!-- WHOLE form's validity and persists via the ?{} INSERT. This terminal state -->
+        <!-- replaces the old <submitted> boolean guard — there's no transition out but Back. -->
+        <div class="step">
+          <h2>Confirm</h2>
+          <dl>
+            <dt>Name</dt>   <dd>${@signup.firstName} ${@signup.lastName}</dd>
+            <dt>Email</dt>  <dd>${@signup.email}</dd>
+            <dt>Theme</dt>  <dd>${@signup.theme}</dd>
+            <dt>Newsletter</dt> <dd>${@signup.newsletter ? "Yes" : "No"}</dd>
+          </dl>
+          <div class="step-nav">
+            <button onclick=${ @step = .Preferences }>Back</button>
+            <button disabled=!@signup.isValid onclick=submit()>Submit</button>
+          </div>
+        </div>
+      </>
+
+    </>
 
   </div>
 
