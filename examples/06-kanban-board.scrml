@@ -1,18 +1,33 @@
-// Example 06: Kanban Board — enum-driven UI with for/if filtering, CSS grid.
+// Example 06: Kanban Board — derived per-status columns + Tier-1 <each>.
+//
+// WHY NOT AN ENGINE: per-card status is a MULTI-INSTANCE concern (every card
+// owns its own status), and an <engine> is a board-level SINGLETON (§51.0.K).
+// So the board status is NOT an engine — the canonical shape is derived
+// grouping columns (one `const <…>` reactive cell per status, filtered from
+// the card list) rendered with a Tier-1 <each> per column. (Contrast 25's
+// drag PHASE, which IS a board-level singleton and so IS an engine.)
+//
 // Demonstrates v0.3 program-as-container shape (logic-default body, no
-// file-top `${...}` wrapper) + type:enum column states (bar-form
-// `.A | .B | .C` syntax) + reactive array mutation via `.map()` + for/if
-// filtering per column + co-located scoped `#{}` blocks. Styling is split
-// into three co-located blocks (board chrome / column shape / card shape)
-// placed immediately before the markup they scope (S86 styling rule).
+// file-top `${...}` wrapper) + a typed Card struct + a `:enum` status (bar-
+// form `.A | .B | .C`) + DERIVED REACTIVE columns (`const <todo>` /
+// `const <inProgress>` / `const <done>` each recompute when @cards changes,
+// §6.6.2) + Tier-1 `<each in=@todo key=@.id>` / `<empty>` per column +
+// PER-DIRECTION id-only move handlers. Each move is a named `function` so the
+// bare `.Status` enum literal lives in a function body (a direct `.Status`
+// call-arg inside an <each> per-item body is the open g-each-body-bare-
+// variant-arg gap; the per-direction handler is both the cleaner idiom and
+// the sidestep). Styling is split into three co-located `#{}` blocks (board
+// chrome / column shape / card shape) placed immediately before the markup
+// they scope (S86 styling rule).
 
 <program>
 
   type Status:enum = .Todo | .InProgress | .Done
 
-  // Each card is a plain object — status is the enum variant.
-  // The `status` field type is inferred from the LHS-typed cell below.
-  <cards>: { id: number, title: string, status: Status }[] = [
+  type Card:struct = { id: number, title: string, status: Status }
+
+  // Each card carries its own status — a multi-instance concern, NOT an engine.
+  <cards>: Card[] = [
     { id: 1, title: "Design system tokens",  status: .Todo },
     { id: 2, title: "Auth flow",              status: .InProgress },
     { id: 3, title: "Landing page",           status: .Done },
@@ -21,8 +36,31 @@
     { id: 6, title: "Accessibility audit",    status: .Todo },
   ]
 
-  function moveTo(id: number, newStatus: Status) {
-    @cards = @cards.map(c => c.id == id ? { ...c, status: newStatus } : c)
+  // Derived columns — each recomputes whenever @cards changes (§6.6.2). The
+  // grouping moves OUT of the render INTO named reactive cells; the markup is
+  // purely structural (one <each> per column).
+  const <todo>       = @cards.filter(c => c.status == Status.Todo)
+  const <inProgress> = @cards.filter(c => c.status == Status.InProgress)
+  const <done>       = @cards.filter(c => c.status == Status.Done)
+
+  // PER-DIRECTION move handlers — one per target status. The bare `.Status`
+  // enum literal lives in the `function` body (not as a direct <each>-body
+  // call-arg), which is both the cleaner idiom and the sidestep for the open
+  // g-each-body-bare-variant-arg gap.
+  fn withStatus(cards: Card[], id: number, status: Status) -> Card[] {
+    return cards.map(c => c.id == id ? { ...c, status: status } : c)
+  }
+
+  function moveToTodo(id: number) {
+    @cards = withStatus(@cards, id, Status.Todo)
+  }
+
+  function moveToInProgress(id: number) {
+    @cards = withStatus(@cards, id, Status.InProgress)
+  }
+
+  function moveToDone(id: number) {
+    @cards = withStatus(@cards, id, Status.Done)
   }
 
   // Board-chrome styles — co-located with the outer board wrapper.
@@ -63,9 +101,13 @@
           flex-direction: column;
           gap: 0.5rem;
         }
+        .empty {
+          color: #999;
+          font-size: 0.85rem;
+        }
       }
 
-      <!-- Card-shape styles — co-located with the card markup lifted
+      <!-- Card-shape styles — co-located with the card markup rendered
            inside each column-cards container below. -->
       #{
         .card {
@@ -98,52 +140,52 @@
       <div class="column">
         <h3 class="column-title">Todo</h3>
         <div class="column-cards">
-          ${
-            for (let card of @cards) {
-              if (card.status != .Todo) continue
-              lift <div class="card">
-                <p class="card-title">${card.title}</p>
-                <div class="card-actions">
-                  <button onclick=moveTo(card.id, .InProgress)>Start</button>
-                </div>
+          <each in=@todo key=@.id as card>
+            <div class="card">
+              <p class="card-title">${card.title}</p>
+              <div class="card-actions">
+                <button onclick=moveToInProgress(card.id)>Start</button>
               </div>
-            }
-          }
+            </div>
+            <empty>
+              <p class="empty">Nothing to do.</p>
+            </empty>
+          </each>
         </div>
       </div>
 
       <div class="column">
         <h3 class="column-title">In Progress</h3>
         <div class="column-cards">
-          ${
-            for (let card of @cards) {
-              if (card.status != .InProgress) continue
-              lift <div class="card">
-                <p class="card-title">${card.title}</p>
-                <div class="card-actions">
-                  <button onclick=moveTo(card.id, .Todo)>Back</button>
-                  <button onclick=moveTo(card.id, .Done)>Done</button>
-                </div>
+          <each in=@inProgress key=@.id as card>
+            <div class="card">
+              <p class="card-title">${card.title}</p>
+              <div class="card-actions">
+                <button onclick=moveToTodo(card.id)>Back</button>
+                <button onclick=moveToDone(card.id)>Done</button>
               </div>
-            }
-          }
+            </div>
+            <empty>
+              <p class="empty">Nothing in progress.</p>
+            </empty>
+          </each>
         </div>
       </div>
 
       <div class="column">
         <h3 class="column-title">Done</h3>
         <div class="column-cards">
-          ${
-            for (let card of @cards) {
-              if (card.status != .Done) continue
-              lift <div class="card">
-                <p class="card-title">${card.title}</p>
-                <div class="card-actions">
-                  <button onclick=moveTo(card.id, .InProgress)>Reopen</button>
-                </div>
+          <each in=@done key=@.id as card>
+            <div class="card">
+              <p class="card-title">${card.title}</p>
+              <div class="card-actions">
+                <button onclick=moveToInProgress(card.id)>Reopen</button>
               </div>
-            }
-          }
+            </div>
+            <empty>
+              <p class="empty">Nothing done yet.</p>
+            </empty>
+          </each>
         </div>
       </div>
     </div>

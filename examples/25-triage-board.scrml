@@ -1,20 +1,27 @@
 // Triage Board — drag tasks between Inbox / Doing / Done columns.
 //
-// State-vs-logic axiom (S94 corrected, S95 corrigendum):
-//   The state system should be able to fully describe its own transitions.
-//   The logic system provides pure computation that the state system consumes.
-//   Logic CAN describe state mutations but it shouldn't HAVE to.
+// THE ENGINE-MESSAGE-DISPATCH WORKED EXAMPLE (SPEC §51.0.S / §51.0.S.6).
 //
-// The current language is incomplete on this axis. Until the event-payload-
-// transition primitive lands (docs/changes/heads-up-s95-bugs/MISSING-PRIMITIVE.md),
-// the three `function`s below remain as irreducible glue. They are tagged inline.
-// The remaining `function allowDrop` is irreducible DOM-API ceremony (HTML5 DnD
-// requires preventDefault on ondragover); that one stays even post-primitive.
+// The board-level DRAG PHASE is a SINGLETON (one drag in flight at a time),
+// so unlike 06's per-card status it IS an engine (§51.0.K). The engine OWNS
+// its transitions via engine message dispatch: it `accepts=DragMsg`, and each
+// state-child declares `(state × message)` arms (the §18.0.1 match grammar
+// reused verbatim). Events ride `.advance(.Msg)` — there is no `.send` verb.
 //
-// Current ratio: 3 fn / 4 function = 43%.
-// Post-Bug-2-closure (payload variant engine writes work): 3 fn / 2 function = 60%.
-// Post-missing-primitive-landing: 3 fn / 1 function = 75%.
-// Plus a state-system "dropzone" primitive: 3 fn / 0 function = 100%.
+// What disappeared vs. the pre-§51.0.S glue shape:
+//   - the `dropOn(toColumn)` function — gate + transform + manual writes —
+//     IS NOW the `(Dragging × Drop)` arm: the gate is the arm's existence,
+//     the transform is the arm body, the transition is the arm's `.Idle`
+//     target, and `id` comes from the `.Dragging(id)` state binding.
+//   - `startDrag` / `endDrag` collapse into `.advance(.Start(id))` /
+//     `.advance(.End)` message dispatches in the event handlers.
+//   - `@draggingTaskId` cell is gone — the dragging id lives in the engine
+//     state payload `.Dragging(id)`.
+// What stays:
+//   - `allowDrop(e)` — irreducible HTML5 DnD ceremony (preventDefault on
+//     ondragover is the browser's API surface, not application state).
+//   - the pure `fn`s — the engine consumes pure computation (the state-vs-
+//     logic axiom, S94/S95).
 
 <program title="Triage Board">
 
@@ -29,18 +36,21 @@
         order:  number
     }
 
-    type DragPhase:enum = { Idle, Dragging }
+    // State enum — the dragging id lives in the .Dragging payload slot.
+    type DragPhase:enum = { Idle, Dragging(id: number) }
+
+    // Message enum — the event vocabulary the engine dispatches on. An
+    // ordinary :enum (Pillar 5); the engine `match`es it, no event sub-DSL.
+    type DragMsg:enum = { Start(id: number), Drop(col: string), End }
 
     const columns = ["Inbox", "Doing", "Done"]
 
-    <tasks> = [
+    <tasks>: Task[] = [
         { id: 1, title: "Triage incoming bug reports", column: "Inbox", order: 0 },
         { id: 2, title: "Review PR #42",               column: "Inbox", order: 1 },
         { id: 3, title: "Wire up onboarding flow",     column: "Doing", order: 0 },
         { id: 4, title: "Update changelog",            column: "Done",  order: 0 },
     ]
-
-    <draggingTaskId> = 0
 
     // PURE — given tasks + a column, what's the next order value for a new task?
     fn nextOrderIn(tasks: Task[], column: string) -> number {
@@ -64,85 +74,64 @@
         return tasks.map(t => updateIfMatched(t, id, toColumn, order))
     }
 
-    // PURE — is the given task the one currently being dragged?
-    fn isDraggingTask(id: number, phase: DragPhase, currentId: number) -> boolean {
+    // PURE — is the given task the one currently being dragged? Reads the
+    // dragging id out of the .Dragging(id) state payload via match-binding.
+    fn isDraggingTask(phase: DragPhase, id: number) -> boolean {
         match phase {
-            .Dragging :> currentId == id
-            .Idle     :> false
+            .Dragging(draggingId) :> draggingId == id
+            .Idle                 :> false
         }
-    }
-
-    // GLUE (blocked on Bug 2 + missing primitive):
-    // Two state writes that would collapse to a bare-form event handler
-    //   `ondragstart=@dragPhase = .Dragging(task.id)`
-    // once (a) payload-variant engine direct-write codegen ships (Bug 2)
-    // and (b) the event-payload-transition primitive lands.
-    function startDrag(id) {
-        @draggingTaskId = id
-        @dragPhase = .Dragging
-    }
-
-    // GLUE (same blockers): would collapse to `ondragend=@dragPhase = .Idle`.
-    function endDrag() {
-        @draggingTaskId = 0
-        @dragPhase = .Idle
-    }
-
-    // GLUE (blocked on missing primitive): branches on engine state, applies
-    // a pure transform (taskMovedTo), fires three state writes. With the
-    // event-payload-transition primitive, this would live inside the engine
-    // as an `<onTransition to=.Idle>` body consuming an event-bound payload
-    // carrying the drop column.
-    function dropOn(toColumn) {
-        if (@dragPhase == .Idle) { return }
-        @tasks = taskMovedTo(@tasks, @draggingTaskId, toColumn)
-        @draggingTaskId = 0
-        @dragPhase = .Idle
     }
 
     // GLUE (irreducible — DOM API ceremony). HTML5 DnD requires preventDefault
     // on ondragover for the drop event to fire. This is the browser's API
-    // surface, not application state. Will remain even post-primitive unless
-    // the state system grows a "dropzone" primitive that auto-handles this.
+    // surface, not application state. Will remain even if the state system
+    // grows a "dropzone" primitive that auto-handles this.
     function allowDrop(e) {
         e.preventDefault()
     }
 
-    // STATE-SYSTEM: drag-lifecycle engine.
-    // Today this only describes its `rule=` contract — the rules are enforced
-    // at runtime when transitions fire from the event-handler functions above.
-    // Post-missing-primitive, this would ALSO declare event-bound transitions
-    // (on:dragstart, on:drop, on:dragend) so the engine self-describes them.
-    <engine for=DragPhase initial=.Idle>
-        <Idle     rule=.Dragging></>
-        <Dragging rule=.Idle></>
+    // STATE-SYSTEM: drag-lifecycle engine — singleton, OWNS its transitions.
+    // `accepts=DragMsg` declares the message vocabulary; each state-child's
+    // `(state × message)` arms are the event→transition map. `rule=` is still
+    // the transition contract — a message-arm target is validated against it.
+    <engine for=DragPhase initial=.Idle accepts=DragMsg>
+        <Idle rule=.Dragging>
+            | .Start(id) :> .Dragging(id)
+            | _          :> @dragPhase
+        </>
+        <Dragging(id) rule=.Idle>
+            | .Drop(col) :> { @tasks = taskMovedTo(@tasks, id, col); .Idle }
+            | .End       :> .Idle
+            | _          :> @dragPhase
+        </>
     </>
 
     <div class="board">
         <h1 class="board-title">Triage Board</h1>
 
         <div class="columns">
-            ${ for (let col of columns) {
-                lift <section class="column">
+            <each in=columns as col>
+                <section class="column">
                     <h2 class="column-title">${col}</>
 
                     <ul
                         class="task-list"
                         ondragover=allowDrop
-                        ondrop=dropOn(col)
+                        ondrop=@dragPhase.advance(.Drop(col))
                     >
-                        ${ for (let task of @tasks.filter(t => t.column == col).sort((a, b) => a.order - b.order)) {
-                            lift <li
+                        <each in=@tasks.filter(t => t.column == col).sort((a, b) => a.order - b.order) key=@.id as task>
+                            <li
                                 class="task"
-                                class:dragging=(isDraggingTask(task.id, @dragPhase, @draggingTaskId))
-                                draggable=true
-                                ondragstart=startDrag(task.id)
-                                ondragend=endDrag()
+                                class:dragging=(isDraggingTask(@dragPhase, task.id))
+                                draggable="true"
+                                ondragstart=@dragPhase.advance(.Start(task.id))
+                                ondragend=@dragPhase.advance(.End)
                             >${task.title}</>
-                        } }
+                        </each>
                     </>
-                </>
-            } }
+                </section>
+            </each>
         </>
     </>
 
@@ -156,6 +145,7 @@
         .task-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; min-height: 100px; }
         .task { background: white; border-radius: 6px; padding: 0.6rem 0.75rem; box-shadow: 0 1px 2px rgba(0,0,0,0.08); cursor: grab; user-select: none; }
         .task:active { cursor: grabbing; }
+        .task.dragging { opacity: 0.5; }
     }
 
 </program>

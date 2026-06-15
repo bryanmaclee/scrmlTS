@@ -100,12 +100,12 @@
     "SPAN-COORD": 45
   },
   "examples/03-contact-book.scrml": {
+    "KIND-NAME": 3,
+    "FIELD-SHAPE": 27,
+    "MISSING-FIELD": 66,
+    "EXTRA-FIELD": 14,
     "COUNT-LENGTH": 1,
-    "EXTRA-FIELD": 35,
-    "FIELD-SHAPE": 29,
-    "KIND-NAME": 10,
-    "MISSING-FIELD": 54,
-    "SPAN-COORD": 110
+    "SPAN-COORD": 197
   },
   "examples/04-live-search.scrml": {
     "COUNT-LENGTH": 1,
@@ -123,12 +123,12 @@
     "SPAN-COORD": 16
   },
   "examples/06-kanban-board.scrml": {
-    "COUNT-LENGTH": 5,
-    "EXTRA-FIELD": 36,
-    "FIELD-SHAPE": 19,
-    "KIND-NAME": 7,
-    "MISSING-FIELD": 67,
-    "SPAN-COORD": 163
+    "KIND-NAME": 3,
+    "FIELD-SHAPE": 23,
+    "MISSING-FIELD": 86,
+    "EXTRA-FIELD": 15,
+    "COUNT-LENGTH": 1,
+    "SPAN-COORD": 380
   },
   "examples/07-admin-dashboard.scrml": {
     "COUNT-LENGTH": 2,
@@ -139,12 +139,12 @@
     "SPAN-COORD": 113
   },
   "examples/08-chat.scrml": {
+    "KIND-NAME": 2,
+    "FIELD-SHAPE": 30,
+    "MISSING-FIELD": 61,
+    "EXTRA-FIELD": 14,
     "COUNT-LENGTH": 1,
-    "EXTRA-FIELD": 17,
-    "FIELD-SHAPE": 25,
-    "KIND-NAME": 4,
-    "MISSING-FIELD": 52,
-    "SPAN-COORD": 201
+    "SPAN-COORD": 282
   },
   "examples/09-error-handling.scrml": {
     "COUNT-LENGTH": 4,
@@ -564,12 +564,12 @@
     "SPAN-COORD": 71
   },
   "examples/25-triage-board.scrml": {
-    "COUNT-LENGTH": 4,
-    "EXTRA-FIELD": 52,
-    "FIELD-SHAPE": 44,
-    "KIND-NAME": 16,
-    "MISSING-FIELD": 110,
-    "SPAN-COORD": 155
+    "KIND-NAME": 8,
+    "FIELD-SHAPE": 37,
+    "MISSING-FIELD": 63,
+    "EXTRA-FIELD": 35,
+    "COUNT-LENGTH": 8,
+    "SPAN-COORD": 293
   },
   "examples/26-type-derived-schema.scrml": {
     "COUNT-LENGTH": 2,

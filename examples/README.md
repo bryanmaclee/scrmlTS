@@ -36,12 +36,12 @@ bun compiler/src/cli.js compile examples/01-hello.scrml -o dist/
 |------|---------------|
 | `01-hello.scrml` | Bare markup and the three closer forms — the syntax in ten lines |
 | `02-counter.scrml` | Reactive state with `<count> = 0` (V5-strict decl), `@count` access, `bind:value`, bare-call `onclick=fn()` |
-| `03-contact-book.scrml` | Full-stack in one file: `protect=` state, `?{}` SQL, server-classified functions (auto-inferred via body content), form binding |
+| `03-contact-book.scrml` | Full-stack in one file: a typed `Contact` struct + `?{}` SQL + server-classified functions (auto-inferred via body content) + form binding, with the contact rows rendered via the Tier-1 `<each in=@contacts key=@.id>`/`<empty>` shape over a reactive `Contact[]` collection (no auth — this is the CRUD/persistence demo; `protect=` is shown in 07/23) |
 | `04-live-search.scrml` | Reactive filtering via a derived `const <filtered>` cell + Tier-1 `<each>`/`<empty>` over a reactive typed collection — the filter lives in a named reactive cell, not inline in the render |
 | `05-multi-step-form.scrml` | Wizard UI as an `<engine for=Step>`: `rule=` state-children per step + decl-coupled validators gating Next/Submit via `@signup.isValid` + `<errors of=>` (§51 + §55) |
-| `06-kanban-board.scrml` | Enum-driven columns (bar-form `\|`), array `.map()` mutation, CSS grid |
+| `06-kanban-board.scrml` | Per-card status is multi-instance, so NOT an engine: derived per-status columns (`const <todo>`/`<inProgress>`/`<done>` filtered from a typed `Card[]`, §6.6.2) rendered with Tier-1 `<each>`/`<empty>` + per-direction id-only move handlers, CSS grid |
 | `07-admin-dashboard.scrml` | `^{}` meta block + `reflect(User)` — table headers generated from the type |
-| `08-chat.scrml` | Single-user message log: optimistic update + DB persistence (NOT real-time — see 15) |
+| `08-chat.scrml` | Single-user message log: typed `Message[]` feed rendered with Tier-1 `<each>`/`<empty>` + optimistic update + DB persistence (NOT real-time — see 15) |
 | `09-error-handling.scrml` | Errors-as-states: failable functions + `!{}` route each failure into a `Phase` enum's `.Failed(err)`; `<match for=Phase>` renders the held error — the failure mode lives in the type, no boolean error flags (§19) |
 | `10-inline-tests.scrml` | `~{}` inline tests — compile-time assertions, stripped from production |
 | `11-meta-programming.scrml` | `^{}` meta blocks, `emit()`, `reflect()` — the compiler as a programmable tool |
@@ -58,7 +58,7 @@ bun compiler/src/cli.js compile examples/01-hello.scrml -o dist/
 | `22-multifile/` | `import`/`export` across .scrml files — pure-type files + component reuse (§21) |
 | `23-trucking-dispatch/` | Multi-page reference app (logistics dispatch) — multiple `<page>` files under `routes/`, full-stack with auth + DB + per-page server functions; canonical adopter-scale shape |
 | `24-tilde-pipeline.scrml` | `~` last-unbound-expression carry-forward — bare-call + next-line consume; function-body pipelines; no naming intermediates used once (§32) |
-| `25-triage-board.scrml` | Drag-and-drop triage board — enum lanes + reactive card moves |
+| `25-triage-board.scrml` | Drag-and-drop triage board — the §51.0.S engine-message-dispatch worked example: a board-singleton `<engine for=DragPhase accepts=DragMsg>` owns its transitions via `(state × message)` arms + `.advance(.Msg)`; the drag glue collapses into the engine |
 | `26-type-derived-schema.scrml` | `schemaFor(StructType)` — `<schema>` DB DDL generated from a struct (L22 type-as-argument family, §41.15) |
 | `27-type-derived-table.scrml` | `tableFor(StructType, rows)` — an admin `<table>` generated from a struct + rows (L22 family, §41.16) |
 | `28-flux.scrml` | **Flux** — a shifting-labyrinth game: a derived ASCII board, fog-of-war, per-cell re-roll ("flux"), 2-tier memory locking, and level/vision/XP progression. Canonical-scrml dog-food (§6.6 derived cells, §48 pure `fn`, §17/§18). Will replace `14-mario` as the flagship game example. |

@@ -1,9 +1,13 @@
 // Example 03: Contact Book — full-stack in one file.
-// Demonstrates v0.3 program-as-container shape + `<db>` declaration,
-// server functions, V5-strict state decls, form binding, and for/lift
-// list rendering. Styling uses co-located scoped `#{}` blocks placed
-// immediately before each markup section (per S86 styling rule: split
-// per section, never one centralised block).
+// Demonstrates v0.3 program-as-container shape + `<db>` declaration, server
+// functions, a TYPED struct (`Contact`), V5-strict state decls, form binding,
+// and the Tier-1 `<each in=@contacts key=@.id>` / `<empty>` list-rendering
+// shape (mirrors examples/04-live-search.scrml). The contact rows live in a
+// reactive typed collection `<contacts>: Contact[]` seeded from the DB on
+// first render; the markup is purely structural — no `${for…lift}` Tier-0
+// loop. Styling uses co-located scoped `#{}` blocks placed immediately before
+// each markup section (per S86 styling rule: split per section, never one
+// centralised block).
 //
 // NOTE on auth: this example focuses on the CRUD + persistence story and
 // does NOT declare auth="required" — the contact book is a single-file
@@ -17,34 +21,52 @@
 <db src="contacts.db" tables="contacts">
 
   ${
+    // A typed row shape — each contact is a Contact, and the reactive list is
+    // a Contact[]. Typing the collection lets `<each>` infer the per-item type
+    // so `@.name` / `@.email` / `@.phone` resolve to the struct fields.
+    type Contact:struct = { id: number, name: string, email: string, phone: string }
+
     <name>  = ""
     <email> = ""
     <phone> = ""
 
+    // Reactive list of rows — hydrated from the DB on mount via the decl initializer (a server
+    // fn as the initial value). Add/remove update the cell directly so
+    // the <each> reconciler re-renders keyed rows without a re-query round-trip.
+    <contacts>: Contact[] = loadContacts()
+
     // Server functions return data or run mutations — they never assign @vars.
     // Client functions own @state transitions (E-RI-002). Body-content inference
     // promotes these functions to server-side automatically — no `server`
-    // keyword required (deprecated per Insight 26, 2026-05-08). `loadContacts`
-    // is called from a render-site ${for (let c of ...)} so RI gates its
-    // promotion via caller-context propagation.
+    // keyword required (deprecated per Insight 26, 2026-05-08).
     function persistContact(name, email, phone) {
-      ?{`INSERT INTO contacts (name, email, phone) VALUES (${name}, ${email}, ${phone})`}.run()
+      return ?{`
+        INSERT INTO contacts (name, email, phone) VALUES (${name}, ${email}, ${phone})
+        RETURNING id, name, email, phone
+      `}.get()
+    }
+
+    function loadContacts() {
+      return ?{`SELECT id, name, email, phone FROM contacts ORDER BY name`}.all()
+    }
+
+    function removeContact(id) {
+      ?{`DELETE FROM contacts WHERE id = ${id}`}.run()
     }
 
     function addContact() {
-      persistContact(@name, @email, @phone)
+      const row = persistContact(@name, @email, @phone)
+      @contacts = [...@contacts, row]
       reset(@name)
       reset(@email)
       reset(@phone)
     }
 
     function deleteContact(id) {
-      ?{`DELETE FROM contacts WHERE id = ${id}`}.run()
+      removeContact(id)
+      @contacts = @contacts.filter(c => c.id != id)
     }
 
-    function loadContacts() {
-      lift ?{`SELECT id, name, email, phone FROM contacts ORDER BY name`}.all()
-    }
   }
 
   // Page shell styles — co-located with the outer container they scope.
@@ -95,18 +117,20 @@
       .name  { font-weight: 600; flex: 1; }
       .email { color: #555; flex: 1.5; }
       .phone { color: #777; flex: 1; }
+      .empty { color: #999; padding: 0.75rem 0; }
     }
     <ul class="contacts">
-      ${
-        for (let contact of loadContacts()) {
-          lift <li class="contact-row">
-            <span class="name">${contact.name}</span>
-            <span class="email">${contact.email}</span>
-            <span class="phone">${contact.phone}</span>
-            <button onclick=deleteContact(contact.id)>Remove</button>
-          </li>
-        }
-      }
+      <each in=@contacts key=@.id as contact>
+        <li class="contact-row">
+          <span class="name">${contact.name}</span>
+          <span class="email">${contact.email}</span>
+          <span class="phone">${contact.phone}</span>
+          <button onclick=deleteContact(contact.id)>Remove</button>
+        </li>
+        <empty>
+          <li class="empty">No contacts yet — add one above.</li>
+        </empty>
+      </each>
     </ul>
   </div>
 

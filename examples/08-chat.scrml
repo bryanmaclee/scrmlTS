@@ -1,11 +1,13 @@
 // Example 08: Message log — single-user persistent feed (no real-time sync).
 // Demonstrates v0.3 program-as-container shape (logic inside `<db>` body
 // stays in `${...}` — `<db>` is a state-block markup context, not a
-// `<program>`/`<page>` direct child) + @messages reactive array + server
-// function for DB persistence + for/lift rendering + optimistic update +
-// timestamp formatting + co-located scoped `#{}` blocks per markup
-// section (S86 styling rule). Adding a message updates @messages
-// instantly then persists to SQLite.
+// `<program>`/`<page>` direct child) + a TYPED struct (`Message`) + a
+// reactive typed collection `<messages>: Message[]` + a server function for
+// DB persistence + the Tier-1 `<each in=@messages key=@.id>` / `<empty>`
+// list-rendering shape (mirrors examples/04-live-search.scrml) + optimistic
+// update + timestamp formatting + co-located scoped `#{}` blocks per markup
+// section (S86 styling rule). Adding a message updates @messages instantly
+// then persists to SQLite.
 //
 // This is NOT real-time chat — two browsers will not see each other's
 // messages. For real-time multi-client sync, see the channel example
@@ -17,11 +19,21 @@
 <db src="chat.db" tables="messages">
 
   ${
-    <messages>  = []
+    // A typed row shape — the reactive feed is a Message[], so the per-item
+    // `@.body` / `@.sent_at` / `@.author_id` reads resolve to struct fields.
+    type Message:struct = {
+      id:        string,
+      author_id: string,
+      body:      string,
+      sent_at:   string,
+    }
+
+    <messages>: Message[] = []
     <draft>     = ""
     <authorId>  = "user-1"   // In a real app: session/auth. Hardcoded for clarity.
 
-    // Local time formatter — pure function, runs in any context.
+    // Local time formatter — `function` (not `fn`): `new Date(...)` is treated
+    // as non-deterministic host construction, so it is not `fn`-pure (E-FN-004).
     function formatTime(iso) {
       const d = new Date(iso)
       const hh = String(d.getHours()).padStart(2, "0")
@@ -29,8 +41,14 @@
       return `${hh}:${mm}`
     }
 
+    // Pure predicate — is this row one the current author sent? Lives in a
+    // `fn` so the per-item `class:mine=` attribute stays a single expression.
+    fn isMine(authorId: string, currentId: string) -> boolean {
+      return authorId == currentId
+    }
+
     function loadMessages() {
-      lift ?{`
+      return ?{`
         SELECT id, author_id, body, sent_at
         FROM messages
         ORDER BY sent_at ASC
@@ -99,7 +117,7 @@
     </header>
 
     <!-- Message-list + bubble styles — co-located with the message-list
-         markup that lifts message rows. The .mine variants render
+         markup that renders message rows. The .mine variants render
          outgoing messages on the right with a blue bubble. -->
     #{
       .message-list {
@@ -140,19 +158,24 @@
       .message.mine .ts {
         color: #bfdbfe;
       }
+      .empty {
+        color: #9ca3af;
+        text-align: center;
+        padding: 2rem 0;
+      }
     }
     <div class="message-list">
-      ${
-        for (let msg of @messages) {
-          const mine = msg.author_id == @authorId
-          lift <div class="message" class:mine=mine>
-            <div class="bubble">
-              <p class="body">${msg.body}</p>
-              <time class="ts">${formatTime(msg.sent_at)}</time>
-            </div>
+      <each in=@messages key=@.id as msg>
+        <div class="message" class:mine=(isMine(msg.author_id, @authorId))>
+          <div class="bubble">
+            <p class="body">${msg.body}</p>
+            <time class="ts">${formatTime(msg.sent_at)}</time>
           </div>
-        }
-      }
+        </div>
+        <empty>
+          <p class="empty">No messages yet — say hello.</p>
+        </empty>
+      </each>
     </div>
 
     <!-- Composer styles — co-located with the composer markup below. -->
