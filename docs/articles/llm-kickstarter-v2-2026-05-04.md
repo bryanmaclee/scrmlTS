@@ -1185,31 +1185,37 @@ This is the **first recipe to reach for** when the UI has more than one mode, li
 ```scrml
 <program>
 
-${
-  type LoadPhase:enum = {
-    Idle
-    Loading
-    Loaded(rows)
-    Failed(message: string)
-  }
+type Row:struct = { id: int, name: string }
 
-  function fetchRows() {
-    return ?{`SELECT id, name FROM items ORDER BY name`}.all()
-  }
+type LoadPhase:enum = {
+  Idle
+  Loading
+  Loaded(rows: Row[])                  // typed payload — carries the loaded rows
+  Failed(message: string)
+}
 
-  function load() {
-    @loadPhase = .Loading
-    const rows = fetchRows()
-    @loadPhase = .Loaded(rows)
-  }
+function fetchRows() {
+  return ?{`SELECT id, name FROM items ORDER BY name`}.all()
+}
+
+function load() {
+  @loadPhase = .Loading
+  const rows = fetchRows()
+  @loadPhase = .Loaded(rows)
 }
 
 <engine for=LoadPhase initial=.Idle>
-  <Idle    rule=.Loading>           : <button onclick=load()>Load</button>
-  <Loading rule=(.Loaded | .Failed)> : <p>Loading…</p>
+  <Idle rule=.Loading>
+    <button onclick=load()>Load</button>
+  </>
+  <Loading rule=(.Loaded | .Failed)>
+    <p>Loading…</p>
+  </>
   <Loaded(rows) rule=.Idle>
     <ul>
-      ${ for (let r of rows) { lift <li>${r.name}</li> } }
+      <each in=rows>
+        <li : @.name>
+      </each>
     </ul>
     <button onclick=@loadPhase = .Idle>Reset</button>      <!-- bare assignment, L19 -->
   </>
@@ -1224,7 +1230,8 @@ ${
 
 Notes:
 - One engine replaces what would otherwise be three booleans + a data variable + a render-chain. The compiler can verify exhaustiveness.
-- Payload variants (`.Loaded(rows)`, `.Failed(msg)`) destructure inside their state-child body.
+- **Payload variants carry TYPED fields** (`Loaded(rows: Row[])`, `Failed(message: string)`) — an untyped `Loaded(rows)` is parsed as a *unit* variant. The state-child opener `<Loaded(rows)>` destructures the payload into the body.
+- **State-child bodies are plain markup children.** A single-expression body may use the `:`-shorthand (`<li : @.name>`), but a markup body (`<button>`, `<p>`, a `<ul>` subtree) is written as a normal child element — NOT `<Idle> : <button>…`. List rendering uses `<each>` (§11.10).
 - Transitions in `load()` use direct write (`@loadPhase = .Loading`). Compile-time validation kicks in when the from-state is statically known.
 
 ### 11.2 Auth recipe

@@ -16,7 +16,7 @@
 |---|---|
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 2 |
-| MED | 10 |
+| MED | 11 |
 | LOW | 20 |
 | Nominal (spec-ahead-of-impl) | 8 |
 <!-- @generated:gap-counts END -->
@@ -195,6 +195,14 @@ The JS-style value-return `match expr { .A | .B :> v ... }` (and `return match`,
 ### G-ENGINE-SERVER-FLAG-SILENT-SWALLOW — `<engine ... server ...>` silently swallows the `server` flag (zero diagnostics, byte-identical JS) while SPEC §51.0.A asserts engine cells MAY be server-authoritative — `NEW S198; MED; open`
 `<engine for=DriverStatus server initial=.OffDuty>` compiles with ZERO diagnostics and emits JS byte-identical to a plain engine — the `server` flag is parsed-and-dropped (PA-probed during the engine-hydration DD, S198). SPEC §51.0.A asserts "an engine cell MAY itself be `server`-authoritative (§52 Tier 2)" but no codegen wiring exists — the §52 read/load-into-an-engine-cell path is unbuilt. This is the READ/hydrate leg of the engine-hydration Approach-F E-leg (DEFERRED to the §52 program); independent of Gap G1 (the §52 WRITE-back no-op). Silent-swallow of a documented attribute is the issue (per `feedback_dont_soft_classify_bugs` — a silent no-op of an asserted-valid attribute is worse than an error): at minimum `<engine server>` should fire a `W-ENGINE-SERVER-DEFERRED` (not-yet-wired) rather than silently dropping it, until the E-leg lands. The F hydration primitive build (S198) covers the A-leg `initial=@cell` only; the E-leg + this silent-swallow are deferred. Surfaced by the engine-hydration DD (S198).
 <!-- @gap id=g-engine-server-flag-silent-swallow sev=MED status=open -->
+
+---
+
+## §S199 — gaps filed S199 (2026-06-16, gap-184 / kickstarter §11.1 scope)
+
+### G-COLON-SHORTHAND-MARKUP-MISPARSE — an engine state-child `:`-shorthand with a MARKUP body (`<Idle> : <button>…</button>`) mis-parses; the block-splitter swallows the `<engine>` and emits a misleading `E-STRUCTURAL-ELEMENT-MISPLACED` cascade — `NEW S199; MED; open`
+An engine state-child opener using the `:`-shorthand with a MARKUP-valued body — at least the after-`>` deprecated placement (`<Idle rule=.Loading> : <button onclick=load()>Load</button>`) — confuses the block-splitter: it cannot disambiguate the state-child opener's terminating `>` from the markup body's tags, loses logic-body close tracking, and reports the WRONG diagnostic: `E-STRUCTURAL-ELEMENT-MISPLACED: <engine> cannot appear inside a ${} logic body` pointing at the `<engine>` opener, plus a cascade (`E-STATE-UNDECLARED` on the engine's auto-cell writes, `E-VARIANT-AMBIGUOUS` on bare variants). The `<engine>` is NOT in a logic body — the diagnostic blames the wrong construct. **PA-probed S199:** `/tmp/ks-111.scrml` (the kickstarter §11.1 recipe) + `/tmp/ks-111b.scrml` (same minus the redundant `${}` wrapper) both FAIL at the `<engine>` line with E-STRUCTURAL; converting the state-children to BARE-BODY (`<Idle rule=.Loading><button>…</button></>`) clears it (the modernized recipe `/tmp/ks-final.scrml` compiles exit 0). Minimal isolation: a plain `function`-then-`<engine>` with bare-body state-children compiles; the trigger is specifically the `:`-shorthand-with-markup-body. **Two fix directions** (needs a §4.14/§18.0.1/§51.0.B cross-check): (a) make the `:`-shorthand accept a markup-valued body in a state-child opener (markup IS a single expression per L1 — the parser should disambiguate the `>`); OR (b) if `:`-shorthand is intentionally bare-body-only for markup, fire a CLEAR diagnostic ("use a bare-body child for a markup body") instead of the misleading E-STRUCTURAL cascade. Either way the misleading diagnostic is the bug (per `feedback_dont_soft_classify_bugs` — the error names the wrong construct). Surfaced fixing the broken flagship kickstarter §11.1 engine recipe (the informal "gap-184"); the §11.1 doc was MODERNIZED to bare-body S199 so adopters no longer hit it via the kickstarter, but the parser bug remains. Follow-on: grep docs/examples for other after-`>` `:`-shorthand-markup sites (a broader currency sweep).
+<!-- @gap id=g-colon-shorthand-markup-misparse sev=MED status=open -->
 
 ---
 

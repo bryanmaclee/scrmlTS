@@ -85,6 +85,7 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 > `bun scripts/state.ts --write` regenerates it; `--check` gates it.
 
 <!-- @generated:recent-sessions START (do not edit — `bun scripts/state.ts --write`) -->
+- `13c3c978` — wrap(s198): close — trucking 1a/1b + engine-hydration F-primitive landed; E-leg designed-not-built; vPA workflow open; context-economics locked in — **pushed**
 - `23fbca78` — wrap(s197): RemoteData scope-lock + Approach-C loading-sugar deep-dive (DON'T-BUILD) -> A+D ratified, Nominal-7 retired; corpus wave-3 (29/30/31 NEW examples); g-markup-value HIGH gap filed — **pushed**
 - `441e1645` — wrap(s196): render-expression `<render of=X/>` built + corpus wave 2 + 4 prereq bugs + §51.0.S fix — **pushed**
 - `8e5cab33` — wrap(s195) 6c: maps refresh a78272e5→4646ec13 (primary/structure/error/test) — **pushed**
@@ -92,7 +93,6 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 - `46377508` — wrap(s193): Flux v1 built+pushed + MMORPG reframe + 2 deep-dives + G1 HIGH filed — **pushed**
 - `572e29d1` — wrap(s192): bug-12-vkill CLOSED (3-stage arc: §51.0.C var-name → SYM cell-registration → read-side fire at TS) + hand-off CLOSE + changelog S192 + 6b worktree-clean x6 + 6d state-regen PASS (gap-counts MED 5->4/LOW 14 + recent-sessions) + handoff-196 rotation — **pushed**
 - `1b207e6e` — wrap(s191) 6c: maps refresh 1e17213e->7f2092cf (5 maps; +§26.7 Tailwind composing-family routing + if=fn 3-seam routing — the gaps agents flagged 3x) + hand-off map-currency line — **pushed**
-- `7ba053e6` — wrap(s190): hand-off CLOSE + changelog S190 (3 source arcs: Cluster C ${}-decl-boundary + §51.0.J derived-engine EXPRESSION form + §51.9 clearer-error/2B-close) + decision pass (L19 KEEP via DD) + master-list (16,836->16,873 subset) + 6c maps refresh (a00624f5->1e17213e, error/primary/structure/test) + 6d state-regen PASS + 6b worktree-clean x4 + handoff-194 rotation — **pushed**
 <!-- @generated:recent-sessions END -->
 
 ## A. Compiler core
