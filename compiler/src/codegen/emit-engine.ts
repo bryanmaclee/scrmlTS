@@ -1744,6 +1744,113 @@ export function emitEngineCellHydrationInitsForFile(fileAST: any): string[] {
 }
 
 /**
+ * §52 (S199 — the E-leg) — emit the server-authoritative REACTIVE hydration for
+ * an engine declared `server=@source`. Unlike the A-leg `initial=@cell` (a
+ * snapshot ONCE at construction), the E-leg subscribes to a server-owned source
+ * cell and re-hydrates the engine GUARD-FREE on EVERY source change — the server
+ * is the authority asserting truth. Client moves stay GUARDED transitions (the
+ * engine remains writable — `isC12EngineDecl` is true; the dev-write path routes
+ * through `_scrml_engine_direct_set` unchanged). The subscription is the ONLY
+ * guard-free path.
+ *
+ * Shape (bare-root `server=@status`):
+ *   // §52 E-leg server hydration: hosStatus <- @status (reactive, guard-free)
+ *   (function () {
+ *     function __scrml_eleg_h() {
+ *       var __v = _scrml_reactive_get("status");
+ *       if (__v == null) return;            // source not resolved yet — stay at placeholder
+ *       _scrml_engine_hydrate_init("hosStatus", __v, ["Driving",...], "HOSStatus");
+ *     }
+ *     __scrml_eleg_h();                      // initial (if source already resolved, e.g. SSR)
+ *     _scrml_reactive_subscribe("status", __scrml_eleg_h);
+ *   })();
+ *
+ * Field-access (`server=@driver.current_status`) reads the ROOT cell then walks
+ * the dotted tail null-safely, and subscribes the ROOT cell (a server load that
+ * sets `@driver` fires the re-hydrate):
+ *     var __v = _scrml_reactive_get("driver");
+ *     __v = (__v == null) ? null : __v["current_status"];
+ *
+ * Semantics:
+ *   - Source absent (`not`/unresolved) → SKIP (no-op): the engine sits at the
+ *     `initial=.Literal` placeholder (or first-state) seeded by
+ *     `emitEngineVariantCellInit` until the source resolves. NOT a throw — an
+ *     unresolved server source at construction is expected (fetch-on-mount/SSR).
+ *   - Source present + legal variant → hydrate guard-free (bare reactive set).
+ *   - Source present + NOT a legal variant → `_scrml_engine_hydrate_init` throws
+ *     E-ENGINE-INITIAL-INVALID-VARIANT (the decoder boundary — the server sent a
+ *     value outside the `for=T` enum).
+ *   - §38 server-push composes for free: a §38 broadcast that updates the source
+ *     cell fires the same subscription → same re-hydrate. No special path.
+ *
+ * Ordering: emitted by emit-client.ts AFTER `emitReactiveWiring` (so the initial
+ * `__scrml_eleg_h()` reads the source's real init value), alongside the A-leg.
+ *
+ * @returns lines of JS; empty unless the engine declares `server=@source`.
+ */
+export function emitEngineServerSourceHydration(meta: EngineMetadata): string[] {
+  const sourcePath = meta.serverSource;
+  if (typeof sourcePath !== "string" || sourcePath.length === 0) return [];
+
+  // valid-variant set for the decoder boundary — same resolution as the A-leg.
+  let variantSet: string[] = Array.isArray(meta.variants) ? meta.variants.filter(
+    (v): v is string => typeof v === "string" && v.length > 0,
+  ) : [];
+  if (variantSet.length === 0) {
+    const sc = meta.stateChildren;
+    if (Array.isArray(sc)) {
+      variantSet = sc
+        .map((c) => (c && typeof c.tag === "string" ? c.tag : ""))
+        .filter((t) => t.length > 0);
+    }
+  }
+
+  // Split the dotted path: root cell (subscribed) + field tail (null-safe walk).
+  const segs = sourcePath.split(".");
+  const rootCell = segs[0]!;
+  const tail = segs.slice(1);
+
+  const lines: string[] = [];
+  lines.push(
+    `// §52 E-leg server hydration: ${meta.varName} <- @${sourcePath} (reactive, guard-free)`,
+  );
+  lines.push(`(function () {`);
+  lines.push(`  function __scrml_eleg_h() {`);
+  lines.push(`    var __v = _scrml_reactive_get(${JSON.stringify(rootCell)});`);
+  for (const seg of tail) {
+    lines.push(`    __v = (__v == null) ? null : __v[${JSON.stringify(seg)}];`);
+  }
+  lines.push(`    if (__v == null) return;`);
+  lines.push(
+    `    _scrml_engine_hydrate_init(${JSON.stringify(meta.varName)}, __v, ` +
+    `${JSON.stringify(variantSet)}, ${JSON.stringify(meta.forType)});`,
+  );
+  lines.push(`  }`);
+  lines.push(`  __scrml_eleg_h();`);
+  lines.push(`  _scrml_reactive_subscribe(${JSON.stringify(rootCell)}, __scrml_eleg_h);`);
+  lines.push(`})();`);
+  return lines;
+}
+
+/**
+ * §52 (S199 — the E-leg) — emit server-authoritative reactive hydration for
+ * every `server=@source` engine in the file. Sibling to
+ * `emitEngineCellHydrationInitsForFile`. Empty when no engine declares
+ * `server=@source` (tree-shake).
+ */
+export function emitEngineServerSourceHydrationsForFile(fileAST: any): string[] {
+  const decls = collectC12EngineDecls(fileAST);
+  if (decls.length === 0) return [];
+  const lines: string[] = [];
+  for (const decl of decls) {
+    const meta = decl._record!.engineMeta!;
+    const hydrationLines = emitEngineServerSourceHydration(meta);
+    for (const l of hydrationLines) lines.push(l);
+  }
+  return lines;
+}
+
+/**
  * §51.0.H Form 3 (S148, Insight 33 Fork C1) — Re-parse the raw opener
  * `effect=` body into a walkable statement list and lower it through the
  * STANDARD logic-emission path (`emitLogicBody`) with full engine-aware opts.

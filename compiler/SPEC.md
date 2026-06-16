@@ -17131,10 +17131,13 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-ENGINE-MOUNT-NOT-ENGINE | §51.0.D, §21.8 | A self-closing tag `<EngineName/>` mounts an imported binding whose source export is NOT an engine (e.g., a component, channel, type, function, or arbitrary const). Cross-file engine mount via `<EngineName/>` requires the imported name to be the variable of an exported `<engine>` declaration. Either import an engine binding from the source file, or use the appropriate mount form for the imported kind (e.g., component instantiation for components, expression read for const values). (Catalog addition S68 — A1b B14.) | Error |
 | E-ENGINE-STATE-CHILD-MISSING | §51.0.B, §51.0.F | A variant of the engine's `for=Type` has no matching state-child tag in the engine body. Per §51.0.F, every variant must have a corresponding state-child (`<Variant>...</>`) — exhaustiveness over the variant set is what gives `<engine>` its compile-time guarantees. Add the missing `<Variant>` state-child(ren). (Catalog addition S68 — A1b B15.) | Error |
 | E-ENGINE-STATE-CHILD-INVALID-VARIANT | §51.0.B | A state-child tag in the engine body does not match any variant of the engine's `for=Type`. State-child tags are PascalCase variant names; `<UnknownTag>` inside an `<engine for=MarioState>` is rejected because `UnknownTag` is not a `MarioState` variant. Either rename the tag to a valid variant or add the variant to the type. (Catalog addition S68 — A1b B15.) | Error |
-| E-ENGINE-INITIAL-INVALID-VARIANT | §51.0.E | `initial=.X` references a variant `.X` that is not in the engine's `for=Type` variants. Either correct the variant reference or add `.X` to the type. (Catalog addition S68 — A1b B15.) **RUNTIME extension (S198):** the `initial=@cell` form (runtime-cell hydration) ALSO fires this code at engine-construction — the decoder boundary — when the cell's snapshotted value is absence (`not`) or is not a legal `for=T` variant. A guard-free construction must not silently corrupt the cell. | Error |
+| E-ENGINE-INITIAL-INVALID-VARIANT | §51.0.E | `initial=.X` references a variant `.X` that is not in the engine's `for=Type` variants. Either correct the variant reference or add `.X` to the type. (Catalog addition S68 — A1b B15.) **RUNTIME extension (S198):** the `initial=@cell` form (runtime-cell hydration) ALSO fires this code at engine-construction — the decoder boundary — when the cell's snapshotted value is absence (`not`) or is not a legal `for=T` variant. A guard-free construction must not silently corrupt the cell. **E-leg extension (S199):** the `server=@source` form (server-authoritative reactive hydration, §51.0.E) likewise fires this code at hydrate when a RESOLVED source value is not a legal `for=T` variant (an absent/unresolved source is skipped — the engine waits — NOT thrown). | Error |
 | E-ENGINE-INITIAL-BOTH-FORMS | §51.0.E | An `<engine>` declares BOTH `initial=.Variant` (static literal) AND `initial=@cell` (runtime-cell hydration). `initial=` accepts EXACTLY ONE value form. Keep the static literal for a fixed start state, OR the `@cell` form to hydrate from a persisted value — not both. (Catalog addition S198 — Approach F A-leg, B15.) | Error |
 | E-ENGINE-INITIAL-CELL-UNDECLARED | §51.0.E | `initial=@cell` references a reactive cell that is not declared in scope. The `initial=@cell` source must reference a declared cell whose value is resolved at engine-construction (a server-loaded DB column, a `localStorage` read). Declare the cell before the engine, or correct the cell name. (Catalog addition S198 — Approach F A-leg, B15.) | Error |
-| E-ENGINE-INITIAL-CELL-TYPE | §51.0.E | `initial=@cell` references a cell whose declared type is neither the engine's `for=` enum nor a `string` holding a variant name. An `initial=@cell` source must be a `for=T` value or a `string` whose value is a `for=T` variant name (the canonical persisted-status case; mirrors `<match for=Enum on=@stringCell>`). An untyped/inferred cell passes conservatively (the runtime `E-ENGINE-INITIAL-INVALID-VARIANT` is the backstop). (Catalog addition S198 — Approach F A-leg, B15.) | Error |
+| E-ENGINE-INITIAL-CELL-TYPE | §51.0.E | `initial=@cell` references a cell whose declared type is neither the engine's `for=` enum nor a `string` holding a variant name. An `initial=@cell` source must be a `for=T` value or a `string` whose value is a `for=T` variant name (the canonical persisted-status case; mirrors `<match for=Enum on=@stringCell>`). An untyped/inferred cell passes conservatively (the runtime `E-ENGINE-INITIAL-INVALID-VARIANT` is the backstop). (Catalog addition S198 — Approach F A-leg, B15.) **E-leg reuse (S199):** `server=@source` reuses this code for a concretely type-incompatible BARE-root source (a field-access source passes conservatively). | Error |
+| E-ENGINE-SERVER-WITH-DERIVED | §51.0.E, §52.4 | An `<engine>` declares BOTH `server=@source` (server-authoritative reactive hydration — WRITABLE) AND `derived=` (a read-only computed projection). Mutually exclusive: pick `server=@source` to track a server-owned cell reactively, OR `derived=` for a computed read-only engine. (Catalog addition S199 — the E-leg, B15.) | Error |
+| E-ENGINE-SERVER-WITH-INITIAL-CELL | §51.0.E | An `<engine>` declares BOTH `server=@source` (reactive server-authoritative hydration) AND `initial=@cell` (the A-leg snapshot-once-at-construction). Two distinct hydration models — pick ONE. (`initial=.Variant`, the static placeholder, MAY coexist with `server=@source`.) (Catalog addition S199 — the E-leg, B15.) | Error |
+| W-ENGINE-SERVER-SOURCE-NOT-AUTHORITATIVE | §51.0.E, §52.4 | `server=@source` names a cell not recognizably a §52 server-authority cell (a `<var server>` Tier-2 cell or a Tier-1 server-authority instance). The hydration mechanism works regardless — the engine reflects whatever the cell holds, guard-free, on every change; this is a nudge that the `server=` name asserts server-ownership intent. If the cell IS server-owned (a server `?{}` / §38 push populates it), the intent is correct; otherwise consider `initial=@cell` (snapshot-once) for a purely client-side hydration. (Catalog addition S199 — the E-leg, B15.) | Info |
 | E-ENGINE-RULE-INVALID-VARIANT | §51.0.F | A `rule=` value references a variant (`rule=.X` or one of `rule=(.A \| .B)`) that is not in the engine's `for=Type` variants. The `rule=` contract is over the engine type's variants; foreign-type variants are rejected. (Catalog addition S68 — A1b B15.) | Error |
 | E-ENGINE-RULE-LEGACY-SYNTAX | §51.0.F | A `rule=` value uses the legacy event-arrow form (`rule="event -> Variant"`). On `<engine>`, `rule=` must use one of the three §51.0.F target-only forms: single-target (`rule=.NextVariant`), multi-target (`rule=(.A \| .B \| .C)`), or wildcard (`rule=*`). Event-arrow rules belong to the legacy `<machine>` syntax (§51.3, deprecated). Migrate by writing the targets directly. (Catalog addition S68 — A1b B15.) | Error |
 | E-HISTORY-NO-INNER-ENGINE | §51.0.N, §51.0.Q | The `history` attribute appears on a state-child whose body does not contain a nested `<engine>`. `history` is meaningful only on composite state-children (those with an inner engine to track). Either add a nested `<engine>` to the body, or remove `history`. (Catalog addition S67 — DD-Harel Approach C Hybrid, Insight 23 grammar decision #2.) | Error |
@@ -24859,6 +24862,7 @@ body's own, not inherited by nested plain markup.
 | `var=identifier` | optional | Override the auto-derived variable name (§51.0.C). Use for disambiguation when the auto-name collides. |
 | `effect=${...}` | optional; non-derived only | **Boot-only init effect (S148, §51.0.H Form 3).** A logic-context expression that runs ONCE at module-init as the effect of the implicit init→`initial=` transition (Elm `init`+`Cmd`). Writes to the engine variable inside it are checked against `.<initial>.rule`. Forbidden on `derived=` engines — `E-ENGINE-EFFECT-ON-DERIVED` (§51.0.J). Distinct slot from the state-child `effect=` (§51.0.H Form 1). **The `${...}` logic-block form is REQUIRED (this is a §7 logic-context block, not the single-expression handler sugar): a bare `effect=load()` is `E-ENGINE-EFFECT-NOT-INTERPOLATED` (§34), NOT a silent no-op (S182).** |
 | `accepts=MsgType` | optional; non-derived | **Engine message vocabulary (S154, §51.0.S).** An enum type identifier declaring the message vocabulary the engine's `(state × message)` arms dispatch on (the type checked per-state for message-arm exhaustiveness, §51.0.S). Its value MUST resolve to a declared `:enum` type — otherwise `E-ENGINE-ACCEPTS-NOT-ENUM` (§34). A state-child that declares a `(state × message)` arm while the opener has no `accepts=` fires `E-ENGINE-MSG-WITHOUT-ACCEPTS` (§34). See §51.0.S. |
+| `server=@source` | optional; non-derived; mutually exclusive with `derived=` + `initial=@cell` | **Server-authoritative reactive hydration (S199, the E-leg — §51.0.E).** Names a server-owned source cell (a §52 `<var server>` / Tier-1 authority cell, or a cell a server `?{}` / §38 push populates; MAY be a field access `@driver.current_status`). The engine HYDRATES from it GUARD-FREE + REACTIVELY on every change (the server is the authority); CLIENT writes stay GUARDED transitions (the engine remains writable). `initial=.Variant` MAY coexist as the pre-resolve placeholder. `E-ENGINE-SERVER-WITH-DERIVED` / `E-ENGINE-SERVER-WITH-INITIAL-CELL` on conflict; `W-ENGINE-SERVER-SOURCE-NOT-AUTHORITATIVE` (info) if the source isn't recognizably §52-authoritative. See §51.0.E + §52.4. |
 
 **State-children** are tags inside the body, named after variants of `Type`. Each
 state-child may carry:
@@ -25317,8 +25321,8 @@ holds AT engine-construction (module-init). The developer is responsible for `@c
 holding the intended value at construction — an SSR/server-side `?{}` resolves before
 render; a synchronous read is ready. There is NO re-hydration after construction
 (`initial=` fires once; there is no anytime "restore" verb). An async-fetch-on-mount
-source that is NOT ready at construction is the DEFERRED `<engine server>` E-leg (§52
-fetch-on-mount), NOT this form.
+source that is NOT ready at construction is the `server=@source` E-leg (server-
+authoritative reactive hydration, below), NOT this form.
 
 **Cell type.** The referenced cell's type must be the engine's `for=T` enum (its
 value IS a variant) OR a `string` holding a variant NAME (the canonical persisted-
@@ -25341,6 +25345,89 @@ decoder boundary (below) is the backstop.
 > Authority: deep-dive `docs/deep-dives/engine-hydration-from-persisted-state-2026-06-15.md`
 > + the F-vs-B debate (F won 48.5 vs 41.0); design-insight "Persisted-engine
 > hydration SURFACE … VERDICT F" (S198).
+
+**Server-authoritative reactive hydration (`server=@source`) — S199 (the E-leg).**
+
+The A-leg (`initial=@cell`) hydrates ONCE at construction (a snapshot). But scrml's
+canonical state loads AFTER construction — an on-mount fetch, an SSR pre-render, a
+§38 server push (§52 read-authority). The **E-leg** is the server-authoritative
+engine: `server=@source` names a SERVER-OWNED source cell, and the engine HYDRATES
+from it GUARD-FREE, REACTIVELY — every time the source resolves or changes — while
+CLIENT writes remain GUARDED transitions. The engine REMAINS WRITABLE; the
+source-subscription is the ONLY guard-free path.
+
+```scrml
+type DriverStatus:enum = { OffDuty, Driving, OnDuty, Sleeper }
+
+<!-- @driver is a §52 server-authority cell (a server ?{} / §38 push populates
+     .current_status — a DriverStatus variant NAME). It may NOT be resolved at
+     construction (fetch-on-mount); the engine sits at the initial=.Literal
+     placeholder until it resolves. -->
+<driver server> : Driver = ?{ select * from drivers where id = ${@driverId} }.get()
+
+<engine for=DriverStatus server=@driver.current_status initial=.OffDuty>
+  <OffDuty rule=(.Driving | .OnDuty | .Sleeper) : "Off duty">
+  <Driving rule=(.OnDuty | .OffDuty)            : "Driving">
+  <OnDuty  rule=(.Driving | .OffDuty | .Sleeper) : "On duty">
+  <Sleeper rule=(.OffDuty | .OnDuty)            : "Sleeper berth">
+</>
+```
+
+**The model — the server HYDRATES (guard-free); the client TRANSITIONS (guarded).**
+A server-source change asserts truth: the engine reflects it WITHOUT `rule=`
+validation (the same guard-free construction hook the A-leg + the static literal
+use — a bare reactive set, NOT the transition guard). A client move
+(`@driverStatus = .Driving` in an event handler) routes through the `rule=`
+transition guard UNCHANGED (`E-ENGINE-INVALID-TRANSITION` on an illegal move). The
+two coexist on the same writable cell; a server hydrate is last-write-authoritative
+(the server's word wins).
+
+**The engine rides an existing source's load — it does NOT self-load.** `server=@source`
+names a cell that some OTHER mechanism populates: a §52 server-authority cell's
+fetch-on-mount + SSR pre-render (already built — §52.4), a server `?{}`, or a §38
+push. The engine subscribes to that cell's ROOT (`@driver` for
+`server=@driver.current_status`) and re-hydrates on every change. There is no
+engine-owned fetch route; the bare `<engine server>` auto-self-load form is NOT part
+of this design (resolved at S198 as the wrong shape).
+
+**`initial=.Literal` is the pre-resolve placeholder.** Until the source resolves, the
+engine sits at `initial=.Variant` (or the first state-child if `initial=` is omitted —
+`W-ENGINE-INITIAL-MISSING` is suppressed when `server=@source` is present, since the
+server source is the start-state authority). When the source resolves to a defined
+value, the engine hydrates to it. An absent/unresolved source is NOT an error (it is
+the expected fetch-on-mount state) — the subscription waits and re-hydrates when the
+value lands.
+
+**§38 server-push composes for free.** If `@source` is updated by a §38 broadcast/
+push, the engine's subscription fires the same hydrate. No special path.
+
+**Persist-back is the developer's explicit `?{}`** (§52.6.2 retraction, C/WF). A
+client transition does NOT auto-persist; the developer writes the persist `?{}`.
+
+**Mutual exclusion.** `server=@source` is WRITABLE server-authoritative hydration; it
+is mutually exclusive with the two other engine value-source forms:
+- with `derived=` (a read-only computed projection) — `E-ENGINE-SERVER-WITH-DERIVED`.
+- with `initial=@cell` (the A-leg construction snapshot — a different hydration model)
+  — `E-ENGINE-SERVER-WITH-INITIAL-CELL`. (`initial=.Variant`, the static placeholder,
+  MAY coexist.)
+
+**Validation.**
+- COMPILE time (§34): a non-existent ROOT cell fires `E-ENGINE-INITIAL-CELL-UNDECLARED`
+  (reused); a concretely type-incompatible BARE-root source fires
+  `E-ENGINE-INITIAL-CELL-TYPE` (reused — a field-access source passes conservatively,
+  since the field's type is not on the cell's own annotation). A source not
+  recognizably a §52 server-authority cell fires the INFO lint
+  `W-ENGINE-SERVER-SOURCE-NOT-AUTHORITATIVE` (a nudge, never a hard gate — the
+  mechanism works regardless; the `server=` name asserts the intent).
+- RUNTIME (§34, the DECODER BOUNDARY): each resolved source value is re-validated at
+  hydrate; a PRESENT value that is not a legal `for=T` variant throws
+  `E-ENGINE-INITIAL-INVALID-VARIANT` (reused — the same decoder boundary as the A-leg).
+  An ABSENT source is skipped (the engine waits), not thrown.
+
+> Authority: deep-dive `docs/deep-dives/engine-hydration-from-persisted-state-2026-06-15.md`
+> (the E-leg extension); the F-vs-B debate (F won 48.5 vs 41.0); design-insight
+> "Persisted-engine hydration … E-leg" (S198/S199). Cross-ref §52.4 (`<var server>`
+> Tier-2 authority — the canonical source) + §51.0.A S178 (engine-as-shared-store).
 
 #### 51.0.F The `rule=` contract — three forms; compile-time + runtime enforcement
 
@@ -29018,6 +29105,7 @@ A `<varName server>` with an initial value of `not` (§42) means "no placeholder
 - A `<varName>` cell without the `server` attribute SHALL be treated as client-local. No sync infrastructure SHALL be generated for it.
 - The compiler SHALL emit an error (E-AUTH-002) when a `<varName server>` is declared with an initial value that is derived from a client-local reactive variable, unless the derivation passes through an explicit server function call.
 - The compiler SHALL emit an error (E-AUTH-001) when a client-local `@var` appears directly in a `?{}` block as a persisted value (as a bound parameter in INSERT/UPDATE/DELETE), outside of a server function.
+- A `<varName server>` cell (or any §52-authoritative cell) MAY be CONSUMED as the source of a server-authoritative engine via `<engine for=T server=@varName>` (§51.0.E — the E-leg, S199): the engine subscribes to the cell and HYDRATES guard-free + reactively on every change (the server is the authority asserting truth), while client engine transitions stay guarded (`rule=`). The engine does NOT own a fetch — it RIDES this cell's §52.4.2 fetch-on-mount + §52.8 SSR pre-render, and a §38 server-push to the cell (§52.6.7) re-hydrates it for free. A `server=@source` naming a cell that is NOT recognizably §52-authoritative fires the info nudge `W-ENGINE-SERVER-SOURCE-NOT-AUTHORITATIVE` (the mechanism works regardless; the `server=` name asserts the intent).
 
 #### 52.4.5 Worked Example — Valid (Instance-Level Authority)
 

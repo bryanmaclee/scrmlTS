@@ -357,6 +357,19 @@ export interface EngineMetadata {
    *  holding a variant name). MUTUALLY EXCLUSIVE with `initialVariant`;
    *  FORBIDDEN on derived engines (E-DERIVED-ENGINE-NO-INITIAL). */
   initialCell: string | null;
+  /** §52 server-authoritative engine source path (`server=@source`), e.g.
+   *  `"driver.current_status"` for `server=@driver.current_status`; `null`
+   *  otherwise (S199 — the E-leg). The engine HYDRATES from this server-owned
+   *  source cell GUARD-FREE, REACTIVELY (every source change re-hydrates via
+   *  `_scrml_engine_hydrate_init`, NOT the `rule=` transition guard — the server
+   *  is the authority asserting truth). Client moves stay GUARDED transitions:
+   *  the engine REMAINS WRITABLE (it is NOT read-only like a derived engine).
+   *  DISTINCT from `initialCell` (A-leg snapshot-once) and `derivedExpr`
+   *  (read-only projection). B15 validates the ROOT cell EXISTS + is type-compat
+   *  + mutual-exclusion: FORBIDDEN with `derived=` (E-ENGINE-SERVER-WITH-DERIVED)
+   *  and with `initial=@cell` (E-ENGINE-SERVER-WITH-INITIAL-CELL); MAY coexist
+   *  with `initial=.Literal` (the SSR/pre-load placeholder). */
+  serverSource: string | null;
   /** Reactive expression string from `derived=expr`, when present.
    *  Stored as the raw AST shape for B16 to consume in cycle detection.
    *  Today's parser stores `engine-decl.sourceVar` (legacy single-var form)
@@ -5185,6 +5198,13 @@ function makeEngineRecord(
     typeof engineDecl.initialCell === "string" && engineDecl.initialCell.length > 0
       ? engineDecl.initialCell
       : null;
+  // §52 server-authoritative engine (S199 — the E-leg). B14 records the dotted
+  // source path verbatim (`server=@driver.current_status` -> "driver.current_status");
+  // B15 validates the root cell exists + type-compat + mutual-exclusion.
+  const serverSource: string | null =
+    typeof engineDecl.serverSource === "string" && engineDecl.serverSource.length > 0
+      ? engineDecl.serverSource
+      : null;
   const isPinned: boolean = engineDecl.pinned === true;
   const isExported: boolean = engineDecl.isExported === true;
   // Derived expression — three §51.0.J / §51.9 shapes (S190 completes the set):
@@ -5253,6 +5273,7 @@ function makeEngineRecord(
     variants: [], // B14 leaves empty; B15 populates from the type system.
     initialVariant,
     initialCell,
+    serverSource,
     derivedExpr,
     varName,
     isExported,
@@ -6232,7 +6253,11 @@ export function validateEngineStateChildrenAndRules(
     } else if (meta.initialCell !== null) {
       // §51.0.E runtime-cell hydration form. Validate the referenced cell.
       validateInitialCellHydration(meta, engineDecl, errors, filePath, variants);
-    } else if (meta.initialVariant === null) {
+    } else if (meta.initialVariant === null && meta.serverSource === null) {
+      // §52 (S199 E-leg) — a server-source engine does NOT need `initial=`: the
+      // server source IS the start-state authority (it hydrates on resolve, and
+      // the engine defaults to the first state-child as the pre-resolve
+      // placeholder). Suppress the missing-initial nudge when serverSource is set.
       fireB15Diagnostic(
         errors,
         "W-ENGINE-INITIAL-MISSING",
@@ -6244,7 +6269,7 @@ export function validateEngineStateChildrenAndRules(
         filePath,
         "warning",
       );
-    } else if (variants.length > 0 && !variantSet.has(meta.initialVariant)) {
+    } else if (meta.initialVariant !== null && variants.length > 0 && !variantSet.has(meta.initialVariant)) {
       const variantList = variants.map((v) => `.${v}`).join(", ");
       fireB15Diagnostic(
         errors,
@@ -6256,6 +6281,53 @@ export function validateEngineStateChildrenAndRules(
         filePath,
         "error",
       );
+    }
+  }
+
+  // Step 2.5 — §52 server-authoritative engine validation (S199 — the E-leg).
+  // `server=@source` hydrates the engine guard-free + reactively from a server-
+  // owned source cell while client moves stay guarded transitions. Validated for
+  // mutual-exclusion + source existence/type-compat; the engine REMAINS writable.
+  if (meta.serverSource !== null) {
+    // MUTUAL EXCLUSION 1 — a server-source engine is NOT derived (read-only).
+    if (isDerived) {
+      fireB15Diagnostic(
+        errors,
+        "E-ENGINE-SERVER-WITH-DERIVED",
+        `E-ENGINE-SERVER-WITH-DERIVED: \`<engine for=${forType}>\` declares BOTH ` +
+        `\`server=@${meta.serverSource}\` (server-authoritative hydration) AND \`derived=\` ` +
+        `(read-only projection). Per SPEC §51/§52, a server-source engine is WRITABLE ` +
+        `(it hydrates from the server but accepts guarded client transitions); a derived ` +
+        `engine is read-only. Pick ONE: \`server=@source\` for server-authoritative ` +
+        `hydration, OR \`derived=\` for a computed read-only projection.`,
+        engineDecl,
+        filePath,
+        "error",
+      );
+    }
+    // MUTUAL EXCLUSION 2 — `server=@source` (reactive hydration) vs
+    // `initial=@cell` (A-leg, snapshot-once-at-construction): two distinct
+    // hydration models. `initial=.Literal` (the SSR/pre-load placeholder) is OK.
+    if (meta.initialCell !== null) {
+      fireB15Diagnostic(
+        errors,
+        "E-ENGINE-SERVER-WITH-INITIAL-CELL",
+        `E-ENGINE-SERVER-WITH-INITIAL-CELL: \`<engine for=${forType}>\` declares BOTH ` +
+        `\`server=@${meta.serverSource}\` (reactive server-authoritative hydration) AND ` +
+        `\`initial=@${meta.initialCell}\` (snapshot-once-at-construction hydration). Per ` +
+        `SPEC §51/§52, these are two distinct hydration models — pick ONE. Use ` +
+        `\`server=@source\` to track a server-owned cell reactively, OR \`initial=@cell\` ` +
+        `to snapshot a value once at construction. (\`initial=.Variant\` as a static SSR ` +
+        `placeholder MAY coexist with \`server=@source\`.)`,
+        engineDecl,
+        filePath,
+        "error",
+      );
+    }
+    // Source validation (existence + type-compat + §52-authority info-lint).
+    // Skip when a mutual-exclusion error already fired (the config is ambiguous).
+    if (!isDerived && meta.initialCell === null) {
+      validateServerSourceHydration(meta, engineDecl, errors, filePath, variants);
     }
   }
 
@@ -7171,6 +7243,128 @@ function validateInitialCellHydration(
     filePath,
     "error",
   );
+}
+
+/**
+ * §52 (S199 — the E-leg) — validate the `server=@source` server-authoritative
+ * hydration form. The engine HYDRATES from a server-owned source cell GUARD-FREE
+ * + REACTIVELY (every source change re-hydrates, NOT through the `rule=` guard);
+ * client moves stay GUARDED transitions (the engine REMAINS writable). B15 checks,
+ * at COMPILE time:
+ *   1. EXISTENCE — the ROOT cell of the source path resolves in the engine's scope
+ *      chain. A non-existent cell fires `E-ENGINE-INITIAL-CELL-UNDECLARED` (reused —
+ *      the source must reference a declared cell, same family as the A-leg).
+ *   2. TYPE-COMPAT (best-effort, ONLY for a BARE root path, not a field access) —
+ *      the cell's declared type is the engine's `for=T` enum (the value IS a variant)
+ *      OR a `string`/`text` (a DB-status column holding a variant NAME — the canonical
+ *      case, mirrors `<match for=Enum on=@stringCell>`). An UNTYPED cell, or a FIELD
+ *      access (`@driver.current_status`, where the field type is not on the cell decl),
+ *      passes conservatively. A concrete, clearly-incompatible bare-root annotation
+ *      fires `E-ENGINE-INITIAL-CELL-TYPE` (reused).
+ *   3. §52-AUTHORITY NUDGE (info, lenient) — if the root cell is NOT recognizably a
+ *      §52 server-authority cell (a `<var server>` Tier-2 / a Tier-1 server-authority
+ *      instance), fire `W-ENGINE-SERVER-SOURCE-NOT-AUTHORITATIVE`. The MECHANISM works
+ *      regardless (the `server=` name asserts the intent); this is a nudge, never a
+ *      hard gate (do NOT fail on §52-ness — it is fragile to check across pipelines).
+ * The actual runtime VALUE is unknown at compile time; the per-hydrate decoder-boundary
+ * guard (`E-ENGINE-INITIAL-INVALID-VARIANT`, emitted by codegen via
+ * `_scrml_engine_hydrate_init`) re-validates each source value at runtime.
+ */
+function validateServerSourceHydration(
+  meta: EngineMetadata,
+  engineDecl: any,
+  errors: SYMDiagnostic[],
+  filePath: string,
+  variants: string[],
+): void {
+  const sourcePath = meta.serverSource;
+  if (typeof sourcePath !== "string" || sourcePath.length === 0) return;
+  const forType = meta.forType;
+  // The ROOT cell is the first dotted segment (`driver` of `driver.current_status`).
+  const rootCell = sourcePath.split(".")[0] ?? sourcePath;
+  const isFieldAccess = sourcePath.includes(".");
+  const record: StateCellRecord | undefined = engineDecl._record;
+  const scope = record?.scope ?? null;
+
+  // 1. EXISTENCE — resolve the root cell up the scope chain.
+  const cellRec = lookupStateCell(scope, rootCell);
+  if (!cellRec) {
+    fireB15Diagnostic(
+      errors,
+      "E-ENGINE-INITIAL-CELL-UNDECLARED",
+      `E-ENGINE-INITIAL-CELL-UNDECLARED: \`<engine for=${forType} server=@${sourcePath}>\` ` +
+      `hydrates from \`@${rootCell}\`, but no such reactive cell is declared in scope. ` +
+      `Per SPEC §52, the \`server=@source\` value must reference a declared server-owned ` +
+      `cell (e.g. a §52 server-authority cell or a cell a server \`?{}\` / §38 push ` +
+      `populates). Declare \`<${rootCell}> = ...\` before the engine, or correct the name.`,
+      engineDecl,
+      filePath,
+      "error",
+    );
+    return;
+  }
+
+  // 2. TYPE-COMPAT (best-effort) — only for a BARE root path. A field access
+  //    reads a STRUCT FIELD whose type is not on the cell's own annotation, so
+  //    we cannot contradict it here; pass conservatively (the runtime decoder
+  //    boundary still validates the resolved value).
+  if (!isFieldAccess) {
+    const ann =
+      typeof cellRec.declNode?.typeAnnotation === "string"
+        ? cellRec.declNode.typeAnnotation.trim()
+        : "";
+    if (ann.length > 0) {
+      const annType = ann.replace(/^:\s*/, "").trim();
+      const baseType = annType.split(/[\s({<|]/)[0] ?? annType;
+      const STRING_TYPES = new Set(["string", "text", "String", "Text"]);
+      if (baseType !== forType && !STRING_TYPES.has(baseType)) {
+        fireB15Diagnostic(
+          errors,
+          "E-ENGINE-INITIAL-CELL-TYPE",
+          `E-ENGINE-INITIAL-CELL-TYPE: \`<engine for=${forType} server=@${sourcePath}>\` ` +
+          `hydrates from \`@${rootCell}\`, but that cell's type \`${annType}\` is neither ` +
+          `the engine's \`for=\` enum (\`${forType}\`) nor a \`string\` holding a variant ` +
+          `name. Per SPEC §52, a \`server=@source\` source must be a \`${forType}\` value ` +
+          `or a \`string\` whose value is a \`${forType}\` variant name` +
+          (variants.length > 0 ? ` (one of: ${variants.map((v) => `.${v}`).join(", ")})` : "") +
+          `.`,
+          engineDecl,
+          filePath,
+          "error",
+        );
+        return;
+      }
+    }
+  }
+
+  // 3. §52-AUTHORITY NUDGE (info, lenient). Recognize a §52 server-authority cell
+  //    by the markers the §52 codegen stamps on the decl: `isServer` (Tier-1
+  //    server-authority instance) / `serverAuthorityTable` (Tier-1) / `authority`
+  //    === "server" (Tier-2 `<var server>`). Absent ANY marker → info nudge.
+  const decl = cellRec.declNode as Record<string, unknown> | undefined;
+  const looksServerAuthoritative =
+    !!decl && (
+      decl.isServer === true ||
+      (typeof decl.serverAuthorityTable === "string" && decl.serverAuthorityTable.length > 0) ||
+      decl.authority === "server"
+    );
+  if (!looksServerAuthoritative) {
+    fireB15Diagnostic(
+      errors,
+      "W-ENGINE-SERVER-SOURCE-NOT-AUTHORITATIVE",
+      `W-ENGINE-SERVER-SOURCE-NOT-AUTHORITATIVE: \`<engine for=${forType} server=@${sourcePath}>\` ` +
+      `names \`@${rootCell}\` as its server-authoritative source, but \`@${rootCell}\` is not ` +
+      `recognizably a §52 server-authority cell (a \`<var server>\` Tier-2 cell or a Tier-1 ` +
+      `server-authority instance). The hydration mechanism works regardless — the engine ` +
+      `reflects whatever \`@${rootCell}\` holds, GUARD-FREE, on every change. This is a nudge: ` +
+      `if \`@${rootCell}\` IS server-owned (a server \`?{}\` / §38 push populates it), the ` +
+      `intent is correct; otherwise consider \`initial=@cell\` (snapshot-once) for a purely ` +
+      `client-side hydration.`,
+      engineDecl,
+      filePath,
+      "info",
+    );
+  }
 }
 
 /**

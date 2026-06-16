@@ -157,6 +157,17 @@ const STRIP_KEYS: ReadonlySet<string> = new Set([
                               // expression form at ~v0.8 per the swap roadmap).
   "derivedExprNode",          // companion parsed ExprNode for the above — same
                               // live-only codegen-support metadata class.
+  "serverSource",             // S199 (§52 server-authoritative engine, the E-leg)
+                              // — LIVE-only field on an engine-decl: the
+                              // `server=@source` server-owned source path the
+                              // engine hydrates from guard-free + reactively. The
+                              // native parser does NOT yet recognize the
+                              // `server=@source` form (same class as the
+                              // `derived=<expr>` form above — both cut over at the
+                              // native-parser swap), so it never carries this
+                              // field; a live-pipeline-internal codegen-support
+                              // field with no native analogue, NOT a semantic
+                              // divergence (both routes render identically).
 ]);
 
 // ---------------------------------------------------------------------------

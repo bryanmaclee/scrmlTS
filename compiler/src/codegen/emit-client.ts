@@ -13,7 +13,7 @@ import { emitBindings } from "./emit-bindings.ts";
 import { emitReactiveWiring } from "./emit-reactive-wiring.ts";
 import { filterChannelImportSpecifiers } from "./emit-channel.ts";
 import { emitEventWiring } from "./emit-event-wiring.ts";
-import { emitEngineSubstrate, emitDerivedEngineSubstrateForFile, emitCrossFileEngineMountsForFile, emitEngineHookFiringFunctionsForFile, emitEngineInitialArmsForFile, emitEngineCellHydrationInitsForFile, emitEngineOpenerEffectsForFile, emitEngineBodyRenderForFile, emitDerivedEngineBodyRenderForFile } from "./emit-engine.ts";
+import { emitEngineSubstrate, emitDerivedEngineSubstrateForFile, emitCrossFileEngineMountsForFile, emitEngineHookFiringFunctionsForFile, emitEngineInitialArmsForFile, emitEngineCellHydrationInitsForFile, emitEngineServerSourceHydrationsForFile, emitEngineOpenerEffectsForFile, emitEngineBodyRenderForFile, emitDerivedEngineBodyRenderForFile } from "./emit-engine.ts";
 import { setVariantFieldsForFile } from "./emit-control-flow.ts";
 import { setVariantFieldsForRewriter } from "./rewrite.js";
 import { EncodingContext, emitDecodeTable, emitRuntimeReflect } from "./type-encoding.ts";
@@ -1692,6 +1692,21 @@ export function generateClientJs(ctx: CompileContext): string {
     lines.push("");
     lines.push("// --- engine runtime-cell hydration (deferred post-cell-init, §51.0.E) ---");
     for (const line of engineHydrationLines) lines.push(line);
+  }
+
+  // §52 (S199 — the E-leg) — server-authoritative REACTIVE hydration. A
+  // `server=@source` engine subscribes to a server-owned source cell and
+  // re-hydrates GUARD-FREE on every change (the server is the authority asserting
+  // truth); client moves stay guarded transitions (the engine remains writable).
+  // Emitted alongside the A-leg hydration (after emitReactiveWiring so the
+  // initial read sees the source's real value). The §38 server-push composes for
+  // free — a pushed source-cell change fires the same subscription. Tree-shake:
+  // empty unless an engine declares `server=@source`.
+  const engineServerHydrationLines = clientStage(ctx, "emit-engine-server-source-hydrations", () => emitEngineServerSourceHydrationsForFile(fileAST));
+  if (engineServerHydrationLines.length > 0) {
+    lines.push("");
+    lines.push("// --- engine server-authoritative reactive hydration (§52, E-leg) ---");
+    for (const line of engineServerHydrationLines) lines.push(line);
   }
 
   // A5-4 (§51.0.M) — Initial-arm for engines with <onTimeout>. Emitted AFTER

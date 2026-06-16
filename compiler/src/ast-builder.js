@@ -13921,6 +13921,20 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         // exclusive with `initial=.Variant`; FORBIDDEN on derived engines. The `@`
         // sigil is the discriminator vs the `.Variant` form above.
         const initialCellMatch = header.match(new RegExp(`\\binitial\\s*=\\s*@(${IDENT.source})\\b`));
+        // §52 server-authoritative engine (S199 — the E-leg). `server=@source`
+        // names a SERVER-OWNED source cell (a §52 read-authority cell, or any
+        // reactive cell holding the engine's state). The engine HYDRATES from it
+        // GUARD-FREE (the server is the authority asserting truth) reactively —
+        // every source change re-hydrates via `_scrml_engine_hydrate_init`, NOT
+        // the `rule=` transition guard. Client moves stay GUARDED transitions.
+        // DISTINCT from `initial=@cell` (A-leg, snapshot-once-at-construction)
+        // and `derived=` (read-only projection). The engine REMAINS WRITABLE.
+        // The value is a cell ref, possibly a FIELD ACCESS (`@driver.current_status`):
+        // capture the full dotted path; the ROOT segment is the subscribed cell.
+        // `server` here is the §52 AUTHORITY sense (a value-bearing decl-attr),
+        // NOT the deprecated function-PLACEMENT `server` modifier. B14 RECORDS
+        // the path; B15 validates existence + type-compat + mutual-exclusion.
+        const serverSourceMatch = header.match(new RegExp(`\\bserver\\s*=\\s*@(${IDENT.source}(?:\\.${IDENT.source})*)\\b`));
         // §51.0.S.2.2 (S154 — #14 event-payload-transition, PARSER batch 1) —
         // `accepts=MsgType` engine-OPENER attribute. Value is a bare enum-type
         // identifier (e.g. `accepts=DragMsg`) declaring the message vocabulary
@@ -14162,6 +14176,13 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         // BOTH-FORMS fires at B15 when both are present).
         const initialCell = initialCellMatch ? initialCellMatch[1] : null;
 
+        // §52 server-authoritative engine (S199 — the E-leg) — record the
+        // server source path (`server=@source`, possibly `@driver.current_status`).
+        // B14 records the FULL dotted path verbatim; B15 validates existence (of the
+        // root cell) + type-compat + mutual-exclusion (E-ENGINE-SERVER-WITH-DERIVED,
+        // E-ENGINE-SERVER-WITH-INITIAL-CELL). null when absent.
+        const serverSource = serverSourceMatch ? serverSourceMatch[1] : null;
+
         // §51.0.S.2.2 (S154) — record accepts=MsgType. PARSER batch 1 RECORDS
         // the raw enum-type identifier; BATCH 2 (typer) resolves + validates.
         const acceptsType = acceptsMatch ? acceptsMatch[1] : null;
@@ -14325,6 +14346,12 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
           varNameOverride,
           initialVariant,
           initialCell,
+          // §52 server-authoritative engine (S199 — the E-leg). serverSource is
+          // the dotted source path (`@driver.current_status` -> "driver.current_status")
+          // iff `server=@source` was present; null otherwise. SYM (makeEngineRecord)
+          // lifts it onto engineMeta.serverSource; codegen emits a reactive
+          // subscription to the root cell that hydrates the engine guard-free.
+          serverSource,
           // §51.0.S.2.2 (S154 — #14 event-payload-transition, PARSER batch 1):
           //   acceptsType — non-null raw enum-type identifier iff `accepts=Type`
           //                 was present on the opener; null otherwise. BATCH 2

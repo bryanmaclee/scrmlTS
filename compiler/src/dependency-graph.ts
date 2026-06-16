@@ -2800,6 +2800,23 @@ export function runDG(input: DGInput): DGOutput {
             emitMarkupReadEdge(node.span, initialCell);
           }
         }
+        // §52 (S199 — the E-leg) — `server=@source` server-authoritative
+        // hydration SUBSCRIBES to (reads) the source cell reactively. Credit the
+        // ROOT cell of the dotted source path as a reader so E-DG-002 ("declared
+        // but never consumed") does not false-fire on a server-owned source whose
+        // only consumer is the engine's reactive hydration. Mirrors the A-leg
+        // `initial=@cell` credit above; the root segment is the subscribed cell
+        // (`@driver.current_status` -> `driver`).
+        const serverSource = engineMeta?.serverSource;
+        if (typeof serverSource === "string" && serverSource.length > 0) {
+          const serverSourceRoot = serverSource.split(".")[0];
+          if (serverSourceRoot && serverSourceRoot.length > 0) {
+            creditReader(serverSourceRoot);
+            if (markupContextEmitEdges && node.span) {
+              emitMarkupReadEdge(node.span, serverSourceRoot);
+            }
+          }
+        }
         // A-1.5 Shape 1 — engine state-child body raw text.
         // The engine body lives in engineMeta.stateChildren[i].bodyRaw (raw
         // text, not walkable AST — see engine-statechild-parser.ts, primer §13.7 B14).
