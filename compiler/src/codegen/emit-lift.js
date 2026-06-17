@@ -1310,6 +1310,37 @@ export function emitCreateElementFromMarkup(node, lines, engineCtx = null, scope
 }
 
 // ---------------------------------------------------------------------------
+// Markup-as-value expression lowering (markup-value-in-expression-2026-06-17)
+// ---------------------------------------------------------------------------
+
+/**
+ * Lower a single markup node (from ast-builder's parseLiftTag) to a JS
+ * EXPRESSION that evaluates to the built DOM node. This is the markup-as-value
+ * (Pillar 1, SPEC §1.4 / §7.4) primitive for markup appearing in EXPRESSION
+ * position — ternary consequent/alternate, a `return <markup>` value, and an
+ * inline `${ cond ? <markup> : <markup> }` interpolation arm.
+ *
+ * The bare markup-typed derived `const <x> = <markup>` path (emit-logic.ts C1
+ * arm 2) already lowers via emitCreateElementFromMarkup into a NAMED factory
+ * function. This helper produces the same DOM-building body, but wrapped in an
+ * IIFE so it can sit anywhere a JS expression goes — the markup VALUE is the
+ * node the IIFE returns.
+ *
+ * Returns a string of the form
+ *   `(function () { const _scrml_lift_el_N = document.createElement("span"); …; return _scrml_lift_el_N; })()`
+ *
+ * The `engineCtx` / `scopeVar` args are forwarded to emitCreateElementFromMarkup
+ * unchanged so `${...}` interpolations + reactive attributes inside the markup
+ * lower identically to the named-factory path.
+ */
+export function emitMarkupValueExpr(node, engineCtx = null, scopeVar = null) {
+  const bodyLines = [];
+  const rootVar = emitCreateElementFromMarkup(node, bodyLines, engineCtx, scopeVar);
+  const indented = bodyLines.map((l) => `  ${l}`).join("\n");
+  return `(function () {\n${indented}\n  return ${rootVar};\n})()`;
+}
+
+// ---------------------------------------------------------------------------
 // Tag expression string parser (for tokenizer-fragmented lift expressions)
 // ---------------------------------------------------------------------------
 

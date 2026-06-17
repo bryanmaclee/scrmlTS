@@ -5,7 +5,7 @@ import { emitExpr, emitExprField, arrowBodyNeedsParens, arrowBodyStringNeedsPare
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
 import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, matchArmInlineToMatchArm, emitVariantBindingPrelude, hasPayloadBindingOrTaggedVariant, getVariantFieldSchema, type MatchArm } from "./emit-control-flow.ts";
 import { isDestructurePattern, nameOrPatternText } from "./emit-destructure-pattern.ts";
-import { emitLiftExpr, emitCreateElementFromMarkup } from "./emit-lift.js";
+import { emitLiftExpr, emitCreateElementFromMarkup, emitMarkupValueExpr } from "./emit-lift.js";
 import { extractReactiveDeps, extractReactiveDepsFromExprNode, extractReactiveDepsTransitive, type FunctionBodyRegistry } from "./reactive-deps.ts";
 import { emitStringFromTree, parseExprToNode } from "../expression-parser.ts";
 import type { EncodingContext, ResolvedType, StructType } from "./type-encoding.ts";
@@ -2387,6 +2387,17 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       // return-type boundary check for refinement-typed returns.
       if (node.matchExpr) {
         return _wrapReturnWithCheck(emitMatchExpr(node.matchExpr, opts));
+      }
+      // markup-value-in-expression-2026-06-17 (c) — `return <markup>` value.
+      // The AST builder attaches a structured markup node as `markupNode` when
+      // `return` is followed by an inline markup opener (ast-builder.js return
+      // parser, mirroring the SQL/match hooks). Lower it to the markup→DOM-node
+      // IIFE so the `fn ... -> markup { return <span>${n}</span> }` idiom
+      // (PRIMER §6.4(4)) returns a real DOM node the caller can interpolate.
+      // The refinement-return boundary check is N/A for markup returns (markup
+      // is not a refinement-predicated scalar), so we bypass _wrapReturnWithCheck.
+      if ((node as any).markupNode) {
+        return `return ${emitMarkupValueExpr((node as any).markupNode)};`;
       }
       // Phase 3 fast path: when exprNode is present, skip all string splitting
       if (node.exprNode) {

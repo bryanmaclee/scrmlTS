@@ -7070,6 +7070,37 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           span: spanOf(startTok, peek()),
         };
       }
+      // markup-value-in-expression-2026-06-17 (c) — `return <markup>` value.
+      // markup-as-first-class-value (Pillar 1, SPEC §1.4 / §7.4; PRIMER §6.4(4)):
+      // a `fn name(...) -> markup { return <span>...</span> }` returns the markup
+      // VALUE. Mirror the `lift` keyword's inline-markup parse (parseOneStatement
+      // LIFT case, ~line 6749): when the next token is a markup opener (`<` PUNCT
+      // followed by IDENT/KEYWORD), route through parseLiftTag and attach the
+      // structured markup node as `markupNode`. emit-logic's return-stmt handler
+      // lowers it via emitMarkupValueExpr (the markup→DOM-node IIFE primitive).
+      // Without this hook the markup fell to collectExpr → acorn escape-hatch
+      // `< span >` (raw, mangled) + the `${...}` interpolation orphaned → invalid
+      // JS (E-CODEGEN-INVALID-JS). The `peek().text === "<"` / IDENT-or-KEYWORD
+      // gate is the same disambiguator the `lift` path uses; a `return @a < @b`
+      // comparison is NOT matched (peek(1) is AT_IDENT, not IDENT/KEYWORD).
+      if (
+        peek().kind === "PUNCT" && peek().text === "<" &&
+        peek(1) && (peek(1).kind === "IDENT" || peek(1).kind === "KEYWORD")
+      ) {
+        const markupCursor = i;
+        const markupNode = parseLiftTag();
+        if (markupNode) {
+          return {
+            id: ++counter.next,
+            kind: "return-stmt",
+            expr: "",
+            markupNode,
+            span: spanOf(startTok, peek()),
+          };
+        }
+        // parseLiftTag declined (not actually markup) — reset and fall through.
+        i = markupCursor;
+      }
       const { expr, span } = collectExpr();
       return {
         id: ++counter.next,
