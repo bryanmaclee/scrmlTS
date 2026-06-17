@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-06-16  commit: 76d03aa9
+# updated: 2026-06-16  commit: b1f5f8bf
 
 ## Entry Points
 compiler/bin/scrml.js — CLI binary registered as `scrml`; thin Bun launcher
@@ -13,7 +13,7 @@ compiler/src/codegen/index.ts — codegen subsystem entry; re-exports CgInput/Cg
 
 compiler/  — Bun workspace; the entire compiler toolchain plus tests
 compiler/src/  — compiler pipeline source (33 .js + 110+ .ts files): block-splitter, ast-builder, tokenizer, type-system, auth-graph, dependency-graph, engine-graph (S149), component-expander (CE stage), engine-statechild-parser (custom raw-text engine-arm parser), runtime-template (client runtime JS source), **sql-projection.ts (NEW S175, 419L — SELECT-projection extractor for the typed-SQL-row arc: `extractSelectProjection(query)` → `SelectProjection` {columns / `t.col` qualified / `AS` aliases / FROM-JOIN alias map}; graceful degradation on the deferred long tail)**; **engine-varname.ts (NEW S192, 41L — the ONE canonical §51.0.C acronym-run var-name rule: `autoDeriveEngineVarName(typeName)` exported; imported by symbol-table.ts / type-system.ts / codegen/emit-machines.ts / ast-builder.js — collapses 4 divergent derivation sites into one)**; etc.
-compiler/src/codegen/  — 60+ emit-*.ts modules; errors.ts (CGError class + code catalog); ir.ts (IR shapes); emit-error-boundary.ts (+320L §19.6); **log-loc.ts (NEW S174, 224L — location resolver for the `log()` builtin: `resolveLogLoc(span)`→"basename:line" from byte offset, `registerFileSource`/`resetLogLoc` per-compile cache, `fileDeclaresLog(fileAST)` shadow detector, `SERVER_LOG_HELPER` raw-string runtime chunk for `_scrml_log`/`_scrml_log_render`)**; emit-client.ts (_scrml_modules cross-file registry S152 #6; detectRuntimeChunks descends into engine bodyChildren + each-block bodyChildren, S153; S174: includes the `'log'` client chunk ONLY when an emitted line contains `_scrml_log(`); emit-server.ts (S174: prepends `SERVER_LOG_HELPER` to the server bundle ONLY when the final emitted JS contains a `_scrml_log(` call); emit-expr.ts (S174: `log(...)` call lowering ~L1630 — `_scrml_log(side, loc, ...args)` for the builtin / plain call for a shadowed `log` / `(void 0)` no-op under `_logProductionStrip`; `setLogShadowedInFile`/`setLogProductionStrip` toggles + `resolveLogLoc` import); emit-each.ts (Tier-1 `<each>` render fns + dep-first read + `_scrml_each_renderers` registration + Bug 62 engine-ctx threading, S153-S156; Bug 64/R28-1c S158: `EachReconcileCtx` stack + `maybeWrapEachPerItemEffect` + push/pop/current for live-keyed per-item TEXT/class: bindings; Bug 73 S159: `iterScopeReferencedInHandler` + `maybeWrapEachPerItemHandler` for live-keyed Tier-1 per-item EVENT HANDLERS); emit-lift.js (Tier-0 `${for…lift}`; Bug 65 S157 engine-ctx threading; Bug 64: push/pop reconcile ctx; Bug 72 S158 `tryEmitNestedLiftEach`; Bug 73 S159: `maybeWrapLiftPerItemHandler`/`maybeWrapLiftCallableHandler` + shared `_liftIterScopeReferenced`); emit-engine.ts (engine substrate codegen; S155 message-arm dispatch table); emit-match.ts (block-form match arms); emit-variant-guard.ts (engine/match arm-swap dispatcher; calls `_scrml_remount_each`, S153); build-source-map.ts + source-map.ts + srcmap-provenance.ts (source-map provenance subsystem, S149-S150); emit-html.ts (Bug 60 S157: `enclosingCompoundStack` + `lookupQualifiedStateCell` fallback for render-by-tag inside nested compound wrappers); **S196: `<render of=X/>` render-expression expansion [generateHtml ~L1041-1173] — resolves `of=` to the held value's JS accessor (a `<match>` arm-payload binding or an `@`-cell), builds a per-variant `switch(X.variant)` from `allVariantRenderExprs` + `emitBoundaryMarkupExpr` against the HELD value's `.data`, fills a `<span data-scrml-render-anchor>` innerHTML; emits E-RENDER-NO-OF codegen backstop [:1082]**
+compiler/src/codegen/  — 60+ emit-*.ts modules; errors.ts (CGError class + code catalog); ir.ts (IR shapes); emit-error-boundary.ts (+320L §19.6); **log-loc.ts (NEW S174, 224L — location resolver for the `log()` builtin: `resolveLogLoc(span)`→"basename:line" from byte offset, `registerFileSource`/`resetLogLoc` per-compile cache, `fileDeclaresLog(fileAST)` shadow detector, `SERVER_LOG_HELPER` raw-string runtime chunk for `_scrml_log`/`_scrml_log_render`)**; emit-client.ts (_scrml_modules cross-file registry S152 #6; detectRuntimeChunks descends into engine bodyChildren + each-block bodyChildren, S153; S174: includes the `'log'` client chunk ONLY when an emitted line contains `_scrml_log(`); emit-server.ts (S174: prepends `SERVER_LOG_HELPER` to the server bundle ONLY when the final emitted JS contains a `_scrml_log(` call); emit-expr.ts (S174: `log(...)` call lowering ~L1630 — `_scrml_log(side, loc, ...args)` for the builtin / plain call for a shadowed `log` / `(void 0)` no-op under `_logProductionStrip`; `setLogShadowedInFile`/`setLogProductionStrip` toggles + `resolveLogLoc` import); emit-each.ts (Tier-1 `<each>` render fns + dep-first read + `_scrml_each_renderers` registration + Bug 62 engine-ctx threading, S153-S156; Bug 64/R28-1c S158: `EachReconcileCtx` stack + `maybeWrapEachPerItemEffect` + push/pop/current for live-keyed per-item TEXT/class: bindings; Bug 73 S159: `iterScopeReferencedInHandler` + `maybeWrapEachPerItemHandler` for live-keyed Tier-1 per-item EVENT HANDLERS; **S200 C1+C2 `39bd061f`: `lowerEachExpr` lowers §42 per-item predicates via `parseExprToNode`→`emitExprField` + per-item element `if=` gates `appendChild`**); emit-lift.js (Tier-0 `${for…lift}`; Bug 65 S157 engine-ctx threading; Bug 64: push/pop reconcile ctx; Bug 72 S158 `tryEmitNestedLiftEach`; Bug 73 S159: `maybeWrapLiftPerItemHandler`/`maybeWrapLiftCallableHandler` + shared `_liftIterScopeReferenced`); emit-engine.ts (engine substrate codegen; S155 message-arm dispatch table); emit-match.ts (block-form match arms); emit-variant-guard.ts (engine/match arm-swap dispatcher; calls `_scrml_remount_each`, S153); build-source-map.ts + source-map.ts + srcmap-provenance.ts (source-map provenance subsystem, S149-S150); emit-html.ts (Bug 60 S157: `enclosingCompoundStack` + `lookupQualifiedStateCell` fallback for render-by-tag inside nested compound wrappers); **S196: `<render of=X/>` render-expression expansion [generateHtml ~L1041-1173] — resolves `of=` to the held value's JS accessor (a `<match>` arm-payload binding or an `@`-cell), builds a per-variant `switch(X.variant)` from `allVariantRenderExprs` + `emitBoundaryMarkupExpr` against the HELD value's `.data`, fills a `<span data-scrml-render-anchor>` innerHTML; emits E-RENDER-NO-OF codegen backstop [:1082]**
 compiler/src/codegen/compat/  — compatibility shims for legacy pipeline shapes
 compiler/src/commands/  — CLI subcommand implementations: build.js compile.js (S174: `--production`/`--prod` flag at compile.js:170 sets `production:true`, threaded to compileScrml — §20.6 log() strip) dev.js (per-file watcher rewrite, S152; S174: `POST /_scrml/log` client-log forwarding endpoint ~L459 for the §20.6.3 dev unified-view) generate.js init.js migrate.js promote.js serve.js
 compiler/src/types/  — pure TypeScript declarations: ast.ts (2006L AST node shapes; S154 `acceptsType?` on EngineDeclNode; **S168 cycles-prereq: `ReactiveNestedAssignNode.path` widened `string[]` → `(string | { index?: ExprNode; raw?: string })[]` for computed bracket-index COW path segments**; S169: `MapLitExpr`/`MapEntry` ExprNode union members; **S174 log()/`any`-reject add NO new AST shapes — both are decl-site/use-site scans over existing nodes; log-loc.ts's `LogLocSpan` interface is codegen-internal, not a FileAST shape**), reachability.ts
@@ -822,6 +822,49 @@ repro fires E-CTX-001 on the pre-fix compiler (`cd822f7a`) and compiles clean on
   (e.g. `<input></Editing>`). Now resumes at `q` with a `foundOpenerEnd` flag and `continue`s
   unconditionally; EOF inside the opener leaves `p === len` so `findArmCloser` returns null (the caller
   fires E-MATCH-PARSE-001 for the genuinely-malformed arm).
+
+## Key S200 Source Changes (repo is now `scrml`; renamed at S200 from its former name; self-host sibling is now `scrml-native`)
+
+Two arcs landed against the `<each>` per-item path and component-with-helper inlining
+(g-each-component-body-invalid-js + g-each-peritem-if-predicate).
+
+- compiler/src/component-expander.ts (4037L at S200) — **g-each-component-body-invalid-js**. A consumer
+  importing a component from module M inlines the body, whose helper calls resolve to M's NON-component
+  exports — but the consumer bound only the component name, leaving helper refs unbound (hard E-SCOPE-001
+  on the `<each>` per-item path; silent runtime ReferenceError on Tier-0 `${for…lift}` — latent in every
+  shipped component-with-helper incl. the trucking board).
+  - **STEP 1** (`60ace8b4`, direct imports): the import-enrichment seed loop adds M's non-component
+    (helper) exports to the existing import's bindings (`exportIsUserComponent` :196 filter;
+    `alreadyImported`-guarded) so the inlined body resolves in BOTH the TS symbol table AND codegen's
+    `_scrml_modules[key]` destructure.
+  - **STEP 2-A** (`ecba9fee`, transitive): a component whose body renders ANOTHER imported
+    component-with-helper reaches the inner module TRANSITIVELY (consumer imports only the OUTER
+    component). CE's enrichment BFS (~:3639) synthesizes a consumer import + matching `importGraph` edge
+    for the transitive module's non-component exports — injected into an existing import-bearing logic
+    block (TS scope-walk) AND `ast.imports`/`importGraph` (codegen). The transitive module is already
+    runtime-loaded via the outer component's import.
+  - **STEP 2-B** (`ecba9fee`, nested expression-prop): `buildPropExprMap` (:1143) + `substitutePropsInExprNode`
+    (:1289) now substitute EXPRESSION-valued nested props via `parseExprToNode`-per-arg + IdentExpr-replacement
+    walk (not raw text), so a component body passing `prop=${expr}` to an inner component substitutes correctly.
+
+- compiler/src/codegen/emit-each.ts (1928L at S200) — **g-each-peritem-if-predicate, C1+C2** (`39bd061f`).
+  - **C1** (§42 per-item predicate lowering): `lowerEachExpr(text, iterVar)` (:594) — the text-based
+    `rewriteIterValueExpr` lowered iter-scope (`@.field`→iterVar) + `@cell`→reactive-get but NOT predicates,
+    so a per-item expr carrying `is some`/`is not`/`not` leaked invalid JS (`String((x is some))`).
+    `lowerEachExpr` pre-rewrites iter-scope, then — only when a predicate token is present (regex gate) —
+    routes the text through the STRUCTURED emitter (`parseExprToNode` → `emitExprField`, the
+    emit-predicates.ts path) which lowers `is some`→`(v !== null && v !== undefined)` etc.; falls back to
+    the text path on parse failure / no-predicate (the common case — no parse round-trip). Now used by the
+    per-item `${…}` interp branch (:407), attr interpolation (:755/:762), and `if=` condition.
+  - **C2** (per-item element `if=` conditional): `renderTemplateChildToJs` (:314-351) consumes a per-item
+    element's `if` attribute as a conditional (not a `setAttribute`): `ifCond = lowerEachExpr(raw, iterVar)`,
+    and the element append becomes `if (ifCond) fragmentVar.appendChild(elVar)` instead of an unconditional
+    append. The each render-fn re-runs on collection change (`_scrml_effect_static`), so the conditional
+    re-evaluates per render.
+
+- compiler/src/codegen/emit-predicates.ts (518L) — consumed by `lowerEachExpr`'s structured path
+  (`emitExprField` lowers the §42 absence predicates `is some`/`is not`/`not` to the `!== null && !== undefined`
+  guards). No new export; the C1 fix routes through the existing predicate-emit surface.
 
 ## Ignored / Generated Paths
 node_modules/, compiler/node_modules/, dist/, compiler/dist/, compiler/native-parser/dist/,

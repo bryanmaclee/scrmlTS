@@ -15,7 +15,7 @@
 - **Sync:** scrml pushed (pre-wrap was 0/0 at `f22a169c`; the wrap commit + maps follow-on ride this push). scrml-support 0/0. scrml-native pushed at rename. All 3 repos clean.
 - **Board:** **HIGH 3 · MED 11 · LOW 20 · Nominal 8** (unchanged count from S199 close: S200 RESOLVED 2 HIGH [`g-each-component-body-invalid-js` + `g-each-peritem-if-predicate-not-lowered`] and FILED 1 HIGH [`g-nested-component-member-arg-misparse`]; the peritem-if gap was filed+resolved same session).
 - **Tests:** full suite **24,386 / 0** (at the C1+C2 landing `39bd061f`); pre-commit subset **17,128 / 90 / 0** (live `bun scripts/state.ts`). No compiler source changed after `39bd061f` (docs/delta-log/wrap are docs-only) → full suite unchanged through close; pre-push hook is the gate.
-- **Maps:** refreshed in the wrap's follow-on maps commit (was stale at `76d03aa9`, 9 commits behind HEAD) via `project-mapper` incremental on the S200 source surface (`compiler/src/codegen/emit-each.ts` + `compiler/src/component-expander.ts` + predicate-codegen). See delta-log [10].
+- **Maps:** REFRESHED to watermark `b1f5f8bf` (was stale at `76d03aa9`) via `project-mapper` incremental — 4 maps (primary/structure/domain/test) on the S200 each-codegen/CE source surface (`emit-each.ts` `lowerEachExpr`/`if=`-gate · `component-expander.ts` STEP1/2-A/2-B · `emit-predicates.ts`); zero stale `scrmlTS` refs confirmed. Committed with explicit pathspec (project-mapper is non-isolated). See delta-log [10].
 - **Inbox:** empty. **Worktrees:** main only (S200 `fix(ce)`/`fix(codegen)` dispatch worktrees already 6b-cleaned).
 - **Experts staged** (`~/.claude/agents/`): `xstate-expert` · `elm-architecture-expert` · `threejs-webgl-integration-expert`.
 - **Version:** v0.7.0.
