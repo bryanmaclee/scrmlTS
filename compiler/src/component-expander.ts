@@ -189,6 +189,15 @@ interface ExportInfo {
   category?: string;
 }
 
+/** Is this export-registry record a user component? Prefers NR's `category`
+ *  ("user-component"); falls back to the legacy `isComponent` boolean only when
+ *  `category` is absent (pre-NR / older registry records). The single canonical
+ *  classification for the cross-file enrichment + helper-hoisting filters. */
+function exportIsUserComponent(info: ExportInfo | undefined): boolean {
+  if (!info) return false;
+  return info.category === "user-component" || (info.category == null && info.isComponent === true);
+}
+
 
 // ---------------------------------------------------------------------------
 // P3-FOLLOW: NR-authoritative user-component predicate
@@ -1139,7 +1148,6 @@ function buildPropExprMap(
   fallbackSpan: Span,
 ): Map<string, ExprNode> {
   const out = new Map<string, ExprNode>();
-  if (props.size === 0) return out;
 
   const exprSpan: ExprSpan = {
     file: filePath,
@@ -1219,6 +1227,44 @@ function buildPropExprMap(
         raw: value,
       } satisfies EscapeHatchExpr);
     }
+  }
+
+  // g-each-component-body-invalid-js (STEP 2-B): EXPRESSION-valued props are not
+  // collected into the string `props` map above — the props-building loop in
+  // expandComponentNode only records `string-literal` + `variable-ref`. A nested
+  // / re-parsed component opener carries `call-ref` (`<Badge s=fmt(n)/>`) or a
+  // member chain (`<LoadStatusBadge status=load.status/>`) as the attr value, so
+  // the loop above never substitutes them: the prop name leaks bare into the
+  // component body (`label(s)` / `statusLabel(status)`) → E-SCOPE-001 on the
+  // `<each>` path / latent runtime ReferenceError on the Tier-0 `${for…lift}`
+  // path. Build the missing ExprNodes directly from the attr value here.
+  for (const attr of callerAttrs ?? []) {
+    if (!attr || !attr.name || attr.name === "class") continue;
+    if (out.has(attr.name)) continue;                                   // already handled above
+    if (propsDecl && !propsDecl.some((p) => p.name === attr.name)) continue; // declared props only
+    const v = attr.value as (typeof attr.value & {
+      kind?: string; name?: string; raw?: string; value?: string;
+      exprNode?: ExprNode; argExprNodes?: ExprNode[];
+    }) | undefined;
+    if (!v) continue;
+    let exprNode: ExprNode | null = null;
+    if (v.kind === "call-ref" && typeof v.name === "string") {
+      exprNode = {
+        kind: "call",
+        span: exprSpan,
+        callee: { kind: "ident", span: exprSpan, name: v.name } satisfies IdentExpr,
+        args: (v.argExprNodes ?? []) as (ExprNode | SpreadExpr)[],
+        optional: false,
+      } satisfies CallExpr;
+    } else if (v.exprNode) {
+      exprNode = v.exprNode;
+    } else {
+      const text = v.raw ?? v.value ?? v.name;
+      if (typeof text === "string" && text.length > 0) {
+        try { exprNode = parseExprToNode(text, filePath, exprSpan.start); } catch { exprNode = null; }
+      }
+    }
+    if (exprNode) out.set(attr.name, exprNode);
   }
   return out;
 }
@@ -1821,7 +1867,12 @@ function substituteProps(
   propExprMap?: Map<string, ExprNode>,
 ): ASTNode {
   if (!node || typeof node !== "object") return node;
-  if (props.size === 0) return node;
+  // g-each-component-body-invalid-js (STEP 2-B): also proceed when only the
+  // ExprNode map is populated. Expression-valued props (call-ref / member chain)
+  // never enter the string `props` map, so a component whose ONLY prop is
+  // expression-valued has `props.size === 0` but a non-empty `propExprMap` — the
+  // body + attr substitution must still run off `propExprMap`.
+  if (props.size === 0 && (!propExprMap || propExprMap.size === 0)) return node;
 
   // Clone the node shallowly
   const cloned = { ...node } as Record<string, unknown>;
@@ -3444,6 +3495,22 @@ export function runCEFile(
     type WorkItem = { sourceKey: string; importedName: string; localName: string; rawSource: string };
     const seen = new Set<string>();
     const work: WorkItem[] = [];
+    // STEP 2-A bookkeeping (g-each-component-body-invalid-js): modules the
+    // consumer imports DIRECTLY (transitive helper-import synthesis skips them —
+    // STEP 1's seed-loop augmentation already covers direct imports) + the set of
+    // modules we've already synthesized a transitive helper import for. The
+    // relImportSource helper derives a consumer-relative `.scrml` specifier from
+    // the transitive module's absolute path (sourceKey === absSource per lookupKey).
+    const directImportKeys = new Set<string>();
+    const syntheticHelperImportKeys = new Set<string>();
+    const relImportSource = (fromFile: string, toAbs: string): string => {
+      const fromDir = fromFile.split("/").slice(0, -1);
+      const to = toAbs.split("/");
+      let i = 0;
+      while (i < fromDir.length && i < to.length - 1 && fromDir[i] === to[i]) i++;
+      const rel = [...fromDir.slice(i).map(() => ".."), ...to.slice(i)].join("/");
+      return rel.startsWith(".") ? rel : "./" + rel;
+    };
 
     // Pre-gather every name the consumer already imports (across all import
     // nodes) so the helper-import augmentation below never adds a colliding
@@ -3459,6 +3526,7 @@ export function runCEFile(
     for (const imp of (ast.imports ?? [])) {
       const importExt = imp as ImportWithSpecifiers;
       const key = lookupKey(filePath, imp, importGraph);
+      directImportKeys.add(key);
       const targetExports = exportRegistry.get(key);
       if (!targetExports) continue;
       const pairs = importExt.specifiers
@@ -3468,9 +3536,7 @@ export function runCEFile(
       for (const { imported, local } of pairs) {
         const info = targetExports.get(imported);
         if (!info) continue;
-        const isUserComponent =
-          info.category === "user-component" ||
-          (info.category == null && info.isComponent === true);
+        const isUserComponent = exportIsUserComponent(info);
         if (!isUserComponent) continue;
         importHasComponent = true;
         work.push({ sourceKey: key, importedName: imported, localName: local, rawSource: imp.source as string });
@@ -3488,10 +3554,7 @@ export function runCEFile(
       // collisions are guarded by `alreadyImported`.
       if (importHasComponent) {
         for (const [expName, expInfo] of targetExports) {
-          const expIsComponent =
-            expInfo.category === "user-component" ||
-            (expInfo.category == null && expInfo.isComponent === true);
-          if (expIsComponent) continue;            // components inline; add only helpers
+          if (exportIsUserComponent(expInfo)) continue;   // components inline; add only helpers
           if (alreadyImported.has(expName)) continue;
           alreadyImported.add(expName);
           if (importExt.specifiers) importExt.specifiers.push({ imported: expName, local: expName });
@@ -3573,6 +3636,69 @@ export function runCEFile(
         }
       }
 
+      // STEP 2-A (g-each-component-body-invalid-js): transitive helper imports.
+      // This component was reached TRANSITIVELY — its module `sourceKey` is not
+      // among the consumer's direct imports — and CE inlines its body here, whose
+      // helper calls (e.g. statusLabel) resolve to `sourceKey`'s NON-component
+      // exports, which the consumer never imported. STEP 1's seed-loop
+      // augmentation only reaches directly-imported modules. Synthesize a consumer
+      // import + matching importGraph edge for those helpers so they resolve in
+      // BOTH the TS symbol table and the codegen `_scrml_modules[key]` destructure.
+      // The transitive module is already loaded at runtime (the directly-imported
+      // component's module imports it), so its registry footer exists.
+      if (!directImportKeys.has(sourceKey) && !syntheticHelperImportKeys.has(sourceKey)) {
+        const modExports = exportRegistry.get(sourceKey);
+        if (modExports) {
+          const helperNames = [...modExports.entries()]
+            .filter(([, info]) => !exportIsUserComponent(info))
+            .map(([n]) => n)
+            .filter((n) => !alreadyImported.has(n));
+          if (helperNames.length > 0) {
+            syntheticHelperImportKeys.add(sourceKey);
+            for (const n of helperNames) alreadyImported.add(n);
+            const relSource = relImportSource(filePath, sourceKey);
+            const synthSpan = { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+            const synthImport = {
+              kind: "import-decl",
+              raw: `import { ${helperNames.join(", ")} } from '${relSource}'`,
+              names: helperNames,
+              specifiers: helperNames.map((n) => ({ imported: n, local: n })),
+              source: relSource,
+              isDefault: false,
+              span: synthSpan,
+            } as ImportDeclNode;
+            // (1) collected list — read by CE seed loop + codegen import emission.
+            (ast.imports ??= []).push(synthImport);
+            // (2) node tree — TS's scope walk descends `${...}` logic blocks to
+            //     bind import-decl names; without this the names never enter the
+            //     TS scope chain (TS runs on ast.nodes, not ast.imports). The
+            //     consumer's imports live in a logic block NESTED in the markup
+            //     tree (e.g. `<program>${ import … }</program>`), so recurse.
+            const findImportLogicBody = (nodes: ASTNode[] | undefined): ASTNode[] | null => {
+              for (const nd of nodes ?? []) {
+                if (!nd || typeof nd !== "object") continue;
+                const body = (nd as { body?: ASTNode[] }).body;
+                if ((nd as { kind?: string }).kind === "logic" && Array.isArray(body) &&
+                    body.some((b) => b && (b as { kind?: string }).kind === "import-decl")) {
+                  return body;
+                }
+                const found = findImportLogicBody((nd as { children?: ASTNode[] }).children);
+                if (found) return found;
+              }
+              return null;
+            };
+            const hostBody = findImportLogicBody(ast.nodes);
+            if (hostBody) hostBody.push(synthImport as unknown as ASTNode);
+            // (3) importGraph edge — codegen resolves the module key by matching
+            //     `source` then reading `absSource`.
+            const consumerGraph = importGraph?.get(filePath);
+            if (consumerGraph && Array.isArray(consumerGraph.imports)) {
+              consumerGraph.imports.push({ names: helperNames, source: relSource, absSource: sourceKey } as (typeof consumerGraph.imports)[number]);
+            }
+          }
+        }
+      }
+
       // A6 transitive enrichment: enqueue user-component imports of the
       // target file. The target's own `ast.imports` resolves via
       // `importGraph.get(sourceKey)`. Component refs inside the target's
@@ -3590,10 +3716,7 @@ export function runCEFile(
         for (const { imported: tImported, local: tLocal } of tPairs) {
           const tInfo = tTargetExports.get(tImported);
           if (!tInfo) continue;
-          const tIsUserComponent =
-            tInfo.category === "user-component" ||
-            (tInfo.category == null && tInfo.isComponent === true);
-          if (!tIsUserComponent) continue;
+          if (!exportIsUserComponent(tInfo)) continue;
           work.push({
             sourceKey: tKey,
             importedName: tImported,
