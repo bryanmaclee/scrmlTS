@@ -2413,6 +2413,33 @@ function _parseExprToNodeInner(raw: string, filePath: string, offset: number, op
  * @param node - The ExprNode to emit
  * @returns String representation of the expression
  */
+// Binary-operator precedence (JS; higher binds tighter) — used by emitStringFromTree to parenthesize
+// a binary/ternary/assign operand whose precedence is lower than its parent op's, so re-serialization
+// preserves grouping (g-emit-string-tree-paren-drop, S205: `(a + b) % c` must not re-emit as `a + b % c`).
+const BIN_PREC: Record<string, number> = {
+  "??": 3, "||": 4, "&&": 5, "|": 6, "^": 7, "&": 8,
+  "==": 9, "!=": 9, "===": 9, "!==": 9,
+  "<": 10, "<=": 10, ">": 10, ">=": 10, "in": 10, "instanceof": 10,
+  "<<": 11, ">>": 11, ">>>": 11,
+  "+": 12, "-": 12,
+  "*": 13, "/": 13, "%": 13,
+  "**": 14,
+};
+// scrml `is` / `is some` / `is not` / `is not not` predicates bind tighter than arithmetic (the parser's
+// LHS scanner stops at any binary operator — see §"is some" scanner notes), so `(a + b) is some` needs parens.
+const IS_PREC = 15;
+function exprPrec(node: ExprNode): number {
+  if (node.kind === "binary") {
+    const op = (node as { op: string }).op;
+    if (op === "is" || op === "is-not" || op === "is-some" || op === "is-not-not") return IS_PREC;
+    return BIN_PREC[op] ?? 0;
+  }
+  if (node.kind === "ternary") return 2;
+  if (node.kind === "assign") return 1;
+  if (node.kind === "lambda") return 1;
+  return 99; // atomic / tighter-binding (ident · lit · member · call · index · unary · array · object)
+}
+
 export function emitStringFromTree(node: ExprNode): string {
   switch (node.kind) {
     case "ident":
@@ -2464,14 +2491,24 @@ export function emitStringFromTree(node: ExprNode): string {
     }
 
     case "binary": {
-      const left = emitStringFromTree(node.left);
-      const right = emitStringFromTree(node.right);
+      const isPred = node.op === "is" || node.op === "is-not" || node.op === "is-some" || node.op === "is-not-not";
+      const parentPrec = isPred ? IS_PREC : (BIN_PREC[node.op] ?? 0);
+      const rightAssoc = node.op === "**"; // only ** is right-associative among JS binaries
+      // Wrap an operand if its precedence is lower than the parent op's, OR equal-and-on-the-
+      // associativity-losing side (left operand of a right-assoc op, or right operand of a
+      // left-assoc op). This is the minimal-parens rule; deterministic → idempotent round-trip.
+      const wrap = (child: ExprNode, tieNeedsParen: boolean): string => {
+        const s = emitStringFromTree(child);
+        const cp = exprPrec(child);
+        return (cp < parentPrec || (tieNeedsParen && cp === parentPrec)) ? `(${s})` : s;
+      };
+      const left = wrap(node.left, rightAssoc);
       switch (node.op) {
-        case "is": return `${left} is ${right}`;
+        case "is": return `${left} is ${emitStringFromTree(node.right)}`;
         case "is-not": return `${left} is not`;
         case "is-some": return `${left} is some`;
         case "is-not-not": return `${left} is not not`;
-        default: return `${left} ${node.op} ${right}`;
+        default: return `${left} ${node.op} ${wrap(node.right, !rightAssoc)}`;
       }
     }
 
