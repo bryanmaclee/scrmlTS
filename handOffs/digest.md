@@ -1,9 +1,9 @@
-<!-- @digest head=bcfeeac0 delta-seq=6 -->
+<!-- @digest head=d64d4519 delta-seq=8 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `bcfeeac0`** + delta-log **[6]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `bcfeeac0`
+> **HEAD `d64d4519`** + delta-log **[8]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `d64d4519`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `bcfeeac0`
+## Board — from `@gap` tokens @ `d64d4519`
 - **HIGH 0** · MED 11 · LOW 23 · Nominal 8
 - Named open HIGHs: _none_
 
@@ -21,19 +21,19 @@
 - _(none in the latest session)_
 
 ## Recent activity — last 6 `disp`/`land`/`find`/`state`
-- `[1]` state · COLD S204 boot (Profile A FULL, "read pa.md and start session"). digest STALE (delta-log moved since stamp c718d4c2) → authoritative fallback (master-list §0 +… → hand-off S204 OPEN + handOffs/hand-off-208.md (S203 rotated)
 - `[2]` state · #3 RE-ATTACH READY — agent af88c53a8985b37fb (bare-control-flow-in-markup) COMPLETED across the reboot (F3's first real use; PA alive → PA owns the landing, no… → agent report + FINAL_SHA 572ef009
 - `[3]` land · #3 LANDED a6405053 (user "land and push"). E-CONTROL-FLOW-IN-MARKUP reject+recover — file-delta the 5 files from worktree-agent-af88c53a@572ef009 AFTER a clean-… → a6405053
 - `[4]` land · flograph corpus-annotation SLICE 1 (user "flograph" → "annotate the corpus") + a parser fix the dog-food surfaced. Authored the board-<each> saga: board-each-co… → flograph slice-1 commit + spec §2.2
 - `[5]` land/find · flograph SLICE 2 (user "slice 2") — annotated the recent design corpus so the provenance SWEEP surfaces REAL asserted-not-verified claims. 4 DDs @node'd (kind=d… → slice-2 commit (scrml-support) + delta-log [5]
 - `[6]` find/land · DEPUTY-DILATION LOOP CLOSED (user "push and close the deputy-dilation loop"). PUSHED slices 1+2 (scrml bdd6e1c9..5295a61c gate-green 24434/0; scrml-support ab9a… → vpa-deputy DD §S204-measurement + flograph edge
+- `[7]` land/find · flograph SLICE 3 (user "flograph 3") — the SUPERSESSION/currency layer, via TOOL ENHANCEMENT not manual annotation. flograph.ts now reads write-once-tier frontm… → flograph.ts + spec §2.1/§4.5
 
 ## State
-- Version: 0.7.0 · maps: 37 commits behind HEAD (watermark 60d547e1, HEAD bcfeeac0)
+- Version: 0.7.0 · maps: 41 commits behind HEAD (watermark 60d547e1, HEAD d64d4519)
 - Recent wraps:
+  - d64d4519 wrap(s204): close — #3 E-CONTROL-FLOW-IN-MARKUP (F3 reboot-bridge first use) + flograph slices 1-3 + deputy-dilation measured ~2-3% + deputy-maint merged
   - 69172d25 wrap(s203): close — vPA-deputy LIVE (F1/F2/F3 + self-poke loop) + e2e backlog triaged + flograph filter; #3 fix left in-flight (first F3 reboot-bridge use)
   - 1bcf5c71 wrap(s202): close — each-inline arc closed (board HIGH 0) + trucking flagship complete + flograph & L1 render-map built + 4 DDs (dock/e2e/deputy adopted, baton retired)
-  - caa8f77b wrap(s201): close — the 2-HIGH pass DONE (each-body-bare-variant + markup-value end-to-end) + member-arg; board HIGH 1
 
 ## NOT in the digest (read source for these)
 - Open questions awaiting you → `hand-off.md` §"OPEN THREADS / Open questions"
