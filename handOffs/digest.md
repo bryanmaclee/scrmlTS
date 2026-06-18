@@ -1,9 +1,9 @@
-<!-- @digest head=d64d4519 delta-seq=8 -->
+<!-- @digest head=bf7c8759 delta-seq=8 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `d64d4519`** + delta-log **[8]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `d64d4519`
+> **HEAD `bf7c8759`** + delta-log **[8]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `bf7c8759`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `d64d4519`
+## Board — from `@gap` tokens @ `bf7c8759`
 - **HIGH 0** · MED 11 · LOW 23 · Nominal 8
 - Named open HIGHs: _none_
 
@@ -29,9 +29,9 @@
 - `[7]` land/find · flograph SLICE 3 (user "flograph 3") — the SUPERSESSION/currency layer, via TOOL ENHANCEMENT not manual annotation. flograph.ts now reads write-once-tier frontm… → flograph.ts + spec §2.1/§4.5
 
 ## State
-- Version: 0.7.0 · maps: 41 commits behind HEAD (watermark 60d547e1, HEAD d64d4519)
+- Version: 0.7.0 · maps: 5 commits behind HEAD (watermark cc765a5a, HEAD bf7c8759)
 - Recent wraps:
-  - d64d4519 wrap(s204): close — #3 E-CONTROL-FLOW-IN-MARKUP (F3 reboot-bridge first use) + flograph slices 1-3 + deputy-dilation measured ~2-3% + deputy-maint merged
+  - e723de04 chore(s204): wrap-finalize — recent-sessions + digest regen at settled HEAD d64d4519
   - 69172d25 wrap(s203): close — vPA-deputy LIVE (F1/F2/F3 + self-poke loop) + e2e backlog triaged + flograph filter; #3 fix left in-flight (first F3 reboot-bridge use)
   - 1bcf5c71 wrap(s202): close — each-inline arc closed (board HIGH 0) + trucking flagship complete + flograph & L1 render-map built + 4 DDs (dock/e2e/deputy adopted, baton retired)
 
