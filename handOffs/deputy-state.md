@@ -8,7 +8,7 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 
 ## Deputy status
 
-- **State:** LIVE — steady-state. S205 WRAPPED (74d7d0e2); 3 agents deferred to F3. First deputy instance, booted S203. On tick 35.
+- **State:** LIVE — steady-state. S205 WRAPPED (74d7d0e2); 3 agents deferred to F3. First deputy instance, booted S203. On tick 36.
 - **Self-poke loop:** `/loop 30m` — cron job `39fed15c` (`7,37 * * * *`). CronDelete to cancel.
 - **Last-absorbed delta seq:** S205 **[21]** (PA-source; the deputy appended F3 entry **[22]** itself).
 - **`deputy-maint`:** worktree `/home/bryan-maclee/scrmlMaster/scrml-deputy-maint`, descends main (PA integrates via the merge-before-push gate). **Tip:** `git rev-parse deputy-maint`.
@@ -16,7 +16,7 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 
 ## PA↔vPA protocol — ACK + HEARTBEAT (S205 [19] ratification — record each tick)
 
-- **heartbeat:** tick **T35** · last-absorbed **[S205 21]** (PA-source; S206 landings not yet delta-logged) · deputy-maint tip = this commit (`git rev-parse deputy-maint`).
+- **heartbeat:** tick **T36** · last-absorbed **[S205 21]** (PA-source; S206 landings + dock-block-scope not yet delta-logged) · deputy-maint tip = this commit (`git rev-parse deputy-maint`).
 - **ACK (vpa:) [S205 10]** → re-read §3c; run flograph/dock --check + record health each tick (standing since T27).
 - **ACK (vpa:) [S205 19]** → adopted the ACK+heartbeat block (this tick T34); recording each tick going forward.
 - **ACK (F3 defer, wrap [21]) → DELIVERED:** all 3 deferred agents LANDED in S206 (g-colon-shorthand e2516298 · g-engine-autodecl 105f1ee4 · slice-2 e1c20e3a). The reboot-bridge worked end-to-end; my delta-log [22] confirmed the block-splitter the S206 PA then landed.
@@ -30,7 +30,7 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 
 ## Graph/dock health (§3c — per-tick standing step)
 
-- **Snapshot @ tick 35 (PASS):** PASS — 0 dup · 19 dangling(warn) · 17 unverified · 0 stale-ref (info) · 0 error(s) · dock PASS · cov 0/628 (0.0%). currency-sweep 0 (clean); dangling/unverified track new S205-S206 docs — **no NEW finding**.
+- **Snapshot @ tick 36 (PASS, unchanged from T35):** PASS — 0 dup · 19 dangling(warn) · 17 unverified · 0 stale-ref (info) · 0 error(s) · dock PASS · cov 0/628 (0.0%). currency-sweep 0 (clean); dangling/unverified track new S205-S206 docs — **no NEW finding**.
 - **route to PA (open nit):** §3 plain `flograph --emit` vs §3c `--check --with-support --with-archive` → graph.json drifts to 190n default; deputy emits with matching flags. Align §3 with §3c.
 
 ## In-flight dispatches (F3 watch list)
@@ -45,6 +45,7 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 - **T26** S205 [7-9] (deref + flograph --with-archive + harness capstone). **T27** §3c wired. **T28** no-op. **T29-31** trucking burst (slice-3+g-match dispatched→LANDED; maps batched). **T32** maps REFRESHED cc765a5a→492b4bb9 (3-change batch). **T33** 5-agent watch; maps batch-2 held.
 - **T34** S205 WRAPPED — absorbed [11-21]; adopted ACK+heartbeat ([19]); F3-recorded block-splitter [22] (resolved [20] CHECK-status); recent-sessions regen (wrap anchor); §3c PASS. 3 agents deferred → next session lands.
 - **T35** all 3 S205-deferred agents LANDED in S206 (bridge delivered); maps REFRESHED 492b4bb9→359a1d83 (batch-2, leak-clean); digest regen; §3c PASS.
+- **T36** main +1b15f701 dock block-scope (--units/--diff-scope, block-lease groundwork; tooling, no compiler-src → maps current). digest regen (my T35 maps commit staled it); §3c PASS.
 
 ## Currency snapshot (@ tick 34)
 
@@ -65,7 +66,7 @@ Each tick: `ls .claude/worktrees/` + `git -C <agent-wt> log/status`; scan delta-
 
 - **node_modules:** symlink main's in (survives FF+rebase): `ln -s …/scrml/node_modules ./node_modules` · `…/scrml/compiler/node_modules ./compiler/node_modules`
 - **CWD slip:** Bash CWD resets to MAIN — `cd` the worktree (or `git -C`) before ops.
-- **Untracked new file:** `git add` first; `docs/graph/` gitignored. **Digest cadence:** regen only when a projected source moved.
+- **Untracked new file:** `git add` first; `docs/graph/` gitignored. **Digest cadence:** regen only when a projected source moved. When refreshing maps, regen the digest AFTER the maps commit (the maps watermark change otherwise stales the digest one tick later — T36).
 - **perl edits:** use `{}` delimiters or escape `/`; heredoc-rewrite is the reliable fallback. **delta-log edits:** use python (backticks break the shell).
 - **Commit gate:** pre-commit WARNS on non-main; ~17k subset (~75-120s); deputy commits derived-only → pass; never `--no-verify`.
 
