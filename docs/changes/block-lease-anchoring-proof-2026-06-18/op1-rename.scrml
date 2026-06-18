@@ -1,0 +1,8 @@
+// #dock[ chore ]
+function checkAlpha(x) { return x + 1 }
+
+// #dock[ chore ]
+type Phase:enum = { Idle, Running, Done }
+
+// #dock[ chore ]
+const Card = <div>card</div>

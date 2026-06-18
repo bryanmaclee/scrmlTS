@@ -1,0 +1,12 @@
+// (b1) anchoring-proof fixture — Scheme C carried-comment over named scrml defs.
+// The dock is the COMMENT immediately above each def; inv1 = docked iff a #dock sits within
+// [defLine-2, defLine]; inv3 = a #dock with no def within [dockLine, dockLine+2] is ORPHANED.
+
+// #dock[ chore ]
+function alpha(x) { return x + 1 }
+
+// #dock[ chore ]
+type Phase:enum = { Idle, Running, Done }
+
+// #dock[ chore ]
+const Card = <div>card</div>

@@ -1,0 +1,5 @@
+// #dock[ chore ]
+function alpha(x) { return x + 1 }
+
+// #dock[ chore ]
+type Phase:enum = { Idle, Running, Done }
