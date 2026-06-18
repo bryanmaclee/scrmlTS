@@ -9,27 +9,25 @@ partition); the deputy maintains it on the `deputy-maint` branch. The PA reads i
 
 ## Deputy status
 
-- **State:** LIVE — steady-state (S204 pushed; deputy-maint CAUGHT UP — origin current, coherence 0/0). First deputy instance, booted S203. On tick 14.
+- **State:** LIVE — steady-state (S205 active). First deputy instance, booted S203. On tick 15.
 - **Self-poke loop:** `/loop 30m` — cron job `39fed15c`, `7,37 * * * *`. CronDelete `39fed15c` to cancel.
-- **Last-absorbed delta seq:** S204 **[8]** (no new entries since the wrap).
-- **`deputy-maint` branch:** worktree `/home/bryan-maclee/scrmlMaster/scrml-deputy-maint`. Descends main `0bc9fe0e` (== main; all prior deputy work merged + pushed). **Tip:** `git rev-parse deputy-maint` (tick-14: this deputy-state note).
-- **Owed maintenance:** none on deputy-maint. (The strand below is PA-side — deputy can't fix it.)
+- **Last-absorbed delta seq:** S205 **[6]** (`scrml/handOffs/delta-log.md` — absorbed [S199 1] … [S205 6]).
+- **`deputy-maint` branch:** worktree `/home/bryan-maclee/scrmlMaster/scrml-deputy-maint`. Descends main `897a2c69` (the S205 PA FF-merged the tick-14 work). **Tip:** `git rev-parse deputy-maint` (tick-15: digest regen `185dc08d` + this).
+- **Owed maintenance:** none.
 
-## ⚠⚠ RECURRING PATTERN (now 2×) — PA pushes before merging deputy-maint → deputy work strands on origin
+## ✅ The merge-before-push pattern is RESOLVED (contract-level, S205 [2])
 
-**S204 instance RESOLVED (tick 14):** the PA did the catch-up `git merge deputy-maint` + push per the tick-13 recommendation → origin now carries the current maps (`cc765a5a`) + digest + recent-sessions; coherence `0/0`. The hard-pre-push-merge-gate recommendation below still stands as the durable fix (it prevented nothing this time — it was a manual catch-up).
+The recurring 2× strand (S203 digest-miss + S204 maps-miss) is **structurally closed**: the PA **ratified a HARD pre-push merge gate** into `pa-scrml.md` S199 addendum + wrap **step 7** — assert `git rev-list --count deputy-maint ^main == 0` before any push, else the session ships without the deputy's maintenance. The tick-13 recommendation was adopted verbatim. **Evidence it works:** the **S205 cold boot read a CURRENT digest** (first clean digest boot — S204 booted stale) **→ thin-start REALIZED** (master-list §0 skipped), and the S204 maps-owed thread resolved at boot (deputy-maint FF-merged → maps `cc765a5a` picked up). The deputy F1 function now delivers as designed when the gate holds.
 
-**It happened again.** Tick 12 flagged "merge deputy-maint before pushing S204." The PA **pushed S204 anyway** (`e723de04` on origin) **without merging deputy-maint** → **origin's maps are STALE (`60d547e1`)** while the current maps (`cc765a5a`, the #3 source change) + the re-regen'd digest/recent-sessions sit STRANDED on deputy-maint. Coherence `0 2`, clean FF — they land whenever the PA next merges deputy-maint (a follow-up `git merge deputy-maint && git push`, or the next session's boot-merge).
+## F1 dilation — REALIZED + confirmed (S205 [3])
 
-**The pattern (2 occurrences):**
-1. **S203 digest-miss** — wrap pushed pre-merge → fresh PA's step-0 digest read STALE, fell back (F1 realized 0 — confirmed by the [6] dilation measurement).
-2. **S204 maps-miss** — wrap pushed pre-merge → origin ships stale maps; deputy's first real maps refresh doesn't reach origin.
+The clean-cycle re-measure (the S204 [6] follow-up) ran: digest booted current → **F1 realized ~8.3k** (master-list §0's 9,364 tok skipped − 1,035 tok thin path), confirming+exceeding the S204 7-8k projection (which realized **0** in S204 because the digest booted stale). F2 ~6-7k (deputy maps+regens FF-merged at boot). Total ~14-15k/cycle ≈ 1.5%/1M — the S204 band HOLDS, F1 now realized. (vpa-deputy DD §S205-remeasurement.)
 
-**Root + fix (PA-side, route to PA — deputy can't push/merge main):** the deputy's value only reaches origin if the PA merges deputy-maint BEFORE pushing. Recommend the PA-side contract / wrap step make **`git merge deputy-maint`** a HARD pre-push gate (the S147 coherence check after a push should also assert deputy-maint is merged, i.e. `git rev-list --count deputy-maint ^main == 0`, else the wrap shipped without the deputy's maintenance). Until then the deputy's F1/F2 dilation keeps realizing ~0 at origin even though it's correct on deputy-maint.
+## Flogeance components building (PA work — observed, not deputy surface)
 
-## Maps mechanism — RESOLVED (S204, user ruling)
-
-User: *"refresh the maps, this does not require my consent."* Function-2 maintenance, not a design call. **Standard mechanism:** dispatch `project-mapper` (Agent tool, NO isolation — operate IN deputy-maint) with a strict worktree-only-path brief (`cd` the worktree first; absolute worktree paths; never touch/`cd`/commit in main; don't commit — leave modified) + **independent post-dispatch verify** `git -C <main> status --porcelain -- .claude/maps/` is EMPTY before committing. Tick-12 run: main verified untouched; primary/structure/error refreshed; watermark `60d547e1`→`cc765a5a`; committed explicit-pathspec.
+- **dock** (`scripts/dock.ts`) — the adopted agentic-code-provenance dock checker, thin-built S205 ([4], `40590c73`); slices 1-2 ([6], `686dc795`) = coverage walker over scrml `.scrml` defs (`// #dock[…]`). REAL baseline: **628 reasoning-units / 120 files / 0% docked** (greenfield). Rides flograph.
+- **flograph** slice 4 ([5], `7d53119f`) — cites/derivation layer + `--derivation` traversal. (Earlier: `--mmd`/`--filter`/`--focus` + slices 1-3 supersession/currency.)
+- The S204 update message to flogeance's inbox (baton-retired/deputy/dilation/flograph/dock) was delivered 2026-06-18 (flogeance `e5c3991`, local — no remote).
 
 ## In-flight dispatches (F3 watch list)
 
@@ -37,15 +35,15 @@ User: *"refresh the maps, this does not require my consent."* Function-2 mainten
 
 ## Tick log (compressed)
 
-T1 boot [1-5]; T2 [6-7] F1; T3 [8-9] GO-LIVE; T4 [10]; T5 [11-13]; **T6-T8 reboot-gap** (#3 bridged → fresh PA re-attached + LANDED a6405053); **T9** S204 [1-3]; **T10** [4-5] flograph; **T11** [6] dilation ~3%; **T12** maps REFRESHED (60d547e1→cc765a5a, user ruling, main-clean verified) + [7-8] (S204 wrap, push-pending); **T13** S204 PUSHED pre-merge → maps/digest/recent-sessions STRANDED on deputy-maint (2nd merge-before-push miss); recent-sessions push-flip. **T14** PA caught up (merged deputy-maint + pushed) → origin current, 0/0; nothing owed.
+T1 boot [S199-S203]; T2-T3 F1 LIVE + GO-LIVE; T4-T5 e2e/flograph; **T6-T8 reboot-gap** (#3 in-flight bridged → fresh PA re-attached + LANDED); **T9-T11** S204 [1-6] (#3 landed, flograph slices, dilation ~3% frame-fix); **T12** maps REFRESHED (60d547e1→cc765a5a, user ruling); **T13** 2nd merge-before-push miss flagged; **T14** PA caught up; **T15** absorbed S205 [1-6] — merge-before-push gate RATIFIED + F1 realized ~8.3k + dock built; digest regen. **LESSON (T15):** the source-based digest oracle CAUGHT an absorb-miss (pre-rebase delta-log read showed [8], missed the S205 block) → **always re-check the delta-log AFTER sync/rebase, not before.**
 
-## Currency snapshot (@ tick 13)
+## Currency snapshot (@ tick 15)
 
-- **Board:** HIGH 0 · MED 12 · LOW 23 · Nominal 8.
-- **maps:** deputy-maint `cc765a5a` (CURRENT) — **main/origin still `60d547e1` (STALE, stranded — see PATTERN above)**.
-- **digest:** current (head `bf7c8759`, delta-seq 8) on deputy-maint; main carries the PA's d64d4519-stamp digest.
-- **recent-sessions / gap-counts:** PASS (push-flip applied).
-- **flograph:** slices 1-3 landed.
+- **Board:** HIGH 0 · MED 11 · LOW 23 · Nominal 8 (S204 wrap: MED 12→11).
+- **maps:** watermark `cc765a5a` — CURRENT for compiler-source (no compiler-source since; S205 work is all `scripts/` tooling — dock/flograph/state). In main (origin) since the S205 boot integration.
+- **digest:** current (head `897a2c69`, delta-seq S205 [6]).
+- **recent-sessions / gap-counts:** PASS.
+- **flograph/dock:** building (see above) — `scripts/flograph.ts` + `scripts/dock.ts`.
 
 ## Function 3 — agent monitoring (LIVE)
 
@@ -53,24 +51,24 @@ Each tick: `ls .claude/worktrees/` + `git -C <agent-wt> log/status`; scan delta-
 
 ## Sync rule (each tick)
 
-`git merge --ff-only main`; if NOT clean FF → `git rebase main` (clean on the disjoint surface; a real conflict = partition breach to surface). Main may move/push mid-tick — absorb up to the HEAD seen at tick start.
+`git merge --ff-only main`; if NOT clean FF → `git rebase main` (clean on the disjoint surface; a real conflict = partition breach to surface). **Re-check the delta-log + run `state.ts --check`/digest-oracle AFTER syncing** (a pre-sync read can miss new entries — T15 lesson; the oracle is the backstop). Main may move/push mid-tick.
 
 ## Operational notes (for re-hydration)
 
 - **node_modules:** fresh worktree has NONE → symlink main's in (survives FF+rebase): `ln -s /home/bryan-maclee/scrmlMaster/scrml/node_modules ./node_modules` · `ln -s /home/bryan-maclee/scrmlMaster/scrml/compiler/node_modules ./compiler/node_modules`
 - **CWD slip:** Bash CWD resets to MAIN — `cd` the worktree (or `git -C`) before worktree ops.
 - **Untracked new file:** `git add` before commit; tracked modifications commit by plain pathspec.
-- **Maps refresh:** project-mapper into the worktree + main-clean verify (see "Maps mechanism").
+- **Maps refresh:** project-mapper into the worktree (CWD-pinned, worktree-only brief) + `git -C <main> status` clean-verify before committing (resolved T12; user ruled no-consent-needed).
 - **Commit gate:** pre-commit WARNS on non-main; runs ~17k subset (~75-120s); deputy commits derived-only → pass; never `--no-verify`. `git rebase` does NOT run the gate.
 
 ## Maintenance seams (Function 2)
 
-- `.claude/maps/*` — `project-mapper` into the worktree (mechanism resolved T12); watermark `.claude/maps/primary.map.md` (`cc765a5a`).
+- `.claude/maps/*` — `project-mapper` into the worktree; watermark `.claude/maps/primary.map.md` (`cc765a5a`).
 - `docs/changelog.md` — session block. · `@generated` §0 rollup (`docs/known-gaps.md`) + `master-list.md` §0.6 — `bun scripts/state.ts --write` (gate `--check`).
-- `handOffs/digest.md` — `bun scripts/state.ts --digest` (F1; per tick when a projected source moved — incl. a maps refresh).
-- flograph — `scripts/flograph.ts`. · block-lease registry — (not built yet).
+- `handOffs/digest.md` — `bun scripts/state.ts --digest` (F1; per tick when a projected source moved — known-gaps/delta-log/maps/version).
+- flograph — `scripts/flograph.ts`. · dock checker — `scripts/dock.ts` (PA-built; deputy observes). · block-lease registry — (not built yet).
 
 ## Cross-refs
 
-- `scrml-support/vpa-scrml.md` — deputy contract. · `scrml-support/pa-scrml.md` §"S199 addendum" — PA-side contract.
-- `handOffs/delta-log.md` — the live PA-state stream. · `scrml-support/docs/deep-dives/vpa-deputy-reframe-2026-06-17.md` — design.
+- `scrml-support/vpa-scrml.md` — deputy contract. · `scrml-support/pa-scrml.md` §"S199 addendum" — PA-side contract (now incl. the merge-before-push gate + wrap step 7).
+- `handOffs/delta-log.md` — the live PA-state stream. · `scrml-support/docs/deep-dives/vpa-deputy-reframe-2026-06-17.md` — design (+ S204/S205 measurement addenda).
