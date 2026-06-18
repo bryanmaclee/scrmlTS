@@ -1,9 +1,9 @@
-<!-- @digest head=69172d25 delta-seq=15 -->
+<!-- @digest head=bcfeeac0 delta-seq=6 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `69172d25`** + delta-log **[15]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `69172d25`
+> **HEAD `bcfeeac0`** + delta-log **[6]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `bcfeeac0`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,25 +13,23 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `69172d25`
-- **HIGH 0** · MED 12 · LOW 23 · Nominal 8
+## Board — from `@gap` tokens @ `bcfeeac0`
+- **HIGH 0** · MED 11 · LOW 23 · Nominal 8
 - Named open HIGHs: _none_
 
-## Recent rulings — last 3 `rule` (delta-log S203 — 2026-06-17)
-- `[2]` rule · NEXT ARC = vPA-deputy Function-2 thin build (user "your read is good, go"). Settle the commit-model fork first, then author the thin slice. → user
-- `[3]` rule · COMMIT-MODEL FORK RESOLVED PA-direct (NOT a close call) = **Option A sharpened**: deputy runs in its OWN worktree on a `deputy-maint` branch and NEVER advances… → vpa-scrml.md §commit-protocol + pa-scrml.md §"S199 addendum — vPA deputy (PA side)"
-- `[9]` land/rule · FULL GO-LIVE (user "lets get this system live while warm"; scope = Full). All 3 deputy functions now LIVE: F3 reboot-bridge staged→LIVE (continuous dispatched-a… → vpa-scrml.md §"Operating the live system" + pa-scrml.md S199-addendum + 7d91005
+## Recent rulings — last 0 `rule` (delta-log S204 — 2026-06-17)
+- _(none in the latest session)_
 
 ## Recent activity — last 6 `disp`/`land`/`find`/`state`
-- `[10]` disp · e2e-backlog OPENED (user "e2e backlog"). R26-reverse VERIFIED all 3 classes reproduce on current build (observe-one): #2 nullish-text (03-contact-book#populated… → docs/changes/g-raw-interp-channel-meta-corners-2026-06-17/BRIEF.md + agent abcf64f7198fe9cf3
-- `[11]` find · #3 dispatch STOP-and-SURFACED (good catch, zero work lost, worktree auto-cleaned). Root differs from brief: the 3 fixtures OMIT the §17.4-mandated `${ }` around… → known-gaps.md g-raw-interp + agent report
-- `[12]` land · e2e-backlog TRIAGE landed (user dispositions: land-2a · classify-meta · #1=b+c). **2a:** 03-contact-book nullish = SEED GAP (Contact struct has `phone`, seed di… → seed-fixtures.js + known-gaps.md
-- `[13]` disp · #3 RULING = (a) reject+recover (user "a, dispatch it"). DISPATCHED the bare-control-flow-in-markup diagnostic (scrml-js-codegen-engineer, isolation:worktree, bg… → docs/changes/bare-control-flow-in-markup-diagnostic-2026-06-17/BRIEF.md + agent af88c53a8985b37fb
-- `[14]` land · flograph RENDER-FILTER added (disjoint PA-tool work while #3 agent runs; closes the S202 "full-corpus .mmd unreadable at scale" finding). `scripts/flograph.ts`… → scripts/flograph.ts
-- `[15]` state · WRAP with #3 IN-FLIGHT — F3's first real reboot-bridge use (user: the deputy exists so we leave work in-flight across a PA reboot; not holding for #3). Wrapping… → hand-off S203 CLOSE + agent af88c53a
+- `[1]` state · COLD S204 boot (Profile A FULL, "read pa.md and start session"). digest STALE (delta-log moved since stamp c718d4c2) → authoritative fallback (master-list §0 +… → hand-off S204 OPEN + handOffs/hand-off-208.md (S203 rotated)
+- `[2]` state · #3 RE-ATTACH READY — agent af88c53a8985b37fb (bare-control-flow-in-markup) COMPLETED across the reboot (F3's first real use; PA alive → PA owns the landing, no… → agent report + FINAL_SHA 572ef009
+- `[3]` land · #3 LANDED a6405053 (user "land and push"). E-CONTROL-FLOW-IN-MARKUP reject+recover — file-delta the 5 files from worktree-agent-af88c53a@572ef009 AFTER a clean-… → a6405053
+- `[4]` land · flograph corpus-annotation SLICE 1 (user "flograph" → "annotate the corpus") + a parser fix the dog-food surfaced. Authored the board-<each> saga: board-each-co… → flograph slice-1 commit + spec §2.2
+- `[5]` land/find · flograph SLICE 2 (user "slice 2") — annotated the recent design corpus so the provenance SWEEP surfaces REAL asserted-not-verified claims. 4 DDs @node'd (kind=d… → slice-2 commit (scrml-support) + delta-log [5]
+- `[6]` find/land · DEPUTY-DILATION LOOP CLOSED (user "push and close the deputy-dilation loop"). PUSHED slices 1+2 (scrml bdd6e1c9..5295a61c gate-green 24434/0; scrml-support ab9a… → vpa-deputy DD §S204-measurement + flograph edge
 
 ## State
-- Version: 0.7.0 · maps: 25 commits behind HEAD (watermark 60d547e1, HEAD 69172d25)
+- Version: 0.7.0 · maps: 37 commits behind HEAD (watermark 60d547e1, HEAD bcfeeac0)
 - Recent wraps:
   - 69172d25 wrap(s203): close — vPA-deputy LIVE (F1/F2/F3 + self-poke loop) + e2e backlog triaged + flograph filter; #3 fix left in-flight (first F3 reboot-bridge use)
   - 1bcf5c71 wrap(s202): close — each-inline arc closed (board HIGH 0) + trucking flagship complete + flograph & L1 render-map built + 4 DDs (dock/e2e/deputy adopted, baton retired)
