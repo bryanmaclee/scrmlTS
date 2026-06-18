@@ -1,0 +1,10 @@
+<program>
+  <signup>
+    <uname req length(>=2)> = <input type="text" id="u"/>
+  </>
+
+  <form>
+    <uname/>
+    <errors of=@signup.uname/>
+  </form>
+</>

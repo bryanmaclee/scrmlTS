@@ -1,0 +1,7 @@
+<program>
+  <uname req length(>=2)> = <input type="text" id="u"/>
+
+  <form>
+    <uname/>
+  </form>
+</>

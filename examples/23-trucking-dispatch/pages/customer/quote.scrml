@@ -114,17 +114,24 @@
         <errorMessage> = ""
         <submitting> = false
 
-        // Form state.
-        <originAddress> = ""
-        <originCity> = ""
-        <originState> = "UT"
-        <destinationAddress> = ""
-        <destinationCity> = ""
-        <destinationState> = "UT"
-        <pickupAt> = ""
-        <deliverBy> = ""
-        <commodity> = ""
-        <weightLbs> = 0
+        // Form state — Shape-2 decl-coupled compound (§6.2 / §55). Validators ride
+        // as bare attrs; @quoteForm.isValid is the §55.5 rollup that gates submit.
+        // Validator parity with the old manual checks: origin+destination city req,
+        // pickup+deliver req, commodity req. Addresses/states/weight optional.
+        // render-by-tag <field/> for a compound field is currently unexpanded (bug
+        // filed slice-2), so the inputs bind explicitly via bind:value below.
+        <quoteForm>
+            <originAddress> = <input type="text"/>
+            <originCity req> = <input type="text"/>
+            <originState> = "UT"
+            <destinationAddress> = <input type="text"/>
+            <destinationCity req> = <input type="text"/>
+            <destinationState> = "UT"
+            <pickupAt req> = <input type="datetime-local"/>
+            <deliverBy req> = <input type="datetime-local"/>
+            <commodity req> = <input type="text"/>
+            <weightLbs>: int = 0
+        </>
 
         function getSessionToken() {
             const c = document.cookie ? document.cookie : ""
@@ -159,17 +166,11 @@
 
             @errorMessage = ""
 
-            // Client-side validation.
-            if (@originCity == "" || @destinationCity == "") {
-                setError("Origin and destination city are required.")
-                return
-            }
-            if (@pickupAt == "" || @deliverBy == "") {
-                setError("Pickup and delivery date/time are required.")
-                return
-            }
-            if (@commodity == "") {
-                setError("Commodity is required.")
+            // The §55 validity surface replaces the manual client-side checks:
+            // origin/destination city (req), pickup + deliver (req), commodity (req)
+            // — all roll up to @quoteForm.isValid. Server still re-validates.
+            if (!@quoteForm.isValid) {
+                setError("Please complete all required fields.")
                 return
             }
 
@@ -177,10 +178,10 @@
             const tok = getSessionToken()
             const result = createTenderServer(
                 tok,
-                @originAddress, @originCity, @originState,
-                @destinationAddress, @destinationCity, @destinationState,
-                @pickupAt, @deliverBy,
-                @commodity, @weightLbs
+                @quoteForm.originAddress, @quoteForm.originCity, @quoteForm.originState,
+                @quoteForm.destinationAddress, @quoteForm.destinationCity, @quoteForm.destinationState,
+                @quoteForm.pickupAt, @quoteForm.deliverBy,
+                @quoteForm.commodity, @quoteForm.weightLbs
             )
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
@@ -262,16 +263,17 @@
                   <div class="space-y-3">
                       <div>
                           <label for="origin-address" class="block text-xs font-medium text-slate-600 mb-1">Street address</label>
-                          <input id="origin-address" type="text" bind:value=@originAddress class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          <input id="origin-address" type="text" bind:value=@quoteForm.originAddress class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
                       </div>
                       <div class="grid grid-cols-3 gap-3">
                           <div class="col-span-2">
                               <label for="origin-city" class="block text-xs font-medium text-slate-600 mb-1">City</label>
-                              <input id="origin-city" type="text" bind:value=@originCity required class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                              <input id="origin-city" type="text" bind:value=@quoteForm.originCity class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                              <errors of=@quoteForm.originCity/>
                           </div>
                           <div>
                               <label for="origin-state" class="block text-xs font-medium text-slate-600 mb-1">State</label>
-                              <input id="origin-state" type="text" bind:value=@originState maxlength="2" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md uppercase"/>
+                              <input id="origin-state" type="text" bind:value=@quoteForm.originState maxlength="2" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md uppercase"/>
                           </div>
                       </div>
                   </div>
@@ -282,16 +284,17 @@
                   <div class="space-y-3">
                       <div>
                           <label for="dest-address" class="block text-xs font-medium text-slate-600 mb-1">Street address</label>
-                          <input id="dest-address" type="text" bind:value=@destinationAddress class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          <input id="dest-address" type="text" bind:value=@quoteForm.destinationAddress class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
                       </div>
                       <div class="grid grid-cols-3 gap-3">
                           <div class="col-span-2">
                               <label for="dest-city" class="block text-xs font-medium text-slate-600 mb-1">City</label>
-                              <input id="dest-city" type="text" bind:value=@destinationCity required class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                              <input id="dest-city" type="text" bind:value=@quoteForm.destinationCity class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                              <errors of=@quoteForm.destinationCity/>
                           </div>
                           <div>
                               <label for="dest-state" class="block text-xs font-medium text-slate-600 mb-1">State</label>
-                              <input id="dest-state" type="text" bind:value=@destinationState maxlength="2" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md uppercase"/>
+                              <input id="dest-state" type="text" bind:value=@quoteForm.destinationState maxlength="2" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md uppercase"/>
                           </div>
                       </div>
                   </div>
@@ -302,11 +305,13 @@
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                           <label for="pickup-at" class="block text-xs font-medium text-slate-600 mb-1">Pickup at</label>
-                          <input id="pickup-at" type="datetime-local" bind:value=@pickupAt required class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          <input id="pickup-at" type="datetime-local" bind:value=@quoteForm.pickupAt class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          <errors of=@quoteForm.pickupAt/>
                       </div>
                       <div>
                           <label for="deliver-by" class="block text-xs font-medium text-slate-600 mb-1">Deliver by</label>
-                          <input id="deliver-by" type="datetime-local" bind:value=@deliverBy required class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          <input id="deliver-by" type="datetime-local" bind:value=@quoteForm.deliverBy class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          <errors of=@quoteForm.deliverBy/>
                       </div>
                   </div>
               </fieldset>
@@ -316,11 +321,12 @@
                   <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                       <div class="md:col-span-2">
                           <label for="commodity" class="block text-xs font-medium text-slate-600 mb-1">Commodity</label>
-                          <input id="commodity" type="text" bind:value=@commodity required placeholder="Crude oil, water, frac sand…" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          <input id="commodity" type="text" bind:value=@quoteForm.commodity placeholder="Crude oil, water, frac sand…" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          <errors of=@quoteForm.commodity/>
                       </div>
                       <div>
                           <label for="weight-lbs" class="block text-xs font-medium text-slate-600 mb-1">Weight (lbs)</label>
-                          <input id="weight-lbs" type="number" bind:value=@weightLbs min="0" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          <input id="weight-lbs" type="number" bind:value=@quoteForm.weightLbs min="0" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
                       </div>
                   </div>
               </fieldset>
@@ -335,7 +341,7 @@
                   </p>
                   <div class="flex items-center gap-2">
                       <a href="/customer" class="text-sm px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-md">Cancel</a>
-                      <button type="submit" disabled=@submitting class="text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                      <button type="submit" disabled=!@quoteForm.isValid class="text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                           Submit tender
                       </button>
                   </div>

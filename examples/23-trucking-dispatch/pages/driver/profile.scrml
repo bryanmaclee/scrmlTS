@@ -68,9 +68,14 @@
         <editing> = false
         <successMessage> = ""
 
-        // Form state — populated from @currentDriver on edit click.
-        <editName> = ""
-        <editPhone> = ""
+        // Form state — Shape-2 decl-coupled compound (§6.2 / §55), populated from
+        // @currentDriver on edit click. editName `req`; editPhone optional.
+        // render-by-tag <editName/> for a compound field is currently unexpanded
+        // (bug filed slice-2), so the inputs bind explicitly via bind:value below.
+        <profileForm>
+            <editName req> = <input type="text"/>
+            <editPhone> = <input type="tel"/>
+        </>
 
         function getSessionToken() {
             const c = document.cookie ? document.cookie : ""
@@ -99,8 +104,8 @@
         }
 
         function startEdit() {
-            @editName = @currentDriver.name
-            @editPhone = @currentDriver.phone == "" ? "" : @currentDriver.phone
+            @profileForm.editName = @currentDriver.name
+            @profileForm.editPhone = @currentDriver.phone == "" ? "" : @currentDriver.phone
             @errorMessage = ""
             @successMessage = ""
             @editing = true
@@ -113,8 +118,9 @@
 
         function saveProfile(event) {
             if (event && event.preventDefault) event.preventDefault()
-            const name = @editName
-            const phone = @editPhone
+            if (!@profileForm.isValid) return
+            const name = @profileForm.editName
+            const phone = @profileForm.editPhone
             const tok = getSessionToken()
             const result = saveProfileServer(tok, name, phone)
             if (result.unauthorized) {
@@ -225,17 +231,17 @@
                             <input
                                 id="edit-name"
                                 type="text"
-                                bind:value=@editName
+                                bind:value=@profileForm.editName
                                 class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
-                                required
                             />
+                            <errors of=@profileForm.editName/>
                         </div>
                         <div>
                             <label for="edit-phone" class="block text-xs font-medium text-slate-600 mb-1">Phone</label>
                             <input
                                 id="edit-phone"
                                 type="tel"
-                                bind:value=@editPhone
+                                bind:value=@profileForm.editPhone
                                 placeholder="(555) 123-4567"
                                 class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
                             />
@@ -244,7 +250,7 @@
                             ${@errorMessage}
                         </div>
                         <div class="flex items-center gap-2">
-                            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">
+                            <button type="submit" disabled=!@profileForm.isValid class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
                                 Save
                             </button>
                             <button type="button" onclick=cancelEdit() class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-md">

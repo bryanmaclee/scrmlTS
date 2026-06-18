@@ -16,7 +16,7 @@
 |---|---|
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 0 |
-| MED | 8 |
+| MED | 9 |
 | LOW | 23 |
 | Nominal (spec-ahead-of-impl) | 8 |
 <!-- @generated:gap-counts END -->
@@ -262,6 +262,12 @@ S-RAW-INTERP (a literal `${x}`/`${msg}`/`${n}` in the rendered DOM) fires on `sa
 ### G-MOUNT-HANG-RAILS-DEV — a sample app hangs indefinitely at happy-dom mount (compiles fine) — `NEW S202; LOW; open`
 `samples/gauntlet-r18/rails-dev.scrml` compiles in ~0.8s but HANGS at happy-dom mount (0% CPU = blocked, not looping) — a real runtime-mount pathology (the reason the render-map harness needs subprocess isolation). The map records it as HARNESS-TIMEOUT. Stress-sample (gauntlet), low urgency; root TBD (a mount-time await/effect that never resolves in happy-dom). Surfaced by the L1 render-map.
 <!-- @gap id=g-mount-hang-rails-dev sev=LOW status=open -->
+
+## §S206 — gaps filed S206 (2026-06-18, trucking slice-2 §55 validity surface)
+
+### G-COMPOUND-FIELD-RENDER-BY-TAG-UNEXPANDED — a Shape-2 field declared as a CHILD of a Variant-C compound does NOT get its render-by-tag `<field/>` expanded; the compiler silently emits a LITERAL `<field />` tag (no input, no diagnostic) — `NEW S206; MED; open`
+A Shape-2 decl-coupled-with-render-spec field (`<field validators> = <input.../>`, §6.2/§55) declared as a CHILD of a Variant-C compound (`<form> <field req ...> = <input/> </>`) and referenced in markup via render-by-tag (`<field/>`) is NOT expanded to its bound input. The compiler emits a LITERAL `<field />` tag into the SSR HTML, SILENTLY (exit 0, NO diagnostic) — the input never renders. The IDENTICAL field declared at TOP LEVEL (`<field req ...> = <input/>` not nested in a compound) expands correctly to `<input ... data-scrml-render-by-tag>`. The §55 validity surface for the compound (`@compound.isValid`, per-field `.errors`, `<errors of=>`, touched) WIRES CORRECTLY — only the field's render-by-tag input ELEMENT is dropped. Per `feedback_dont_soft_classify_bugs`, a silently-dropped input element (no diagnostic, input never renders) is a BUG, not a limitation. **PA repro (S206, durable):** `docs/changes/g-compound-field-render-by-tag-unexpanded-2026-06-18/repro/compound-rbt.scrml` (compound field `<signup><uname req length(>=2)> = <input/></>` + `<uname/>` → emits literal `<uname />`) vs `repro/toplevel-rbt.scrml` (same field at top level → expands to `<input type="text" id="u" ... data-scrml-render-by-tag>`). Both compile exit 0 on HEAD `105f1ee4`; the divergence is the bug. **WORKAROUND (in-corpus S206):** render the input via raw `<input bind:value=@compound.field>` — the full bind + touched + §55 validity wiring still emits (every slice-2 trucking form uses this). Likely root: the render-by-tag expander (the path that turns `<field/>` into the field's bound `<input>`) resolves a field decl in the CURRENT scope but does not descend into Variant-C compound members, so a `<field/>` whose decl lives inside a compound is treated as an unknown element → emitted as a literal tag. Surfaced converting the flagship trucking dispatch forms to the §55 validity surface (slice-2). Fix needs a render-by-tag-expander × compound-member-scope review.
+<!-- @gap id=g-compound-field-render-by-tag-unexpanded sev=MED status=open -->
 
 ## §S195 — gaps filed S195 (2026-06-15, corpus-rewrite wave-1a)
 

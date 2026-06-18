@@ -103,18 +103,29 @@
         <customerOptions> = []
         <loaded> = false
 
-        <customerId> = 0
-        <originAddress> = ""
-        <originCity> = ""
-        <originState> = "UT"
-        <destinationAddress> = ""
-        <destinationCity> = ""
-        <destinationState> = "UT"
-        <pickupAt> = ""
-        <deliverBy> = ""
-        <commodity> = ""
-        <weightLbs> = 0
-        <rateDollars> = 0
+        // Shape-2 decl-coupled compound form (§6.2 / §55): validators ride as bare
+        // attrs; @loadForm.isValid is the §55.5 rollup that gates submit. The
+        // origin/destination address fields are component-mediated (AddressForm via
+        // value=/oninput=, see below); the rest bind directly. render-by-tag <field/>
+        // for a compound field is currently unexpanded (bug filed slice-2), so inputs
+        // bind explicitly via bind:value / value= below.
+        // Validator parity with the old manual checks: customer selected (min(1));
+        // origin+destination city req; pickup+deliver req; commodity req; rate gt(0).
+        <loadForm>
+            <customerId min(1)>: int = 0
+            <originAddress> = ""
+            <originCity req> = <input type="text"/>
+            <originState> = "UT"
+            <destinationAddress> = ""
+            <destinationCity req> = <input type="text"/>
+            <destinationState> = "UT"
+            <pickupAt req> = <input type="datetime-local"/>
+            <deliverBy req> = <input type="datetime-local"/>
+            <commodity req> = <input type="text"/>
+            <weightLbs>: int = 0
+            <rateDollars gt(0)>: number = 0
+        </>
+
         <errorMessage> = ""
         <submitting> = false
 
@@ -139,36 +150,22 @@
             @loaded = true
         }
 
-        function setOriginAddress(e)      { @originAddress      = e.target.value }
-        function setOriginCity(e)         { @originCity         = e.target.value }
-        function setOriginState(e)        { @originState        = e.target.value }
-        function setDestinationAddress(e) { @destinationAddress = e.target.value }
-        function setDestinationCity(e)    { @destinationCity    = e.target.value }
-        function setDestinationState(e)   { @destinationState   = e.target.value }
+        function setOriginAddress(e)      { @loadForm.originAddress      = e.target.value }
+        function setOriginCity(e)         { @loadForm.originCity         = e.target.value }
+        function setOriginState(e)        { @loadForm.originState        = e.target.value }
+        function setDestinationAddress(e) { @loadForm.destinationAddress = e.target.value }
+        function setDestinationCity(e)    { @loadForm.destinationCity    = e.target.value }
+        function setDestinationState(e)   { @loadForm.destinationState   = e.target.value }
 
         function submit() {
             if (@submitting) return
             @errorMessage = ""
 
-            // Client validation.
-            if (@customerId == 0) {
-                @errorMessage = "Select a customer."
-                return
-            }
-            if (@originCity == "" || @destinationCity == "") {
-                @errorMessage = "Origin and destination city are required."
-                return
-            }
-            if (@pickupAt == "" || @deliverBy == "") {
-                @errorMessage = "Pickup and delivery date/time are required."
-                return
-            }
-            if (@commodity == "") {
-                @errorMessage = "Commodity is required."
-                return
-            }
-            if (@rateDollars <= 0) {
-                @errorMessage = "Rate must be greater than zero."
+            // The §55 validity surface replaces the manual client-side checks:
+            // customer selected (min(1)), origin/destination city (req), pickup +
+            // deliver (req), commodity (req), rate gt(0) — all roll up to isValid.
+            if (!@loadForm.isValid) {
+                @errorMessage = "Please complete all required fields."
                 return
             }
 
@@ -176,11 +173,11 @@
             const tok = getSessionToken()
             const result = createLoadServer(
                 tok,
-                @customerId,
-                @originAddress, @originCity, @originState,
-                @destinationAddress, @destinationCity, @destinationState,
-                @pickupAt, @deliverBy,
-                @commodity, @weightLbs, @rateDollars
+                @loadForm.customerId,
+                @loadForm.originAddress, @loadForm.originCity, @loadForm.originState,
+                @loadForm.destinationAddress, @loadForm.destinationCity, @loadForm.destinationState,
+                @loadForm.pickupAt, @loadForm.deliverBy,
+                @loadForm.commodity, @loadForm.weightLbs, @loadForm.rateDollars
             )
 
             if (result.unauthorized) {
@@ -237,7 +234,7 @@
 
               <div>
                   <label for="customer" class="block text-sm font-medium text-slate-700 mb-1">Customer</label>
-                  <select id="customer" bind:value=@customerId class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm bg-white">
+                  <select id="customer" bind:value=@loadForm.customerId class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm bg-white">
                       <option value="0">— Select customer —</option>
                       <each in=@customerOptions as c key=@.id>
                           <option value=c.id disabled=(c.account_status != "active")>
@@ -248,6 +245,7 @@
                           </option>
                       </each>
                   </select>
+                  <errors of=@loadForm.customerId/>
                   <p class="text-xs text-slate-500 mt-1">
                       Customers with status on_hold or closed cannot tender new loads.
                   </p>
@@ -258,50 +256,56 @@
                   addressId="origin-address"
                   cityId="origin-city"
                   stateId="origin-state"
-                  addressValue=@originAddress
-                  cityValue=@originCity
-                  stateValue=@originState
+                  addressValue=@loadForm.originAddress
+                  cityValue=@loadForm.originCity
+                  stateValue=@loadForm.originState
                   onAddressInput=setOriginAddress
                   onCityInput=setOriginCity
                   onStateInput=setOriginState
               /></div> }
+              <errors of=@loadForm.originCity/>
 
               ${ lift <div><AddressForm
                   legend="Destination"
                   addressId="dest-address"
                   cityId="dest-city"
                   stateId="dest-state"
-                  addressValue=@destinationAddress
-                  cityValue=@destinationCity
-                  stateValue=@destinationState
+                  addressValue=@loadForm.destinationAddress
+                  cityValue=@loadForm.destinationCity
+                  stateValue=@loadForm.destinationState
                   onAddressInput=setDestinationAddress
                   onCityInput=setDestinationCity
                   onStateInput=setDestinationState
               /></div> }
+              <errors of=@loadForm.destinationCity/>
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                       <label for="pickup_at" class="block text-sm font-medium text-slate-700 mb-1">Pickup at</label>
-                      <input id="pickup_at" type="datetime-local" bind:value=@pickupAt required class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"/>
+                      <input id="pickup_at" type="datetime-local" bind:value=@loadForm.pickupAt class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"/>
+                      <errors of=@loadForm.pickupAt/>
                   </div>
                   <div>
                       <label for="deliver_by" class="block text-sm font-medium text-slate-700 mb-1">Deliver by</label>
-                      <input id="deliver_by" type="datetime-local" bind:value=@deliverBy required class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"/>
+                      <input id="deliver_by" type="datetime-local" bind:value=@loadForm.deliverBy class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"/>
+                      <errors of=@loadForm.deliverBy/>
                   </div>
               </div>
 
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                       <label for="commodity" class="block text-sm font-medium text-slate-700 mb-1">Commodity</label>
-                      <input id="commodity" type="text" bind:value=@commodity required class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"/>
+                      <input id="commodity" type="text" bind:value=@loadForm.commodity class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"/>
+                      <errors of=@loadForm.commodity/>
                   </div>
                   <div>
                       <label for="weight_lbs" class="block text-sm font-medium text-slate-700 mb-1">Weight (lbs)</label>
-                      <input id="weight_lbs" type="number" bind:value=@weightLbs min="0" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"/>
+                      <input id="weight_lbs" type="number" bind:value=@loadForm.weightLbs min="0" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"/>
                   </div>
                   <div>
                       <label for="rate_dollars" class="block text-sm font-medium text-slate-700 mb-1">Rate ($)</label>
-                      <input id="rate_dollars" type="number" step="0.01" bind:value=@rateDollars min="0" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"/>
+                      <input id="rate_dollars" type="number" step="0.01" bind:value=@loadForm.rateDollars min="0" class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"/>
+                      <errors of=@loadForm.rateDollars/>
                   </div>
               </div>
 
@@ -313,7 +317,7 @@
                   <a href="/dispatch" class="text-sm px-4 py-2 text-slate-700 hover:text-slate-900">
                       Cancel
                   </a>
-                  <button type="submit" disabled=@submitting class="text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                  <button type="submit" disabled=!@loadForm.isValid class="text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                       Tender load
                   </button>
               </div>

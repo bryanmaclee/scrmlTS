@@ -99,7 +99,15 @@
         <messageHistory> = []
         <loaded> = false
         <errorMessage> = ""
-        <draft> = ""
+
+        // Shape-2 decl-coupled compound form (§6.2 / §55): the single `draft`
+        // field carries `req`; @messageForm.isValid gates send. (Compound, not a
+        // bare cell, so the §55.5 rollup synthesizes.) render-by-tag <draft/> for a
+        // compound field is currently unexpanded (bug filed slice-2), so the
+        // textarea binds explicitly via bind:value=@messageForm.draft.
+        <messageForm>
+            <draft req> = <textarea/>
+        </>
 
         function getSessionToken() {
             const c = document.cookie ? document.cookie : ""
@@ -131,12 +139,12 @@
 
         function sendMessage(event) {
             if (event && event.preventDefault) event.preventDefault()
-            if (@draft == "") {
+            if (!@messageForm.isValid) {
                 setError("Type a message first.")
                 return
             }
             const tok = getSessionToken()
-            const body = @draft
+            const body = @messageForm.draft
             const result = sendMessageServer(tok, body)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
@@ -153,7 +161,7 @@
             const driverId = @currentDriver ? @currentDriver.id : 0
             const userId = @currentUser ? @currentUser.id : 0
             publishDriverEvent("message", driverId, userId, body, 0)
-            @draft = ""
+            reset(@messageForm.draft)
             refresh()
         }
 
@@ -268,15 +276,15 @@
                         </label>
                         <textarea
                             id="msg-body"
-                            bind:value=@draft
+                            bind:value=@messageForm.draft
                             rows="3"
                             placeholder="Heading north on US-191, ETA Roosevelt 0900."
                             class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
-                            required
                         ></textarea>
+                        <errors of=@messageForm.draft/>
                         <div class="flex items-center justify-between">
                             <div if=(@errorMessage != "") class="text-sm text-red-700">${@errorMessage}</div>
-                            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">
+                            <button type="submit" disabled=!@messageForm.isValid class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
                                 Send
                             </button>
                         </div>

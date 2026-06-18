@@ -289,12 +289,24 @@
         // active token (load.status < loaded, or BOL already submitted).
         <bolToken> = ""
 
-        // Form state for the BOL/POD/fuel/breakdown blocks.
-        <bolFilename> = ""
-        <podFilename> = ""
-        <fuelAmount> = ""
-        <fuelOdometer> = ""
-        <breakdownDescription> = ""
+        // Form state for the BOL/POD/fuel/breakdown blocks — Shape-2 decl-coupled
+        // compounds (§6.2 / §55), one per inline form so each gets its own §55.5
+        // validity rollup (@bolForm.isValid, etc.). render-by-tag <filename/> for a
+        // compound field is currently unexpanded (bug filed slice-2), so the inputs
+        // bind explicitly via bind:value below.
+        <bolForm>
+            <filename req> = <input type="text"/>
+        </>
+        <podForm>
+            <filename req> = <input type="text"/>
+        </>
+        <fuelForm>
+            <amount req> = <input type="text"/>
+            <odometer req> = <input type="text"/>
+        </>
+        <breakdownForm>
+            <description req> = <textarea/>
+        </>
 
         // Which inline form is currently expanded. "" means none.
         <openForm> = ""
@@ -372,8 +384,8 @@
 
         function submitBol(event) {
             if (event && event.preventDefault) event.preventDefault()
-            const filename = @bolFilename
-            if (filename == "") {
+            const filename = @bolForm.filename
+            if (!@bolForm.isValid) {
                 setError("BOL filename required.")
                 return
             }
@@ -395,15 +407,15 @@
                 @errorMessage = result.error
                 return
             }
-            @bolFilename = ""
+            reset(@bolForm)
             @openForm = ""
             refresh()
         }
 
         function submitPod(event) {
             if (event && event.preventDefault) event.preventDefault()
-            const filename = @podFilename
-            if (filename == "") {
+            const filename = @podForm.filename
+            if (!@podForm.isValid) {
                 setError("POD filename required.")
                 return
             }
@@ -418,16 +430,16 @@
                 @errorMessage = result.error
                 return
             }
-            @podFilename = ""
+            reset(@podForm)
             @openForm = ""
             refresh()
         }
 
         function submitFuel(event) {
             if (event && event.preventDefault) event.preventDefault()
-            const amount = @fuelAmount
-            const odometer = @fuelOdometer
-            if (amount == "" || odometer == "") {
+            const amount = @fuelForm.amount
+            const odometer = @fuelForm.odometer
+            if (!@fuelForm.isValid) {
                 setError("Fuel amount and odometer both required.")
                 return
             }
@@ -442,16 +454,15 @@
                 @errorMessage = result.error
                 return
             }
-            @fuelAmount = ""
-            @fuelOdometer = ""
+            reset(@fuelForm)
             @openForm = ""
             refresh()
         }
 
         function submitBreakdown(event) {
             if (event && event.preventDefault) event.preventDefault()
-            const desc = @breakdownDescription
-            if (desc == "") {
+            const desc = @breakdownForm.description
+            if (!@breakdownForm.isValid) {
                 setError("Breakdown description required.")
                 return
             }
@@ -466,7 +477,7 @@
                 @errorMessage = result.error
                 return
             }
-            @breakdownDescription = ""
+            reset(@breakdownForm)
             @openForm = ""
             refresh()
         }
@@ -716,14 +727,14 @@
                           <input
                               id="bol-filename"
                               type="text"
-                              bind:value=@bolFilename
+                              bind:value=@bolForm.filename
                               placeholder="bol-load-${@currentLoad.id}.pdf"
                               class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
-                              required
                           />
+                          <errors of=@bolForm.filename/>
                       </div>
                       <div class="flex items-center gap-2">
-                          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">Submit</button>
+                          <button type="submit" disabled=!@bolForm.isValid class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed">Submit</button>
                           <button type="button" onclick=closeForm() class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-md">Cancel</button>
                       </div>
                   </form>
@@ -742,14 +753,14 @@
                           <input
                               id="pod-filename"
                               type="text"
-                              bind:value=@podFilename
+                              bind:value=@podForm.filename
                               placeholder="pod-load-${@currentLoad.id}.pdf"
                               class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
-                              required
                           />
+                          <errors of=@podForm.filename/>
                       </div>
                       <div class="flex items-center gap-2">
-                          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">Submit</button>
+                          <button type="submit" disabled=!@podForm.isValid class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed">Submit</button>
                           <button type="button" onclick=closeForm() class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-md">Cancel</button>
                       </div>
                   </form>
@@ -767,26 +778,26 @@
                               <input
                                   id="fuel-amount"
                                   type="text"
-                                  bind:value=@fuelAmount
+                                  bind:value=@fuelForm.amount
                                   placeholder="120"
                                   class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
-                                  required
                               />
+                              <errors of=@fuelForm.amount/>
                           </div>
                           <div>
                               <label for="fuel-odometer" class="block text-xs font-medium text-slate-600 mb-1">Odometer</label>
                               <input
                                   id="fuel-odometer"
                                   type="text"
-                                  bind:value=@fuelOdometer
+                                  bind:value=@fuelForm.odometer
                                   placeholder="123456"
                                   class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
-                                  required
                               />
+                              <errors of=@fuelForm.odometer/>
                           </div>
                       </div>
                       <div class="flex items-center gap-2">
-                          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">Submit</button>
+                          <button type="submit" disabled=!@fuelForm.isValid class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed">Submit</button>
                           <button type="button" onclick=closeForm() class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-md">Cancel</button>
                       </div>
                   </form>
@@ -804,15 +815,15 @@
                           </label>
                           <textarea
                               id="breakdown-desc"
-                              bind:value=@breakdownDescription
+                              bind:value=@breakdownForm.description
                               rows="3"
                               placeholder="Tire blowout on I-80 near Rock Springs. Calling tow."
                               class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
-                              required
                           ></textarea>
+                          <errors of=@breakdownForm.description/>
                       </div>
                       <div class="flex items-center gap-2">
-                          <button type="submit" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md">Submit</button>
+                          <button type="submit" disabled=!@breakdownForm.isValid class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed">Submit</button>
                           <button type="button" onclick=closeForm() class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-md">Cancel</button>
                       </div>
                   </form>
