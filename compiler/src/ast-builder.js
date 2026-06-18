@@ -3467,7 +3467,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             }
             return false;
           })();
-          if (startsArmPattern) break;
+          // §18 / §51.0.J variant-pattern alternation continuation. `.Small | .Big
+          // :> v` is ONE arm with a `|`-chain of variant patterns (canonical — the
+          // §51.0.J `derived=match` worked example + kickstarter §4.10). When the
+          // preceding collected part is a top-level `|`, the `.IDENT =>` we just
+          // detected is the SECOND (or later) alternate of THIS arm, NOT a new arm
+          // boundary — do not break, keep collecting so the whole `|`-chain stays in
+          // one bare-expr. (g-match-alternation-value-vs-derived: a break here tore
+          // the alternation, leaving a trailing `|` the typer mis-read as a guard
+          // clause → E-SYNTAX-011, while `derived=match` — which never reaches this
+          // value-return collectExpr boundary — accepted the identical form.)
+          const _prevPart = parts.length > 0 ? (parts[parts.length - 1]?.trim() ?? "") : "";
+          const _isAltContinuation = startsArmPattern && _prevPart === "|";
+          if (startsArmPattern && !_isAltContinuation) break;
         }
         // Another statement-starting keyword is a boundary (do not consume).
         // Guard: angleDepth === 0 ensures we are NOT inside a tag expression

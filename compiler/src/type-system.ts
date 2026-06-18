@@ -13028,6 +13028,17 @@ function splitMatchArms(raw: string): string[] {
     if (pos === 0) return false;
     const prev = raw[pos - 1];
     if (!/\s/.test(prev)) return false;
+    // §18 / §51.0.J variant-pattern alternation continuation: `.Small | .Big`.
+    // A `.Variant` / `::Variant` / `< Sub>` / `else` / `not` immediately following
+    // a top-level `|` (skipping whitespace) is the SECOND (or later) alternate of
+    // ONE alternation arm — NOT a new arm. Splitting here would tear the
+    // alternation in two (the g-match-alternation-value-vs-derived bug: the second
+    // alternate would land in its own piece + the first piece's trailing `|` would
+    // be mis-read as a guard clause, firing E-SYNTAX-011). Look back past the
+    // whitespace run; if the preceding non-space char is a `|`, do not split.
+    let b = pos - 1;
+    while (b >= 0 && /\s/.test(raw[b])) b--;
+    if (b >= 0 && raw[b] === "|") return false;
     const rest = raw.slice(pos);
     // `.IDENT` (PascalCase) — enum variant arm. Allow whitespace between
     // `.` and the identifier (the tokenizer sometimes inserts space).
@@ -13084,9 +13095,65 @@ function splitMatchArms(raw: string): string[] {
 }
 
 type ParsedArmPattern =
-  | { kind: "variant"; variantName: string; payloadBindings: string[]; hasGuard: boolean; armText: string }
+  | { kind: "variant"; variantName: string; payloadBindings: string[]; hasGuard: boolean; armText: string;
+      /**
+       * §18 / §51.0.J variant-pattern alternation: `.Small | .Big :> v`. When the
+       * arm head is a `|`-chain of VARIANT patterns (NOT a boolean guard), this
+       * carries EVERY alternate's variant name (`["Small", "Big"]`); `variantName`
+       * is the FIRST alternate (regression-preserving for singleton-only callers).
+       * Empty / absent for a singleton variant arm. The exhaustiveness collector
+       * pushes ALL of these so coverage + dead-arm checks see each alternate.
+       * Pattern-alternation is NOT a guard clause — it MUST NOT set `hasGuard`
+       * (the value-return-match-vs-derived-match parity fix,
+       * g-match-alternation-value-vs-derived).
+       */
+      altVariants?: string[] }
   | { kind: "wildcard"; isElse: boolean; isNot: boolean; hasGuard: boolean; armText: string }
   | { kind: "unknown"; armText: string };
+
+/**
+ * Is the source-text after a top-level `|` in a match arm head a VARIANT pattern
+ * (`.Variant` / `::Variant` / `< Substate>` / `else` / `_` / `not`) rather than a
+ * boolean GUARD condition? Pattern-alternation (`.A | .B :> v`) is canonical
+ * JS-style match syntax — normatively used in the §51.0.J `derived=match` worked
+ * example + the kickstarter §4.10 teaching — and MUST NOT be rejected as an
+ * E-SYNTAX-011 guard clause (§18.10 excludes `| cond` guards, NOT `| .Variant`
+ * alternation). `rhs` is the trimmed text following the `|`.
+ */
+function altRhsIsVariantPattern(rhs: string): boolean {
+  const t = rhs.trim();
+  if (!t) return false;
+  // `.Variant` / `::Variant` (canonical + alias dot-prefix variant pattern).
+  if (/^(?:\.|::)\s*[A-Za-z_][A-Za-z0-9_]*/.test(t)) return true;
+  // `< Substate>` substate pattern (space-after-`<` per §4.3, §54.4).
+  if (/^<\s+[A-Z][A-Za-z0-9_]*\s*>/.test(t)) return true;
+  // Wildcard / absence pattern arms.
+  if (/^else\b/.test(t)) return true;
+  if (/^_(?!\w)/.test(t)) return true;
+  if (/^not\b/.test(t)) return true;
+  return false;
+}
+
+/**
+ * Split a match-arm head into its top-level `|`-separated segments (paren /
+ * bracket / brace aware). `".Small | .Big"` → `[".Small ", " .Big"]`. Used to
+ * discriminate variant-pattern alternation from a boolean guard and to harvest
+ * the full alternate variant set.
+ */
+function splitTopLevelPipes(head: string): string[] {
+  const segments: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (let i = 0; i < head.length; i++) {
+    const c = head[i];
+    if (c === "(" || c === "[" || c === "{") { depth++; cur += c; }
+    else if (c === ")" || c === "]" || c === "}") { depth = Math.max(0, depth - 1); cur += c; }
+    else if (depth === 0 && c === "|") { segments.push(cur); cur = ""; }
+    else cur += c;
+  }
+  segments.push(cur);
+  return segments;
+}
 
 /**
  * Parse one arm string into its pattern descriptor. Looks at text BEFORE the
@@ -13098,13 +13165,34 @@ function parseArmPattern(armText: string): ParsedArmPattern {
   if (!head) return { kind: "unknown", armText };
 
   let hasGuard = false;
+  // §18 / §51.0.J variant-pattern alternation harvest. A top-level `|`-chain is
+  // EITHER variant-pattern alternation (`.Small | .Big`, canonical — see §51.0.J
+  // `derived=match` + kickstarter §4.10) OR a boolean GUARD (`.X | cond`, §18.10
+  // excluded). Discriminate: if there's a top-level `|` AND every `|`-introduced
+  // segment after the first is a variant pattern (and the first segment is too),
+  // it's alternation — collect the full alternate set, do NOT flag a guard.
+  // Otherwise the `|` introduces a guard condition (E-SYNTAX-011).
+  let altVariants: string[] | undefined;
   {
-    let depth = 0;
-    for (let i = 0; i < head.length; i++) {
-      const c = head[i];
-      if (c === "(" || c === "[" || c === "{") depth++;
-      else if (c === ")" || c === "]" || c === "}") depth = Math.max(0, depth - 1);
-      else if (depth === 0 && c === "|") { hasGuard = true; break; }
+    const segments = splitTopLevelPipes(head);
+    if (segments.length > 1) {
+      const firstIsVariant = altRhsIsVariantPattern(segments[0]);
+      const restAllVariants = segments.slice(1).every(altRhsIsVariantPattern);
+      if (firstIsVariant && restAllVariants) {
+        // Pure variant-pattern alternation — harvest each alternate's name.
+        const names: string[] = [];
+        for (const seg of segments) {
+          const m = seg.trim().match(/^(?:\.|::)\s*([A-Za-z_][A-Za-z0-9_]*)/)
+            ?? seg.trim().match(/^<\s+([A-Z][A-Za-z0-9_]*)\s*>/);
+          if (m) names.push(m[1]);
+          // `else` / `_` / `not` alternates carry no variant name — they widen
+          // the arm to a wildcard, which the wildcard-return path handles below.
+        }
+        if (names.length > 0) altVariants = names;
+      } else {
+        // A top-level `|` whose RHS is NOT a variant pattern is a guard clause.
+        hasGuard = true;
+      }
     }
     if (!hasGuard) {
       let d = 0;
@@ -13136,16 +13224,21 @@ function parseArmPattern(armText: string): ParsedArmPattern {
   if (/^not\b/.test(patOnly)) {
     return { kind: "wildcard", isElse: false, isNot: true, hasGuard, armText };
   }
-  const varMatch = patOnly.match(/^\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*(\(([^)]*)\))?/);
+  // Accept BOTH the canonical dot-prefix (`.Variant`) and the `::Variant` alias
+  // (§18.2 / §37-AM-001). The `::` form reaches this path for value-return
+  // alternation arms (`::Small | ::Big :> v`); without `::` here `patOnly` fell
+  // through to `unknown` and the alternation's variants were dropped from the
+  // exhaustiveness count (g-match-alternation-value-vs-derived `::`-alias leg).
+  const varMatch = patOnly.match(/^(?:\.|::)\s*([A-Za-z_][A-Za-z0-9_]*)\s*(\(([^)]*)\))?/);
   if (varMatch) {
     const payloadBindings = extractPayloadBindings(varMatch[3]);
-    return { kind: "variant", variantName: varMatch[1], payloadBindings, hasGuard, armText };
+    return { kind: "variant", variantName: varMatch[1], payloadBindings, hasGuard, armText, altVariants };
   }
   // §54.4 Phase 3d: substate pattern `< SubstateName>` (space-after-< per §4.3 disambiguation).
   const subMatch = patOnly.match(/^<\s+([A-Z][A-Za-z0-9_]*)\s*>\s*(\(([^)]*)\))?/);
   if (subMatch) {
     const payloadBindings = extractPayloadBindings(subMatch[3]);
-    return { kind: "variant", variantName: subMatch[1], payloadBindings, hasGuard, armText };
+    return { kind: "variant", variantName: subMatch[1], payloadBindings, hasGuard, armText, altVariants };
   }
   return { kind: "unknown", armText };
 }
@@ -13268,8 +13361,16 @@ function extractArmsFromMatchNode(node: ASTNodeLike): ExtractedArms {
         } else if (parsed.hasGuard) {
           guardArms.push(parsed);
         }
-        if (parsed.kind === "variant") pushVariant(parsed.variantName);
-        else if (parsed.kind === "wildcard") pushWildcard(parsed.isNot);
+        if (parsed.kind === "variant") {
+          // §18 / §51.0.J variant-pattern alternation (`.Small | .Big :> v`):
+          // push EVERY alternate so exhaustiveness coverage + dead-arm checks
+          // see each variant. Singleton arms push just the one variant.
+          if (parsed.altVariants && parsed.altVariants.length > 0) {
+            for (const v of parsed.altVariants) pushVariant(v);
+          } else {
+            pushVariant(parsed.variantName);
+          }
+        } else if (parsed.kind === "wildcard") pushWildcard(parsed.isNot);
       }
     }
   }
