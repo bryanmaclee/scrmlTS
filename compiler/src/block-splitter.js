@@ -168,6 +168,23 @@ const COMPOUND_LIFT_EXEMPT_TAGS = new Set([
   // not a compound state-decl. Without the exemption the auto-lift heuristic
   // would mis-classify the opener and capture the body as opaque text.
   "each",
+  // g-colon-shorthand-markup-misparse (2026-06-18) — same reasoning as `match`
+  // / `each` above. `<engine for=Type ...>...</>` (and the `<machine>` legacy
+  // spelling) is a Tier 2 state-machine structural container (SPEC §4.15 /
+  // §51.0), NOT a compound state-decl. The auto-lift heuristic classified an
+  // engine whose state-children use the DEPRECATED after-`>` `:`-shorthand
+  // (`<Idle rule=.Done> : <p>…</p>`) as a compound state-decl — because
+  // classifyOpenerForCompoundScan reads the `:` after a child opener's `>` as a
+  // Shape-2 typed-state-decl signal (line ~1823) — captured the whole engine as
+  // opaque text, then EOF-dissolved it into a top-level text run, producing the
+  // misleading E-STRUCTURAL-ELEMENT-MISPLACED on `<engine>` (the engine never
+  // became a block). Exempting `engine`/`machine` here lets BS fall through to
+  // the regular markup-opener path → a `type=markup name=engine` block whose
+  // state-children (bare-body, inside-opener `:`-shorthand, and after-`>`
+  // `:`-shorthand) are recognized as leaves and concatenated into
+  // engine-decl.rulesRaw for the engine-statechild-parser re-parse.
+  "engine",
+  "machine",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -771,6 +788,24 @@ export function splitBlocks(filePath, source) {
     return stack.length > 0 ? stack[stack.length - 1] : null;
   }
 
+  /**
+   * g-colon-shorthand-markup-misparse (2026-06-18) — true when the top frame is
+   * an `<engine>` / `<machine>` markup body (where state-children live). Used to
+   * scope the DEPRECATED after-`>` `:`-shorthand recognition to the engine locus:
+   * an engine state-child opener (`<Idle rule=.Done> : <p>…</p>`) followed by an
+   * after-`>` ` : ` is a self-terminating leaf, not a context-pushing opener. The
+   * match / each loci already cover the after-`>` form via findStructuralBodyEnd
+   * (they are STRUCTURAL_RAW_BODY); engine is NOT, so it needs this main-loop
+   * recognition. Scoping to the engine frame keeps a stray `<div> : x` in plain
+   * markup unaffected.
+   */
+  function topIsEngineBody() {
+    const f = topFrame();
+    if (f === null) return false;
+    const nm = typeof f.name === "string" ? f.name.toLowerCase() : "";
+    return f.type === "markup" && (nm === "engine" || nm === "machine");
+  }
+
   /** True if the top frame is a brace-delimited context. */
   function topIsBraceContext() {
     const f = topFrame();
@@ -926,11 +961,15 @@ export function splitBlocks(filePath, source) {
    * `shorthand: true` as a leaf-block emit (analogous to `selfClosing`).
    * Bracket-depth tracking (brace/paren/bracket/quote) prevents premature
    * `>` termination inside the body expression. Embedded markup-as-value
-   * inside the shorthand body (e.g. `<Loading : <p>...</>>`) is NOT handled
-   * by this BS-level recognition — angle-depth tracking lives in the
-   * tokenizer / native-parser. For the Bug-40 each-item-body cases
-   * (`<li : @.name>`, `<li class="card" : @.title>`, `<empty : "none">`),
-   * bracket-depth tracking is sufficient.
+   * inside the shorthand body (e.g. `<Loading : <p>...</p>>`,
+   * `<Idle rule=.Loading : <button onclick=load()>Load</button>>`) IS handled
+   * (g-colon-shorthand-markup-misparse, 2026-06-18) via SPEC §4.13 angleDepth
+   * tracking, gated on `shorthand === true` so an embedded markup tag's `>` is
+   * body content, not the opener terminator — the opener `>` is the one at
+   * angle depth 0 (§4.14:985 markup-as-value body / :990 angleDepth rule).
+   * The Bug-40 each-item-body cases (`<li : @.name>`,
+   * `<li class="card" : @.title>`, `<empty : "none">`) remain covered by the
+   * brace/paren/bracket tracking (no embedded markup → angle depth stays 0).
    *
    * @returns {{ attrRaw: string, selfClosing: boolean, shorthand: boolean }}
    */
@@ -957,6 +996,19 @@ export function splitBlocks(filePath, source) {
     // condition is then captured by the attribute tokenizer as an
     // ATTR_OP_REJECT → E-ATTR-UNQUOTED-OPERATOR, the canonical reject.)
     let ternaryDepth = 0;
+    // g-colon-shorthand-markup-misparse (2026-06-18) — SPEC §4.13 angleDepth +
+    // §4.14:990 ("The `angleDepth` rule (§4.13) applies inside the expression —
+    // embedded markup is handled by tracking angle depth"). Once a `:`-shorthand
+    // body is recognized (the SHALL-be-one-expression body per §4.14:985, which
+    // explicitly admits markup-as-value), a `<tag>` / `</tag>` / `<tag/>` in the
+    // body must NOT have its `>` mistaken for the opener terminator. This counter
+    // is only consulted while `shorthand === true`; it tracks embedded markup-tag
+    // nesting inside the shorthand body so the opener-terminating `>` is the one
+    // encountered at `shorthandAngleDepth === 0`. Pre-fix, only brace/paren/
+    // bracket depth was tracked, so `<Loading : <p>x</p>>` truncated the body at
+    // the inner `<p>`'s `>` and shredded the engine/match body (the documented
+    // gap in the scanAttributes header comment, now closed).
+    let shorthandAngleDepth = 0;
     // §51.0.J derived-engine EXPRESSION form (S190) — once the scanner passes a
     // depth-0 `derived=` attribute name, the value is a scrml EXPRESSION (the
     // ternary `derived=@n > 5 ? .A : .B`, call `derived=classify(@n)`, or
@@ -1016,6 +1068,37 @@ export function splitBlocks(filePath, source) {
       }
 
       if (!localDouble && !localSingle) {
+        // g-colon-shorthand-markup-misparse (2026-06-18) — SPEC §4.13 angleDepth
+        // tracking inside a `:`-shorthand markup-as-value body (§4.14:985/:990).
+        // Active ONLY once the `:`-shorthand introducer has been recognized
+        // (`shorthand === true`). An embedded markup tag's `>` must not be read
+        // as the opener terminator; the opener `>` is the one seen at angle
+        // depth 0. This MUST run before the plain `>` / `/>` terminator handlers
+        // below. Per §4.13: a `<` immediately followed by a letter or `/`
+        // increments; a `>` while depth > 0 decrements (and is body content,
+        // not a tag boundary); `/>` while depth > 0 closes the embedded tag.
+        if (shorthand) {
+          if (c === "<" && /[A-Za-z\/]/.test(ch(1))) {
+            shorthandAngleDepth++;
+            attrRaw += c;
+            step();
+            continue;
+          }
+          if (c === "/" && ch(1) === ">" && shorthandAngleDepth > 0) {
+            // Embedded self-closing tag (`<br/>`, `<input/>`) inside the body —
+            // closes the tag it opened; NOT the shorthand opener's terminator.
+            shorthandAngleDepth--;
+            attrRaw += "/>";
+            advance(2);
+            continue;
+          }
+          if (c === ">" && shorthandAngleDepth > 0) {
+            shorthandAngleDepth--;
+            attrRaw += c;
+            step();
+            continue;
+          }
+        }
         // cluster-A (S188 "reject + parens") — `g-attr-gte-tagclose` early
         // guard. A depth-0 `>=` sequence (a `>` IMMEDIATELY followed by `=`)
         // is never an opener terminator: the tag close is `>` and the
@@ -1211,6 +1294,41 @@ export function splitBlocks(filePath, source) {
     }
 
     return { attrRaw, selfClosing, shorthand, shorthandColonAttrOff };
+  }
+
+  // g-colon-shorthand-markup-misparse (2026-06-18) — DEPRECATED after-`>`
+  // `:`-shorthand placement (`<Variant attrs> : expr`, the `:` AFTER the
+  // opener-terminating `>`). SPEC §4.14:999 / §51.0.I:25813 / §18.0.1:11216:
+  // the after-`>` placement is DEPRECATED but parses IDENTICALLY during the
+  // window (it builds the same AST + emits identically, surfacing only the
+  // info-level `W-COLON-SHORTHAND-LEGACY-PLACEMENT`). The match/each loci
+  // already handle this in `findStructuralBodyEnd` (the opener is depth-neutral
+  // and the body markup balances in the raw-body tag-stack), but `<engine>` is
+  // NOT a STRUCTURAL_RAW_BODY element — its body is parsed as nested block
+  // contexts in the main loop, where an after-`>` state-child opener was pushed
+  // as a context that never receives a closer (the `: expr` IS the body), so at
+  // EOF the unclosed contexts triggered recovery and the WHOLE engine dissolved
+  // to text → the misleading E-STRUCTURAL-ELEMENT-MISPLACED on `<engine>` + the
+  // bare-variant cascade. This helper, called immediately after a non-self-
+  // closing / non-(inside-opener-)shorthand opener's `>`, peeks for the
+  // after-`>` ` : ` and, if present, consumes the `: expr` body to end-of-line
+  // (the §51.0.I:970 / match-statechild `[^\n]*` single-line convention) so the
+  // opener + after-`>` body is captured as one leaf (no context push). The
+  // engine-statechild-parser re-parses the captured text and emits the lint.
+  // pos is just past the opener `>`. Returns true if an after-`>` body was
+  // consumed (caller emits a leaf, no push), false otherwise (caller proceeds).
+  function tryConsumeAfterCloseColonShorthand() {
+    let peek = pos;
+    while (peek < len && (source[peek] === " " || source[peek] === "\t")) peek++;
+    if (peek >= len || source[peek] !== ":") return false;
+    // Guard against `::` (Phase-3 syntax) — not an after-`>` shorthand introducer.
+    if (source[peek + 1] === ":") return false;
+    // Consume horizontal whitespace + the `:` + the single-line body. The body
+    // runs to the next newline (the single-line after-`>` convention). A markup
+    // body (`<p>…</p>`) on the same line is captured verbatim; the engine-state-
+    // child / match-statechild parser owns the inner re-parse.
+    while (pos < len && source[pos] !== "\n") step();
+    return true;
   }
 
   // R25-Bug-74 (S177) — distinguish a GENUINE `:`-shorthand body (`<span :@thing>`,
@@ -2815,6 +2933,19 @@ export function splitBlocks(filePath, source) {
         const isComp = isComponentName(tagName);
         const { attrRaw: openerAttrRaw, selfClosing, shorthand, shorthandColonAttrOff } = scanAttributes();
         const lowerTagName = tagName.toLowerCase();
+        // g-colon-shorthand-markup-misparse (2026-06-18) — DEPRECATED after-`>`
+        // `:`-shorthand on an engine state-child (`<Idle rule=.Done> : <p>…</p>`),
+        // scoped to the `<engine>`/`<machine>` body locus. When the opener closed
+        // with a bare `>` (not self-closing, not an inside-opener shorthand) and
+        // is immediately followed by ` : `, consume the single-line `: expr` body
+        // so the opener + after-`>` body is one self-terminating leaf (the `: expr`
+        // IS the body — no `</Idle>` closer). Routes through the shorthand-leaf
+        // branch below (closerForm "shorthand"), identical to the inside-opener
+        // form, so it lands in engine-decl.rulesRaw and the engine-statechild-
+        // parser surfaces W-COLON-SHORTHAND-LEGACY-PLACEMENT.
+        const afterCloseColon =
+          !shorthand && !selfClosing &&
+          topIsEngineBody() && tryConsumeAfterCloseColonShorthand();
         // R4a (S159 — S154 ruling (a)): a GENUINE `:`-shorthand body has NO
         // closer (`<span : @label>` — no `/>`). A self-closing opener that also
         // tripped the shorthand scanner (e.g. `<column :let={...}/>`, where the
@@ -2859,7 +2990,7 @@ export function splitBlocks(filePath, source) {
             isComponent: isComp,
             openerHadSpaceAfterLt: false,
           });
-        } else if (shorthand && !selfClosing) {
+        } else if ((shorthand && !selfClosing) || afterCloseColon) {
           // R25-Bug-40 — SPEC §4.14 `:`-shorthand body: the opener carries
           // its single-expression body inside the opener (between the `:`
           // and `>`); there is NO closer. Emit as a leaf block (analogous
@@ -2877,7 +3008,13 @@ export function splitBlocks(filePath, source) {
           // attrRaw starts immediately after the tag name (length of
           // `<` + tag name). Compute: `<` (1) + tagName.length + offset
           // of `:` within attrRaw.
-          const shorthandColonOff = 1 + tagName.length + shorthandColonAttrOff;
+          // g-colon-shorthand-markup-misparse (2026-06-18) — the after-`>`
+          // form (`afterCloseColon`) lands here too; its `:` is OUTSIDE the
+          // opener so `shorthandColonOff` does not apply (it stays -1 and the
+          // field is omitted). Engine state-children are re-parsed downstream
+          // from rulesRaw, so the offset is not load-bearing for them.
+          const shorthandColonOff =
+            afterCloseColon ? -1 : 1 + tagName.length + shorthandColonAttrOff;
           targetChildren().push({
             type: "markup",
             raw: source.slice(curPos, pos),
@@ -2888,7 +3025,7 @@ export function splitBlocks(filePath, source) {
             closerForm: "shorthand",
             isComponent: isComp,
             openerHadSpaceAfterLt: false,
-            shorthandColonOff,
+            ...(shorthandColonOff >= 0 ? { shorthandColonOff } : {}),
           });
         } else if (selfClosing || VOID_ELEMENTS.has(lowerTagName)) {
           // Self-closing ('/>') or HTML void element - emit as leaf block, no context push.
@@ -3108,6 +3245,13 @@ export function splitBlocks(filePath, source) {
         while (pos < len && /\s/.test(source[pos])) step(); // skip whitespace
         const stateName = readIdent();
         const { selfClosing: stateSelfClosing, shorthand: stateShorthand, shorthandColonAttrOff: stateShorthandColonAttrOff } = scanAttributes();
+        // g-colon-shorthand-markup-misparse (2026-06-18) — DEPRECATED after-`>`
+        // `:`-shorthand on a whitespace-form engine state-child opener
+        // (`< Idle rule=.Done> : <p>…</p>`). Same recognition as the no-space
+        // markup path; routes through the stateShorthand leaf branch below.
+        const stateAfterCloseColon =
+          !stateShorthand && !stateSelfClosing &&
+          topIsEngineBody() && tryConsumeAfterCloseColonShorthand();
         if (stateSelfClosing) {
           // P1 (uniform opener, SPEC §15.15): permit `< name attr=...` /> ` self-closing
           // for state openers — required to make state types behave uniformly with the
@@ -3124,7 +3268,7 @@ export function splitBlocks(filePath, source) {
             isComponent: isComponentName(stateName),
             openerHadSpaceAfterLt: true,
           });
-        } else if (stateShorthand) {
+        } else if (stateShorthand || stateAfterCloseColon) {
           // R25-Bug-40 — SPEC §4.14 `:`-shorthand body on state openers
           // (engine state-children: `<Idle : startGame()>`, etc.). Same
           // treatment as the markup path — leaf block, no context push,
