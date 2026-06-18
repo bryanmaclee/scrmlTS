@@ -1,3 +1,5 @@
+> **RE-DISPATCHED S206** (agent a2322e040eb1d9944): the first D2 (a8ad5f2b) stalled environmentally at the starting line (zero loss). Re-run differs: D1 LANDED first, so D2 imports the REAL block-analysis-footprint.ts — NO STUB. Below is the original brief; the stub instruction is void.
+
 # BRIEF — D2 (block-analysis builder + sidecar) — dispatched S206, agent a8ad5f2b1ab34fb19
 
 > Archived verbatim per S136. Agent: `scrml-js-codegen-engineer`, `isolation: worktree`, opus, background.
