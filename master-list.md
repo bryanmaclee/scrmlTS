@@ -87,6 +87,7 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 > `bun scripts/state.ts --write` regenerates it; `--check` gates it.
 
 <!-- @generated:recent-sessions START (do not edit — `bun scripts/state.ts --write`) -->
+- `74d7d0e2` — wrap(s205): close — 3 MED gaps + slice-3 <each> + 3 ratifications; 3 agent landings deferred (F3) — **pushed**
 - `e723de04` — chore(s204): wrap-finalize — recent-sessions + digest regen at settled HEAD d64d4519 — **pushed**
 - `69172d25` — wrap(s203): close — vPA-deputy LIVE (F1/F2/F3 + self-poke loop) + e2e backlog triaged + flograph filter; #3 fix left in-flight (first F3 reboot-bridge use) — **pushed**
 - `1bcf5c71` — wrap(s202): close — each-inline arc closed (board HIGH 0) + trucking flagship complete + flograph & L1 render-map built + 4 DDs (dock/e2e/deputy adopted, baton retired) — **pushed**
@@ -94,7 +95,6 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 - `535de409` — wrap(s200) 6c: maps refresh 76d03aa9->b1f5f8bf + delta-log [10] (S200 wrap complete) — **pushed**
 - `b727c24a` — wrap(s199): E-leg server-auth engine + HOS showcase + gap-184 §11.1 + flogeance/vPA workflow [FIRST live baton-pass] — **pushed**
 - `13c3c978` — wrap(s198): close — trucking 1a/1b + engine-hydration F-primitive landed; E-leg designed-not-built; vPA workflow open; context-economics locked in — **pushed**
-- `23fbca78` — wrap(s197): RemoteData scope-lock + Approach-C loading-sugar deep-dive (DON'T-BUILD) -> A+D ratified, Nominal-7 retired; corpus wave-3 (29/30/31 NEW examples); g-markup-value HIGH gap filed — **pushed**
 <!-- @generated:recent-sessions END -->
 
 ## A. Compiler core
