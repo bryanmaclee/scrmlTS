@@ -2441,7 +2441,8 @@
     "SPAN-COORD": 8
   },
   "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-for-lift-outside-logic-109.scrml": {
-    "EXTRA-FIELD": 2,
+    "COUNT-LENGTH": 1,
+    "EXTRA-FIELD": 3,
     "MISSING-FIELD": 2
   },
   "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-for-lift-without-key-primitive-100.scrml": {
@@ -4308,14 +4309,16 @@
     "MISSING-FIELD": 1
   },
   "samples/compilation-tests/gauntlet-s20-channels/channel-basic-001.scrml": {
-    "EXTRA-FIELD": 14,
+    "COUNT-LENGTH": 1,
+    "EXTRA-FIELD": 15,
     "FIELD-SHAPE": 6,
     "KIND-NAME": 2,
     "MISSING-FIELD": 19,
     "SPAN-COORD": 25
   },
   "samples/compilation-tests/gauntlet-s20-channels/channel-multiple-001.scrml": {
-    "EXTRA-FIELD": 22,
+    "COUNT-LENGTH": 2,
+    "EXTRA-FIELD": 24,
     "FIELD-SHAPE": 8,
     "KIND-NAME": 4,
     "MISSING-FIELD": 30,
@@ -4656,6 +4659,7 @@
     "SPAN-COORD": 8
   },
   "samples/compilation-tests/gauntlet-s20-sql/sql-all-001.scrml": {
+    "COUNT-LENGTH": 1,
     "EXTRA-FIELD": 3,
     "MISSING-FIELD": 2,
     "SPAN-COORD": 6
@@ -4684,6 +4688,7 @@
     "SPAN-COORD": 6
   },
   "samples/compilation-tests/gauntlet-s20-sql/sql-in-for-loop-001.scrml": {
+    "COUNT-LENGTH": 1,
     "EXTRA-FIELD": 3,
     "MISSING-FIELD": 2,
     "SPAN-COORD": 6
@@ -4808,7 +4813,8 @@
     "SPAN-COORD": 7
   },
   "samples/compilation-tests/gauntlet-s20-validation/reactive-encoded-001.scrml": {
-    "EXTRA-FIELD": 2,
+    "COUNT-LENGTH": 1,
+    "EXTRA-FIELD": 3,
     "FIELD-SHAPE": 3,
     "MISSING-FIELD": 2,
     "SPAN-COORD": 8

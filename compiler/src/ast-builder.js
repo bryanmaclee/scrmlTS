@@ -488,6 +488,33 @@ const TOPLEVEL_AT_WRITE_RE =
   /^\s*@[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)/;
 
 /**
+ * change-id bare-control-flow-in-markup-diagnostic-2026-06-17 (S203).
+ *
+ * A text run inside a MARKUP body whose leading non-whitespace token is a bare
+ * control-flow STATEMENT — `for (...) { ... }`, `if (...) { ... }`, or
+ * `while (...) { ... }` — that is NOT wrapped in a `${ ... }` logic block.
+ *
+ * Per SPEC §17.4 (Tier-0 iteration) and §7, control flow in a markup body MUST
+ * live inside a `${ ... }` logic block: `<ul>${ for (x of @items) { lift <li>...
+ * } }</>`. A bare `for`/`if`/`while` directly in a markup body (no `${ }`) was
+ * previously NOT recognised as logic (BARE_DECL_RE matches decl keywords only;
+ * the §40.8 auto-lift fires only at default-logic roots, never nested markup) —
+ * so the whole construct, including its inner `${...}` interpolations, was
+ * classified as inert `[text]` and SHIPPED RAW into the DOM (a silent-accept).
+ *
+ * The regex requires the keyword + a `( ... )` head + an opening `{` so prose
+ * such as `if you want`, `for sale`, or an identifier like `forEach`/`foreign`
+ * never matches (the `\b` word-boundary + the `\s*\(` head are load-bearing).
+ * The CANONICAL `${ for/lift }` form is NEVER a `text` child of a markup parent
+ * (it is a `logic` block, and liftBareDeclarations does not recurse into logic
+ * children) so this never fires on it. Fires `E-CONTROL-FLOW-IN-MARKUP` (§34,
+ * §17.4) and RECOVERS by dropping the raw-text emission (the construct ships
+ * NEITHER `for(){}` NOR `${...}` into the DOM). Sibling of E-UNQUOTED-DISPLAY-
+ * TEXT (S111): a "bare X in a body that needs a specific wrapping" diagnostic.
+ */
+const BARE_CONTROL_FLOW_IN_MARKUP_RE = /^\s*(for|while|if)\b\s*\([^]*?\)\s*\{/;
+
+/**
  * P2: regex matching a text block whose only meaningful content is the bare
  * `export` keyword. Used to detect the `export <ComponentName ...>...</>`
  * pattern (text "export " block followed by a PascalCase markup block).
@@ -1444,6 +1471,60 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aS
         // blocks carry `_synthetic` but DO have a real `${` and need the +2).
         _bareDeclLift: true,
       });
+      continue;
+    }
+
+    // change-id bare-control-flow-in-markup-diagnostic-2026-06-17 (S203) —
+    // reject + recover: a bare control-flow STATEMENT (`for`/`if`/`while` +
+    // `(...)` head + `{`) leading a text run INSIDE a markup body. None of the
+    // lift gates above fire on it (BARE_DECL_RE = decl keywords only; the §40.8
+    // auto-lift = default-logic roots only, gated `parentType !== "markup"`), so
+    // pre-fix the whole construct — including its inner `${...}` interpolations —
+    // fell through to `result.push(block)` below as an inert `[text]` child and
+    // SHIPPED RAW into the DOM. Per §17.4 / §7 it MUST be wrapped in a `${ ... }`
+    // logic block. Fire `E-CONTROL-FLOW-IN-MARKUP` (§34) ONCE and RECOVER by
+    // dropping the text block (emit nothing — the construct ships NEITHER
+    // `for(){}` NOR `${...}` into the DOM). Gated `parentType === "markup"` so it
+    // never touches the default-logic roots (where the §40.8 auto-lift handles
+    // bare control flow), the canonical `${ for/lift }` form (a `logic` block,
+    // never a markup `text` child), an `if=`/`show=` attribute (an attr, not a
+    // body text run), or `<each>`/`<match>` (structural markup elements). See
+    // BARE_CONTROL_FLOW_IN_MARKUP_RE for the false-fire exclusions (prose/idents).
+    if (
+      block.type === "text" &&
+      parentType === "markup" &&
+      BARE_CONTROL_FLOW_IN_MARKUP_RE.test(block.raw)
+    ) {
+      const m = block.raw.match(/^(\s*)(for|while|if)\b/);
+      const keyword = m ? m[2] : "for";
+      const leadWs = m && m[1] ? m[1] : "";
+      // Place the fire at the keyword, accounting for any leading whitespace
+      // (newlines + indent) that BS folded into the text block's raw.
+      const wsBeforeKeyword = leadWs.length;
+      const newlinesBefore = (leadWs.match(/\n/g) || []).length;
+      const lastNlIdx = leadWs.lastIndexOf("\n");
+      const colOfKeyword = lastNlIdx === -1
+        ? (block.span && typeof block.span.col === "number" ? block.span.col : 1) + wsBeforeKeyword
+        : (leadWs.length - lastNlIdx);
+      const span = {
+        file: filePath,
+        start: (block.span && typeof block.span.start === "number" ? block.span.start : 0) + wsBeforeKeyword,
+        end: (block.span && typeof block.span.start === "number" ? block.span.start : 0) + block.raw.length,
+        line: (block.span && typeof block.span.line === "number" ? block.span.line : 1) + newlinesBefore,
+        col: colOfKeyword,
+      };
+      errors.push(new TABError(
+        "E-CONTROL-FLOW-IN-MARKUP",
+        `E-CONTROL-FLOW-IN-MARKUP: a bare \`${keyword}\` control-flow statement ` +
+        `directly in a markup body is not recognised as logic and would ship as ` +
+        `raw text into the DOM. Per \u00A717.4 / \u00A77, control flow in a markup ` +
+        `body MUST be wrapped in a \`\${ ... }\` logic block. Canonical iteration: ` +
+        `\`<ul>\${ for (x of @items) { lift <li>\${x}</> } }</>\` (Tier-0, \u00A717.4); ` +
+        `or the Tier-1 \`<each in=@items>\` form (\u00A717.7).`,
+        span,
+      ));
+      // RECOVER: drop the raw text block entirely so neither the control-flow
+      // source nor its inner `${...}` interpolations reach the DOM.
       continue;
     }
 

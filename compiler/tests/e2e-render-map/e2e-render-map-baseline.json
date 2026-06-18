@@ -7,8 +7,8 @@
       "renders-empty": 20,
       "compiles-but-throws": 30,
       "renders-clean": 257,
-      "smell-detected-wrong": 5,
-      "fails-compile": 125,
+      "smell-detected-wrong": 2,
+      "fails-compile": 128,
       "HARNESS-TIMEOUT": 1
     },
     "note": "e2e L1 render known-failure map. Gaps existing is NOT a failure; the delta-gate fails only on a green->red regression. NO error-class suppression — every state is recorded."
@@ -900,17 +900,18 @@
       "seeded": false
     },
     "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-for-lift-outside-logic-109.scrml#empty": {
-      "state": "smell-detected-wrong",
+      "state": "fails-compile",
       "smells": [
-        "S-RAW-INTERP"
+        "D0-COMPILE-ERROR"
       ],
       "seeded": false,
       "detail": {
-        "rawInterp": {
-          "inText": true,
-          "inAttr": false,
-          "sample": "${x}/\n        }"
-        }
+        "compileErrorCodes": [
+          "E-CONTROL-FLOW-IN-MARKUP"
+        ],
+        "compileErrorMessages": [
+          "E-CONTROL-FLOW-IN-MARKUP: a bare `for` control-flow statement directly in a markup body is not recognised as logic and would ship as raw text into the DOM. Per §17.4 / §7, control flow in a markup body MUST be wrapped in a `${ ... }` logic block. Canonical iteration: `<ul>${ for (x of @items) { lift <li>${x}</> } }</>` (Tier-0, §17.4); or the Tier-1 `<each in=@items>` form (§17.7). (line 4, col 9)"
+        ]
       }
     },
     "samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-for-lift-without-key-primitive-100.scrml#empty": {
@@ -2899,31 +2900,35 @@
       "seeded": false
     },
     "samples/compilation-tests/gauntlet-s20-channels/channel-basic-001.scrml#empty": {
-      "state": "smell-detected-wrong",
+      "state": "fails-compile",
       "smells": [
-        "S-RAW-INTERP"
+        "D0-COMPILE-ERROR"
       ],
       "seeded": false,
       "detail": {
-        "rawInterp": {
-          "inText": true,
-          "inAttr": false,
-          "sample": "${msg}</>"
-        }
+        "compileErrorCodes": [
+          "E-CONTROL-FLOW-IN-MARKUP"
+        ],
+        "compileErrorMessages": [
+          "E-CONTROL-FLOW-IN-MARKUP: a bare `for` control-flow statement directly in a markup body is not recognised as logic and would ship as raw text into the DOM. Per §17.4 / §7, control flow in a markup body MUST be wrapped in a `${ ... }` logic block. Canonical iteration: `<ul>${ for (x of @items) { lift <li>${x}</> } }</>` (Tier-0, §17.4); or the Tier-1 `<each in=@items>` form (§17.7). (line 25, col 5)"
+        ]
       }
     },
     "samples/compilation-tests/gauntlet-s20-channels/channel-multiple-001.scrml#empty": {
-      "state": "smell-detected-wrong",
+      "state": "fails-compile",
       "smells": [
-        "S-RAW-INTERP"
+        "D0-COMPILE-ERROR"
       ],
       "seeded": false,
       "detail": {
-        "rawInterp": {
-          "inText": true,
-          "inAttr": false,
-          "sample": "${n}</>"
-        }
+        "compileErrorCodes": [
+          "E-CONTROL-FLOW-IN-MARKUP",
+          "E-CONTROL-FLOW-IN-MARKUP"
+        ],
+        "compileErrorMessages": [
+          "E-CONTROL-FLOW-IN-MARKUP: a bare `for` control-flow statement directly in a markup body is not recognised as logic and would ship as raw text into the DOM. Per §17.4 / §7, control flow in a markup body MUST be wrapped in a `${ ... }` logic block. Canonical iteration: `<ul>${ for (x of @items) { lift <li>${x}</> } }</>` (Tier-0, §17.4); or the Tier-1 `<each in=@items>` form (§17.7). (line 26, col 7)",
+          "E-CONTROL-FLOW-IN-MARKUP: a bare `for` control-flow statement directly in a markup body is not recognised as logic and would ship as raw text into the DOM. Per §17.4 / §7, control flow in a markup body MUST be wrapped in a `${ ... }` logic block. Canonical iteration: `<ul>${ for (x of @items) { lift <li>${x}</> } }</>` (Tier-0, §17.4); or the Tier-1 `<each in=@items>` form (§17.7). (line 35, col 7)"
+        ]
       }
     },
     "samples/compilation-tests/gauntlet-s20-channels/channel-shared-state-001.scrml#empty": {
