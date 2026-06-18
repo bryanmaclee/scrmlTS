@@ -9,15 +9,15 @@ partition); the deputy maintains it on the `deputy-maint` branch. The PA reads i
 
 ## Deputy status
 
-- **State:** LIVE — steady-state (S205 active). First deputy instance, booted S203. On tick 15.
+- **State:** LIVE — steady-state (S205 active). First deputy instance, booted S203. On tick 26.
 - **Self-poke loop:** `/loop 30m` — cron job `39fed15c`, `7,37 * * * *`. CronDelete `39fed15c` to cancel.
-- **Last-absorbed delta seq:** S205 **[6]** (`scrml/handOffs/delta-log.md` — absorbed [S199 1] … [S205 6]).
-- **`deputy-maint` branch:** worktree `/home/bryan-maclee/scrmlMaster/scrml-deputy-maint`. Descends main `897a2c69` (the S205 PA FF-merged the tick-14 work). **Tip:** `git rev-parse deputy-maint` (tick-15: digest regen `185dc08d` + this).
+- **Last-absorbed delta seq:** S205 **[9]** (`scrml/handOffs/delta-log.md` — absorbed [S199 1] … [S205 6]).
+- **`deputy-maint` branch:** worktree `/home/bryan-maclee/scrmlMaster/scrml-deputy-maint`. Descends main `0d448fec` (PA integrated ticks 12-15 via the pre-push merge gate). **Tip:** `git rev-parse deputy-maint` (tick-26: digest regen + this).
 - **Owed maintenance:** none.
 
 ## ✅ The merge-before-push pattern is RESOLVED (contract-level, S205 [2])
 
-The recurring 2× strand (S203 digest-miss + S204 maps-miss) is **structurally closed**: the PA **ratified a HARD pre-push merge gate** into `pa-scrml.md` S199 addendum + wrap **step 7** — assert `git rev-list --count deputy-maint ^main == 0` before any push, else the session ships without the deputy's maintenance. The tick-13 recommendation was adopted verbatim. **Evidence it works:** the **S205 cold boot read a CURRENT digest** (first clean digest boot — S204 booted stale) **→ thin-start REALIZED** (master-list §0 skipped), and the S204 maps-owed thread resolved at boot (deputy-maint FF-merged → maps `cc765a5a` picked up). The deputy F1 function now delivers as designed when the gate holds.
+The recurring 2× strand (S203 digest-miss + S204 maps-miss) is **structurally closed**: the PA **ratified a HARD pre-push merge gate** into `pa-scrml.md` S199 addendum + wrap **step 7** — assert `git rev-list --count deputy-maint ^main == 0` before any push, else the session ships without the deputy's maintenance. The tick-13 recommendation was adopted verbatim. **GATE FIRED in practice (tick 26): `f07f8406 "Merge deputy-maint (pre-push integration)"` — the PA ran the pre-push merge before pushing S205 [7-9]; the deputy work no longer strands.** **Evidence it works:** the **S205 cold boot read a CURRENT digest** (first clean digest boot — S204 booted stale) **→ thin-start REALIZED** (master-list §0 skipped), and the S204 maps-owed thread resolved at boot (deputy-maint FF-merged → maps `cc765a5a` picked up). The deputy F1 function now delivers as designed when the gate holds.
 
 ## F1 dilation — REALIZED + confirmed (S205 [3])
 
@@ -35,13 +35,13 @@ The clean-cycle re-measure (the S204 [6] follow-up) ran: digest booted current �
 
 ## Tick log (compressed)
 
-T1 boot [S199-S203]; T2-T3 F1 LIVE + GO-LIVE; T4-T5 e2e/flograph; **T6-T8 reboot-gap** (#3 in-flight bridged → fresh PA re-attached + LANDED); **T9-T11** S204 [1-6] (#3 landed, flograph slices, dilation ~3% frame-fix); **T12** maps REFRESHED (60d547e1→cc765a5a, user ruling); **T13** 2nd merge-before-push miss flagged; **T14** PA caught up; **T15** absorbed S205 [1-6] — merge-before-push gate RATIFIED + F1 realized ~8.3k + dock built; digest regen. **LESSON (T15):** the source-based digest oracle CAUGHT an absorb-miss (pre-rebase delta-log read showed [8], missed the S205 block) → **always re-check the delta-log AFTER sync/rebase, not before.**
+T1 boot [S199-S203]; T2-T3 F1 LIVE + GO-LIVE; T4-T5 e2e/flograph; **T6-T8 reboot-gap** (#3 in-flight bridged → fresh PA re-attached + LANDED); **T9-T11** S204 [1-6] (#3 landed, flograph slices, dilation ~3% frame-fix); **T12** maps REFRESHED (60d547e1→cc765a5a, user ruling); **T13** 2nd merge-before-push miss flagged; **T14** PA caught up; **T15** absorbed S205 [1-6] — merge-before-push gate RATIFIED + F1 realized ~8.3k + dock built; digest regen. **LESSON (T15):** the source-based digest oracle CAUGHT an absorb-miss (pre-rebase delta-log read showed [8], missed the S205 block) → **always re-check the delta-log AFTER sync/rebase, not before.** **T16-25** PA idle — 10 consecutive no-op ticks (held surface current, no commits). **T26** PA resumed: absorbed S205 [7] corpus-hygiene deref (48 superseded DDs→archive/) + [8] flograph --with-archive provenance tier + [9] flogeance harness-validation capstone; gate fired (f07f8406); digest regen.
 
 ## Currency snapshot (@ tick 15)
 
 - **Board:** HIGH 0 · MED 11 · LOW 23 · Nominal 8 (S204 wrap: MED 12→11).
 - **maps:** watermark `cc765a5a` — CURRENT for compiler-source (no compiler-source since; S205 work is all `scripts/` tooling — dock/flograph/state). In main (origin) since the S205 boot integration.
-- **digest:** current (head `897a2c69`, delta-seq S205 [6]).
+- **digest:** current (head `0d448fec`, delta-seq S205 [9]).
 - **recent-sessions / gap-counts:** PASS.
 - **flograph/dock:** building (see above) — `scripts/flograph.ts` + `scripts/dock.ts`.
 
