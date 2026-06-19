@@ -71,3 +71,32 @@ Artifact-backed ONLY for the working-tree path (`branch===""`); git-ref CONTENT 
 
 ### DEFERRED (D2/D3 follow-on — surfaced, NOT fixed here)
 **`span.endLine` collapse.** The emitted artifact reports `endLine == line` for EVERY block because `buildBlockAnalysis(metaFiles)` (api.js:2564) calls `buildBlockAnalysisForFile(file)` WITHOUT threading source → `projectSpan` hits its documented `endLine=line` fallback. Byte spans (`span.start`/`span.end`) ARE correct against RAW source (verified). Consequence: artifact-backed `--units` shows every block as `[N..N]` (single-line), so logic-block bodies + between-def lines show as unscoped. The swallow-kill headline holds regardless (last block bounded by its real `endLine`, not EOF). Minimal D3 fix: thread the file's raw source into `buildBlockAnalysisForFile` at api.js:2564 (the builder machinery already derives `endLine` from a source slice — it's just not fed). D4 consumes `span.endLine` per the brief's literal mapping; not papered over (Rule 4).
+
+---
+
+## D5 — span.endLine collapse fix (RE-DISPATCH) — `scrml-js-codegen-engineer`, isolation:worktree
+
+**Start:** 2026-06-18, worktree `/home/bryan-maclee/scrmlMaster/scrml/.claude/worktrees/agent-a7e3e13aea12ab413`, base SHA `7a2da79c` (behind main). Prior D5 agent crashed (ConnectionRefused) read-only, zero commits.
+
+- [step 0] Startup PASS: pwd under worktree, toplevel==worktree, tree clean. Base `7a2da79c` did NOT descend from `447f5244` → `git merge main` FF to `447f5244` (pulled D3/D4: `--emit-block-analysis` wiring + dock.ts consumer). `grep -c blockAnalyses api.js`=1, block-analysis.ts present. `bun install` + `bun run pretest` OK.
+- [step 0] REPRO: 6-line `function bigFn(){...}` → `--emit-block-analysis` → `span.line=1, endLine=1, bytes=0..61`. BYTE span correct (61 bytes = lines 1-6), endLine collapsed. Confirmed on HEAD.
+
+### Root cause (verified, TWO distinct defects)
+1. **Source not threaded.** `buildBlockAnalysis(files)` (block-analysis.ts:434) maps `buildBlockAnalysisForFile(file)` with no `source`. `effectiveSource` then checked `fileAST.source`/`.preprocessedSource` on the INNER `ast` — both undefined. PROBE (instrumented dump): the metaFiles object is WRAPPED `{ filePath, ast, _sourceText }`; the RAW source rides on the OUTER object as `_sourceText` (api.js CE loop :1362 re-attaches `sourceByFile.get(filePath)` = `readFileSync` of the .scrml), NOT on the inner ast. So `effectiveSource` was always undefined → `projectSpan` hit its `endLine=line` fallback.
+2. **Off-by-one.** Even with source, `projectSpan` counted newlines in `slice(start, end)`. An AST `span.end` can include the trailing `\n` AFTER a block's closing `}` (observed on top-level fn decls) → over-count by one line. bigFn-with-trailing-NL `end=61` would give endLine=7.
+
+### Fix (block-analysis.ts only)
+- NEW `sourceFromFile(file)` recovers source off the OUTER object: priority `_sourceText` → `source` → `preprocessedSource`. `buildBlockAnalysisForFile` now resolves `effectiveSource = source ?? sourceFromFile(file)`. `buildBlockAnalysis(files)` passes the whole wrapped object through (already did) — no extra threading needed; source rides on the object. Committed `2a28aed5`.
+- `projectSpan` now counts newlines in `slice(start, end-1)` (up to the LAST content byte, excluding it) → endLine = line of `source[end-1]`. Correct in BOTH trailing-NL-present (`end=61`→6) and -absent (`end=60`→6) forms.
+
+### RAW vs preprocessed (CRITICAL, verified)
+AST `span.start/.end/.line` index into the RAW source (`sourceByFile` = `readFileSync`, only optional convertLegacyCss; BS/TAB never rewrite byte positions). `_sourceText` IS that raw text. Cross-checked byte 59 = `}` against the raw file. So endLine derives from the SAME text the spans index — NO off-by-lines on `${...}`-bearing files.
+
+### Phase 3 — R26 empirical verification (ALL PASS)
+1. **Artifact endLine correct:** bigFn (lines 1-6) `endLine=1` (before) → `endLine=6` (after), both trailing-NL forms.
+2. **RAW cross-check** on `examples/23-trucking-dispatch/pages/driver/messages.scrml` (19 `${...}` sites): 11/12 blocks `endLine === line-of-byte(span.end-1)` EXACTLY against raw source (e.g. fetchMessages `40..71`, sendMessage `140..168`). The 1 mismatch (`publishDriverEvent`) is a PRE-EXISTING D1/D2 phantom-block defect (see DEFERRED) — its `span.line` itself is +1 off vs `span.start`; my endLine derivation faithfully tracks span.line. Confirmed pre-existing on `447f5244`.
+3. **Arc payoff (dock):** `bun scripts/dock.ts --units .../messages.scrml` — BEFORE `[27..27] [40..40] [140..140]` (collapsed) → AFTER `[27..37] [40..71] [140..168]` (TRUE multi-line). Verified by swapping pre-fix block-analysis.ts in/out.
+4. **Strengthened test** (`emit-block-analysis-integration.test.js` +3 tests, 9→12): (f) eatPowerUp endLine>line delta>5; (g) endLine===line-of-byte(span.end-1) for EVERY block + line===line-of-byte(span.start); (h) end-to-end sidecar parity. All 3 FAIL on pre-fix code (proof they guard). Committed `0ac9e00f`.
+
+### DEFERRED (PRE-EXISTING, out of D5 scope — surfaced to PA)
+**`publishDriverEvent` phantom block (D1/D2 discovery defect).** In messages.scrml the block-analysis reports a `function`-kind block named `publishDriverEvent` with span `1203..1590` that does NOT correspond to a function decl — `publishDriverEvent` is a CALL (line 163), not a decl; the bytes cover the import tail + `<db>` + start of `getCurrentUser`. AND its `span.line=27` is +1 off vs `span.start` (byte 1203 is on raw line 26). Pre-existing at `447f5244` (D4) — pre-fix it showed `27..27`, my fix shows `27..37`. This is a block-discovery / span-assignment bug in D1's footprint or D2's `collectFunctionDecls`, NOT the endLine derivation. The other 11 blocks are exactly correct. Surfacing per Rule 3 — NOT expanding scope into it.

@@ -138,6 +138,29 @@ function unwrapFileAST(file: unknown): AnyNode | undefined {
 }
 
 /**
+ * Recover the per-file SOURCE TEXT the orchestrator threads on its wrapped
+ * per-file object. The api.js CE loop re-attaches the RAW file source (the same
+ * text the Block Splitter + TAB built the AST spans against — `readFileSync` of
+ * the `.scrml` file, see api.js `sourceByFile`) as `_sourceText` on the OUTER
+ * `{ filePath, ast, _sourceText }` object, NOT on the inner `ast`. The earlier
+ * `source` / `preprocessedSource` fallbacks remain for any caller that hands the
+ * AST directly with those fields set; `_sourceText` is the live-pipeline field.
+ *
+ * CRITICAL — span coordinate basis: AST `span.start` / `span.end` / `span.line`
+ * all index into this RAW source (BS/TAB never rewrites byte positions), so
+ * `endLine` derived from a slice of `_sourceText` lands on the correct RAW line.
+ * Passing a preprocessed (`${...}`-expanded) text here would be off-by-lines.
+ */
+function sourceFromFile(file: unknown): string | undefined {
+  if (!file || typeof file !== "object") return undefined;
+  const obj = file as AnyNode;
+  if (typeof obj._sourceText === "string") return obj._sourceText;
+  if (typeof obj.source === "string") return obj.source as string;
+  if (typeof obj.preprocessedSource === "string") return obj.preprocessedSource as string;
+  return undefined;
+}
+
+/**
  * The repo-relative path used in the block `id` and the artifact `file` field.
  *
  * `id` is dock's existing `<relpath>::<name>` key, so zero consumer churn. We
@@ -174,10 +197,21 @@ const NEWLINE = /\n/g;
  *
  * `start` / `end` are byte offsets; `line` is the 1-based opener line the AST
  * already carries. `endLine` is NOT a field the AST tracks, so we derive it:
- * `line` plus the count of newlines in the source slice `[start, end)`. The
- * full source text is threaded in so the slice is exact; when absent (a unit
- * test feeding synthetic nodes), `endLine` falls back to `line` — an honest
- * single-line approximation that never claims a span it can't substantiate.
+ * `line` plus the count of newlines BEFORE the block's LAST content character.
+ *
+ * The last content character sits at byte `end - 1` (`end` is one-past-the-last).
+ * We count newlines in the slice `[start, end - 1)` — i.e. up to but EXCLUDING
+ * that last character — so the result is the 1-based line of `source[end - 1]`.
+ * Excluding `end - 1` is load-bearing: an AST `span.end` may include a trailing
+ * newline AFTER the block's closing `}` (observed on top-level function decls).
+ * Counting `[start, end)` would count that trailing newline and over-report
+ * `endLine` by one line. `[start, end - 1)` lands on the closing-brace line in
+ * BOTH forms (trailing-newline present or absent) — verified on the bigFn repro.
+ *
+ * The full source text is threaded in so the slice is exact; when absent (a unit
+ * test feeding synthetic nodes with no `source`), `endLine` falls back to `line`
+ * — an honest single-line approximation that never claims a span it can't
+ * substantiate.
  */
 function projectSpan(span: SpanShape | undefined, source: string | undefined): BlockSpan {
   const start = typeof span?.start === "number" ? span.start : 0;
@@ -186,7 +220,9 @@ function projectSpan(span: SpanShape | undefined, source: string | undefined): B
 
   let endLine = line;
   if (typeof source === "string" && end > start && end <= source.length) {
-    const slice = source.slice(start, end);
+    // Slice up to the LAST content character (byte `end - 1`), excluding it, so
+    // a trailing newline inside the span never inflates the line count.
+    const slice = source.slice(start, end - 1);
     const matches = slice.match(NEWLINE);
     endLine = line + (matches ? matches.length : 0);
   }
@@ -386,12 +422,16 @@ function collectBlocks(fileAST: AnyNode): { node: AnyNode; kind: BlockKind; name
  * the heterogeneous collections we gather them from. A file with no named
  * blocks yields an honest-empty `blocks: []`.
  *
- * @param file   The orchestrator's per-file object (`{ nodes, components, ... }`
- *               or `{ ast: {...} }`). `source` may ride on it as `.source` /
- *               `.preprocessedSource` for exact `endLine` derivation.
- * @param source Optional preprocessed source text. When provided, `endLine` is
- *               derived exactly from the span slice; otherwise it falls back to
- *               the opener `line`. Pass the SAME source the spans index into.
+ * @param file   The orchestrator's per-file object. The live pipeline hands a
+ *               WRAPPED `{ filePath, ast, _sourceText }` (the RAW file source on
+ *               the OUTER object as `_sourceText`); a caller may also hand the
+ *               AST directly with `.source` / `.preprocessedSource` set.
+ * @param source Optional source text. When provided it wins; otherwise the
+ *               RAW `_sourceText` on the outer object (then `.source` /
+ *               `.preprocessedSource`) is used. `endLine` is derived exactly
+ *               from the span slice when ANY source resolves, else falls back to
+ *               the opener `line`. Pass the SAME source the spans index into
+ *               (RAW, not `${...}`-expanded — see `sourceFromFile`).
  */
 export function buildBlockAnalysisForFile(file: unknown, source?: string): BlockAnalysis {
   const fileAST = unwrapFileAST(file);
@@ -400,14 +440,12 @@ export function buildBlockAnalysisForFile(file: unknown, source?: string): Block
   const filePath = typeof fileAST.filePath === "string" ? fileAST.filePath : "";
   const relPath = relativeFilePath(filePath);
 
+  // Resolve the source the span byte-offsets index into. An explicit `source`
+  // arg wins; otherwise recover the RAW `_sourceText` the orchestrator threads
+  // on the OUTER wrapped object (the inner `ast` carries no source field — that
+  // is why the metaFiles-stage call previously collapsed `endLine` to `line`).
   const effectiveSource =
-    typeof source === "string"
-      ? source
-      : typeof fileAST.source === "string"
-        ? (fileAST.source as string)
-        : typeof fileAST.preprocessedSource === "string"
-          ? (fileAST.preprocessedSource as string)
-          : undefined;
+    typeof source === "string" ? source : sourceFromFile(file);
 
   const collected = collectBlocks(fileAST);
   const blocks = collected.map(({ node, kind, name }) =>
@@ -430,6 +468,11 @@ export function buildBlockAnalysisForFile(file: unknown, source?: string): Block
  * `metaFiles`). Returns one `BlockAnalysis` per file, in file order. The emit
  * layer (D3) writes one sidecar per source file, so the per-file shape is what
  * the write-loop consumes.
+ *
+ * Each `file` is the WRAPPED `{ filePath, ast, _sourceText }` object the live
+ * pipeline carries; `buildBlockAnalysisForFile` recovers the RAW `_sourceText`
+ * off it (`sourceFromFile`) for exact `endLine` derivation. No explicit `source`
+ * arg is threaded here — the source rides on the object itself.
  */
 export function buildBlockAnalysis(files: unknown): BlockAnalysis[] {
   const list = Array.isArray(files) ? files : files != null ? [files] : [];

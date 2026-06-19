@@ -162,6 +162,59 @@ describe("block-analysis dotted-grain footprint (BREAK-1) over real adopter sour
   });
 });
 
+describe("block-analysis span.endLine derives the REAL multi-line extent (D5 regression)", () => {
+  // The D5 bug: the metaFiles-stage builder call passed no source, so `endLine`
+  // collapsed to `line` on EVERY block (a 22-line function reported endLine ===
+  // line). The pre-D5 test only asserted `endLine` was a number — present, not
+  // CORRECT. These assertions bind `endLine` to the RAW source text the span
+  // byte-offsets index into, so a re-collapse (or an off-by-one from counting a
+  // trailing newline) fails loudly.
+
+  // 1-based line of a byte offset in `src` (newline count before it, + 1).
+  function lineOfByte(src, byte) {
+    return src.slice(0, byte).split("\n").length;
+  }
+
+  test("(f) a known multi-line function reports endLine > line — NEVER collapsed to line", () => {
+    const [mario] = analysesFor(MARIO);
+    // eatPowerUp is a ~20-line match-bearing function — a hard collapse case.
+    const eat = mario.blocks.find((b) => b.kind === "function" && b.name === "eatPowerUp");
+    expect(eat).toBeDefined();
+    expect(eat.span.endLine).toBeGreaterThan(eat.span.line);
+    // It really does span many lines (guard against a 1-line off-by-one passing).
+    expect(eat.span.endLine - eat.span.line).toBeGreaterThan(5);
+  });
+
+  test("(g) endLine equals the line of the span's LAST byte in the REAL source (exact, off-by-one guard)", () => {
+    const [mario] = analysesFor(MARIO);
+    const src = readFileSync(MARIO, "utf8");
+    // Re-derive endLine independently from the RAW source for EVERY block: the
+    // 1-based line of the last content byte (span.end - 1). This is the same
+    // text the AST spans index into, so it must match exactly — catches both
+    // the collapse (endLine === line) and a trailing-newline off-by-one.
+    for (const b of mario.blocks) {
+      const expectedEndLine = lineOfByte(src, b.span.end - 1);
+      expect(b.span.endLine).toBe(expectedEndLine);
+      // And `line` itself must be the line of the first content byte.
+      expect(b.span.line).toBe(lineOfByte(src, b.span.start));
+    }
+  });
+
+  test("(h) the end-to-end sidecar carries the SAME correct multi-line endLine (write-loop parity)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ba-emit-endline-"));
+    try {
+      const { sidecars } = await emitAndReadSidecars([MARIO], join(dir, "dist"));
+      const mario = sidecars["14-mario-state-machine"];
+      expect(mario.exists).toBe(true);
+      const eat = mario.json.blocks.find((b) => b.kind === "function" && b.name === "eatPowerUp");
+      expect(eat).toBeDefined();
+      expect(eat.span.endLine).toBeGreaterThan(eat.span.line);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("--emit-block-analysis CLI write-loop (end-to-end, real binary)", () => {
   test("(a)+(b) a single engine-bearing file writes a sidecar that parses with ONLY its own blocks", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ba-emit-single-"));
