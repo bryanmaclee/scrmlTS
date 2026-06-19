@@ -1,9 +1,9 @@
-<!-- @digest head=9a838b8f delta-seq=18 -->
+<!-- @digest head=c553dd84 delta-seq=18 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `9a838b8f`** + delta-log **[18]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `9a838b8f`
+> **HEAD `c553dd84`** + delta-log **[18]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `c553dd84`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,8 +13,8 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `9a838b8f`
-- **HIGH 0** · MED 9 · LOW 23 · Nominal 8
+## Board — from `@gap` tokens @ `c553dd84`
+- **HIGH 0** · MED 8 · LOW 23 · Nominal 8
 - Named open HIGHs: _none_
 
 ## Recent rulings — last 4 `rule` (delta-log S206 — 2026-06-18)
@@ -32,7 +32,7 @@
 - `[17]` land/disp · D1 LANDED (696a53d0) — block-analysis-footprint.ts footprintForBlock (add-alongside; body-dg-builder.ts ZERO diff verified 2 ways; BREAK-1 canary on real compil… → 696a53d0 + agent a2322e040
 
 ## State
-- Version: 0.7.0 · maps: 1 commits behind HEAD (watermark d12fdef7, HEAD 9a838b8f)
+- Version: 0.7.0 · maps: current
 - Recent wraps:
   - 6512b592 wrap(s206): close — landed block-analysis-emit D1+D2; birthed the flogence satellite architecture; flogeance→flogence rename
   - 74d7d0e2 wrap(s205): close — 3 MED gaps + slice-3 <each> + 3 ratifications; 3 agent landings deferred (F3)
