@@ -294,7 +294,7 @@ PA's initial Q5.B lean was (a) prefix — based on lowest-touch-from-existing-SP
 User's reaction *"I keep thinking that we have gotten rid of that ugly word"* surfaced a real partial-memory state. Clarified for the record:
 
 - **`server function` modifier (function-modifier form)** — RETIRED per Insight 26 (2026-05-08, S72 body-split / auto-`!`-wrap CPS ratification). Plain `function foo() {...}` with compiler-managed body-split handles client/server split transparently; explicit `server function` declaration became redundant. This is the `server` the user remembers retiring.
-- **`server` modifier on state cells (cell-authority form)** — CANONICAL per SPEC §52.4. Declares cell authority (compiler synthesizes fetch-on-mount, optimistic update on writes, rollback on server-error). Not on the deprecation track. Survives this Q5.B as a bare attribute inside the V-kill structural tag.
+- **`server` modifier on state cells (cell-authority form)** — CANONICAL per SPEC §52.4. Declares cell authority (compiler synthesizes fetch-on-mount, optimistic update on writes, rollback on server-error). Not on the deprecation track. Survives this Q5.B as a bare attribute inside the V-kill structural tag. **[Currency — superseded 2026-06-14:** the cell-authority `server` modifier remains canonical, but the §52 auto-persist / optimistic-update-on-write / rollback-on-error *sync* was RETRACTED (§52.6.2 / §52.6.3). The compiler now synthesizes **read-authority only** — initial load on mount + SSR pre-render + E-AUTH boundary checks; the persist write is the developer's explicit `?{}` server function. Original S129 clarification preserved above.**]**
 
 Same word, two distinct semantics, only the function-modifier got retired. Worth recording so future user-confusion doesn't recur.
 
@@ -329,7 +329,7 @@ validator-attr ::= /* per §55.1 universal-core predicate vocabulary */
 ```
 
 **Amendment A4 — §52.4.1 line 26367 grammar production:**
-RETIRES. The production folds into §6.1 (per A2). §52.4.1 retains the semantic description of the `server` attribute (fetch-on-mount, optimistic update, rollback, SSR pre-render); no longer needs its own grammar production.
+RETIRES. The production folds into §6.1 (per A2). §52.4.1 retains the semantic description of the `server` attribute (fetch-on-mount, optimistic update, rollback, SSR pre-render); no longer needs its own grammar production. **[Currency — 2026-06-14:** the *optimistic update* + *rollback* items in that enumeration were RETRACTED (§52.6.2 / §52.6.3); §52 now describes **read-authority only** — fetch-on-mount + SSR pre-render + E-AUTH; the persist write is the developer's explicit `?{}`.**]**
 
 **Amendment A5 — §52 worked examples:**
 
