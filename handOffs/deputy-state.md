@@ -1,83 +1,80 @@
 # scrml — deputy state (re-hydration anchor)
 
-**Created S203 (2026-06-17).** The vPA deputy's durable re-hydration anchor — re-boot off this file
-when the transcript grows (cheap + lossless: projection, not deliberation; `scrml-support/vpa-scrml.md`
+**Created S203 (2026-06-17).** The vPA deputy's durable re-hydration anchor — a fresh deputy re-boots
+off THIS file + the delta-log + the maintenance read-list (cheap + lossless: the deputy does projection,
+not deliberation, so nothing irreplaceable lives in its transcript; `scrml-support/vpa-scrml.md`
 §"Re-hydration"). **Deputy-owned** (write-surface partition); maintained on the `deputy-maint` branch.
+
+> **REBOOT-READY anchor refreshed at tick 86 (S209).** A fresh deputy: open a 2nd terminal in `scrml`,
+> say **"read vpa.md and boot"** → maintenance boot → FF the existing `deputy-maint` worktree → read
+> this file + the delta-log tail → resume the `/loop 30m` self-poke. Resume point below.
 
 ---
 
-## Deputy status
+## Deputy status (RESUME POINT)
 
-- **State:** LIVE — steady-state. **S209 active** (S208 wrapped: g-pure-module HIGH closed; sPA role + dock-health tool built). flogence (renamed S206). On tick 77.
-- **Self-poke loop:** `/loop 30m` — cron job `39fed15c` (`7,37 * * * *`). CronDelete to cancel.
-- **Last-absorbed delta seq:** S209 **[6]** (PA-source; deputy appended S205 F3 [22]).
-- **`deputy-maint`:** worktree, descends main via the merge-before-push gate. **Tip:** `git rev-parse deputy-maint`.
-- **Owed maintenance:** none. (Maps REFRESHED this tick d931f8be→9afc746e [g-pure-module tree-shake + Fix-B W-SERVER-IMPORT-UNEMITTED]; digest after maps; §3c green.)
+- **State:** LIVE — steady-state. **S209 active** (S208 wrapped: g-pure-module HIGH closed; sPA execution-agent role + dock-health tool built). flogence (renamed from flogeance S206). On tick 86 (next fresh deputy starts at T87).
+- **Self-poke loop:** `/loop 30m` — cron job `39fed15c` (`7,37 * * * *`). **A fresh deputy must re-arm its own `/loop`** (the cron dies with the old instance). CronDelete `39fed15c` to cancel the old one if still alive.
+- **Last-absorbed delta seq:** S209 **[6]** (PA-source; the deputy itself appended the S205 F3 entry [22]).
+- **`deputy-maint` branch:** worktree `/home/bryan-maclee/scrmlMaster/scrml-deputy-maint` (scrmlMaster sibling, OUTSIDE `.claude/worktrees/`). **Tip:** `git rev-parse deputy-maint`. FF onto main at boot.
+- **node_modules:** the worktree already has the symlinks (re-create if missing): `ln -s …/scrml/node_modules ./node_modules` · `…/scrml/compiler/node_modules ./compiler/node_modules`.
+- **Owed maintenance:** none. (digest current head=72dc4fdb; maps watermark `9afc746e`; §0 + recent-sessions PASS; §3c green.)
+- **Coherence:** deputy-maint `0 1` ahead of main (tick-86, awaiting the PA's next integration — clean FF).
+
+## The deputy tick (steady-state — what each `/loop` fire does)
+
+1. `cd` the worktree; `git merge --ff-only main` (if NOT clean FF → `git rebase main`; a cross-cutting rename → reset+rebuild per "Lessons").
+2. Re-check the delta-log + `bun scripts/state.ts` oracle AFTER syncing (a pre-sync read misses new entries).
+3. Absorb new PA-source delta entries; act on `(vpa: …)` only if maintenance-shaped; DECLINE/route anything deliberation-shaped.
+4. Owed maintenance: `state.ts --write` (§0 if stale) · `state.ts --digest` (if a projected source moved) · maps refresh (see cadence) · re-emit flograph.
+5. **§3c health check** (every tick): `flograph.ts --check --with-support --with-archive` · `dock.ts --check` · `dock.ts --coverage` → record a one-line snapshot; route only NEW findings (new currency-sweep hit · dock ERROR · new load-bearing dangling decided-by/cites · flograph dup-id). A drift ERROR you FIX by re-emitting.
+6. **F3** (monitor agents): `ls .claude/worktrees/` + `git -C <agent-wt> log/status`. Append a `(deputy) state` delta entry ONLY when an agent COMPLETED CLEANLY and the PA is absent/rebooting/deferred-to-F3. A crashed/partial agent is NOT a completion. NEVER land (PA S67 file-delta).
+7. Commit each to `deputy-maint` (never main); update this file (heartbeat + ACK + watch + owed); report "absorbed through [M]; deputy-maint at <SHA>; owed: <list|none>".
 
 ## PA↔vPA protocol — ACK + HEARTBEAT (S205 [19], each tick)
 
-- **heartbeat:** tick **T77** · last-absorbed **[S207 14]** · deputy-maint tip = this commit (`git rev-parse deputy-maint`).
-- **ACK (vpa:) [S205 10]** → §3c health-check each tick (standing). **ACK (vpa:) [S205 19]** → ACK+heartbeat each tick (standing). No new `(vpa:)` in S207.
+- **heartbeat:** tick **T86** · last-absorbed **[S209 6]** · deputy-maint tip = `git rev-parse deputy-maint`.
+- **ACK (vpa:) [S205 10]** → §3c health-check each tick (standing). **ACK (vpa:) [S205 19]** → ACK+heartbeat each tick (standing). No new `(vpa:)` in S206-S209.
 
 ## Standing facts (durable)
 
-- **Merge-before-push gate (S205 [15]):** PA asserts `deputy-maint ^main == 0` before any push — working every cycle (integrated my ~5 pending deputy commits at the S207 wrap via ba938c8c).
-- **F1 dilation REALIZED:** F1 ~8.3k; total ~1.5%/1M; net-positive. S207 cold-boot was digest-thinned (S207 [1]).
-- **S42 WRAP-THINNING (S205 [19]):** wraps reference digest/delta-log/deputy-state.
-- **Maps mechanism (T12) + cadence:** `project-mapper` into the worktree (CWD-pinned, worktree-only brief, NO isolation) + verify `git -C <main> status --porcelain -- .claude/maps/` EMPTY before commit. **Refresh rule (firm, T76):** at a WRAP boundary if any compiler-src owed · OR ≥2 changes accumulate · OR an owed change has sat ≥10 ticks; else batch. project-mapper > manual (T76 it caught a new E-code a manual edit would miss). Ran T12/T32/T35/T50/T54/T76 leak-clean. Regen digest the tick AFTER a bundled maps refresh (T51). maps-owed scope: `examples/**/*.scrml`+`samples/**/*.scrml` (T37).
-- **Partition-breach (T44):** cross-cutting rename → reset+rebuild. **PA may skip §0/maps during fast bursts** → deputy regens (T54/T76). **S208-boot digest-stale RECURRED ([1]): the PA MISREAD the deputy as DOWN → did not merge deputy-maint first → read stale digest, lost thin-start. The HEARTBEAT in this file is the alive+current signal the PA should check at boot (S205 [19]) — route to PA: read it before deciding the deputy is down.**
-- **perl -e:** NO apostrophes in replacement (single-quote terminates — T52); `{}` delimiters or escape `/`; heredoc fallback. **delta-log edits:** python.
+- **Merge-before-push gate (S205 [15], pa.md S199 + wrap step 7):** the PA asserts `deputy-maint ^main == 0` before any push — integrates the deputy each cycle. Working.
+- **F1 dilation REALIZED:** F1 ~8.3k start-thinning when the digest boots current; total deputy dilation ~14-15k/cycle ≈ 1.5%/1M (NOT the design-time 7-10% — frame-conflation corrected S204/S205). Net-positive. S209 cold-boot was digest-thinned ([S209 1]); S208 was NOT (PA misread the deputy as down → skipped the boot-merge → stale digest → read the heartbeat to know the deputy is alive).
+- **S42 WRAP-THINNING (S205 [19]):** PA wraps reference digest/delta-log/deputy-state for mechanical content (deputy-enabled).
+- **Block-analysis-emit v1 arc COMPLETE (S206-S208):** D1 footprint + D2 builder + D3 emit-wiring + D4 dock-consumer + D5 span-fix; block-lease groundwork. dock-health.ts (codebase-health surface) built S209.
 
-## Graph/dock health (§3c — per-tick standing step)
+## Lessons (operational — avoid re-learning)
 
-- **Snapshot @ tick 76 (PASS):** flograph PASS · currency-sweep **0 (clean)** · 30 unverified · 29 dangling · 0 dup · 0 err. dock --check PASS · coverage 0/628 (0.0%) · 0 orphans. dangling/unverified track S206-S207 design docs — **no NEW finding**.
-- **route to PA (open nit):** §3 plain `flograph --emit` vs §3c `--with-support --with-archive` → graph.json drifts to 190n; deputy emits with matching flags. Align §3 with §3c.
+- **Maps mechanism (T12, user-ruled no-consent):** dispatch `project-mapper` INTO the deputy-maint worktree (CWD-pinned, worktree-only-path brief, NO isolation) + independently verify `git -C <main> status --porcelain -- .claude/maps/` is EMPTY before committing. project-mapper > manual (it catches new E-/W-codes a manual edit misses — T76/T82).
+- **Maps refresh RULE (firm):** refresh when — a WRAP boundary with any compiler-src owed · OR ≥2 changes accumulate · OR an owed change has sat ≥10 ticks. Else BATCH (each run ~100-130k sub-agent tokens; PA-window saving only ~6-7k → minimize runs).
+- **maps-owed scope:** `examples/**/*.scrml` + `samples/**/*.scrml` — NOT bare `**/*.scrml` (catches docs/changes/ fixtures = false signal, T37).
+- **Digest:** regen ONLY when a projected source (known-gaps/delta-log/maps/version) moved; regen the tick AFTER a bundled maps+digest commit (the stamp lags its own commit otherwise — T51/T77).
+- **Partition-breach (T44):** a cross-cutting text-rename touches deputy-owned files → rebase conflict. Resolve by reset deputy-maint to the renamed main + rebuild (deputy commits are regenerable — no info loss).
+- **PA fast-burst:** the PA may skip §0/maps and may not delta-log a burst → deputy regens §0 + git-infers agent/landing state (T54/T76).
+- **perl -e:** NO apostrophes in replacement text (a single-quote terminates the `perl -e '...'` string — T52); use `{}` delimiters; escape `/`; heredoc-rewrite is the reliable fallback. **delta-log edits:** use python (backticks break the shell).
+- **CWD slip:** Bash CWD resets to MAIN after each command — `cd` the worktree (or `git -C`) before worktree ops. **Untracked new file:** `git add` before commit. `docs/graph/` is gitignored.
+- **Commit gate:** pre-commit WARNS on non-main + runs the ~17k subset (~75-120s); deputy commits are derived-only → always pass; never `--no-verify`. `git rebase` does NOT run the gate.
+
+## Graph/dock health (§3c)
+
+- **Snapshot @ tick 86 (PASS):** flograph ~428n/103e (--with-support --with-archive) · currency-sweep **0 (clean — the ouroboros catch holds)** · ~30 unverified · ~29 dangling · 0 dup · 0 err. dock --check PASS · coverage 0/628 (0.0%) · 0 orphans. dangling/unverified track new S206-S209 design docs — no NEW finding.
+- **route to PA (open nit):** §3 plain `flograph --emit` vs §3c `--check --with-support --with-archive` → graph.json drifts to the 190n default; the deputy compensates by emitting with the matching flags. Align §3 with §3c (or make --check corpus-aware).
 
 ## In-flight dispatches (F3 watch list)
 
-- _(none in flight)_ — g-pure-module-server-emit HIGH LANDED at S208 boot (432c28b6; the crashed agent work salvaged). In the deferred maps batch; worktree stale.
+- _(none in flight)_ — all S205-S208 agents landed + 6b-cleaned. The g-pure-module HIGH crash→S208-salvage loop closed (432c28b6).
 
-## Tick log (compressed)
+## Currency snapshot (@ tick 86)
 
-- **T1-T50** boot + F1/GO-LIVE + reboot-bridge; S204-S206 (gate ratified, F1 realized, maps batches 1-3, dock built, ACK+heartbeat, flogeance→flogence rename T44, block-analysis-emit D1+D2, S206 WRAP).
-- **T51-T56** S207 burst: D3+D4+D5 + each-ternary + g-compound landed; maps batch REFRESHED →c553dd84 (T54); g-compound held.
-- **T57-73** PA idle (17 no-op ticks). **T74-75** PA resumed: g-pure-module HIGH fix dispatched.
-- **T76** S207 WRAPPED — absorbed [1-14]; PA integrated my ~5 pending commits + skipped maps-6c → deputy refreshed maps c553dd84→d931f8be (g-compound + new E-CELL-AMBIGUOUS-MEMBER-RENDER code); recent-sessions + digest regen; §3c PASS. g-pure-module HIGH fix in-flight-CRASHED → S208 re-dispatches.
-- **T77** digest regen (cleared the T76 bundled-maps stamp artifact so S208-boot reads current); main idle post-wrap; g-pure-module still crashed-pending-S208.
-- **T81** S208 booted (T78-80 no-ops): g-pure-module HIGH LANDED (432c28b6 salvaged) + my tick-76/77 integrated + pushed (maps reached origin). digest regen (HIGH gap closed); maps batch (g-pure-module) held.
-- **T82** Fix B landed (05b88433, W-SERVER-IMPORT-UNEMITTED) — maps batch hit ≥2 (g-pure-module + Fix B) → REFRESHED d931f8be→9afc746e (incl. the new W-code); digest after maps; §3c PASS; no in-flight.
-- **T83** S208 WRAPPED — absorbed [1-9] (g-pure-module HIGH closed Fix A+B; sPA role ratified; my ticks 81/82 integrated at the wrap). recent-sessions regen (wrap anchor); digest current (PA wrap-finalize); maps current; no in-flight. NOTE: S208-boot read digest STALE (deputy misread as down) — heartbeat is the fix.
-- **T84-85** no-ops (PA idle post-S208-wrap). **T86** S209 booted: absorbed [1-6] (dock-for-codebase-health DD + debate + dock-health.ts built + graft ratified; all design/flogence). **S209-boot read digest CURRENT → thin-start delivered** (contrast S208 stale — the merge worked). digest regen; maps current; no in-flight.
-
-## Currency snapshot (@ tick 76)
-
-- **Board:** gap-counts PASS; recent-sessions regen'd (wrap anchor). g-compound-rbt MED closed; g-pure-module HIGH open (fix in-flight-crashed).
-- **maps:** watermark **`9afc746e`** (REFRESHED T82) — current.
-- **digest:** current (head `72dc4fdb`, delta-seq S209 6).
-- **flograph/dock:** §3c PASS.
-
-## Function 3 — agent monitoring (LIVE)
-
-Each tick: `ls .claude/worktrees/` + `git -C <agent-wt> log/status`; scan delta-log for `disp` without `land`/`find`-close. **Append a `(deputy) state` entry ONLY when** an agent COMPLETED CLEANLY **and the PA is absent/rebooting/deferred-to-F3** (narrow single-writer exception — observation-only). A CRASHED/partial agent is NOT a completion — do NOT record it as landed (the PA logs the crash). NEVER land. Poll git-state (the delta-log can lag a fast burst).
-
-## Sync rule (each tick)
-
-`git merge --ff-only main`; if NOT clean FF → `git rebase main` (cross-cutting rename → reset+rebuild per T44). **Re-check delta-log + state.ts oracle AFTER syncing** (T15). Main may move/push mid-tick.
-
-## Operational notes (for re-hydration)
-
-- **node_modules:** symlink main's in (survives FF+rebase): `ln -s …/scrml/node_modules ./node_modules` · `…/scrml/compiler/node_modules ./compiler/node_modules`
-- **CWD slip:** Bash CWD resets to MAIN — `cd` the worktree (or `git -C`) before ops.
-- **Untracked new file:** `git add` first; `docs/graph/` gitignored. **Digest cadence:** regen only when a projected source moved; the tick after a bundled maps refresh.
-- **Commit gate:** pre-commit WARNS on non-main; ~17k subset (~75-120s); deputy commits derived-only → pass; never `--no-verify`.
+- **maps:** watermark `9afc746e` (REFRESHED T82) — current (no mapped-corpus change since). **digest:** current (head `72dc4fdb`, delta-seq S209 6). **§0:** gap-counts + recent-sessions PASS. **§3c:** PASS.
 
 ## Maintenance seams (Function 2)
 
-- `.claude/maps/*` — `project-mapper` into the worktree + main-clean verify; watermark (`d931f8be`).
+- `.claude/maps/*` — `project-mapper` into the worktree + main-clean verify; watermark `.claude/maps/primary.map.md` (`9afc746e`).
 - `docs/changelog.md` · `@generated` §0 (`docs/known-gaps.md`) + `master-list.md` §0.6 — `bun scripts/state.ts --write` (gate `--check`).
-- `handOffs/digest.md` — `bun scripts/state.ts --digest` (F1). · flograph `scripts/flograph.ts` · dock `scripts/dock.ts` (§3c) · block-lease (building — block-analysis-emit v1 arc complete + dock-consumer).
+- `handOffs/digest.md` — `bun scripts/state.ts --digest` (F1). · flograph `scripts/flograph.ts` · dock `scripts/dock.ts` + `scripts/dock-health.ts` (§3c) · block-lease (groundwork built; not wired).
 
 ## Cross-refs
 
-- `scrml-support/vpa-scrml.md` — contract (§3 + §3c + S205 ACK+heartbeat). · `pa-scrml.md` §"S199 addendum" — PA-side.
-- `handOffs/delta-log.md` — live stream. · `docs/deep-dives/vpa-deputy-reframe-2026-06-17.md` — design.
+- `scrml/vpa.md` (root stub → boot phrase) · `scrml-support/vpa-scrml.md` — the deputy contract (§3 steady-state + §3c + S205 ACK+heartbeat + "Operating the live system"). · `pa-scrml.md` §"S199 addendum" — PA-side (gate, ACK/heartbeat read at boot+integration).
+- `handOffs/delta-log.md` — the live PA-state stream. · `docs/deep-dives/vpa-deputy-reframe-2026-06-17.md` — the design.
