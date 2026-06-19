@@ -1,9 +1,9 @@
-<!-- @digest head=9afc746e delta-seq=14 -->
+<!-- @digest head=fb7ac8ff delta-seq=9 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `9afc746e`** + delta-log **[14]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `9afc746e`
+> **HEAD `fb7ac8ff`** + delta-log **[9]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `fb7ac8ff`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,27 +13,28 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `9afc746e`
+## Board — from `@gap` tokens @ `fb7ac8ff`
 - **HIGH 0** · MED 9 · LOW 23 · Nominal 8
 - Named open HIGHs: _none_
 
-## Recent rulings — last 0 `rule` (delta-log S207 — 2026-06-18)
-- _(none in the latest session)_
+## Recent rulings — last 2 `rule` (delta-log S208 — 2026-06-19)
+- `[4]` rule · **sPA (Specific Project Agent) role RATIFIED** (user design) — a fast-booting EXECUTION agent grinding ONE speciality-clustered work-list, sourcing per-item und… → user-voice S208
+- `[8]` rule · **dock-for-codebase-health = flogence DD-candidate** (user Q "track threading/spaghettification + dead/orphaned code via the dock?") — YES, natural fit: SEMANTI… → user-voice S208 + flogence
 
 ## Recent activity — last 6 `disp`/`land`/`find`/`state`
-- `[9]` find/disp · D4 SURFACED (Rule-4, agent refused to mask) a D3-emit DEFECT: artifact `span.endLine` COLLAPSES to ==line for EVERY block → artifact-backed dock kills the swall… → docs/changes/block-analysis-emit-2026-06-18/BRIEF-D5-endline.md
-- `[10]` land · g-each-peritem-attr-ternary-quoted-arms RESOLVED+LANDED (736bdf33; board MED 9→8) — SALVAGE of the STALLED dispatch (agent adf67ae2 completed fix+tests [925b574… → 736bdf33
-- `[11]` land/disp · D5 LANDED (a6e64126) — span.endLine collapse FIXED → **block-analysis-emit v1 arc COMPLETE end-to-end** (D1 footprint→D2 builder→D3 emit→D4 consume→D5 true-exte… → a6e64126 + c553dd84
-- `[12]` land/find · g-compound-field-render-by-tag-unexpanded RESOLVED+LANDED (36e022bc; board MED→8) — non-lexical compound-member render-by-tag. ROOT: S157 Bug-60 resolver used O… → 36e022bc + inbox 2038
-- `[13]` disp · g-pure-module-server-emit-missing FIX dispatched (HIGH; user "g-pure-model, go"; scrml-js-codegen-engineer isolation:worktree, bg agent a56577f8b37aab3b2). REPR… → docs/changes/g-pure-module-server-emit-2026-06-19/BRIEF.md
-- `[14]` state · g-pure-module-server-emit FIX IN-FLIGHT (agent a56577f8 RATE-LIMITED @72-tool-uses — 5th env crash; worktree CLEAN, no loss). Fix A COMMITTED in-branch @9b3fe86… → 9b3fe86a + progress.md
+- `[1]` state · COLD S208 boot (Profile A FULL; digest STALE → authoritative fallback; deputy ALIVE [misread as down at boot — it had just-committed ticks 76/77]). Opener: fini… → hand-off-212 (S207 rotated)
+- `[2]` land · g-pure-module-server-emit-missing (HIGH) **Fix A FINISHED + RESOLVED** (432c28b6) — emit-server.ts tree-shake (Option 2; Option 1 link-errors on erased TYPE imp… → 432c28b6
+- `[3]` land · **PUSHED** origin d931f8be→7337ddff (Fix A + hand-off rotation + deputy ticks 76/77 merge; merge-before-push gate fired [deputy 2 ahead]; coherence 0/0; pre-pus… → 7337ddff
+- `[5]` disp/find · **spa-list-builder WORKFLOW** (multi-agent, user opt-in) — scanned the whole project scope (known-gaps + master-list + SPEC-Nominal + deferred-corpus + source-T… → wf_4c184883-41e
+- `[6]` land · Fix B **W-SERVER-IMPORT-UNEMITTED** (05b88433) — cross-file post-codegen invariant (api.js checkServerImportInvariant, runs on the COMPILE before the write gate… → 05b88433
+- `[7]` land · **sPA scaffold + 14-list registry** committed (3e06cfba scaffold + 0587a9d1 expansion; scrml-support 451e9d2 contract). INDEX consolidated 26→14 Bucket-A subsys… → spa-lists/
 
 ## State
-- Version: 0.7.0 · maps: current
+- Version: 0.7.0 · maps: 4 commits behind HEAD (watermark 9afc746e, HEAD fb7ac8ff)
 - Recent wraps:
+  - ebf6a607 wrap(s208): close — g-pure-module HIGH closed (Fix A+B) + sPA execution-agent role built (14-list registry)
   - 916fe3ae wrap(s207): close — block-analysis-emit arc complete (D3-D5) + 2 MED codegen fixes + flogence pure-module HIGH (Fix A in-flight)
   - 6512b592 wrap(s206): close — landed block-analysis-emit D1+D2; birthed the flogence satellite architecture; flogeance→flogence rename
-  - 74d7d0e2 wrap(s205): close — 3 MED gaps + slice-3 <each> + 3 ratifications; 3 agent landings deferred (F3)
 
 ## NOT in the digest (read source for these)
 - Open questions awaiting you → `hand-off.md` §"OPEN THREADS / Open questions"
