@@ -8,7 +8,7 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 
 ## Deputy status
 
-- **State:** LIVE — steady-state. **S207 active** (block-analysis-emit D1-D5 arc COMPLETE + g-each-peritem fix). flogence (renamed S206). First deputy instance, booted S203. On tick 54.
+- **State:** LIVE — steady-state. **S207 active** (block-analysis-emit D1-D5 arc COMPLETE + g-each-peritem fix). flogence (renamed S206). First deputy instance, booted S203. On tick 55.
 - **Self-poke loop:** `/loop 30m` — cron job `39fed15c` (`7,37 * * * *`). CronDelete to cancel.
 - **Last-absorbed delta seq:** S206 **[18]** (PA-source; deputy appended S205 F3 [22]). **S207 burst is UNLOGGED past [18]** — D3-D5 + each-ternary landed without delta entries; my landing/agent state is git-inferred this session.
 - **`deputy-maint`:** worktree, descends main via the merge-before-push gate. **Tip:** `git rev-parse deputy-maint`.
@@ -16,7 +16,7 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 
 ## PA↔vPA protocol — ACK + HEARTBEAT (S205 [19], each tick)
 
-- **heartbeat:** tick **T54** · last-absorbed **[S206 18]** (S207 git-inferred) · deputy-maint tip = this commit (`git rev-parse deputy-maint`).
+- **heartbeat:** tick **T55** · last-absorbed **[S206 18]** (S207 git-inferred) · deputy-maint tip = this commit (`git rev-parse deputy-maint`).
 - **ACK (vpa:) [S205 10]** → §3c health-check each tick (standing). **ACK (vpa:) [S205 19]** → ACK+heartbeat each tick (standing). No new `(vpa:)` since.
 
 ## Standing facts (durable)
@@ -33,7 +33,7 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 
 ## In-flight dispatches (F3 watch list)
 
-- _(none in flight)_ — the S207 block-analysis-emit arc + the g-each-peritem fix all LANDED (git-inferred; worktrees stale, 6b-cleanup PA-pending). **D1-D5 arc COMPLETE:** D1 footprint + D2 builder + D3 emit-wiring (cli/api/compile) + D4 dock-consumer + D5 span-extent-fix; g-each-peritem-attr-ternary-quoted-arms (MED) closed via the interp-aware tokenizer.
+- **1 in-flight (git-inferred):** g-compound-field-render-by-tag fix `adf911416eeed3d19` (9997ef11 WIP root-cause — the slice-2-filed bug). compiler/src likely → maps batch on landing. The block-analysis-emit D1-D5 arc + g-each-peritem fix all LANDED (worktrees stale, 6b-pending).
 
 ## Tick log (compressed)
 
@@ -41,12 +41,13 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 - **T36-T50** S206 burst: block-lease Scheme-C anchor proven; flogeance→flogence rename (T44 partition-breach reset+rebuild); block-analysis-emit D1+D2 (T50 maps batch 359a1d83→d12fdef7); S206 WRAPPED.
 - **T51-T53** S207 start: D3+D4 landed; digest stamp-artifact fix (T51); maps batched.
 - **T54** S207 block-analysis-emit arc COMPLETE (D5 + g-each-peritem fix landed) — maps batch REFRESHED d12fdef7→c553dd84 (D3 cli/api/compile + each-ternary tokenizer + D5 span-fix; 3 changes; leak-clean; zero new E-codes; find-count 1013); gap-counts + recent-sessions regen (PA skipped); digest after maps; §3c PASS; no in-flight.
+- **T55** digest regen (cleared the T54 bundled-maps stamp artifact); g-compound-rbt fix dispatched (adf911416) → 1 in-flight. Maps current on deputy-maint (c553dd84); origin lags (d12fdef7) until PA integrates tick-54.
 
 ## Currency snapshot (@ tick 54)
 
 - **Board:** gap-counts + recent-sessions regen'd this tick (PA skipped §0 during the S207 fast-landing).
 - **maps:** watermark **`c553dd84`** (REFRESHED T54) — current.
-- **digest:** current (head `c553dd84`, delta-seq S206 18).
+- **digest:** current (head `b56f80de`, delta-seq S206 18).
 - **flograph/dock:** §3c PASS (snapshot above).
 
 ## Function 3 — agent monitoring (LIVE)
