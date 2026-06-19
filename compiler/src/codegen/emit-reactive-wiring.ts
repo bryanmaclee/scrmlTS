@@ -472,12 +472,26 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
       // `TypeError`. (Before S144 this shape never reached here: the read
       // compiled to the dead bare `_scrml_input_<id>_.member` form, which the
       // first regex alternative already matched and suppressed.)
+      //
+      // ss3 item7 (giti-006, 2026-06-19) — extend the `_scrml_(reactive|derived)_get`
+      // alternative with the SAME trailing member-access / index chain the input-state
+      // alternative already carries. Pre-fix it matched only the bare-cell read
+      // `_scrml_reactive_get("data")` (from `${@data}`) but NOT the path read
+      // `_scrml_reactive_get("data").name` (from `${@data.name}`), so a markup
+      // interpolation of a dotted path leaked a spurious file-scope statement. That
+      // statement is dead (its value is unused — the render wiring at DOMContentLoaded
+      // is the sole consumer) AND harmful: for an async-initialized reactive whose cell
+      // holds the `null` placeholder until a server fetch resolves, the file-scope
+      // `null.name` THROWS at module-init, crashing the page before the fetch lands.
+      // The trailing chain is member (`.path`) + index (`[k]`) ONLY — NO call
+      // alternative — because a trailing call (`_scrml_reactive_get("x").map(...)`) is
+      // a method invocation with side effects and MUST keep emitting at file-scope.
       if (
         pid &&
         !groupTildeCtx &&
         stmt.kind === "bare-expr" &&
         code &&
-        /^(?:[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*|_scrml_(?:reactive|derived)_get\([^)]*\)|_scrml_input_state_registry\.get\([^)]*\)(?:\.[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]]*\]|\([^)]*\))*)\s*;?\s*$/.test(code.trim())
+        /^(?:[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*|_scrml_(?:reactive|derived)_get\([^)]*\)(?:\.[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]]*\])*|_scrml_input_state_registry\.get\([^)]*\)(?:\.[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]]*\]|\([^)]*\))*)\s*;?\s*$/.test(code.trim())
       ) {
         continue;
       }
