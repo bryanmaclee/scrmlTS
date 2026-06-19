@@ -13,9 +13,9 @@ kept). The sPA consumes; it does not edit the clustering. Contract: `../../scrml
 design-track (debates / DDs / from-scratch subsystems / axiom Qs) → PA/dPA, **not** the sPA. **C** =
 closed/non-work.
 
-> **List files:** each `ss<N>` expands to `ss<N>-<speciality>.md` (shared-ingestion · coreFiles ·
-> ordered items with footprints + brief-seeds, pulled from the scan). Expanded on demand at launch
-> (the scan output `wf_4c184883-41e` is the source); `ss1` is written as the worked example.
+> **List files:** each `ss<N>` is `ss<N>-<speciality>.md` (shared-ingestion · coreFiles · ordered
+> items with footprints + brief-seeds). All 14 expanded S208 from the scan output `wf_4c184883-41e`.
+> The PA re-orders / re-scopes / refreshes them; the sPA consumes them read-only.
 
 ---
 
