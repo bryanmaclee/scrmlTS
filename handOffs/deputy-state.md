@@ -8,15 +8,15 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 
 ## Deputy status
 
-- **State:** LIVE — steady-state. **S206 WRAPPED** (6512b592); flogence (renamed from flogeance S206); block-analysis-emit v1 (block-lease groundwork) landed. First deputy instance, booted S203. On tick 51.
+- **State:** LIVE — steady-state. **S206 WRAPPED** (6512b592); **S207 started** (D3 landed fee6fc98). First deputy instance, booted S203. On tick 52.
 - **Self-poke loop:** `/loop 30m` — cron job `39fed15c` (`7,37 * * * *`). CronDelete to cancel.
 - **Last-absorbed delta seq:** S206 **[18]** (PA-source; deputy appended S205 F3 entry [22]).
 - **`deputy-maint`:** worktree, descends main via the merge-before-push gate. **Tip:** `git rev-parse deputy-maint`.
-- **Owed maintenance:** none. (Maps REFRESHED this tick 359a1d83→d12fdef7; digest + recent-sessions regen'd; §3c green.)
+- **Owed maintenance:** maps batch (D3 `fee6fc98` emit-integration, 1 compiler/src file) — BATCHED for the next S207 compiler-src landing (1 trailing file right after the T50 refresh; poor economics to run project-mapper alone). Else current.
 
 ## PA↔vPA protocol — ACK + HEARTBEAT (S205 [19], each tick)
 
-- **heartbeat:** tick **T51** · last-absorbed **[S206 18]** · deputy-maint tip = this commit (`git rev-parse deputy-maint`).
+- **heartbeat:** tick **T52** · last-absorbed **[S206 18]** (PA-source; S207 not yet delta-logged) · deputy-maint tip = this commit (`git rev-parse deputy-maint`).
 - **ACK (vpa:) [S205 10]** → §3c health-check run + recorded each tick (standing).
 - **ACK (vpa:) [S205 19]** → ACK+heartbeat block recorded each tick (standing).
 - No new `(vpa:)` directives since [S205 19]; the S206 burst ([1]-[18]) carried none.
@@ -36,7 +36,7 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 
 ## In-flight dispatches (F3 watch list)
 
-- **1 in-flight (block-analysis-emit D3, PA alive → track):** `a2806a039d1651b47` (7729cf5b WIP emit-block-analysis-integration). compiler/src → maps batch on landing. (S206 D1/D2 landed; all prior worktrees 6b-cleaned at the wrap.)
+- _(none in flight)_ — D3 LANDED (fee6fc98, s207; in the deferred maps batch); worktree stale (6b-cleanup PA-pending). block-analysis-emit D1+D2+D3 feature complete.
 
 ## Tick log (compressed)
 
@@ -47,6 +47,7 @@ when the transcript grows (cheap + lossless: projection, not deliberation; `scrm
 - **T36-T49** S206 burst: dock block-scope + block-lease Scheme-C anchor proven; flogeance→flogence rename (T44 partition-breach, reset+rebuild); block-analysis-emit D1+D2 dispatched.
 - **T50** S206 WRAPPED — maps batch REFRESHED 359a1d83→d12fdef7 (D1 footprint + D2 builder/serializer, 2 new modules + 2 tests; leak-clean; zero new E-codes); digest + recent-sessions regen; §3c PASS; all worktrees cleaned.
 - **T51** PA integrated tick-50; digest regen (cleared the bundled-maps stamp artifact); D3 block-analysis-integration dispatched → 1 in-flight F3-watched.
+- **T52** D3 LANDED (fee6fc98, s207 — block-analysis-emit complete); maps batch owed (D3, 1 file) → BATCHED for next S207 compiler-src; digest current; no in-flight.
 
 ## Currency snapshot (@ tick 50)
 
@@ -68,7 +69,7 @@ Each tick: `ls .claude/worktrees/` + `git -C <agent-wt> log/status`; scan delta-
 - **node_modules:** symlink main's in (survives FF+rebase): `ln -s …/scrml/node_modules ./node_modules` · `…/scrml/compiler/node_modules ./compiler/node_modules`
 - **CWD slip:** Bash CWD resets to MAIN — `cd` the worktree (or `git -C`) before ops.
 - **Untracked new file:** `git add` first; `docs/graph/` gitignored. **Digest cadence:** regen only when a projected source (known-gaps/delta-log/maps/version) moved; AFTER a maps commit.
-- **perl edits:** `{}` delimiters or escape `/`; heredoc-rewrite is the reliable fallback. **delta-log edits:** python (backticks break the shell).
+- **perl edits:** `{}` delimiters or escape `/`; heredoc-rewrite is the reliable fallback. **delta-log edits:** python (backticks break the shell). **perl -e single-quote:** apostrophes in replacement text (e.g. possessives) terminate the quote → avoid them or use a heredoc (T52).
 - **Commit gate:** pre-commit WARNS on non-main; ~17k subset (~75-120s); deputy commits derived-only → pass; never `--no-verify`.
 
 ## Maintenance seams (Function 2)
