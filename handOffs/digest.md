@@ -1,9 +1,9 @@
-<!-- @digest head=242a7ab1 delta-seq=18 -->
+<!-- @digest head=ba938c8c delta-seq=14 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `242a7ab1`** + delta-log **[18]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `242a7ab1`
+> **HEAD `ba938c8c`** + delta-log **[14]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `ba938c8c`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,30 +13,27 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `242a7ab1`
-- **HIGH 0** · MED 8 · LOW 23 · Nominal 8
-- Named open HIGHs: _none_
+## Board — from `@gap` tokens @ `ba938c8c`
+- **HIGH 1** · MED 8 · LOW 23 · Nominal 8
+- Named open HIGHs: `g-pure-module-server-emit-missing`
 
-## Recent rulings — last 4 `rule` (delta-log S206 — 2026-06-18)
-- `[5]` rule/land · "land all 3, hold push" then "push" — PUSHED (gate caught deputy tick-34 strand → FF-merged first). origin 9f203d82→359a1d83. full suite 24463/0. board HIGH0/ME… → 359a1d83
-- `[6]` rule/land · user "get flograph to safe parallel same-file disps; a then b" → built (a) block-scope INTERIM: dock --units + dock --diff-scope --owns (PA-direct, thin; lang-a… → scrml 1b15f701 + DD 4ba445c
-- `[8]` rule/disp · user REJECTED b2-ii componentize-to-lease — co-location-of-behaviour axiom + no-refactor-tax (user-voice S206, banked memory feedback_colocation_of_behaviour_ax… → user-voice 1f129fe
-- `[14]` rule · BLOCK-NAMING via the COMPILER not a 2nd parser (user Q) — for block-lease block-ID/extent extraction the scrml compiler's real parser/AST/symbol-table/RW-DG is… → conversation S206
+## Recent rulings — last 0 `rule` (delta-log S207 — 2026-06-18)
+- _(none in the latest session)_
 
 ## Recent activity — last 6 `disp`/`land`/`find`/`state`
-- `[11]` disp/find · dPA DELIBERATION-SATELLITE DD done (dpa-deliberation-satellite-2026-06-18, scrml-support eb7a216) — user idea "bank debates/DDs, run batched in a dPA sub-sessio… → dpa DD §10
-- `[12]` state · CANDIDATE banked (user "just a thought", NOT ratified): CC user-prompts to vPA via transcript-tail (~free) → (1) vPA mechanical user-voice capture + PA curates… → hand-off thread 2b
-- `[13]` find · vPA-COMMUNICATION-SURFACE DD done (vpa-communication-surface-2026-06-18, scrml-support 0c8e136) — folds inbox-triage + pub/sub + pointer-router + transcript-cap… → vpa-comms-surface DD
-- `[15]` disp/find · BLOCK-ANALYSIS-EMIT SCOPE done (Plan agent → docs/changes/block-analysis-emit-2026-06-18/SCOPE-AND-DECOMPOSITION.md) — the compiler-emits-block-analysis impl pl… → SCOPE-AND-DECOMPOSITION.md
-- `[16]` disp · D1+D2 DISPATCHED parallel (block-analysis-emit v1, scrml-js-codegen-engineer isolation:worktree, F3-watched). D1=footprint extractor (agent a4e06003bbee9b9a2 →… → docs/changes/block-analysis-emit-2026-06-18/
-- `[17]` land/disp · D1 LANDED (696a53d0) — block-analysis-footprint.ts footprintForBlock (add-alongside; body-dg-builder.ts ZERO diff verified 2 ways; BREAK-1 canary on real compil… → 696a53d0 + agent a2322e040
+- `[9]` find/disp · D4 SURFACED (Rule-4, agent refused to mask) a D3-emit DEFECT: artifact `span.endLine` COLLAPSES to ==line for EVERY block → artifact-backed dock kills the swall… → docs/changes/block-analysis-emit-2026-06-18/BRIEF-D5-endline.md
+- `[10]` land · g-each-peritem-attr-ternary-quoted-arms RESOLVED+LANDED (736bdf33; board MED 9→8) — SALVAGE of the STALLED dispatch (agent adf67ae2 completed fix+tests [925b574… → 736bdf33
+- `[11]` land/disp · D5 LANDED (a6e64126) — span.endLine collapse FIXED → **block-analysis-emit v1 arc COMPLETE end-to-end** (D1 footprint→D2 builder→D3 emit→D4 consume→D5 true-exte… → a6e64126 + c553dd84
+- `[12]` land/find · g-compound-field-render-by-tag-unexpanded RESOLVED+LANDED (36e022bc; board MED→8) — non-lexical compound-member render-by-tag. ROOT: S157 Bug-60 resolver used O… → 36e022bc + inbox 2038
+- `[13]` disp · g-pure-module-server-emit-missing FIX dispatched (HIGH; user "g-pure-model, go"; scrml-js-codegen-engineer isolation:worktree, bg agent a56577f8b37aab3b2). REPR… → docs/changes/g-pure-module-server-emit-2026-06-19/BRIEF.md
+- `[14]` state · g-pure-module-server-emit FIX IN-FLIGHT (agent a56577f8 RATE-LIMITED @72-tool-uses — 5th env crash; worktree CLEAN, no loss). Fix A COMMITTED in-branch @9b3fe86… → 9b3fe86a + progress.md
 
 ## State
-- Version: 0.7.0 · maps: 3 commits behind HEAD (watermark c553dd84, HEAD 242a7ab1)
+- Version: 0.7.0 · maps: 7 commits behind HEAD (watermark c553dd84, HEAD ba938c8c)
 - Recent wraps:
+  - 916fe3ae wrap(s207): close — block-analysis-emit arc complete (D3-D5) + 2 MED codegen fixes + flogence pure-module HIGH (Fix A in-flight)
   - 6512b592 wrap(s206): close — landed block-analysis-emit D1+D2; birthed the flogence satellite architecture; flogeance→flogence rename
   - 74d7d0e2 wrap(s205): close — 3 MED gaps + slice-3 <each> + 3 ratifications; 3 agent landings deferred (F3)
-  - e723de04 chore(s204): wrap-finalize — recent-sessions + digest regen at settled HEAD d64d4519
 
 ## NOT in the digest (read source for these)
 - Open questions awaiting you → `hand-off.md` §"OPEN THREADS / Open questions"

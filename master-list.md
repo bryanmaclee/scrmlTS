@@ -87,6 +87,7 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 > `bun scripts/state.ts --write` regenerates it; `--check` gates it.
 
 <!-- @generated:recent-sessions START (do not edit — `bun scripts/state.ts --write`) -->
+- `916fe3ae` — wrap(s207): close — block-analysis-emit arc complete (D3-D5) + 2 MED codegen fixes + flogence pure-module HIGH (Fix A in-flight) — **LOCAL-ONLY**
 - `6512b592` — wrap(s206): close — landed block-analysis-emit D1+D2; birthed the flogence satellite architecture; flogeance→flogence rename — **pushed**
 - `74d7d0e2` — wrap(s205): close — 3 MED gaps + slice-3 <each> + 3 ratifications; 3 agent landings deferred (F3) — **pushed**
 - `e723de04` — chore(s204): wrap-finalize — recent-sessions + digest regen at settled HEAD d64d4519 — **pushed**
@@ -94,7 +95,6 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 - `1bcf5c71` — wrap(s202): close — each-inline arc closed (board HIGH 0) + trucking flagship complete + flograph & L1 render-map built + 4 DDs (dock/e2e/deputy adopted, baton retired) — **pushed**
 - `caa8f77b` — wrap(s201): close — the 2-HIGH pass DONE (each-body-bare-variant + markup-value end-to-end) + member-arg; board HIGH 1 — **pushed**
 - `535de409` — wrap(s200) 6c: maps refresh 76d03aa9->b1f5f8bf + delta-log [10] (S200 wrap complete) — **pushed**
-- `b727c24a` — wrap(s199): E-leg server-auth engine + HOS showcase + gap-184 §11.1 + flogeance/vPA workflow [FIRST live baton-pass] — **pushed**
 <!-- @generated:recent-sessions END -->
 
 ## A. Compiler core
