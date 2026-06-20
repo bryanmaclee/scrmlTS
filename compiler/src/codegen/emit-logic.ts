@@ -1696,7 +1696,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
           const sqlExpr = sqlStmt.replace(/;\s*$/, "");
           return `let ${_letDeclLhs} = ${sqlExpr};`;
         }
-        return `let ${_letDeclLhs}; // SQL-init for ${_letDeclLhs} — client cannot evaluate _scrml_sql (E-CG-006); use a server function.`;
+        return `let ${_letDeclLhs}; // SQL-init for ${_letDeclLhs} — client cannot evaluate _scrml_sql (E-CG-006); use a server-side function.`;
       }
       // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
       if (node.initExpr) {
@@ -1802,7 +1802,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         // Client boundary: cannot evaluate; emit `const x = null;` (const must
         // have an initializer) + comment so the JS parses and the cause is
         // visible.
-        return `const ${_constDeclLhs} = null; // SQL-init for ${_constDeclLhs} — client cannot evaluate _scrml_sql (E-CG-006); use a server function.`;
+        return `const ${_constDeclLhs} = null; // SQL-init for ${_constDeclLhs} — client cannot evaluate _scrml_sql (E-CG-006); use a server-side function.`;
       }
       // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
       if (node.initExpr) {
