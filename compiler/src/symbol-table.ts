@@ -9727,6 +9727,131 @@ export function validateEngineA5Extensions(
     }
   }
 
+  // ----- Fire-site #11 (ss2) — opener-effect BOOT write validation
+  //       (§51.0.H Form 3, NORMATIVE SHALL). -----
+  //
+  // An engine OPENER `effect=` is a boot-only init effect: the effect of the
+  // implicit init→`initial=` transition. Per SPEC §51.0.H Form 3 (lines 25741-
+  // 25745) and the §51.0 attribute table (line 24871), the from-state of that
+  // implicit edge is STATICALLY the `initial=` variant, so a `@<engineVar> = .X`
+  // write inside the opener effect is compile-time-validated against
+  // `.<initial>.rule` EXACTLY as an in-state-child-body write is (§51.0.F /
+  // fire-site #9). The opener effect body is captured as RAW TEXT at SYM
+  // (`meta.openerEffect`), so we reuse the same `scanDirectWritesInStateChildBody`
+  // regex scan + the same `switch (r.kind)` membership check as fire-site #9.
+  //
+  // HEURISTIC SCOPE (matches fire-site #9): only writes whose RHS *starts* with
+  // a literal `.Variant` (or `.advance(.Variant)`) are validated. A boot effect
+  // like `@phase = @tasks.length == 0 ? .Empty : .Editing` (FLAGSHIP) is a
+  // ternary whose RHS does NOT begin with `.`, so the scan does not capture it —
+  // no fire. Broader RHS-expression analysis is out of scope for this dispatch.
+  //
+  // Derived engines are SKIPPED: `walkDerivedEngineDeclRejections` already fires
+  // E-ENGINE-EFFECT-ON-DERIVED on a derived opener effect (§51.0.J) — boot-write
+  // validation must NOT double-fire there.
+  {
+    const varName = typeof meta.varName === "string" ? meta.varName : "";
+    if (
+      meta.derivedExpr === null &&
+      typeof meta.openerEffect === "string" &&
+      meta.openerEffect.length > 0 &&
+      varName.length > 0 &&
+      variants.length > 0 &&
+      typeof meta.initialVariant === "string" &&
+      meta.initialVariant.length > 0
+    ) {
+      const initialSc = stateChildren.find(
+        (sc) => sc && sc.tag === meta.initialVariant,
+      );
+      // No initial state-child found → E-ENGINE-INITIAL-INVALID-VARIANT
+      // already owns that case; skip boot-write validation.
+      const r = initialSc ? initialSc.rule : null;
+      if (initialSc && r) {
+        const writes = scanDirectWritesInStateChildBody(meta.openerEffect, varName);
+        for (const dw of writes) {
+          // Non-variant tokens (e.g. `.length`) — a separate check owns those;
+          // mirror fire-site #9's variant-set gate.
+          if (!variantSet.has(dw.target)) continue;
+
+          // Self-write to the boot/initial variant is an idempotent no-op per
+          // §51.0.F — mirror fire-site #10's self-write skip. No lint needed
+          // here for this dispatch (boot effect writing the initial variant it
+          // is already entering is a structural no-op).
+          if (dw.target === meta.initialVariant) continue;
+
+          const writeRepr = dw.shape === "advance"
+            ? `@${varName}.advance(.${dw.target})`
+            : `@${varName} = .${dw.target}`;
+          const bootCtx =
+            `\`${writeRepr}\` inside the engine opener \`effect=\` (boot-only init ` +
+            `effect, §51.0.H Form 3) is invalid. The boot effect runs as the ` +
+            `implicit init→.${meta.initialVariant} transition, so writes are checked ` +
+            `against \`.${meta.initialVariant}.rule\``;
+
+          switch (r.kind) {
+            case "absent":
+              // Initial state is terminal — no legal boot transition out of it.
+              fireA5Diagnostic(
+                errors,
+                "E-ENGINE-INVALID-TRANSITION",
+                `E-ENGINE-INVALID-TRANSITION: ${bootCtx} — but \`<${meta.initialVariant}>\` ` +
+                `has no \`rule=\` attribute (terminal state per §51.0.F), so the boot ` +
+                `effect cannot transition the engine at all. Either add ` +
+                `\`rule=.${dw.target}\` (or a wider rule covering \`.${dw.target}\`) to ` +
+                `\`<${meta.initialVariant}>\`, or remove the boot write.`,
+                engineDecl,
+                filePath,
+                "error",
+              );
+              break;
+            case "wildcard":
+              // `rule=*` on the initial state — any boot target legal; no fire.
+              break;
+            case "single":
+              if (r.target !== dw.target) {
+                fireA5Diagnostic(
+                  errors,
+                  "E-ENGINE-INVALID-TRANSITION",
+                  `E-ENGINE-INVALID-TRANSITION: ${bootCtx} — \`<${meta.initialVariant}>\`'s ` +
+                  `\`rule=.${r.target}\` (single-target form per §51.0.F — only ` +
+                  `\`.${r.target}\` is reachable). Either change the boot target to ` +
+                  `\`.${r.target}\`, widen \`<${meta.initialVariant}>\`'s \`rule=\` to ` +
+                  `\`(.${r.target} | .${dw.target})\` or \`*\`, or remove the boot write.`,
+                  engineDecl,
+                  filePath,
+                  "error",
+                );
+              }
+              break;
+            case "multi":
+              if (!r.targets.includes(dw.target)) {
+                const targetsList = r.targets.map((t) => `.${t}`).join(", ");
+                const targetsPipe = r.targets.map((t) => `.${t}`).join(" | ");
+                fireA5Diagnostic(
+                  errors,
+                  "E-ENGINE-INVALID-TRANSITION",
+                  `E-ENGINE-INVALID-TRANSITION: ${bootCtx} — \`<${meta.initialVariant}>\`'s ` +
+                  `multi-target \`rule=(${targetsPipe})\` permits: ${targetsList} (per ` +
+                  `§51.0.F — only the listed targets are reachable). Either pick one of ` +
+                  `the listed targets, add \`.${dw.target}\` to the rule list, or widen ` +
+                  `to \`*\`.`,
+                  engineDecl,
+                  filePath,
+                  "error",
+                );
+              }
+              break;
+            case "legacy-arrow":
+            case "parse-error":
+              // B15 already fired on the malformed rule=; do NOT double-fire a
+              // misleading legality diagnostic. Mirrors fire-site #9.
+              break;
+          }
+        }
+      }
+    }
+  }
+
   // ----- File-scope aggregation (always — per SURVEY §4). -----
   meta.historyAttr = aggHistoryAttr;
   meta.internalRules = aggInternalRules;
