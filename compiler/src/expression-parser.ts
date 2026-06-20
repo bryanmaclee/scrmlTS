@@ -81,6 +81,51 @@ function scrmlAtPlugin(Parser: typeof acorn.Parser) {
         // (it will likely error, which is correct for bare @ or @123).
         // @ts-ignore
         const next = this.input.charCodeAt(this.pos + 1);
+        // §17.7.3 — the `@.` contextual iteration sigil ("the current iteration
+        // value"). `@` followed by `.` is NOT an identifier-start, so the bare
+        // peek below would let acorn choke on it (escape-hatch ParseError for
+        // `@.` / `@.field` fed to parseExprToNode — the ExprNode layer could not
+        // structure the sigil; the each-body markup path lowers `@.` via a
+        // separate string-rewrite in emit-lift, and E-SYNTAX-064 is enforced by
+        // the type-system token scan — both independent of this parse). Consume
+        // `@.` plus an optional immediately-following field name as ONE name
+        // token: `@.` → "@.", `@.field` → "@.field", chained `@.a.b` → "@.a"
+        // here then acorn handles `.b` as member access, `@.items[0]` → "@.items"
+        // then computed member. Whether `@.` is legal at this locus (inside an
+        // `<each>` body) is decided downstream by E-SYNTAX-064 — this layer's job
+        // is only to STRUCTURE the valid-scrml sigil instead of escape-hatching.
+        //
+        // INLINE-WS-tolerant: the block-splitter join path emits expression text
+        // with whitespace around tokens, so a source `@.name` reaches here as
+        // `@ . name`. Non-destructive lookahead from just after `@` skips inline
+        // ws (space/tab only — never a newline) to find the `.`; if present this
+        // is the sigil and `this.pos` is advanced past the `.` + trailing ws to
+        // the field. (readToken never fires inside string/comment interiors —
+        // acorn handles those separately — so this absorbs only real code ws.)
+        // @ts-ignore
+        let _look = this.pos + 1;
+        // @ts-ignore
+        while (this.input.charCodeAt(_look) === 32 || this.input.charCodeAt(_look) === 9) _look++;
+        // @ts-ignore
+        if (this.input.charCodeAt(_look) === 46) { // '.'
+          _look++; // past '.'
+          // @ts-ignore
+          while (this.input.charCodeAt(_look) === 32 || this.input.charCodeAt(_look) === 9) _look++;
+          // @ts-ignore
+          this.pos = _look;
+          // @ts-ignore
+          const after = this.input.charCodeAt(this.pos);
+          const fieldStart = (after >= 65 && after <= 90)   // A-Z
+            || (after >= 97 && after <= 122)                 // a-z
+            || after === 95 || after === 36;                 // _ or $
+          let field = "";
+          if (fieldStart) {
+            // @ts-ignore
+            field = this.readWord1();
+          }
+          // @ts-ignore
+          return this.finishToken(acorn.tokTypes.name, "@." + field);
+        }
         const isIdentStart = (next >= 65 && next <= 90)  // A-Z
           || (next >= 97 && next <= 122)                   // a-z
           || next === 95 || next === 36;                   // _ or $
