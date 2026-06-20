@@ -105,6 +105,35 @@ describe("not keyword — codegen rewrite", () => {
     expect(result).toContain("@x === null || @x === undefined");
   });
 
+  // bug-18 / GITI-015 (S210) — is-op with a computed (bracket-index) LHS. The
+  // library-mode line-by-line path (rewriteIsOperator(rewriteNotKeyword(line)))
+  // had NO fallback for `is some` / `is not not` once the LHS was a bracket
+  // index, so the keyword survived literal → E-CODEGEN-INVALID-JS
+  // (`arr[i + 1] is some ? …`). The LHS chain now admits a bracket-index tail.
+  test("§5e `is not` with simple bracket-index LHS", () => {
+    expect(rewriteNotKeyword("arr[i] is not")).toBe("(arr[i] === null || arr[i] === undefined)");
+  });
+
+  test("§5f `is some` with arithmetic bracket-index LHS (the bug-18 repro)", () => {
+    expect(rewriteNotKeyword("args[i + 1] is some")).toBe("(args[i + 1] !== null && args[i + 1] !== undefined)");
+  });
+
+  test("§5g `is not not` with bracket-index LHS", () => {
+    expect(rewriteNotKeyword("arr[i] is not not")).toBe("(arr[i] !== null && arr[i] !== undefined)");
+  });
+
+  test("§5h mixed member + index chain LHS", () => {
+    expect(rewriteNotKeyword("a.b[i].c is some")).toBe("(a.b[i].c !== null && a.b[i].c !== undefined)");
+  });
+
+  test("§5i one level of nested-bracket index LHS", () => {
+    expect(rewriteNotKeyword("arr[idx[0]] is some")).toBe("(arr[idx[0]] !== null && arr[idx[0]] !== undefined)");
+  });
+
+  test("§5j reactive @-prefixed bracket-index LHS preserves @", () => {
+    expect(rewriteNotKeyword("@arr[i] is not")).toBe("(@arr[i] === null || @arr[i] === undefined)");
+  });
+
   test("§8 no-op when no `not` keyword present", () => {
     expect(rewriteNotKeyword("a + b")).toBe("a + b");
   });

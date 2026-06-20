@@ -828,7 +828,22 @@ function _rewriteNotSegment(segment: string, errors?: any[]): string {
   // whole `load . weight_lbs` is captured and substituted verbatim (space-padded
   // member access is legal JS). Mirrors the R24-BUG-35 (S137) `\s*`-tolerance
   // already added to the variant-suffix patterns for the same BS reason.
-  const DOTTED_LHS = "@?[A-Za-z_$][A-Za-z0-9_$]*(?:\\s*\\.\\s*[A-Za-z_$][A-Za-z0-9_$]*)*";
+  // bug-18 / GITI-015 (S210): the LHS chain admits a bracket-INDEX tail
+  // (`arr[i]`, `arr[i + 1]`, `a.b[i].c`) in addition to the `.member` chain.
+  // Before this, a computed-index LHS was unmatched, so in the LIBRARY-mode
+  // line-by-line path (`rewriteIsOperator(rewriteNotKeyword(line))`,
+  // emit-library.ts) `is some` / `is not not` had NO fallback and survived
+  // literal into the output → E-CODEGEN-INVALID-JS (`arr[i + 1] is some ? …`).
+  // The AST/client path already handles this via rewriteIsPredicates'
+  // balanced-bracket scanLhsLeft; this is the string-rewrite sibling. The index
+  // segment admits ONE level of nested brackets (`arr[idx[0]]`); deeper nesting
+  // and call-tails (`f() is some`) are NOT matched here — those route through
+  // _rewriteParenthesizedIsOp / the parenthesize-to-single-eval steer. A
+  // bracket-index LHS is DOUBLE-evaluated (same as the dotted-path form below);
+  // parenthesize (`(arr[i]) is some`) for single-eval if the index has side
+  // effects.
+  const INDEX_TAIL = "\\s*\\[(?:[^\\[\\]]|\\[[^\\[\\]]*\\])*\\]";
+  const DOTTED_LHS = "@?[A-Za-z_$][A-Za-z0-9_$]*(?:\\s*\\.\\s*[A-Za-z_$][A-Za-z0-9_$]*|" + INDEX_TAIL + ")*";
   // Match `@varName is not not` or `identifier is not not` (presence check, §42).
   // MUST run before the `is not` replacement — otherwise the first `is not` consumes
   // the token and the trailing `not` becomes a stray `null`.
