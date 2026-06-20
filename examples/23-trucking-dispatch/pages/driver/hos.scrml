@@ -32,7 +32,7 @@
 // through the shared `match` helpers — no local re-declaration.
 //
 // FRICTION (F-NULL-001 — see FRICTION.md): file with a `<engine>` block (or
-// `<machine>` deprecated alias)
+// `<engine>` deprecated alias)
 // + `null` literals/comparisons in client-fn bodies fires E-SYNTAX-042 in
 // GCP3 even though identical patterns compile clean elsewhere. Workaround:
 // use `is some`/`is not` for absence checks instead of `== null`/`!= null`,
