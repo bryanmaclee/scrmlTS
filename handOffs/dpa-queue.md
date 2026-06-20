@@ -11,7 +11,7 @@ Item format + drain protocol: `scrml-support/dpa-scrml.md` + the design DD
 ---
 
 ## [dpa-001] debate — External-backend boundary: typed-external-API primitive (A) vs docs-only (B) vs stay-full-stack (C)
-status: banked        # banked → running → complete → ratified(by PA)
+status: complete      # banked → running → complete → ratified(by PA)  ·  dPA-complete S210 2026-06-20, ADVISORY — PA ratifies
 banked: S210 2026-06-20
 output-path: scrml-support/docs/debates/external-backend-A-vs-B-vs-C-2026-06-20.md
 source-DD: scrml-support/docs/deep-dives/external-backend-frontend-only-2026-06-20.md (§Recommendation-for-Debate)
@@ -74,6 +74,21 @@ Already-known (the converged core, PA-verified S209 — do NOT re-litigate): cli
 one-line verdict + scorecard path → flip this item to `status: complete` + append the verdict here + a staged
 design-insight CANDIDATE (`authority: dPA-produced, awaiting PA+user ratification`) + a `(dpa: complete → <path> ·
 verdict: <one-line>)` breadcrumb in `scrml/handOffs/delta-log.md`. Do NOT ratify.
+
+### Verdict (dPA, S210 2026-06-20 — ADVISORY, NOT ratified)
+**Artifact:** `scrml-support/docs/debates/external-backend-A-vs-B-vs-C-2026-06-20.md`
+**One-line:** Ship **A2** (a thin, declared-shape `<api>` typing the request/endpoint half) on top of **B's documentation
+philosophy** — **A1** (OpenAPI ingest) gated to first-party + CI-enforced contracts; **D's "gate on signal" condition
+COLLAPSED** because the REAL 8-persona poll MEASURED the signal (BYOB ≈ 75% of realistic adopters — unanimous it's the
+majority cohort; fork 7/8 toward a typed form); **C dominated** to a single surviving discipline constraint (the primitive
+must NOT lie about what it verifies — encode the owned-vs-unowned-boundary epistemic difference at the declaration site).
+**Scorecard:** B 45.5 / A 43 / C 40 (B narrow on points; synthesis + measured adoption risk break the tie toward A2-thin).
+**Pipeline:** 6 experts live-dispatched (3 poles) + REAL 8-persona dev-poll (closes OQ-2) + neutral debate-judge.
+**Staged design-insight CANDIDATE** (in the artifact §Design Insight): encode owned (`<db>`) vs unowned (`<api>`) boundary
+typing as a type-system-visible distinction so the compiler never lies about what it guarantees. NOT landed in
+`design-insights.md` (PA's act). **Poll fidelity caveat:** prompt surfaced the "drift" tension → fork-vote may skew to A
+(size number ~75% is the solid takeaway); a debiased re-poll is the one follow-up that would harden "ship now". **PA action
+requested** (4 items) in the artifact footer. RUN-not-RATIFY: the dPA did NOT ratify, edit SPEC, or land the insight.
 
 ---
 
