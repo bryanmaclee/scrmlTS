@@ -17026,6 +17026,7 @@ Rationale: the unified purity contract preserves the `<machine>` subsystem's rep
 | E-STATE-FIELD-MISSING | §54.6.2 | Read of a field declared on a different substate than the binding is narrowed to | Error |
 | E-STATE-TRANSITION-ILLEGAL | §54.6.3 | Call of a transition not declared on the binding's current substate | Error |
 | E-STATE-TERMINAL-MUTATION | §54.6.4 | Write to a field of a binding in a terminal substate (zero declared outgoing transitions) | Error |
+| E-STATE-TRANSITION-NO-RETURN | §54.6.5 | A state-local transition body does not terminate in an explicit `return <SubstateName>` literal (§54.3) — no terminal return, or a non-state-literal return. Spec-ahead (code assigned S209 to fill the §54.6 hole CONF-S32-015 gates on); enforcement deferred to the §54 substate-conformance build. | Error |
 | E-STATE-MACHINE-DIVERGENCE | §51.15.4 | State-local transitions and override-mode machine body (or type-level `transitions {}`) are inconsistent | Error |
 | W-PURE-REDUNDANT | §33.4 | **SUPERSEDED by W-PURE-DEPRECATED (2026-06-09, deprecate-pure-modifier).** Formerly: `pure` applied to a declaration already pure by context (`pure fn`). No longer emitted — the redundant-pure case is now deprecated-pure (W-PURE-DEPRECATED fires instead). | — |
 | W-PURE-DEPRECATED | §33, §48.11 | The `pure` modifier is deprecated language-wide; `fn` is the canonical pure form. Fires on ANY `pure`-modifier declaration (`pure function`, `pure fn`, `pure server function`). Migrate to `fn` / `server fn` (run `bun scrml migrate --fix`). Both forms compile during the deprecation window; `pure` becomes E-PURE-DEPRECATED at end-of-window. Mirrors the `<machine>`→`<engine>` (W-DEPRECATED-001) and `server function`→`function` (W-DEPRECATED-SERVER-MODIFIER) cycles. **Supersedes W-PURE-REDUNDANT.** **Fires:** emitted by TS (`compiler/src/type-system.ts`, the `case "function-decl"` path, gated on `isPure === true`). (Added 2026-06-09, deprecate-pure-modifier.) | Warning |
@@ -31064,7 +31065,7 @@ transition-body    ::= '{' transition-stmt* 'return' state-literal '}'
 state-literal      ::= '<' SubstateName attribute-list? '>' field-assignments '</>'
 ```
 
-**Explicit `return` required.** A transition body SHALL terminate with an explicit `return` statement whose operand is a `<SubstateName>` literal. This matches `fn` convention (§48) and avoids introducing a third function-body shape. A transition body MAY contain additional statements (local `let`/`const`, `if`/`else` branches, etc.) before the `return`.
+**Explicit `return` required.** A transition body SHALL terminate with an explicit `return` statement whose operand is a `<SubstateName>` literal. This matches `fn` convention (§48) and avoids introducing a third function-body shape. A transition body MAY contain additional statements (local `let`/`const`, `if`/`else` branches, etc.) before the `return`. A body that lacks the terminal `return`, or whose `return` operand is not a `<SubstateName>` literal, is **`E-STATE-TRANSITION-NO-RETURN`** (§54.6.5).
 
 **Pre-transition binding — `from`, not `self`.** Inside a transition body, the keyword `from` refers to the substate instance BEFORE the transition. Its fields are readable but not writable. `self` is NOT used in transition bodies (it remains reserved for §51.3.2 machine guards, where it refers to the post-mutation struct state).
 
@@ -31220,7 +31221,22 @@ E-STATE-TERMINAL-MUTATION: cannot mutate field 'body' of <Submitted>.
   If <Submitted> should admit edits, add a self-transition: `edit() => <Submitted> { ... }`.
 ```
 
-#### 54.6.5 Summary table
+#### 54.6.5 E-STATE-TRANSITION-NO-RETURN
+
+**Spec-ahead (Nominal) — code assigned S209; enforcement deferred to the §54 substate-conformance build (the phase-4h arc).** A state-local transition body (§54.3) that does not terminate in an explicit `return <SubstateName>` literal — either the body has NO terminal `return`, or its `return` operand is not a `<SubstateName>` state literal. §54.3 requires every transition body to `return` the constructed target substate; a body that falls through or returns a non-literal leaves the transition's target indeterminate.
+
+**Diagnostic format (required):**
+
+```
+E-STATE-TRANSITION-NO-RETURN: transition 'validate()' must end in `return <SubstateName>`.
+  A transition body SHALL terminate with an explicit `return <Target>` state literal (§54.3).
+  Found: <no terminal return | return of a non-state-literal value> at line N.
+  Add a terminal `return <Validated> ... </>` constructing the target substate.
+```
+
+This is the code `CONF-S32-015` (§54.3 — "transition body SHALL terminate with explicit `return <SubstateName>` literal") gates on; its `a`/`b` sub-cases are the no-return and non-state-literal-return shapes. The code is reserved here so the conformance suite has a named target; the fire site lands with the §54 substate-conformance implementation.
+
+#### 54.6.6 Summary table
 
 | Code | Trigger | Severity |
 |---|---|---|
@@ -31228,6 +31244,7 @@ E-STATE-TERMINAL-MUTATION: cannot mutate field 'body' of <Submitted>.
 | E-STATE-FIELD-MISSING | read of field declared on a different substate than the narrowed one | Error |
 | E-STATE-TRANSITION-ILLEGAL | call of a transition not declared on the current substate | Error |
 | E-STATE-TERMINAL-MUTATION | write of a field of a terminal substate | Error |
+| E-STATE-TRANSITION-NO-RETURN | transition body lacks a terminal `return <SubstateName>` literal (§54.3) — *spec-ahead, enforcement deferred* | Error |
 
 (The cross-site divergence code E-STATE-MACHINE-DIVERGENCE lives in §51.15.4.)
 

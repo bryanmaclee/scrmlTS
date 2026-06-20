@@ -4,10 +4,18 @@
 **Status:** SPEC-ONLY. Compiler implementation of §54.6 codes and §51.15
 cross-check has NOT landed as of this registry's creation.
 
+**Currency note (S209, 2026-06-20).** The §33 `pure`-modifier codes have landed:
+`W-PURE-REDUNDANT` was RENAMED to `W-PURE-DEPRECATED` at S176 (the `pure` modifier
+was retired), and `s33-pure.test.js` is un-skipped + green (CONF-S32-001/002/003 are
+no longer `Gating`). The §54.6 / §51.15 codes below remain spec-ahead pending the
+substate-conformance build; `E-STATE-TRANSITION-NO-RETURN` (§54.6.5) was newly
+assigned S209 to fill the hole CONF-S32-015 gates on. The "all tests skipped" /
+`Gating` labels below are stale for the s33 rows — a fuller status refresh is owed.
+
 All tests in this directory are `test.skip(...)`. They are gating tests: when
 an implementer lands E-STATE-COMPLETE / E-STATE-FIELD-MISSING /
 E-STATE-TRANSITION-ILLEGAL / E-STATE-TERMINAL-MUTATION /
-E-STATE-MACHINE-DIVERGENCE / W-PURE-REDUNDANT, un-skip each test, wire the
+E-STATE-MACHINE-DIVERGENCE / W-PURE-DEPRECATED, un-skip each test, wire the
 `diagnose()` harness stub to `compileScrml(...)`, and confirm the test
 catches a correct implementation while rejecting the pre-S32 behavior.
 
@@ -23,7 +31,7 @@ catches a correct implementation while rejecting the pre-S32 behavior.
 |--------------|--------|-----------------------------------------------------------------------------------------|------------------------------------|--------|
 | CONF-S32-001 | §33.2  | State-local transition bodies SHALL be pure by default                                  | s33-pure.test.js                   | Gating |
 | CONF-S32-002 | §33.6  | Transitions MAY NOT call non-deterministic built-ins (Date.now, Math.random, …)         | s33-pure.test.js                   | Gating |
-| CONF-S32-003 | §33.4  | W-PURE-REDUNDANT fires on `pure fn` / `pure transition`                                 | s33-pure.test.js                   | Gating |
+| CONF-S32-003 | §33.4  | W-PURE-DEPRECATED fires on `pure fn` / `pure transition` (was W-PURE-REDUNDANT, renamed S176) | s33-pure.test.js             | Passing |
 | CONF-S32-004 | §48.11 §48.13 | `fn` SHALL be semantically equivalent to `pure function` at the declaration site | s48-fn.test.js                     | Gating |
 | CONF-S32-005 | §48.13 | Existing `fn` declarations SHALL be accepted without modification                       | s48-fn.test.js                     | Gating |
 | CONF-S32-006 | §48.13 §54.6.1 | State-literal completeness SHALL be enforced at the literal's `</>` (universal) | s48-fn.test.js                     | Gating |
@@ -35,7 +43,7 @@ catches a correct implementation while rejecting the pre-S32 behavior.
 | CONF-S32-012 | §51.15.2 | Wildcard transitions (`* => *`, `* => .To`) exempt from cross-check                     | s51-machine-cross-check.test.js    | Gating |
 | CONF-S32-013 | §51.15.2 | Guarded machine transitions DO require a state-local counterpart                        | s51-machine-cross-check.test.js    | Gating |
 | CONF-S32-014 | §51.15.3 | State-local transition target SHALL be permitted by type-level `transitions {}` graph   | s51-machine-cross-check.test.js    | Gating |
-| CONF-S32-015 | §54.3  | Transition body SHALL terminate with explicit `return < SubstateName>` literal          | s54-substates.test.js              | Gating |
+| CONF-S32-015 | §54.3  | Transition body SHALL terminate with explicit `return <SubstateName>` literal (E-STATE-TRANSITION-NO-RETURN, §54.6.5) | s54-substates.test.js | Gating |
 | CONF-S32-016 | §54.3  | `from` SHALL be parsed as a keyword ONLY inside transition bodies                       | s54-substates.test.js              | Gating |
 | CONF-S32-017 | §54.3  | `from` SHALL NOT be reserved outside transition bodies (param/binding/field name OK)    | s54-substates.test.js              | Gating |
 | CONF-S32-018 | §54.4  | `match` over a substated state type SHALL require exhaustive substate coverage          | s54-substates.test.js              | Gating |
