@@ -76,6 +76,9 @@ interface SpanShape {
   start?: number;
   end?: number;
   line?: number;
+  /** Origin file of the spanned node — set by the parser; differs from the
+   *  file under analysis for import-inlined nodes (the D6 phantom discriminator). */
+  file?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -337,6 +340,7 @@ function projectBlock(
 function collectFunctionDecls(
   nodes: unknown,
   out: { node: AnyNode; kind: BlockKind; name: string }[],
+  ownerFile: string,
 ): void {
   if (!Array.isArray(nodes)) return;
   for (const node of nodes) {
@@ -344,14 +348,28 @@ function collectFunctionDecls(
     const n = node as AnyNode;
     if (n.kind === "function-decl") {
       const name = typeof n.name === "string" ? n.name : "";
-      if (name) out.push({ node: n, kind: "function", name });
+      // Skip function-decls INLINED from an imported module. A channel import
+      // (`import { "x" as y } from "./channel.scrml"`) pulls the channel's fns
+      // into the importing page's AST so the page can CALL them — those nodes
+      // carry their ORIGIN file in `span.file`. They are not declared in THIS
+      // file; counting one yields a phantom block whose span indexes the wrong
+      // source and OVERLAPS a real local block (D6 — the block-lease two-holders
+      // failure). Keep only locally-declared fns: span.file matches the owner,
+      // or is absent (a hand-built / spanless node stays in — prior behavior).
+      const declFile = (n.span as SpanShape | undefined)?.file;
+      const isLocal =
+        !ownerFile ||
+        typeof declFile !== "string" ||
+        declFile.length === 0 ||
+        relativeFilePath(declFile) === ownerFile;
+      if (name && isLocal) out.push({ node: n, kind: "function", name });
       // Do NOT descend into the fn's own body (top-level defs only).
       continue;
     }
     // Descend the structural wrappers that hold function-decls: `logic` nodes
     // carry them in `body`; markup containers in `children`.
-    if (Array.isArray(n.children)) collectFunctionDecls(n.children, out);
-    if (Array.isArray(n.body)) collectFunctionDecls(n.body, out);
+    if (Array.isArray(n.children)) collectFunctionDecls(n.children, out, ownerFile);
+    if (Array.isArray(n.body)) collectFunctionDecls(n.body, out, ownerFile);
   }
 }
 
@@ -366,9 +384,16 @@ function collectFunctionDecls(
 function collectBlocks(fileAST: AnyNode): { node: AnyNode; kind: BlockKind; name: string }[] {
   const out: { node: AnyNode; kind: BlockKind; name: string }[] = [];
 
+  // The file under analysis — used to reject import-inlined function-decls
+  // (channel-import pulls a channel's fns into the page AST carrying the
+  // channel's `span.file`, not this file's — D6 phantom-block guard).
+  const ownerFile = relativeFilePath(
+    typeof fileAST.filePath === "string" ? fileAST.filePath : "",
+  );
+
   // Functions — walk the node tree (they live in `logic.body`, nested under
   // markup `children` when page-embedded — never directly on `FileAST.nodes`).
-  collectFunctionDecls(fileAST.nodes, out);
+  collectFunctionDecls(fileAST.nodes, out, ownerFile);
 
   // Components — `FileAST.components` (component-def, `.name`).
   const components = Array.isArray(fileAST.components) ? (fileAST.components as AnyNode[]) : [];

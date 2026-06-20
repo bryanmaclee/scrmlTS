@@ -51,6 +51,17 @@ const LOAD_NEW = join(
   "dispatch",
   "load-new.scrml",
 );
+// D6 fixture: a page that IMPORTS the driver-events channel and only CALLS its
+// `publishDriverEvent` fn (line 163). The channel import inlines the channel's
+// fns into the page AST; block discovery must not count them as page blocks.
+const MESSAGES = join(
+  REPO_ROOT,
+  "examples",
+  "23-trucking-dispatch",
+  "pages",
+  "driver",
+  "messages.scrml",
+);
 
 // In-process: the per-file analyses the api.js accessor surfaces (the same
 // objects the CLI write-loop serializes). Returns BlockAnalysis[] (one per
@@ -304,5 +315,35 @@ describe("--emit-block-analysis CLI write-loop (end-to-end, real binary)", () =>
       rmSync(dirA, { recursive: true, force: true });
       rmSync(dirB, { recursive: true, force: true });
     }
+  });
+
+  // D6 (S207 "g-block-analysis-phantom-block", landed ss14): a channel import
+  // (`import { "driver-events" as … } from "…/driver-events.scrml"`) inlines the
+  // channel's fns into the importing page's AST so the page can CALL them. Those
+  // nodes carry the CHANNEL's `span.file`. Block discovery formerly counted them
+  // as page blocks → a phantom whose span indexes the wrong source and OVERLAPS a
+  // real local block (the block-lease two-holders failure). messages.scrml only
+  // CALLS publishDriverEvent (line 163); it must NOT be a block of the page.
+  test("(f) D6 — an import-inlined channel fn is NOT a block of the importing page", () => {
+    const analyses = analysesFor(MESSAGES);
+    const messages = analysisForFileEndingWith(
+      analyses,
+      "pages/driver/messages.scrml",
+    );
+    expect(messages).toBeDefined();
+    // The phantom guard: publishDriverEvent is DECLARED in the channel, only
+    // CALLED here — it must not appear among the page's blocks.
+    const names = messages.blocks.map((b) => b.name);
+    expect(names).not.toContain("publishDriverEvent");
+    // The page's blocks are exactly its 11 locally-declared functions.
+    expect(messages.blocks.length).toBe(11);
+    // The channel's OWN sidecar still declares publishDriverEvent — the fix
+    // removes the phantom from the CONSUMER, never the real decl from its owner.
+    const channel = analysisForFileEndingWith(
+      analyses,
+      "channels/driver-events.scrml",
+    );
+    expect(channel).toBeDefined();
+    expect(channel.blocks.some((b) => b.name === "publishDriverEvent")).toBe(true);
   });
 });
