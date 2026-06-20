@@ -1,9 +1,9 @@
-<!-- @digest head=c2f8f1fd delta-seq=29 -->
+<!-- @digest head=51600f0b delta-seq=31 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `c2f8f1fd`** + delta-log **[29]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `c2f8f1fd`
+> **HEAD `51600f0b`** + delta-log **[31]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `51600f0b`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `c2f8f1fd`
+## Board — from `@gap` tokens @ `51600f0b`
 - **HIGH 0** · MED 11 · LOW 17 · Nominal 8
 - Named open HIGHs: _none_
 
@@ -25,19 +25,19 @@
 - `[29]` rule/land · **ss6 flags B + C TAKEN** (user "take B and C"). **B:** §54.6.5 NEW code `E-STATE-TRANSITION-NO-RETURN` (spec-ahead/Nominal — enforcement deferred to the §54 su… → SPEC §54.6.5 + REGISTRY.md
 
 ## Recent activity — last 6 `disp`/`land`/`find`/`state`
-- `[24]` disp/land · **sPA ss2 (engine-codegen-statechild) RE-INTEGRATED** (user "ss2 done"). PA-verified (S83: tip 0cbc99fd, base c734ec35; ALL source files disjoint → clean auto-m… → ss2 merge + known-gaps
 - `[25]` disp/land · **sPA ss5 (channel-codegen) RE-INTEGRATED** (user "ss5 and ss6 done"). PA-verified (S83: tip a67f04a4, base b67cd6e6 = current main, FF-able clean, NO SPEC.md).… → ss5 merge + known-gaps
 - `[26]` disp/land · **sPA ss6 (type-system-lifecycle) RE-INTEGRATED — NO-EXECUTE** (user "ss5 and ss6 done"). 0 code, all 7 items parked (the spa-scrml.md "whole list stalls → repo… → ss6 merge
 - `[27]` disp/land · **sPA ss9 (server-authority-keyword) RE-INTEGRATED** (user "ss9 and ss10 finished"). PA-verified (S83: tip 03d5d938, base 85d9e958 = current main, clean, no SPE… → ss9 merge + known-gaps
 - `[28]` disp/land · **sPA ss10 (e2e-render-map-test-hygiene) RE-INTEGRATED** (user "ss9 and ss10 finished"). PA-verified (S83: tip 070480b7, base 85d9e958, clean, disjoint from ss9… → ss10 merge
 - `[29]` rule/land · **ss6 flags B + C TAKEN** (user "take B and C"). **B:** §54.6.5 NEW code `E-STATE-TRANSITION-NO-RETURN` (spec-ahead/Nominal — enforcement deferred to the §54 su… → SPEC §54.6.5 + REGISTRY.md
+- `[30]` disp · **External-backend DD dispatched** (scrml-deep-dive `a7fe7a80`, bg no-worktree; user "DD it"). Q: should scrml have a first-class bring-your-own-backend story (… → DD doc (status:current)
 
 ## State
-- Version: 0.7.0 · maps: 15 commits behind HEAD (watermark 85d9e958, HEAD c2f8f1fd)
+- Version: 0.7.0 · maps: 1 commits behind HEAD (watermark 41422726, HEAD 51600f0b)
 - Recent wraps:
+  - 28de9c81 wrap(s209): close — crash-recovered; despace arc + 7-sPA wave + cPA correction + B/C; ss4/ss13/DD-verdict to next PA
   - d0c5a96a chore(s208): wrap-finalize — recent-sessions + digest regen at settled HEAD
   - 916fe3ae wrap(s207): close — block-analysis-emit arc complete (D3-D5) + 2 MED codegen fixes + flogence pure-module HIGH (Fix A in-flight)
-  - 6512b592 wrap(s206): close — landed block-analysis-emit D1+D2; birthed the flogence satellite architecture; flogeance→flogence rename
 
 ## NOT in the digest (read source for these)
 - Open questions awaiting you → `hand-off.md` §"OPEN THREADS / Open questions"
