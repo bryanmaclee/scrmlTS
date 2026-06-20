@@ -388,7 +388,7 @@ export function globSync(pat: string): string[] {
 
 // ── main (guarded so dock.ts can `import { build, defaultCorpus } from "./flograph"` without
 //    triggering this dispatch — S205 dock-thin-build refactor) ───────────────────────────────
-// #dock[ cites=agentic-code-provenance-dock-2026-06-17 ]
+// #dock[ cites=agentic-code-provenance-dock-2026-06-17 · verified ]
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const cIdx = args.indexOf("--corpus");
