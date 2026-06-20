@@ -17,7 +17,7 @@
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
 | HIGH | 1 |
 | MED | 11 |
-| LOW | 18 |
+| LOW | 17 |
 | Nominal (spec-ahead-of-impl) | 8 |
 <!-- @generated:gap-counts END -->
 
@@ -277,7 +277,7 @@ An `<engine for=T initial=.V>` relies on PRIMER §7's auto-declared-variable pro
 
 ### G-BLOCKSPLITTER-COMMENT-SPAN-NOT-OPAQUE — the block-splitter / arm + state-child scanners don't treat `<!-- -->` as opaque — `NEW S195; LOW; open`
 Two triggers, one root (comment spans aren't exempted from scanner state-tracking): (a) an HTML comment containing literal tag-mentions (`<each>`/`<empty>`) inside a `<match>` arm body counts them toward closer balance → `E-MATCH-PARSE-001` (16-remote-data finding); (b) an ODD number of `'` inside a comment in an `<engine>` state-child body opens a phantom single-quote string that swallows the rest of the body → spurious `E-ENGINE-STATE-CHILD-MISSING` for every variant (05-multi-step-form finding). Both worked around in the wave-1a rewrites (no special chars in in-body comments). Fix: exempt `<!-- -->` spans from quote-state + tag-stack tracking in `block-splitter.js` + the arm/state-child scanners. Sibling-adjacent to the GAP-A void-scanner fix (`f563bc89`), same scanner family.
-<!-- @gap id=g-blocksplitter-comment-span-not-opaque sev=LOW status=open -->
+**RESOLVED S210** (ss4 item-2, merge `f65b1de9`) — root was ENGINE-only, not the titled "block-splitter / arm" scope: ss4's R4 verify-before-claim found the briefSeed over-claimed the match-arm scanner — trigger (a) [HTML comment with tag-mentions in a `<match>` arm] does NOT reproduce (match raw-body + arm-closer scan handle `<!-- -->` at every position; the sibling S196 `findArmCloser`/`findNextArmOpener` quote-fix covered that family). Trigger (b) [odd `'` in a comment in an `<engine>` state-child body → phantom string → spurious E-ENGINE-STATE-CHILD-MISSING] FIXED: `engine-statechild-parser.ts` `skipCommentOrString` + `parseEngineStateChildren` now treat `<!-- -->` opaque; +7-case test. Block-splitter itself was NOT affected (over-claim). <!-- @gap id=g-blocksplitter-comment-span-not-opaque sev=LOW status=resolved -->
 
 ### G-EACH-BODY-SIGIL-INVARIANT-CLASSIFIER — `expr-node-corpus-invariant.test.js` escape-hatch classifier has no `@.`-sigil awareness — `NEW S195; LOW; open (test-infra, not a compiler bug)`
 The corpus-invariant test round-trips each example's expr-nodes through acorn and bails if >50% are ParseError "escape hatches." A bare `@.`/`@.field` interpolation in an `<each>` body (a valid scrml-native contextual sigil, §17.7.3) is not standard JS, so acorn yields a ParseError → counted as an escape hatch; a small `<each>`-heavy example trips the >50% gate. 04-live-search used the canonical `as person` alias (codegen-identical) to dodge it. Consequence: examples cannot teach the bare `@.` sigil in `<each>` bodies until the classifier whitelists `@.`-bearing bare-exprs as a recognized native form. NOT a compiler bug — a test-infra classifier blind spot; relevant to later corpus waves that want to teach `@.` (gap G5). **RESOLVED S209 (sPA ss14 item2, `34ca4f9a`):** the classifier gained an `each-sigil` category — `@.`-bearing bare-exprs (acorn's `@`-plugin only consumes `@`+ident-start, so `@.` yields ParseError) are recognized + EXCLUDED from the >50% escape-hatch gate, kept VISIBLE not silenced (parse-error 2→0, each-sigil=2, 69 pass). Examples can now teach the bare `@.` sigil in `<each>` bodies.
