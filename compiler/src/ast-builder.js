@@ -3602,7 +3602,23 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             // Bitwise compound assigns (`<<=`, `>>=`, `&=`, `|=`, `^=`,
             // `**=`, `&&=`, `||=`, `??=`, `>>>=`) are NOT listed in SPEC
             // §50.13 — excluded conservatively per scope rules.
-            const COMPOUND_OPS = new Set(["+=", "-=", "*=", "/=", "%=", "++", "--"]);
+            // ss4 item 7 — the FULL compound-assignment set (SPEC §6.6.18,
+            // mirrors derived-mutation-ops.ts COMPOUND_ASSIGNMENT_OPS) + the
+            // `++`/`--` updates. The prior set listed only `+= -= *= /= %=`,
+            // so a newline-separated second `@x <op>= n` for ANY other compound
+            // op (`**= &= |= ^= &&= ||= ??= <<= >>= >>>=`) did NOT trigger this
+            // boundary break — collectExpr swallowed the trailing statements
+            // into one bare-expr; parseExpressionAt then parsed only the first
+            // and SILENTLY DROPPED the rest (console.warn only). Completing the
+            // set closes that silent-data-loss class (shift ops = item-7 scope;
+            // the rest share the identical root + fix).
+            const COMPOUND_OPS = new Set([
+              "+=", "-=", "*=", "/=", "%=", "**=",
+              "<<=", ">>=", ">>>=",
+              "&=", "|=", "^=",
+              "&&=", "||=", "??=",
+              "++", "--",
+            ]);
             const isCompoundOrUpdate = next1 && next1.kind === "OPERATOR" && COMPOUND_OPS.has(next1.text);
             if (isCompoundOrUpdate && tok.kind === "AT_IDENT" && lastPart !== "=") break;
             // S25 — S22 §6 bug fix: `@name :` at depth 0 begins a typed

@@ -35,4 +35,21 @@ items — each verified empirically (R26 reproduce-first) before any dispatch.
 - FLIPPED to `full` (now under the strict byte-identical gate): decl-destructure, expr-async-await, expr-yield-generator, stmt-import-export, stmt-try-catch.
 - RESIDUAL genuine gaps (kept skipped, documented at the skip site): decl-class (class-body token shape), expr-optional-chain (`?.` split), expr-template-literal (template token shape) → native-lexer (lex.js/token.js) work in item 6.
 - Legitimate strict-TIGHTENING (more byte-identical coverage), matches the test file's own documented "flip as the class closes" intent. Lexer test 113 pass / 0 fail.
-- Disposition: **landed-on-branch** (SHA below).
+- Disposition: **landed-on-branch `044c9d43`** (items 3+4 batched; full gate green).
+
+## item 5 — phase-a2-structural-elements → VERIFIED shipped; PA currency edit queued
+- Verified all 5 A2 structural elements ship + compile: `<engine>` (+A7 extensions landed, master-list line 37) · `<match>` block · `<channel>` · `<errors>` (combined-003 compiles; 17 test files) · `<onTransition>` (engine-modern-002 compiles; 33 test files). Native parser Charter B is the live front-end (roadmap banner). Conformance corpus 991/1008 strict.
+- master-list.md row A2 currently reads `⏸️ pending A1` (stale since S58). NOT edited on-branch — master-list.md is PA-owned durable state + most-frequently-edited doc (stale-base file-delta clobber hazard). Handing the PA the exact row replacement to apply at re-integration:
+  - FROM: `| A2 — Structural elements | \`<engine>\`, \`<match>\` block, \`<channel>\`, \`<errors>\`, \`<onTransition>\` | 25-40h | ⏸️ pending A1 | |`
+  - TO:   `| A2 — Structural elements | \`<engine>\`, \`<match>\` block, \`<channel>\`, \`<errors>\`, \`<onTransition>\` | 25-40h | ✅ SHIPPED (A1c waves + A7; live front-end = native-parser Charter B) — S58 row currency-corrected S209/ss4 | all 5 elements compile + heavy test coverage (errors 17 / onTransition 33 files); conformance corpus 991/1008 strict |`
+- Disposition: **verified — PA currency edit queued** (no on-branch code/doc change).
+
+## item 7 — derived-value-compound-mutate → BLOCKER (a) LANDED · BLOCKER (b) DISPATCHED
+- Walker (`derived-mutation-ops.ts`) already correct. Both blockers are front-end.
+- **Blocker (a) — shift compound-assigns (`<<=`/`>>=`/`>>>=`):** R26 repro `@x <<= 1` → `E-CODEGEN-INVALID-JS` (`_scrml_reactive_get("x") << = 1`). TWO root loci:
+  1. `tokenizer.ts` MULTI_OPS (1515) listed `<<`/`>>`/`>>>` but NOT `<<=`/`>>=`/`>>>=` → longest-match lexed `<<` + `=`; joinWithNewlines reassembled `<< =` → broke rewriteReactiveAssign's contiguous-op regex. Added the 3 ops (longest-first, before the bare shifts).
+  2. `ast-builder.js` COMPOUND_OPS (3605) was only `+= -= *= /= %= ++ --` → a newline-separated 2nd `@x <op>= n` for ANY other compound op didn't trigger the collectExpr statement boundary → statements MERGED + SILENTLY DROPPED (console.warn only). Empirically confirmed silent-data-loss for ALL 10 missing ops (`**= &= |= ^= &&= ||= ??= <<= >>= >>>=`), not just the shift trio. Completed COMPOUND_OPS to the full 15-op set (mirrors derived-mutation-ops COMPOUND_ASSIGNMENT_OPS) — fixes shift (named scope) + the 7 latent ops (same root, R2 don't-ship-smaller-surface).
+  - **Safety note:** the tokenizer fix ALONE would turn `<<=` from a hard error into silent data loss — the two fixes are ONE coupled unit; both land together.
+  - Verified: all 11 ops emit all statements; emitted JS semantically correct (`<<`/`>>`/`>>>`) + `node --check` valid; `@copy.a <<=/>>=/>>>= 1` fires E-DERIVED-VALUE-MUTATE. §B8.2b un-skipped (3 shift tests active; 15 ops). derived-value-mutate 42 pass / 5 skip / 0 fail. Touched-surface regression: parse-shapes + reactive-assign + tokenizer + ast-builder all green.
+- **Blocker (b) — in-compound `const <derived>` + multi-segment receivers (§B8.3/§B8.6):** R26 confirmed STILL blocked — `@form.derivedField.a = 2` (derivedField = const child of compound `<form>`) compiles clean (no diagnostic) because the parser doesn't register `form.derivedField` as a const-derived child in the cell registry. Distinct from §S11A.8 (const PARENT, correctly declined); per §6.6.16 individual fields MAY be const. Genuine ast-builder + symbol-table parser feature; walker already descends compound scope. DISPATCHED to scrml-js-codegen-engineer (5 skipped tests = acceptance criteria).
+- Disposition: **(a) landed-on-branch (SHA below) · (b) dispatched** (SHA on agent land).
