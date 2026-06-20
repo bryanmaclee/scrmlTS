@@ -16,12 +16,12 @@ not deliberation, so nothing irreplaceable lives in its transcript; `scrml-suppo
 
 ## Deputy status (RESUME POINT)
 
-- **State:** LIVE — steady-state, RE-HYDRATED instance. **S209 active; main quiescent @ `80f2c190` (2 ticks).** Recently landed: despace corpus-migration (`bf390560`+`4e7fa0f0`) · sPA ss14 (`51d7bd5a`+`80f2c190`). **sPA ss2 engine-codegen list COMPLETE** (spa/ss2 @`0cbc99fd` "5 items dispositioned, suite green") — re-integration message in PA inbox (`incoming/2026-06-19-2103-spa-ss2-to-pa-list-complete.md`), **PENDING PA re-integration** (not yet merged; 12-behind/6-ahead). flogence (renamed S206). On tick **100**.
+- **State:** LIVE — steady-state, RE-HYDRATED instance. **S209 active.** sPA **ss2 engine-codegen LANDED** (PA merge `e0f901fa`; ss2 src on main — emit-engine/symbol-table/ast-builder/engine-statechild-grammar/type-system). PA integrated my T98-T100 + reconciled → main `b67cd6e6`. **sPA ss5** newly launched (spa/ss5); **sPA ss6** ran→no-execute-cluster (msg in PA inbox, pending disposition). flogence (renamed S206). On tick **101**.
 - **Self-poke loop:** `/loop 30m` → **cron `50e233bd` (`9,39 * * * *`), session-only, armed T96.** (OLD crons `39fed15c`→`e5b76890` both died with their instances — CronList empty at boot, no CronDelete needed. A future re-hydration: CronDelete `50e233bd` if still alive, then re-arm its own.)
-- **Last-absorbed delta seq:** S209 **[23]** (T99 absorbed [23] sPA ss14 RE-INTEGRATED [3 code resolved · 3 parked→PA · FILED g-block-analysis-fn-span-overshoot MED · SURFACE→USER: §2.1 deref-policy ruling + flograph provenance-hygiene = the 40-unverified-edges + graph.json drift-gate — a DELIBERATION Q the PA raised to the user, NOT a deputy action]). Prior: boot [10]-[18]; T98 [19]-[22]. All informational/contract — NO maintenance-shaped `(vpa:)`.
+- **Last-absorbed delta seq:** S209 **[24]** (T101 absorbed [24] sPA ss2 RE-INTEGRATED — engine-codegen-statechild, S83-verified disjoint, board MED 12→11). Prior: boot [10]-[18]; T98 [19]-[22]; T99 [23]. All informational/contract — NO maintenance-shaped `(vpa:)`.
 - **`deputy-maint` branch:** worktree `/home/bryan-maclee/scrmlMaster/scrml-deputy-maint` (scrmlMaster sibling, OUTSIDE `.claude/worktrees/`). **Tip:** `git rev-parse deputy-maint` (FF'd to `c734ec35` at boot; +1 with the deputy-state update this tick). FF onto main each tick.
 - **node_modules:** the worktree has the symlinks (verified at boot; re-create if missing): `ln -s …/scrml/node_modules ./node_modules` · `…/scrml/compiler/node_modules ./compiler/node_modules`.
-- **Owed maintenance:** **MAPS (DUE — ARMED for ss2-land).** Mapped landings since watermark `9afc746e`: ss1 · ss3 codegen · despace examples. ss2 engine-codegen (emit-engine/engine-graph/symbol-table = mapped) is COMPLETE but NOT yet merged to main → still deferred ONE more beat. **TRIGGER: refresh maps on the tick AFTER the PA merges spa/ss2 → main** (then the burst is truly settled + the mapped src is on main). ~100-130k tokens/run. **DIGEST current** (regen'd T99 @ `420a79f8`, seq 23 — unchanged T100, main quiescent). §0 + recent-sessions PASS; §3c green.
+- **Owed maintenance:** **MAPS PARTIAL-REFRESHED T101 (project-mapper agent `aec7b424` ran 69 tool-uses, hit context-limit "Prompt too long" before finishing).** DONE + committed: `structure.map.md` (+120, ss2 engine-statechild surface), `error.map.md` (+36, new W-/E-ENGINE codes), `test.map.md` (+23). **STILL OWED: `primary.map.md` (incl. the watermark STAMP — still `9afc746e`, NOT bumped → state.ts honestly reports maps-behind), `dependencies.map.md`, `domain.map.md`, `non-compliance.report.md`.** Re-dispatching a TIGHT project-mapper for the remainder this tick; if it also context-limits, the remainder defers (salvage is checkpointed). Path-discipline VERIFIED — main `.claude/maps/` clean, no leak. **DIGEST regen'd T101** current @ `b67cd6e6` seq 24. §0 + recent-sessions PASS; §3c green.
 - **Coherence:** the PA INTEGRATED my T97 commits into main (FF'd 256c81b6 into ad6ddddf's history — integration contract working); deputy-maint FF'd clean to `51d7bd5a` 0/0. main moved 3× this tick (ad6ddddf→4e7fa0f0→51d7bd5a ss14-merge); re-synced + re-ran maintenance on the final base. This tick re-advances deputy-maint (digest + deputy-state), awaiting the PA's next integration.
 
 ## The deputy tick (steady-state — what each `/loop` fire does)
@@ -36,7 +36,7 @@ not deliberation, so nothing irreplaceable lives in its transcript; `scrml-suppo
 
 ## PA↔vPA protocol — ACK + HEARTBEAT (S205 [19], each tick)
 
-- **heartbeat:** tick **T100** · last-absorbed **[S209 23]** (no new entries — main quiescent 2 ticks) · deputy-maint @`c3b67e34`+ (T98+T99+health 3-ahead, awaiting PA integration; main @`80f2c190`).
+- **heartbeat:** tick **T101** · last-absorbed **[S209 24]** · deputy-maint @`b67cd6e6`+ (PA integrated T98-T100; this tick re-advances with maps-partial + digest). main `b67cd6e6`.
 - **ACK (vpa:) [S205 10]** → §3c health-check each tick (standing). **ACK (vpa:) [S205 19]** → ACK+heartbeat each tick (standing). **No new maintenance-shaped `(vpa:)` in [10]–[18]** (all disp/land/rule/state informational). **[11] work-per-token ledger DECLINED-as-not-yet-actionable** (FUTURE deputy responsibility; the work-proxy numerator + token-measurement feasibility are UNRESOLVED + PA/design-owned — not operationalized, so nothing to maintain yet).
 
 ## Standing facts (durable)
@@ -62,7 +62,8 @@ not deliberation, so nothing irreplaceable lives in its transcript; `scrml-suppo
 
 ## Graph/dock health (§3c)
 
-- **Snapshot @ tick 100 (PASS, unchanged):** main quiescent → flograph 444n/168e · currency-sweep 0 · 32 dangling · 40 unverified · 0 dup · 0 err · dock PASS · coverage 0/628. No drift, no re-emit, no new finding.
+- **Snapshot @ tick 101 (PASS):** flograph 445n/168e (+1 = ss2 reconcile) · currency-sweep 0 · 32 dangling · 40 unverified · 0 dup · 0 err (re-emitted) · dock PASS (0 INFO) · coverage 0/628. No new finding to route.
+- **Snapshot @ tick 100 (PASS, unchanged):** flograph 444n/168e · currency-sweep 0 · 32 dangling · 40 unverified · 0 dup · 0 err · dock PASS · coverage 0/628.
 - **Snapshot @ tick 99 (PASS):** flograph 444n/168e (+1 node = new `g-block-analysis-fn-span-overshoot` MED gap) · currency-sweep **0** · 40 unverified · 32 dangling · 0 dup · 0 err (re-emitted). dock --check PASS (0 INFO) · coverage 0/628 · 0 orphans. No NEW finding to route. (NOTE: [23] surfaced flograph provenance-hygiene [40 unverified --with-support edges + graph.json drift-gate] as a USER design Q — tracked, deliberation, not a deputy action.)
 - **Snapshot @ tick 98 (PASS, new ss14 tooling):** flograph 443n/168e · currency-sweep **0** · 40 unverified · 32 dangling · 0 dup · 0 err · dock PASS (0 INFO — ss14 verified the flograph.ts self-dock) · coverage 0/628 · 0 orphans.
 - **Snapshot @ tick 97 (PASS):** unchanged from T96 — flograph 0 dup · currency-sweep **0** · 40 unverified · 32 dangling · 0 err · dock PASS (1 INFO self-dock) · coverage 0/628 · 0 orphans.
@@ -75,15 +76,17 @@ not deliberation, so nothing irreplaceable lives in its transcript; `scrml-suppo
 
 ## In-flight dispatches (F3 watch list)
 
-**T100 watch — PA NOT confirmed absent (just hasn't processed inbox) → WATCH ONLY, no `(deputy) state` entry.**
-- **sPA `ss2` COMPLETE — pending PA re-integration.** spa/ss2 @`0cbc99fd` ("5 items dispositioned, integrated suite green"); re-integration message DELIVERED to PA inbox `incoming/2026-06-19-2103-spa-ss2-to-pa-list-complete.md` (still in incoming/, main not merged → PA hasn't processed). 12-behind/6-ahead main. **Deputy did NOT append a `(deputy) state` entry** — the PA has the signal (inbox msg) + isn't confirmed rebooting; appending would be redundant single-writer-stream noise. The 5 dev-agents (a1125279/a53930ca/a58c1007/a91d0c9f/a93aa91a) are idle (ss2 done) → PA 6b-cleans on merge. **On PA-merge of spa/ss2 → fire the deferred MAPS refresh next tick.**
-- **OFF watch:** sPA ss14 landed `51d7bd5a`+`80f2c190` (PA-cleaned). sPA ss6 closed-no-land. despace `a087942d` landed `4e7fa0f0`.
-- F3 reminder: record a `(deputy) state` entry ONLY if an sPA COMPLETES CLEANLY *while the PA is absent/rebooting*. ss2's normal pending-integration (PA alive, msg delivered) is NOT that case.
+**T101 watch — PA ALIVE (actively integrating + dispatching) → WATCH ONLY, no `(deputy) state` entries.**
+- **sPA `ss5`** newly launched — worktree `../scrml-spa-ss5` (spa/ss5 @`b67cd6e6`, base=main, no work yet). PA re-integrates on ss5's inbox message.
+- **sPA `ss6`** ran → **no-execute-cluster** (worktree `../scrml-spa-ss6` @`bf92c7ce`; msg in PA inbox `incoming/2026-06-19-2141-spa-ss6-to-pa-no-execute-cluster.md` — the cluster had nothing to execute; pending PA disposition). Explains ss6's earlier no-land.
+- **deputy's OWN project-mapper `aec7b424`** (maps refresh) completed-with-context-limit → partial output salvaged + committed (NOT a PA dispatch; deputy-internal). Re-dispatching the remainder.
+- **OFF watch:** sPA ss2 LANDED `e0f901fa` (dev-agents PA-6b-cleaned). ss14 landed `51d7bd5a`+`80f2c190`. despace `a087942d` landed `4e7fa0f0`.
+- F3 reminder: record a `(deputy) state` entry ONLY if an sPA COMPLETES CLEANLY *while the PA is absent/rebooting*.
 - (Prior S205-S209 agents landed + cleaned: ss1 `37a9a8c9` [7], ss3 `f9ccd275` [14], ss11 `b2a63c70` [16].)
 
-## Currency snapshot (@ tick 100)
+## Currency snapshot (@ tick 101)
 
-- **maps:** watermark `9afc746e` (54 commits behind HEAD `c3b67e34`) — **OWED + ARMED** (fire on the tick after PA merges spa/ss2 → main). **digest:** current (`420a79f8`, seq 23). **§0:** gap-counts + recent-sessions PASS. **§3c:** PASS (444n/168e, unchanged). board **HIGH 0 · MED 12 · LOW 18 · Nom 8** (ground-truth oracle @ HEAD).
+- **maps:** watermark `9afc746e` (64 behind HEAD `b67cd6e6`) — **PARTIAL** (structure/error/test refreshed T101; primary/deps/domain + watermark-stamp still owed — re-dispatch in progress). **digest:** current (`b67cd6e6`, seq 24). **§0:** gap-counts + recent-sessions PASS. **§3c:** PASS (445n/168e). board **HIGH 0 · MED 11 · LOW 18 · Nom 8** (ground-truth oracle @ HEAD; ss2 reconcile −1 MED).
 
 ## Maintenance seams (Function 2)
 
