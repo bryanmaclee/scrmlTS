@@ -13,3 +13,13 @@ items — each verified empirically (R26 reproduce-first) before any dispatch.
 - `bun run compiler/src/cli.js compile` → EXIT 0, emits info `W-COLON-SHORTHAND-LEGACY-PLACEMENT` per state-child. NO E-STRUCTURAL-ELEMENT-MISPLACED.
 - Root: fixed by S208 `tryConsumeAfterCloseColonShorthand` (block-splitter.js:1320, call sites 2948/3254) + symbol-table.ts warning emit (6419/11811). Landed 2026-06-18, after list build.
 - Disposition: **dropped — resolved pre-list, verified NOT-REPRODUCED.** No code change.
+
+## item 2 — comment-span opacity → FIXED (engine locus only; match NOT affected)
+- R26 repro battery: engine state-child scan breaks when a comment BEFORE/BETWEEN state-children contains an ODD quote/apostrophe/backtick (`<!-- " -->`). `</Variant>`/`<tag>` mentions, balanced quotes, and after-placement are fine. Minimal trigger = odd quote in comment. Block-splitter probe (`splitBlocks`) shows BS captures engine body + children INTACT → bug is downstream in `engine-statechild-parser.ts`, not BS.
+- Match parser: NOT affected at any comment position (BS raw-capture + arm-closer scan handle `<!--`). briefSeed's "match-arm scanner" claim is empirically wrong (R4 catch).
+- Root cause TWO loci in `engine-statechild-parser.ts`:
+  1. `skipCommentOrString` (1337) recognized `//` `/* */` `"` `'` backtick but NOT `<!-- -->` → comment-interior quote opened a phantom string.
+  2. `parseEngineStateChildren` (2090 loop): when a `<!--` began exactly at `lt`, `next==='!'` made the loop step INTO the comment at `lt+1`, past the `<` skipCommentOrString needs.
+- Fix: (1) add `<!-- -->` branch to `skipCommentOrString` (`computeCommentRegions` inherits it); (2) skip a skippable span starting AT `lt` in `parseEngineStateChildren`.
+- Test: NEW `compiler/tests/unit/engine-statechild-comment-opacity.test.js` (7 cases, all pass). Regression: engine+colon-shorthand suite 201 pass / 0 fail.
+- Disposition: **landed-on-branch** (SHA below).
