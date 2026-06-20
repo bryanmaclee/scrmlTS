@@ -1,0 +1,35 @@
+// Question AF — a §36 input-state read in a markup interpolation renders the
+// INITIAL value once and emits NO reactive effect, so it never updates on input.
+//
+// Compiled against scrml v0.7.0 / 80f2c190:
+//   scrml compile question-af-input-state-markup-nonreactive.scrml
+//
+// OBSERVED EMIT: the cursor read emits
+//     _scrml_render_value(el, _scrml_input_state_registry.get("cursor").x);
+//   with NO surrounding `_scrml_effect(...)` wrapper. Compare a reactive @cell /
+//   user-fn textContent interp in the same file, which DOES get:
+//     _scrml_render_value(el, ...);
+//     _scrml_effect(function() { _scrml_render_value(el, ...); });
+//
+// OBSERVED RUNTIME (happy-dom/puppeteer): ${<#cursor>.x} shows the initial value
+//   (0) and does NOT change after dispatching mousemove. lastKey stays "".
+//
+// QUESTION: is markup interpolation of §36 input-state intended to be reactive
+//   (codegen gap — the read should be wrapped in an effect subscribed to the
+//   input-state registry), or is reading inside an animationFrame loop and
+//   writing a @cell the ONLY supported pattern by design (per the §36 examples)?
+//
+//   This is the sibling of the (now-fixed) Bug AC undefined-ref: AC fixed the
+//   read path to go through _scrml_input_state_registry; AF is about whether that
+//   read re-renders. For an EDITOR that wants to display live cursor coords / the
+//   current key / modifier state directly in its chrome, the bare-markup form
+//   being non-reactive is a real limitation (forces a manual rAF->@cell bridge).
+//
+// Not filing as a hard bug — want your read on intended semantics (§36.1 says
+// these are "reactive access"; §36 examples only ever read inside loops).
+
+<mouse id="cursor"/>
+<keyboard id="keys"/>
+<program>
+<div>cursor.x = ${<#cursor>.x}, cursor.y = ${<#cursor>.y}, lastKey = ${<#keys>.lastKey}</>
+</>

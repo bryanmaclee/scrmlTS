@@ -1,0 +1,32 @@
+// Bug AD — a user function called inside an ATTRIBUTE-VALUE template
+// interpolation emits the BARE un-renamed name -> runtime ReferenceError.
+//
+// Compiled against scrml v0.7.0 / 80f2c190:
+//   scrml compile bug-ad-attr-interp-fn-rename.scrml
+//
+// EXPECTED: <div> gets class "box box-hi"; page renders cleanly.
+// ACTUAL:   emit is  setAttribute("class", `box box-${tag()}`)  with BARE `tag`
+//           (should be `_scrml_tag_N`). Runtime: "ReferenceError: tag is not
+//           defined" on first render. exit-0 compile, `node --check` OK,
+//           runtime-broken (the "compiles clean / breaks live" class).
+//
+// SCOPE (probed):
+//   - @cell refs ARE rewritten in the SAME attr-interp:  class="c-${@n}" emits
+//     `${_scrml_reactive_get("n")}` correctly. Only user-FUNCTION names are missed.
+//   - textContent interp  ${tag()}  renames correctly to `_scrml_tag_N()`.
+//   - So the gap is specifically: user-function-name rewrite inside an
+//     attribute-value template literal. Adjacent to Bug Z (rename-pass coverage
+//     of interpolation contexts) — strings were fixed; attr-interp fn names aren't.
+//
+// IMPACT: computing a class/style/attr from a helper is a common pattern
+// (class="card card-${variantOf(x)}"). Silent at build, dead at runtime.
+
+<program>
+${
+function tag() { return "hi" }
+@n = 1
+}
+<div class="box box-${tag()}">attr interp — BREAKS (ReferenceError: tag)</>
+<p>${tag()}</>
+<span class="c-${@n}">cell interp in attr — fine</>
+</>

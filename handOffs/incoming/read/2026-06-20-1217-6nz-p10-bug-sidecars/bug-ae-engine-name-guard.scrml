@@ -1,0 +1,47 @@
+// Bug AE — `name=` on an <engine> + a separately-declared cell named after the
+// for-type silently produces a BROKEN transition write-guard (runtime
+// E-ENGINE-001-RT on every legal transition), instead of the compile-time
+// E-ENGINE-VAR-DUPLICATE diagnostic the no-name form gives.
+//
+// Compiled against scrml v0.7.0 / 80f2c190:
+//   scrml compile bug-ae-engine-name-guard.scrml
+//
+// EXPECTED: clicking toggle flips Nav<->Edit (<Nav rule=.Edit/> permits Nav->Edit).
+// ACTUAL (runtime, happy-dom/puppeteer): clicking toggle throws
+//   "E-ENGINE-001-RT: Illegal transition. Variable: mode, governed by:
+//    ModeMachine. Move: Nav => Edit. No rule permits this transition."
+//   @mode stays "Nav". exit-0 compile; runtime-broken.
+//
+// MECHANISM (from the emit):
+//   - The engine auto-declares its variable from the NAME -> `modeMachine`, and
+//     builds the rule table as  __scrml_engine_modeMachine_transitions =
+//     Object.freeze({ "Nav": ["Edit"], "Edit": ["Nav"] })  (CORRECT).
+//   - But the WRITE-GUARD generated for `@mode = .Edit` looks up
+//     __scrml_transitions_ModeMachine[fromVar+":"+toVar]  (a DIFFERENT table,
+//     keyed by the engine NAME, colon-keyed) -> no matching rule -> throw.
+//   - Critically: with `name=`, the separately-declared `@mode: ModeMachine` cell
+//     does NOT trigger the E-ENGINE-VAR-DUPLICATE collision check. Remove `name=`
+//     and declare `@mode: Mode` and you get a CLEAN compile error:
+//       "E-ENGINE-VAR-DUPLICATE: engine variable `mode` collides with a
+//        separately-declared state cell `<mode>`. The engine OWNS its
+//        auto-declared variable..."
+//     So the no-name form correctly diagnoses the misuse at compile time; the
+//     name= form swallows the diagnostic and emits a runtime-broken guard.
+//
+// WORKAROUND: canonical no-name form `<engine for=Mode initial=.Nav>` and let
+// the engine OWN the variable (do not separately declare @mode). That works.
+
+<program>
+${
+type Mode:enum = { Nav, Edit }
+@mode: ModeMachine = Mode.Nav
+function toggle() { if (@mode == Mode.Nav) { @mode = .Edit } else { @mode = .Nav } }
+}
+<engine name=ModeMachine for=Mode initial=.Nav>
+  <Nav  rule=.Edit />
+  <Edit rule=.Nav />
+  <onTransition from=.Nav to=.Edit>${ @mode = @mode }</onTransition>
+  <onTransition from=.Edit to=.Nav>${ @mode = @mode }</onTransition>
+</engine>
+<div><button class="tg" onclick=toggle()>toggle</button><span class="m">${@mode}</span></>
+</>

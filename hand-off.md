@@ -1,57 +1,41 @@
 # scrml — Session 210 (OPEN)
 
-**Date:** 2026-06-20. **This session:** S210. **Prev:** S209-CLOSE → `handOffs/hand-off-214.md`. **Profile:** A — FULL (booted "read pa.md and start session", no signal → default A). **Deputy:** present (`deputy-maint` merged, `^main==0`) but maps 21 behind + digest STALE → likely not actively ticking; fresh deputy boot likely owed.
+**Date:** 2026-06-20. **This session:** S210 (resumed across a `/clear` mid-session — NOT rotated; same OPEN S210). **Prev:** S209-CLOSE → `handOffs/hand-off-214.md`. **Profile:** A — FULL. **Deputy:** **ACTIVE** (`deputy-maint` advanced `a3a7e091`→`49902c1a` mid-session) — `deputy-maint ^main` now >0 → **merge-before-push gate (S205) owed at next push.** **sPA ss3 RUNNING** (`../scrml-spa-ss3`, spa/ss3).
 
-> **Thinned hand-off (S205).** Mechanical state → `bun scripts/state.ts` + digest (STALE this boot) · `delta-log.md` [S209 1-31] · `deputy-state.md`/`cpa-state.md`. This carries the IRREDUCIBLE + the OPEN intake.
+> **Thinned hand-off (S205).** Mechanical state → `bun scripts/state.ts` + digest · `delta-log.md` [S210 1-15] · `deputy-state.md`. This carries the IRREDUCIBLE + the OPEN intake.
 
-## Boot state (S210 OPEN)
-- scrml + scrml-support both **0/0 with origin** (clean cross-machine). HEAD `41422726` (Merge deputy-maint — S209 wrap).
-- Board **HIGH 0** · MED 11 · LOW 17 · Nominal 8. Tests **17350 pass / 76 skip / 0 fail** (pre-commit subset) @ v0.7.0.
-- Digest STALE (delta-log changed since stamp `c2f8f1fd`) → booted via authoritative fallback (master-list §0 + hand-off + delta-log tail). Expert reads cold (pa.md full + PRIMER + SPEC-INDEX).
-- **Working-tree (uncommitted, pre-session):** `M handOffs/cpa-state.md` (cPA S209 heartbeat, tick 2 19:16) · `?? docs/graph/` (flograph projection output graph.json+mmd, Jun 17). Neither is PA work; disposition TBD.
-- **Worktrees:** main · `../scrml-deputy-maint` (deputy, KEEP) · `../scrml-spa-ss4` (spa/ss4, RUNNING) · `../scrml-spa-ss13` (spa/ss13, list-complete — disposition in inbox) · **`.claude/worktrees/agent-a4e244bf6be547466` (LOCKED, STALE — cleanup candidate; verify landed before removal).**
+## Boot/current state
+- scrml + scrml-support **0/0 with origin** at boot. HEAD **`a3a7e091`** (Merge deputy-maint ticks 125-126). **This turn's work is committed locally but UNPUSHED.**
+- Board **HIGH 0 · MED 11 · LOW 17 · Nominal 8.** Tests **17,384 / 68 skip / 0 fail** (pre-commit subset) @ v0.7.0.
+- Maps **5 behind** HEAD (watermark `5c68e87e`) — **deputy-owned + deputy is active → left to deputy** (don't refresh PA-side mid-flight; the next deputy tick + the wrap digest-regen close it).
+- Digest STALE at boot (delta-log changed since stamp) → booted authoritative-fallback. Will go current on the next deputy digest regen.
+- `docs/graph/` (graph.json/mmd, flograph projection) is tracked + appears staged in main's index — **deputy-owned, NOT swept into PA commits** (S119 explicit-pathspec discipline).
+- **Worktrees:** main · `../scrml-deputy-maint` (deputy, KEEP) · `../scrml-spa-ss3` (spa/ss3, RUNNING). (Stale locked `agent-a4e244bf…` from prior hand-off is already GONE — pruned.)
 
-## ⚠️ S210 STATUS — 2 of 3 HIGH landed; AE re-direct pending
+## ✅ S210 — ALL DONE (the 3-HIGH + sPA + dPA arc closed)
+- **3 HIGH bugs RESOLVED + landed:** AD+regex (`14fb0230`) · AE engine-`name=` dual-table (`faa213c5`, honored §51 P1 `<engine name=N>`). Board HIGH 3→0.
+- **sPA ss4** (`f65b1de9`) + **sPA ss13** (`c3e9d16e`, NO-EXECUTE docs-only) integrated. **sPA lists REBUILT** under the fattening rule (`2ee52738`/`135c8a78`).
+- **First dPA run** drained **dpa-001** (external-backend debate) → **A2 RATIFIED this turn** (`design-insights.md` + dpa-queue `ratified` + artifact bannered). See delta-log [13].
+- **6nz 1624 provenance reply SENT** (delta-log [14]) — AB fully closed @ `2ebd107a`; AA open; X/Y/Z/AC current.
+- **Bookkeeping done** (delta-log [15]) — user-voice S210, changelog S210, inbox→read/, state regen.
 
-3 HIGH bugs triaged (CONFIRMED on `41422726`, filed `known-gaps §S210`) + dispatched.
+## ⚠️ OPEN — needs the USER / next action
+1. **6nz AF (question) — §36 reactivity RULING OWED.** §36 input-state read in markup interp (`${<#cursor>.x}`) is render-once (no `_scrml_effect` wrapper) — non-reactive. Ruling: codegen-gap (wrap the registry read in an effect) vs by-design (rAF→@cell bridge is the only supported pattern). Reply to 6nz owed once ruled. (Sidecar in `incoming/read/2026-06-20-1217-6nz-p10-bug-sidecars/`.)
+2. **A2 BUILD arc (downstream).** A2 direction is RATIFIED; the build (SPEC §-authoring for a thin `<api>` primitive + parser/typer/codegen/tests, satisfying the owned-vs-unowned decl-site epistemic constraint) is unscheduled. Surface to user: scope/schedule now or bank.
+3. **flogence raw-route (serve-side) axis.** The SERVE-side of the same typed-HTTP-boundary as dpa-001. Decide: fold into A2 philosophy or bank as **dpa-002**. (Candidate noted in `dpa-queue.md`.)
+4. **stdlib Phase 3 ESCALATE** (from ss13) — needs a §40.4 `fail`/`!{}`/bun-import ruling before a build.
+5. **AA lint-fire regression** — `W-MATCH-VALUE-UNUSED` (S144 Cluster D, `emit-functions.ts:1021`) no longer fires on the v0.7.0 bare-tail-`match` repro. Filed-worthy: a lint-fire-regression investigation (6nz sidecar available). Not yet on the board.
+6. **Push pending** — this turn's commits (scrml + scrml-support) are UNPUSHED. At push: **merge `deputy-maint` first** (S205 gate; `^main` >0), then S147 coherence.
 
-- **AD+regex** (`codegen-interp-literal`, agent ac894d93280bac7c8) — **LANDED `14fb0230`** (S67 file-delta; PA-independent R26 green). Bug 1 root was the shared `code-segments.ts` fence (locus-corrected from brief); Bug 2 was TWO roots (regex `expression-parser.ts` + string `ast-builder.js collectBracedBody`). +unlocked an S96 locked test. Both gaps RESOLVED.
-- **ss4** (block-splitter-native-parser, sPA) — **LANDED `f65b1de9`** (`git merge --no-ff spa/ss4`; clean 3-way; ast-builder.js carries both ss4 + AD+regex). 4 fixes incl. the COMPOUND_OPS latent-silent-drop closer. master-list A2 currency applied; `g-blocksplitter-comment-span-not-opaque` RESOLVED. **item6 native-parser M2-M6 PARKED→escalate** (standing ~v0.8 default-flip decision; buckets: MISSING-FIELD ~296 dominant · engine-statechild ~116 · etc).
-- **AE** (`engine-name-dual-table-fix`, agent a1ad1907, `faa213c5`) — ✅ **RESOLVED + LANDED option (b)** (board HIGH 1→0; all 3 S210 HIGH now resolved). The first dispatch's ruling (a) "reject `name=`" was my Rule-4 miss — `<engine name=>` is RATIFIED-CANONICAL per §51 P1 (DD1 2026-04-30; the §7495 machine-typed-cell `@x: M` form); discarded. The (b) fix: modern `<engine name=N>` registers EMPTY `machine.rules` (rules live in `engineMeta.stateChildren` → the populated §51.0 table), while the §51.3 write-guard pointed at the empty §51.3 table + a phantom var — fixed by binding the engine to the user's machine-typed cell `@x: N` (`symbol-table.ts`) + skipping the dead §51.3 table (`emit-reactive-wiring.ts`) + the §51.0.B `name=` row. PA-independent R26: write-guard/table/var all key on `@mode`, transition succeeds. No P1 reversal (88 engine tests unchanged). **Lesson (durable): always cross-check the full §-prose, not just the attribute table, before ruling an attribute invalid (Rule 4).**
-
-## ⚠️ IN-FLIGHT TO LAND (carried from S209 — user: "next pa can land everything")
-
-1. **sPA ss13 (phantom-codegen-nominal-stdlib)** — **REPORTED BACK** (inbox `from-spa-ss13-disposition.md`). NO-EXECUTE disposition (docs-only branch `spa/ss13` tip `04b8397c`, base `e8a5491f`; no code, no SPEC.md). 5 dispositions: (1) stdlib Phase 3 → ESCALATE (design scope; needs §40.4 fail/!{}/bun-import ruling) · (2) §23 browser overclaims → PARK (user "no amendments to published articles") · (3) §29 vanilla interop → PARK (friction-gated) · (4) §58 build story → ESCALATE/re-bucket (agrees w/ ss14 item5) · (5) **§59 value-native maps → ALREADY BUILT** (currency correction: flip SPEC §59 Nominal→Implemented; 202/202 suites pass; reconcile §0 Nominal count + SPEC-INDEX banner). Re-integration: optional FF-merge (bookkeeping only) OR read+apply directly. **List-builder feedback:** ss13 mixed already-done/ratified-deferral/design-gated under a stale "Nominal-flip green-field" banner → footprint currency-pass owed on remaining Bucket-A lists before next sPA boots.
-2. **sPA ss4 (block-splitter-native-parser)** — **STILL RUNNING** (`../scrml-spa-ss4`, branch spa/ss4, tip `207064d9`). No inbox re-integration msg yet. 7th item = `derived-value-compound-mutate` (re-clustered from ss6 flag A). Re-integrate on its inbox message per the sPA protocol.
-3. **External-backend DD — DONE** (`scrml-support/docs/deep-dives/external-backend-frontend-only-2026-06-20.md`, status:current). **VERDICT = run a DEBATE** (MED-HIGH): B docs-only (reuse `<request>`+`parseVariant` §41.13 — response-typing half exists; gap is request/endpoint-typing) vs C stay-full-stack vs A `<api>` primitive; judge may land D hybrid. SSR-of-external-data GAPPED (needs BFF → contradicts premise). CAVEATS: dev-polls DENIED (signal synthesized) + 2 SPEC-unverifiable claims flagged in-doc. **NEXT: surface verdict to user**; `@debate-curator` command at bottom of DD doc; consider forging openapi-codegen-expert.
-
-**sPA re-integration protocol:** read inbox msg → S83 verify (tip==reported SHA · `git merge-base` 3-dot disjointness vs main · no leak) → `git merge --no-ff spa/ssN` (resolve SPEC.md overlap deterministically) → gap-reconcile known-gaps → `state.ts --write` → inbox→read/ → delta-log entry → worktree+branch cleanup → deputy-gate + push. User fires sPAs; PA re-integrates (sole main-committer).
-
-## NEW INBOX INTAKE (S210 — needs triage)
-
-- **6nz AD (HIGH)** — user fn in ATTR-value interp emits bare name → runtime ReferenceError (`class="box box-${tag()}"` → bare `tag()`; @cell + textContent-interp rewrite fine). Compile-clean-runtime-broken. Sidecar `bug-ad-attr-interp-fn-rename.scrml`. Adjacent Bug Z (rename-pass interp coverage). → likely §47 name-encoding / attr-interp rewrite.
-- **6nz AE (HIGH)** — `name=` on `<engine>` breaks the transition write-guard (looks up name-keyed table not the built transitions table) + SWALLOWS the `E-ENGINE-VAR-DUPLICATE` collision diagnostic the no-name form correctly fires. Runtime `E-ENGINE-001-RT` on every legal transition. Sidecar `bug-ae-engine-name-guard.scrml`. → §51.0.C var=/auto-decl + write-guard codegen.
-- **6nz AF (question)** — §36 input-state read in markup interp is render-once (no `_scrml_effect` wrapper) — non-reactive. Sidecar `question-af-input-state-markup-nonreactive.scrml`. Needs ruling: codegen-gap (wrap in effect) vs by-design (rAF→@cell bridge). → §36.
-- **6nz AA (still open)** — bare tail `match` in plain `function` silently dropped (value-discard IIFE → undefined). At-minimum a "match value unused" lint. (S13 batch X/Y/Z/AB/AC re-verified FIXED.)
-- **flogence regex-literal (HIGH)** — regex/string LITERAL in call-arg position mis-compiles: `s.split(/re/)` re-serializes the WHOLE enclosing expr (space-tokenized); secondary `"a-b-c"` → `a - b - c` (quotes stripped). Silent miscompile. Workaround: bind regex to `const`. → expression serializer literal-node fallback (wrong span).
-- **flogence raw-route ask (DESIGN/capability)** — author-declared raw HTTP route primitive for FSP open wire (`POST /fsp` JSON-RPC + `GET /fsp/deltas` SSE). Gap = author route PATH + multi-method dispatch + raw req/resp envelope + foreign-client bearer auth. scrml has ~80% (SSE §37 + channels §38 + library mode + `?{}`). 5 OQs for PA. Executable conformance target in flogence repo. Strawman `server function handleFsp(req) route="/fsp" method="POST" raw csrf="token"`. → §12 route-inference + §37 + emit-server.ts; DD-shaped.
-- **giti match-in-lift (LOW/DX)** — block `<match>` inside `${ for…lift }` mis-parses arms as components → misleading E-COMPONENT-035/020 ("cross-file component import"). Works inside `<each>`. Fix shape: support block-`<match>` in lift OR emit "use `<each>`" diagnostic.
-
-## OPEN escalations awaiting USER (carried from S209)
-- ss5 item3 `g-channel-server-keyword-auto-migrate` (Enhanced-A) — DEFERRED S189; stays unless revived.
-- ss9 §20.5 SPEC examples — migrate vs carve-out (turns on whether `session`-access is a §12.2 escalation trigger).
-- ss10 item7 render-gap-ingestion (registry-placement ruling); ss10 item8 L2/L3 oracle-strategy (debate-fork).
-- ss9 item4 `g-tier1-ssr-prerender` (architecture/DD); ss9 item5 / flux-mmorpg (project/Bucket-B).
-- ss6 b17 cases 1-3 — gated on `g-component-body-markup-parser-absent` (NEW MED, design-track).
+## OPEN escalations carried (S209) — unchanged
+- ss5 item3 `g-channel-server-keyword-auto-migrate` (Enhanced-A, DEFERRED S189) · ss9 §20.5 SPEC examples (migrate vs carve-out, turns on `session`-access §12.2 trigger) · ss10 item7 render-gap-ingestion + item8 L2/L3 oracle-strategy (debate-fork) · ss6 b17 cases 1-3 (gated on `g-component-body-markup-parser-absent`) · §58 build-story re-bucket (ss13+ss14 concur) · §20.5+despace residual (ss11 items 4-8, partly Rule-1 marketing-gated).
 
 ## OTHER carry
-- **giti/6nz pa.md modernization** committed LOCAL+UNPUSHED in siblings (giti `72fda7c` / 6nz `e6fc5e8`) — push from their instances or user authorizes a here-push.
-- **Maps OWED** — 21 commits behind HEAD (watermark `85d9e958`); deputy-owned. ss4/ss13 in flight add more source → let deputy batch after they land (don't refresh mid-flight).
-- **§20.5 + worked-example despace residual** — ss11 escalated SPEC §4 despace + corpus migration (194 SPEC openers) still owed (ss11 items 4-8 never ran — big v0.2.0 content rewrite, item6 marketing-shaped per Rule 1).
-- **Stale locked worktree** `agent-a4e244bf6be547466` — verify its work landed, then 6b-clean.
+- **giti/6nz pa.md modernization** committed LOCAL+UNPUSHED in siblings (giti `72fda7c` / 6nz `e6fc5e8`) — push from their instances.
+- item6 **native-parser M2-M6** PARKED→escalate (standing ~v0.8 default-flip; buckets: MISSING-FIELD ~296 dominant · engine-statechild ~116).
 
 ## pa.md directives in force
-R1–R5 · `---` delimiter · Profile A · digest-first (S203) · S88 isolation · S99/S126 path-discipline · S136 BRIEF.md · S138 R26 verify-before-claim (both directions) · S147 coherence · S164 bg-commit-race · S205 merge-before-push gate + wrap-thinning · deputy step-0 · wrap 8-step · S206 flogence + co-location axiom · S208 sPA role · S209 cPA monitor-not-launch + §2.1 deref-vs-mark.
+R1–R5 · `---` delimiter · Profile A · digest-first (S203) · S88 isolation · S99/S126 path-discipline · S136 BRIEF.md · S138 R26 verify-before-claim (both directions) · S147 coherence · S164 bg-commit-race · **S205 merge-before-push gate** + wrap-thinning · S119 explicit-pathspec (deputy active) · deputy step-0 · wrap 8-step · S206 flogence + co-location axiom · S208 sPA role · S209 cPA monitor-not-launch + §2.1 deref-vs-mark.
 
 ## Tags
-#session-210 #open #profile-a #board-high-0 #ss13-reported #ss4-running #external-backend-dd-verdict #6nz-AD-AE-HIGH #flogence-regex-HIGH #flogence-raw-route-ask
+#session-210 #open #profile-a #board-high-0 #all-3-high-resolved #ss4-ss13-landed #spa-lists-rebuilt #dpa-001-A2-RATIFIED #6nz-reply-sent #AF-ruling-owed #a2-build-arc #raw-route-axis #deputy-active #push-pending

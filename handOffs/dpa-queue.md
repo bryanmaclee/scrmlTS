@@ -11,7 +11,7 @@ Item format + drain protocol: `scrml-support/dpa-scrml.md` + the design DD
 ---
 
 ## [dpa-001] debate — External-backend boundary: typed-external-API primitive (A) vs docs-only (B) vs stay-full-stack (C)
-status: complete      # banked → running → complete → ratified(by PA)  ·  dPA-complete S210 2026-06-20, ADVISORY — PA ratifies
+status: ratified     # banked → running → complete → ratified(by PA)  ·  RATIFIED S210 2026-06-20 (user "ratify ship A2") → insight landed in ~/.claude/design-insights.md; A2-thin direction committed (BUILD is a downstream arc); serve-side raw-route + SSR-gap carried open
 banked: S210 2026-06-20
 output-path: scrml-support/docs/debates/external-backend-A-vs-B-vs-C-2026-06-20.md
 source-DD: scrml-support/docs/deep-dives/external-backend-frontend-only-2026-06-20.md (§Recommendation-for-Debate)
