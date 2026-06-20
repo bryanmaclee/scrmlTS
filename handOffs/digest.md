@@ -1,9 +1,9 @@
-<!-- @digest head=06d99651 delta-seq=9 -->
+<!-- @digest head=20eb6e39 delta-seq=18 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `06d99651`** + delta-log **[9]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `06d99651`
+> **HEAD `20eb6e39`** + delta-log **[18]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `20eb6e39`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,24 +13,25 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `06d99651`
-- **HIGH 0** · MED 9 · LOW 23 · Nominal 8
+## Board — from `@gap` tokens @ `20eb6e39`
+- **HIGH 0** · MED 12 · LOW 19 · Nominal 8
 - Named open HIGHs: _none_
 
-## Recent rulings — last 2 `rule` (delta-log S209 — 2026-06-19)
+## Recent rulings — last 3 `rule` (delta-log S209 — 2026-06-19)
 - `[6]` rule · GRAFT RATIFIED (user "record pa direct") — ship a-A(reason-death list)+b-B(footprint surface) as INVESTIGATION-SURFACES-WITH-CONTEXT not scores; gate b-A(dock-r… → design-insights.md
 - `[9]` rule · sPA AUTONOMY CORRECTION (user "they need to run autonomously. I had to nudge 1 along" + "Im still answering Qs for 11"). ENCODED: spa-scrml.md §"Standing autono… → spa-scrml.md + spa.md
+- `[11]` rule · WORK-PER-TOKEN tracking directive (user pushback) — PA gaining wrap-timing autonomy → START tracking wrap + session-start context draws across sessions; optimiz… → cPA DD curation
 
 ## Recent activity — last 6 `disp`/`land`/`find`/`state`
-- `[2]` disp/find · dock-for-codebase-health DD (user "DD it"; scrml-deep-dive, no-worktree pure-research). VERIFIED CONTRADICTION vs PA brief: coverage NOT the central gate — TWO… → DD doc
-- `[3]` disp/find · debate (user "run the debate"; debate-curator autonomous-COMPOSED — the 3 DD-recommended experts NOT loadable mid-session [S198 harness-cache friction]; ran com… → debate transcript (curator return)
-- `[4]` land · dock-health.ts BUILT (user "build the ungated"; b-B, PA-direct, standalone scripts/dock-health.ts imports flograph globSync/rel + shells --emit-block-analysis).… → scripts/dock-health.ts
-- `[5]` find · DOG-FOOD REFINEMENT beyond the debate: scrml cell identity is FILE-LOCAL (17 pages each own a distinct <errorMessage>) — bare-name cross-file agg conflates; cha… → dock-health.ts ④
-- `[7]` disp/land · sPA ss1 FIRST LIVE RUN re-integrated (user "go, integrate") — the sPA contract's untested-first-run PROOF, clean end-to-end. ss1 (server-emit-route-inference) r… → 37a9a8c9 + known-gaps
-- `[8]` land · PUSHED ss1 batch origin 72dc4fdb→df62b44f (ss1 x2 + PA reconcile + deputy 5-tick merge; merge-before-push gate fired [deputy 5 ahead: ticks 86/88/89/89b/86-wrap… → df62b44f
+- `[13]` land · cPA MV BUILT (user "commit it, then build the cPA MV"; PA-direct, like sPA/deputy contracts). Contract scrml-support/cpa-scrml.md + pointer scrml/cpa.md + 3 dur… → cpa-scrml.md + cpa.md
+- `[14]` disp/land · sPA ss3 (codegen-expr-attr) FIRST AUTONOMOUS full-list run + RE-INTEGRATED (user "integrate and b"). **Autonomy fix VALIDATED** — ran all 6 commits NO nudging,… → f9ccd275 + known-gaps
+- `[15]` state · **S209 CRASH RECOVERY** (fresh PA picked up crashed S209 — NO wrap happened; hand-off was S209-OPEN, HEAD had advanced to f9ccd275). Crash hit mid-[14]: the ss3… → 2c5e7050
+- `[16]` disp/land · **sPA ss11 RE-INTEGRATED** (recovery — instance died pre-re-integration-message; working tree was CLEAN so no uncommitted loss; PARTIAL list). merge b2a63c70 —… → b2a63c70 + spa-lists/ss11.progress.md
+- `[17]` state · giti-006 cross-repo notice RE-SENT (giti/handOffs/incoming/2026-06-19-1807-scrml-to-giti-giti-006-fixed.md). **verify-before-claim CATCH:** [14] recorded "cross… → giti inbox 1807
+- `[18]` state · **DEPUTY DIED at tick 95** (~17:22; the session-only cron `e5b76890` died with the crashed PA instance — no ticks at 17:37/18:07; worktree idle). tick-95 digest… → digest + deputy-maint reset
 
 ## State
-- Version: 0.7.0 · maps: 19 commits behind HEAD (watermark 9afc746e, HEAD 06d99651)
+- Version: 0.7.0 · maps: 36 commits behind HEAD (watermark 9afc746e, HEAD 20eb6e39)
 - Recent wraps:
   - d0c5a96a chore(s208): wrap-finalize — recent-sessions + digest regen at settled HEAD
   - 916fe3ae wrap(s207): close — block-analysis-emit arc complete (D3-D5) + 2 MED codegen fixes + flogence pure-module HIGH (Fix A in-flight)
