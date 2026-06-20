@@ -1,9 +1,9 @@
-<!-- @digest head=55fc3aad delta-seq=11 -->
+<!-- @digest head=a3a7e091 delta-seq=12 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `55fc3aad`** + delta-log **[11]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `55fc3aad`
+> **HEAD `a3a7e091`** + delta-log **[12]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `a3a7e091`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `55fc3aad`
+## Board — from `@gap` tokens @ `a3a7e091`
 - **HIGH 0** · MED 11 · LOW 17 · Nominal 8
 - Named open HIGHs: _none_
 
@@ -31,7 +31,7 @@
 - `[11]` disp/land · **sPA lists REBUILT + landed (user "land them").** Workflow wf_93dd3ae0 (5 agents: 3 inventory scanners → cluster+fatten synth → worktree writer) rebuilt spa-li… → 2ee52738 + spa-lists/INDEX.md
 
 ## State
-- Version: 0.7.0 · maps: 2 commits behind HEAD (watermark 5c68e87e, HEAD 55fc3aad)
+- Version: 0.7.0 · maps: 5 commits behind HEAD (watermark 5c68e87e, HEAD a3a7e091)
 - Recent wraps:
   - 28de9c81 wrap(s209): close — crash-recovered; despace arc + 7-sPA wave + cPA correction + B/C; ss4/ss13/DD-verdict to next PA
   - d0c5a96a chore(s208): wrap-finalize — recent-sessions + digest regen at settled HEAD
