@@ -16,7 +16,7 @@ not deliberation, so nothing irreplaceable lives in its transcript; `scrml-suppo
 
 ## Deputy status (RESUME POINT)
 
-- **State:** LIVE — steady-state, RE-HYDRATED instance. **S209 active.** **sPA ss5 + ss6 BOTH RE-INTEGRATED** (PA burst this tick: `f2ed05ba` ss5 channel-codegen + `6170ee8c` ss6 no-execute + `14f32ba1` gap-reconcile [25-26] + `85d9e958` deputy-merge). ss5 landed 2 (channel v0.3 fixtures + g-export-channel-body-text); ss6 = no-execute (all 7 parked, "list stalls→stand down" correct-not-failure). PA integrated my T101/T102 maintenance. main `85d9e958`. flogence (renamed S206). On tick **105**.
+- **State:** LIVE — steady-state, RE-HYDRATED instance. **S209 active; PA broke the ~10-tick quiescence — launched 2 NEW sPAs.** **ss9** list COMPLETE (spa/ss9 @`03d5d938`; item1 landed; re-int msg `0928-spa-ss9-to-pa-list-complete.md` in PA inbox, PENDING merge). **ss10** IN FLIGHT (spa/ss10 @`8d2f6a16`; items 1-4 landed-on-branch, no complete-msg yet). main still `85d9e958` (sPAs in own worktrees; not yet merged/delta-logged). flogence (renamed S206). On tick **114**.
 - **Self-poke loop:** `/loop 30m` → **cron `50e233bd` (`9,39 * * * *`), session-only, armed T96.** (OLD crons `39fed15c`→`e5b76890` both died with their instances — CronList empty at boot, no CronDelete needed. A future re-hydration: CronDelete `50e233bd` if still alive, then re-arm its own.)
 - **Last-absorbed delta seq:** S209 **[26]** (T105 absorbed [25] sPA ss5 channel-codegen RE-INTEGRATED [2 landed: channel v0.3 fixtures + g-export-channel-body-text Option-2b TAB-parse] · [26] sPA ss6 NO-EXECUTE [0 code, all 7 parked, the spa-scrml.md "whole list stalls→stand down" case, CORRECT-not-failure]). PA fast-burst: these landed across 6170ee8c/f2ed05ba/14f32ba1 — git-inferred + delta-logged [25-26]. Prior: boot [10]-[18]; [19]-[24]. All informational — NO maintenance-shaped `(vpa:)`.
 - **`deputy-maint` branch:** worktree `/home/bryan-maclee/scrmlMaster/scrml-deputy-maint` (scrmlMaster sibling, OUTSIDE `.claude/worktrees/`). **Tip:** `git rev-parse deputy-maint` (FF'd to `c734ec35` at boot; +1 with the deputy-state update this tick). FF onto main each tick.
@@ -37,7 +37,7 @@ not deliberation, so nothing irreplaceable lives in its transcript; `scrml-suppo
 
 ## PA↔vPA protocol — ACK + HEARTBEAT (S205 [19], each tick)
 
-- **heartbeat:** tick **T113** · last-absorbed **[S209 26]** (no new entries — extended PA quiescence @`85d9e958`, ~10 ticks T106-T113 all no-op except this maps-watermark clear) · deputy-maint @`3d84366b`+ (this tick: maps watermark bump). F3 watch list EMPTY.
+- **heartbeat:** tick **T114** · last-absorbed **[S209 26]** (PA launched ss9+ss10 but not yet delta-logged; no new entries) · deputy-maint @`b9fcf825`+ (this tick: digest regen post-T113-bump). F3: ss9 (complete-pending) + ss10 (in flight).
 - **ACK (vpa:) [S205 10]** → §3c health-check each tick (standing). **ACK (vpa:) [S205 19]** → ACK+heartbeat each tick (standing). **No new maintenance-shaped `(vpa:)` in [10]–[18]** (all disp/land/rule/state informational). **[11] work-per-token ledger DECLINED-as-not-yet-actionable** (FUTURE deputy responsibility; the work-proxy numerator + token-measurement feasibility are UNRESOLVED + PA/design-owned — not operationalized, so nothing to maintain yet).
 
 ## Standing facts (durable)
@@ -81,16 +81,17 @@ not deliberation, so nothing irreplaceable lives in its transcript; `scrml-suppo
 
 ## In-flight dispatches (F3 watch list)
 
-**T105 watch — NO active dispatches; PA actively integrating (3 main commits this tick).**
-- **ALL sPAs LANDED + reconciled:** ss5 channel-codegen `f2ed05ba` (+gap-reconcile `14f32ba1` [25]); ss6 no-execute `6170ee8c` [26]. The `.claude/worktrees/` agent dir is EMPTY (dev-agents cleaned). Sibling sPA worktrees `../scrml-spa-ss5`+`../scrml-spa-ss6` still present → PA 6b-cleanup pending (not a deputy act).
-- **F3 watch list EMPTY** — no in-flight sPA/agent right now. Next dispatch unknown (PA may launch a new sPA — the registry has ss1-ss14; ss7-ss10/ss12-ss13 not yet run).
+**T114 watch — PA ALIVE (just launched ss9+ss10) → WATCH ONLY, no `(deputy) state` entries.**
+- **sPA `ss9` list COMPLETE — pending PA re-integration.** spa/ss9 @`03d5d938` ("disposition list — item1 landed 4a703df4, items..."); re-int msg DELIVERED `incoming/2026-06-20-0928-spa-ss9-to-pa-list-complete.md`. main not merged. Watch only.
+- **sPA `ss10` IN FLIGHT.** spa/ss10 @`8d2f6a16` ("bookkeeping — items 1-4 landed-on-branch"); no complete-msg yet → still working. Watch.
+- **On PA-merge of ss9/ss10 → check for mapped src** (if compiler/src or examples/samples .scrml lands, queue a maps refresh per cadence).
 - **OFF watch (history):** ss2 `e0f901fa` · ss14 `51d7bd5a` · ss5 `f2ed05ba` · ss6 `6170ee8c` (no-exec) · despace `a087942d` `4e7fa0f0`.
 - F3 reminder: record a `(deputy) state` entry ONLY if an sPA COMPLETES CLEANLY *while the PA is absent/rebooting*.
 - (Prior S205-S209 agents landed + cleaned: ss1 `37a9a8c9` [7], ss3 `f9ccd275` [14], ss11 `b2a63c70` [16].)
 
-## Currency snapshot (@ tick 113)
+## Currency snapshot (@ tick 114)
 
-- **maps:** watermark **`85d9e958`** (= main HEAD) — CURRENT (owed-batching cleared via verified watermark bump T113; the ast-builder.js change was map-irrelevant). **digest:** current (`85d9e958`, seq 26). **§0:** PASS. **§3c:** PASS (445n/168e, no drift). board **HIGH 0 · MED 11 · LOW 17 · Nom 8**. **Extended PA quiescence: main idle @`85d9e958` ~10 ticks (T106-T113).** **§0:** gap-counts + recent-sessions PASS. **§3c:** PASS (445n/168e). board **HIGH 0 · MED 11 · LOW 18 · Nom 8** (ground-truth oracle @ HEAD; ss2 reconcile −1 MED).
+- **maps:** watermark **`85d9e958`** (= main HEAD) — CURRENT. **digest:** current (regen'd T114 @ `b9fcf825`, seq 26 — post-T113-watermark-bump regen). **§0:** PASS. **§3c:** PASS (445n/168e, no drift). board **HIGH 0 · MED 11 · LOW 17 · Nom 8**. **Quiescence BROKE T114: PA launched ss9 (complete-pending) + ss10 (in flight).** **§0:** gap-counts + recent-sessions PASS. **§3c:** PASS (445n/168e). board **HIGH 0 · MED 11 · LOW 18 · Nom 8** (ground-truth oracle @ HEAD; ss2 reconcile −1 MED).
 
 ## Maintenance seams (Function 2)
 

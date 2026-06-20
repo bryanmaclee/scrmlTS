@@ -1,9 +1,9 @@
-<!-- @digest head=85d9e958 delta-seq=26 -->
+<!-- @digest head=b9fcf825 delta-seq=26 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `85d9e958`** + delta-log **[26]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `85d9e958`
+> **HEAD `b9fcf825`** + delta-log **[26]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `b9fcf825`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `85d9e958`
+## Board — from `@gap` tokens @ `b9fcf825`
 - **HIGH 0** · MED 11 · LOW 17 · Nominal 8
 - Named open HIGHs: _none_
 
@@ -32,7 +32,7 @@
 - `[26]` disp/land · **sPA ss6 (type-system-lifecycle) RE-INTEGRATED — NO-EXECUTE** (user "ss5 and ss6 done"). 0 code, all 7 items parked (the spa-scrml.md "whole list stalls → repo… → ss6 merge
 
 ## State
-- Version: 0.7.0 · maps: 10 commits behind HEAD (watermark b67cd6e6, HEAD 85d9e958)
+- Version: 0.7.0 · maps: 3 commits behind HEAD (watermark 85d9e958, HEAD b9fcf825)
 - Recent wraps:
   - d0c5a96a chore(s208): wrap-finalize — recent-sessions + digest regen at settled HEAD
   - 916fe3ae wrap(s207): close — block-analysis-emit arc complete (D3-D5) + 2 MED codegen fixes + flogence pure-module HIGH (Fix A in-flight)
