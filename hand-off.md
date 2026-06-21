@@ -1,40 +1,42 @@
-# scrml — Session 211 (OPEN)
+# scrml — Session 212 (CLOSE)
 
-**Date:** 2026-06-20. **Profile:** A — FULL ("read pa.md and start session" → default A). **Boot:** cold (fresh PA, no warm vPA). Rotated S210-CLOSE → `handOffs/hand-off-215.md`.
+**Date:** 2026-06-21. **Profile:** A — FULL ("read pa.md and start session" → default A). **Boot:** cold (fresh PA). Rotated S211 hand-off → `handOffs/hand-off-216.md`.
 
-> **Thinned (S205).** Mechanical state → `bun scripts/state.ts` + `handOffs/digest.md` · `handOffs/delta-log.md` [S211 1-7] · `handOffs/deputy-state.md`. Irreducible + in-flight below.
+> **Thinned (S205).** Mechanical state → `bun scripts/state.ts` + `handOffs/digest.md` · `handOffs/delta-log.md` [S212 1-15] · `handOffs/deputy-state.md`. Irreducible + open below.
 
-## Board / sync (live)
-- **HEAD `f97a5fba`**, origin **0/0**, deputy-maint `^main == 0`. Board **HIGH 0 · MED 10 · LOW 15 · Nominal 8** (ss7 reconcile: g-reflect resolved [LOW −1], g-mount-hang LOW→MED [LOW −1/MED +1]).
-- **DEPUTY ACTIVE** (NOT idle as S210 said) — ran ticks 138/139 this session (maps refresh → **maps now CURRENT**, digest regen). Reconciled into main; it self-rebases onto main each tick.
+## Board / sync (live @ close)
+- **HEAD `8ddc8448`** (+ wrap commit + deputy merge land on push). origin **0/1** pre-wrap (the ruling commit). deputy-maint `^main == 1` (final tick — merge at wrap-push, S205 gate). Board **HIGH 0 · MED 9 · LOW 14 · Nominal 8** @ **v0.7.0**. Tests: full **24837/0/210**, pre-commit subset 17604/0/68.
+- **DEPUTY ACTIVE** all session (ticks 150-163+); maps refreshed mid-session to `a9c2108f`; **wrap dispatched project-mapper (agent a1f4cdb9) for a fresh maps refresh to HEAD `8ddc8448`** — PA commits maps explicit-pathspec at wrap.
 
-## ✅ DONE this session
-- **A2 W3 (typer)** — landed + pushed `612f92e6` (agent a80f17c2 @2ff87850; S67 file-delta, clobber-safe). checkApiDeclarations + 3 W3 codes + §34 + §60.9 wired + SPEC-INDEX §60 prose fix; +16 tests; full suite 24778/0. NO codegen; §60 Nominal kept.
-- **sPA ss7 (meta-reflect-l22)** — landed + pushed `f97a5fba` (S67 file-delta). item1 g-reflect-variant-shape-inconsistent RESOLVED; item2 g-mount-hang-rails-dev reclassified (compile 100%-CPU infinite-loop in nativeParseFile, NOT mount-hang) → MED + re-clustered ss4 (groundwork `docs/changes/ss7-rails-dev-hang/FINDINGS.md`). Worktree+branch cleaned.
-- **Deputy strand** reconciled (merged deputy-maint `e868a667`); session-state `2030c1b0`.
+## ✅ DONE this session — a big flogence-dogfood + A2-W4 + ss4 arc (all pushed)
+**5 flogence dogfood bugs (browser-render surface — flogence's first real browser pass), triaged→fixed→landed→pushed:**
+1. **g-tailwind-class-scan-skips-markup-block-bodies** (HIGH, `d0339df0`) — collector now descends `match-block`/`each-block` `bodyChildren`. BROADER than reported (each-block too).
+2. **g-nested-each-no-own-subscription** (HIGH, `d8bbded7`) — RED-HERRING corrected: root was NESTING, not hidden/multi-consumer. Per-item `_scrml_effect` (Tier-1 + Tier-0).
+3. **g-lift-concurrent-transitive-exclusion-tdz** (HIGH, `65f6b358`) — two-layer: scheduling.ts transitive-exclusion closure + body-dg-builder.ts lambda-body free-read (the residual TDZ — `.map` arrow captures were invisible reads).
+4. **g-match-arm-drops-reactive-attr-class-effects** (HIGH, `93e02b35`) — match-arm-render skipped `_scrml_effect` for class:/attr-tpl bindings; arm-tagged bindings + per-mount effect in emitArmWireFunction. `<each>` block-form does NOT share it (verified). Landed via **3-way apply** onto the sibling bare-ref fix (disjoint regions — the parallel-dispatch clobber hazard, caught + auto-merged).
+5. **g-bare-ref-event-handler-emits-literal-not-wired** (MED, `3d311fc9`) — §5.2.2 conformance: `on*=handler` bare-ref now wires (was literal `onclick="bump"` dead handler).
 
-## ⚠️ IN-FLIGHT
-- **A2 W4 (codegen)** — agent **`adc513f2f54817b2d`** (worktree, base `612f92e6`), running. Scope: per-endpoint typed client fetch callable + `<request api= args=>` → parseVariant decode (emit-reactive-wiring.ts + emit-parse-variant.ts reuse); LIMIT-PRIMITIVES; client-only; §60 Nominal stays (W5 flips). S138 R26 mandatory. BRIEF-W4.md archived. **PA lands via S67 on completion.** **⚠ at the W4-landing push: commit any dirty session-state FIRST, THEN the S205 merge-before-push gate** (the merge blocks on uncommitted tracked files — happened twice this session; benign, self-caught).
-- **sPA ss11 (doc-currency-corpus)** — `spa/ss11` advanced `0a605d3e→c2211661`; user fired it in parallel; awaiting its re-integration message. Unknown agent worktrees (a0cca34e/a3ad52a5/a80ecec1[locked]) are likely its dev-agents — LEAVE untouched.
+**A2 W4 — external-`<api>` codegen (`914029dc`):** crash-salvage from S211 applied PA-direct off current main (zero drift); per-endpoint typed `fetch(base+path)` callable + `<request api= args=>` reactive surface + ENUM-ResponseT parseVariant decode; client-only; §60 banner STAYS Nominal (W5 flips). **(b) honesty lint (user ruling):** non-variant ResponseT was raw-passed SILENTLY (parseVariant is variant-only) → NEW typer info-lint **W-API-RESPONSE-NOT-VARIANT** + §34 row + §60.5 variant-vs-non-variant amendment + §60.9 wired (the must-not-lie guard §60.3).
 
-## SPENT worktrees → wrap-6b cleanup (NOT now)
-- agent-a80f17c2 (W3, landed) · agent-af018240 (ss7 dev-agent, landed). Leave W4 (adc513f2, locked) + deputy + ss11's worktrees.
+**sPA ss4 re-integrated (`09f30e00`):** item-2 (native-lexer "residuals") REFRAMED — a test-COMPARATOR bug, no native-parser source (12-file bench now strict byte-identical); item-3 g-block-analysis-fn-span-overshoot RESOLVED (4 fn-decl spanOf peek()→peek(-1)). **FINDING B filed** g-decl-span-overshoot-systemic (LOW deferred — ~40 non-fn decl sites share the overshoot; gated on a real consumer). item-1 RULED (below).
 
-## READY (not fired)
-- **A2 W5** — AFTER W4: tests + worked `examples/NN-external-api` + B-docs BYOB guide + **flip §60 Nominal banner**.
-- **bug-20 `promote --engine`** (ruling B) — ready LOW: span-rewrite reusing W-MATCH-RULE-INERT + W-ENGINE-INITIAL-MISSING; amend §56.6.
+## ⚠️ READY / OPEN — for next session
+- **A2 W5** (closes the external-API wave): tests + worked `examples/NN-external-api` + B-docs BYOB guide (incl. the SSR-of-external-data §60.6 limit) + **flip §60 Nominal→Implemented**. The W4 functional surface is complete + verified; W5 proves end-to-end then flips the banner.
+- **g-block-match-in-lift `(b)` fix — RULED, READY (not fired), LOW.** User ruled (b): block-`<match>` inside `${for…lift}` → emit a NEW targeted §34 Error **E-MATCH-BLOCK-IN-LIFT** ("use `<each>`") REPLACING the misleading E-COMPONENT-035/-020 cascade; option (a) support-the-form REJECTED. Fire site: the lift-body re-parse (`liftBareDeclarations` / block-splitter lift-context). §34 row WITH impl (Rule 4). Small dispatch.
+- **Next ss to fire = `ss4` is DONE; `ss12` (selfhost-mirror-parity) is the only healthy unfired list left (~55%, LOW priority post-v1.0).** All other Bucket-A lists drained/retired/thin (INDEX). ss11 carried escalations are PA-track (compiler-bug batch needs R26; 9 sample-drops user-auth-gated/destructive; 78 gauntlet-s19 drift; dev.to flag).
+- **g-decl-span-overshoot-systemic** (LOW deferred) — the ~40-site ast-builder span pass; gate on a real non-fn-decl span consumer (none today).
 
-## OPEN — needs USER
-- bug-1 sub-arc 2 (safelist/@apply) — §26.5-deferred; PA lean stay-deferred.
-- Sibling rewrites (giti/6nz/flogence PAs, own instances). stdlib Phase 3 (§40.4 ruling owed). flogence raw-route (dpa-002 or fold A2). SSR-of-external-data gap (carried w/ A2).
-- S209 carried: ss5-item3 · ss9 §20.5 · ss10 item7/8 · ss6 b17 · §58 build-story re-bucket.
-- giti/6nz pa.md modernization LOCAL+UNPUSHED in siblings. 6nz AA open. AF lint impl pending.
+## OPEN — carried from prior sessions (unchanged)
+- bug-1 sub-arc 2 (safelist/@apply) §26.5-deferred · stdlib Phase 3 §40.4 ruling · flogence raw-route (dpa-002 or fold A2) · external-backend DEBATE (dpa verdict = run it) · g-tier1-ssr-prerender architecture · giti/6nz pa.md modernization LOCAL+UNPUSHED in siblings · 6nz AA (match-value-discard, no ss-cluster).
 
-## 6nz status (S211 check)
-Nothing unread. Last 6nz bug batch (p10 AD/AE/AF) worked S210; 6nz's own S14 since then re-tested AB/AD/AE against build 8c27805e — all CONFIRMED — + accepted the AF by-design ruling. No new 6nz message filed.
+## Anomalies recovered (reasoning, not state)
+- **Parallel-dispatch clobber hazard (Bug A + Bug B both touched 3 codegen files).** Bug B's agent self-flagged it; landed Bug B via **3-way apply** (Bug A's hunks already in main; disjoint line regions auto-merged) NOT wholesale file-delta — which would have silently overwritten Bug A. The `feedback_file_delta_vs_cherry_pick` / `feedback_parallel_dispatch_shared_test_baseline` precedent, handled cleanly.
+- **Two fix-agents got DIFFERENT bases** (Bug A off origin `8dba968e`; Bug B off local `09cc6b21`) despite same-message dispatch — S112 worktree-base variability. Per-file clobber checks at each landing absorbed it.
+- **Two agents used `--no-verify` on intermediate WIP commits** (self-flagged). MOOT — landed via file-delta (their commits never entered main); every PA-authored landing ran the full gate. Noted for the record, no action.
+- **W4 finish was PA-direct** (not re-dispatch): zero drift + clean 3-way apply made the salvage trivial; verified complete-vs-incomplete empirically (R26) before committing — the struct-response §60.5 gap surfaced there → the (b) ruling.
 
 ## pa.md directives in force
-R1–R5 · `---` delimiter · Profile A · digest-first · S88 isolation · S99/S126 path-discipline · S136 BRIEF.md · S138 R26 · S147 coherence · S164 bg-commit-race · **S205 merge-before-push (commit session-state FIRST — the gate blocks on dirty tracked files)** · S119 explicit-pathspec · wrap 8-step · S206 flogence + co-location · S208 sPA role · S209 cPA monitor-not-launch + §2.1 deref-vs-mark · S210 idiomatic-audit-kit.
+R1–R5 · `---` delimiter · Profile A · digest-first · S88 isolation · S99/S126 path-discipline · S112 worktree-base-staleness (`git merge origin/main` startup) · S136 BRIEF.md · S138 R26 · S147 coherence · S164 bg-commit-race · S205 merge-before-push (deputy gate) · S119 explicit-pathspec · wrap 8-step (6b worktree-sweep done · 6c maps via project-mapper · 6d state-regen) · S206 flogence + co-location · S208 sPA role · S209 §2.1 deref-vs-mark.
 
 ## Tags
-#session-211 #open #profile-a #w3-landed #w4-in-flight #ss7-landed #ss11-in-flight #deputy-active #board-high-0 #maps-current
+#session-212 #close #profile-a #flogence-5-bugs-fixed #a2-w4-done #ss4-integrated #board-high-0 #w5-ready #block-match-in-lift-ruled-b

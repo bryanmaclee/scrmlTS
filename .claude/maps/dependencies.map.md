@@ -1,6 +1,6 @@
 # dependencies.map.md
 # project: scrmlts
-# updated: 2026-06-21  commit: 8569f774
+# updated: 2026-06-21  commit: 8ddc8448
 
 ## Runtime Dependencies (root package.json — v0.7.0)
 @modelcontextprotocol/sdk@1.29.0 — MCP server SDK for scrml MCP integration

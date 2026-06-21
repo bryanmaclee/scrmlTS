@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-06-21  commit: 8569f774
+# updated: 2026-06-21  commit: 8ddc8448
 
 scrml's own language error model is values-not-exceptions (SPEC §19.1 — no try/catch, no throw).
 The compiler itself surfaces structured CGError objects to the caller; it never throws on bad input.
@@ -178,6 +178,17 @@ S212 flogence Bug A (bare-ref event handler wiring, `3d311fc9`) + Bug B (reactiv
 effects inside `<match>` arm bodies, `93e02b35`) carry ZERO new diagnostic codes — both are
 codegen-only behavior fixes (emit-html.ts + emit-event-wiring.ts + binding-registry.ts +
 emit-variant-guard.ts + emit-bindings.ts).
+
+### S212 ss4 + g-block-match-in-lift ruling (`8569f774`→`8ddc8448`) — ZERO new live codes; 1 PENDING
+
+- **ast-builder.js fn-span fix (ss4 item-3, `05df4c48`):** span-VALUE correction only (4× function-decl
+  `spanOf(startTok, peek())`→`peek(-1)`). ZERO new diagnostic codes. Resolves G-BLOCK-ANALYSIS-FN-SPAN-OVERSHOOT.
+- **E-MATCH-BLOCK-IN-LIFT — PENDING (READY, NOT fired; commit `8ddc8448` docs-only):** user ruled option (b)
+  for g-block-match-in-lift — a block `<match>` inside a `${ … lift }` Tier-0 loop SHALL emit a NEW targeted
+  §34 Error `E-MATCH-BLOCK-IN-LIFT` ("use `<each>`") REPLACING the misleading E-COMPONENT-035/-020 cascade.
+  NOT YET IMPLEMENTED — spec-ahead-of-impl; the §34 row + code lands WITH the impl (Rule 4). NOT counted in
+  the live code total above; tracked here as a not-shipped pending diagnostic per the current-truth principle.
+
 
 ## Key New / Changed Codes Since Watermark c665714c (S154-S160)
 

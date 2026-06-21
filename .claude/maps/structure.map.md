@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-06-21  commit: 8569f774
+# updated: 2026-06-21  commit: 8ddc8448
 
 ## Entry Points
 compiler/bin/scrml.js — CLI binary registered as `scrml`; thin Bun launcher
@@ -1718,7 +1718,7 @@ structural change to the examples listing.
   already emitted objects for all tracked variant forms — the bare-string path is a defensive
   hardening for the in-progress A2 W4 codegen wave).
 
-### Key S212 Source Changes (`8569f774` — 2026-06-21; A2 W4 codegen + flogence Bug A/B + prior: collect/emit/scheduling fixes)
+### Key S212 Source Changes (`8ddc8448` — 2026-06-21; ss4 item-3 fn-span + A2 W4 codegen + flogence Bug A/B + prior: collect/emit/scheduling fixes)
 
 Six source-file changes across 3 logical S212 groups. NEW: A2 W4 client codegen (+1 Info W-API-RESPONSE-NOT-VARIANT), flogence Bug A (bare-ref event wiring), flogence Bug B (reactive class:/style-template in `<match>` arm bodies). PRIOR: collect-class-names body descent, nested-each `_scrml_effect`, scheduling transitive-dep + scheduling.ts fixes. No new AST shapes; no new packages; no new external imports.
 
@@ -1870,6 +1870,38 @@ arm-body `class:` / interpolated-attr placeholders. Fix spans 5 files:
   over-constrain the schedule (sound). Companion to the scheduling.ts transitive-dep fix.
   NEW import: `LambdaExpr` from `./types/ast.ts` (already in the same import line as `ExprNode`
   and `LogicStatement`).
+
+#### ast-builder.js — function-decl span no longer overshoots the closing `}` (ss4 item-3)
+
+- compiler/src/ast-builder.js — 4× function-decl span sites in `parseLogicBody` changed
+  `spanOf(startTok, peek())` → `spanOf(startTok, peek(-1))` (the four `function` decl branches,
+  including the `idempotentModifier`/`hasReturnType`/`returnTypeAnnotation` variants). Root:
+  `parseRecursiveBody()` has already CONSUMED the closing `}`, so `peek()` is the NEXT token (the
+  following decl's opener) and `span.end` overshot onto the next line; `peek(-1)` is the just-consumed
+  `}` — the true end of THIS function-decl. (Bodyless case: `peek(-1)` is still the last real decl
+  token, strictly better than `peek()`.) RESOLVES known-gap G-BLOCK-ANALYSIS-FN-SPAN-OVERSHOOT (every
+  local function-decl block's byte `end`/`endLine` overshot into the next function — the second
+  two-holders source behind the S206-S207 `--emit-block-analysis` D1/D2 surface, masked by
+  `.find`-returns-first in dock `--units`). +3 regression cases in
+  compiler/tests/unit/block-analysis.test.js. Commit `05df4c48` (sPA ss4; PA merge
+  `8aae995c`/`8ddc8448`). FINDING B (deferred, NOT fixed here): the same
+  `spanOf(startTok, peek())`-post-body-consume overshoot is SYSTEMIC across ~40 non-function
+  logic-body decl sites (let/const/state/lin/bare-expr) — only function-decls surface because
+  block-analysis projects only *named* blocks; gated on a real consumer of correct non-fn decl
+  spans → known-gap g-decl-span-overshoot-systemic (LOW, deferred). No new diagnostic codes; no AST
+  shape change (span-VALUE correction only).
+
+#### g-block-match-in-lift — ruling recorded (E-MATCH-BLOCK-IN-LIFT, READY not fired)
+
+- No source change this commit. User ruled option (b) for the giti-S11 gap
+  g-block-match-in-lift-misparsed-as-components: a block `<match for=T on=expr>` inside a
+  `${ for (…) { lift … } }` Tier-0 loop mis-parses its uppercase variant arms as components →
+  misleading E-COMPONENT-035/-020 cascade. The ruling: emit a NEW targeted §34 Error
+  `E-MATCH-BLOCK-IN-LIFT` ("block `<match>` is not supported inside a `${ … lift }` loop; use
+  `<each>`") in the `lift`-body re-parse path (`liftBareDeclarations` / block-splitter lift-context),
+  REPLACING the E-COMPONENT cascade for this shape; option (a) support-the-form REJECTED (S130
+  `<each>`-canonical + limit-primitives). READY LOW dispatch — NOT yet implemented; the §34 row lands
+  WITH the impl (Rule 4). Recorded docs-only at commit `8ddc8448` (known-gaps.md ruling + delta-log).
 
 ## Ignored / Generated Paths
 node_modules/, compiler/node_modules/, dist/, compiler/dist/, compiler/native-parser/dist/,
