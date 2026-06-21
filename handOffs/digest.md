@@ -1,9 +1,9 @@
-<!-- @digest head=b6950595 delta-seq=5 -->
+<!-- @digest head=cb60093e delta-seq=7 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `b6950595`** + delta-log **[5]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `b6950595`
+> **HEAD `cb60093e`** + delta-log **[7]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `cb60093e`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,22 +13,23 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `b6950595`
-- **HIGH 2** · MED 10 · LOW 14 · Nominal 8
-- Named open HIGHs: `g-lift-concurrent-transitive-exclusion-tdz`, `g-nested-each-no-own-subscription`
+## Board — from `@gap` tokens @ `cb60093e`
+- **HIGH 1** · MED 10 · LOW 14 · Nominal 8
+- Named open HIGHs: `g-lift-concurrent-transitive-exclusion-tdz`
 
 ## Recent rulings — last 0 `rule` (delta-log S212 — 2026-06-21)
 - _(none in the latest session)_
 
-## Recent activity — last 5 `disp`/`land`/`find`/`state`
-- `[1]` state · COLD S212 boot (Profile A FULL "read pa.md and start session", no signal→default A; fresh PA). Digest STALE (sources changed since stamp 2a8e969f) → fell back t… → 59c15b1e
+## Recent activity — last 6 `disp`/`land`/`find`/`state`
 - `[2]` find/file · **2 HIGH flogence dogfood bugs (browser-render surface) S138-CONFIRMED on 59c15b1e + filed** (board HIGH 0→2, §S212). (a) g-tailwind-class-scan-skips-markup-blo… → 56530d3c + flogence inbox
 - `[3]` disp · **2 fix dispatches (parallel, user "dispatch both fixes in parallel")** — scrml-js-codegen-engineer, isolation:worktree, opus, base 56530d3c. tailwind (collect-… → 2 BRIEF.md + agents a648b34b/ad8a0863
 - `[4]` find · **flogence bug #3 (each-in-hidden-subtree, MED) ROOT-PINNED via emit-inspection (waiting-work while the 2 HIGH fixes run) — RED HERRING corrected: root is NESTE… → /tmp/each-hidden emit analysis
 - `[5]` file/disp · **flogence bug #3 (nested-each) FILED HIGH + 3rd fix DISPATCHED (user "file it HIGH and dispatch the 3rd fix").** g-nested-each-no-own-subscription (HIGH, §S212… → BRIEF.md + agent a0374ad6
+- `[6]` land · **flogence fix #1 (tailwind markup-block scan) LANDED `d0339df0`** (S67 file-delta agent a648b34b @40a6ac22==FINAL, clobber-safe 0 main-side on collect-class-na… → d0339df0 + known-gaps
+- `[7]` land · **flogence fix #3 (nested-each subscription) LANDED (S67 file-delta agent a0374ad6 @6dbf8422==FINAL, clobber-safe 0 main-side on emit-each.ts since base).** App… → known-gaps + (commit next)
 
 ## State
-- Version: 0.7.0 · maps: 8 commits behind HEAD (watermark 6d8a47ab, HEAD b6950595)
+- Version: 0.7.0 · maps: 10 commits behind HEAD (watermark 6d8a47ab, HEAD cb60093e)
 - Recent wraps:
   - 0a605d3e chore(s210): wrap-finalize — recent-sessions + digest regen at settled HEAD 4a67f5bb
   - 28de9c81 wrap(s209): close — crash-recovered; despace arc + 7-sPA wave + cPA correction + B/C; ss4/ss13/DD-verdict to next PA
