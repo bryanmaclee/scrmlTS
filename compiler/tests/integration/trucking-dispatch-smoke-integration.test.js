@@ -55,12 +55,13 @@
  *   W-CG-UNDEFINED-INTERPOLATION          =  0   (was 53; S93 codegen leak fixes)
  *   --- aggregate ---
  *   errors:    0
- *   warnings:  77   (74 pre-ss11; ss11 item 1 added 3 W-INTERP-IN-RAW-CONTENT for
- *                       `${...}` interpolations authored inside `<code>` raw-content
- *                       bodies, SPEC §4.17. 80 pre-ss1; ss1 dropped 6
- *                       W-SERVER-IMPORT-UNEMITTED by emitting pure-module value
- *                       exports into .server.js. was 67 @ S98, 87 pre-S98 — 20
- *                       page-file false-positives suppressed)
+ *   warnings:  59   (74 pre-ss11; ss11 item 1 +3 W-INTERP-IN-RAW-CONTENT for `${...}`
+ *                       authored inside `<code>` raw-content bodies (§4.17); ss11
+ *                       item 7 -18 W-PROGRAM-REDUNDANT-LOGIC by dropping redundant
+ *                       file-top `${ import }` page wrappers (§40.8). Net 74+3-18=59.
+ *                       80 pre-ss1; ss1 dropped 6 W-SERVER-IMPORT-UNEMITTED by
+ *                       emitting pure-module value exports into .server.js. was 67 @
+ *                       S98, 87 pre-S98 — 20 page-file false-positives suppressed)
  *   chunks:    >= 1 (per-route)
  *   manifest entryPoints: >= 1
  *
@@ -349,14 +350,19 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
     // authored inside `<code>` raw-content bodies — these ship the LITERAL
     // `${...}` text to the page (the §4.17 raw-pass-through), so the lint nudges
     // toward a non-raw wrapper. Real sites:
-    //   - pages/customer/profile.scrml L117  `<code ...>${@currentUser.email}</code>`
-    //   - pages/driver/messages.scrml  L233  `<code ...>${@channelId}</code>`
-    //   - pages/driver/profile.scrml   L177  `<code ...>${@currentUser.email}</code>`
-    // Info-level (severity:info, W- prefix) — partitions into result.warnings,
-    // exit stays 0. Aggregate 74 -> 77.
+    //   - pages/customer/profile.scrml L115  `<code ...>${@currentUser.email}</code>`
+    //   - pages/driver/messages.scrml  L231  `<code ...>${@channelId}</code>`
+    //   - pages/driver/profile.scrml   L175  `<code ...>${@currentUser.email}</code>`
+    // (line refs post item-7 unwrap, -2 each.) Info-level (severity:info, W- prefix)
+    // — partitions into result.warnings, exit stays 0. Aggregate 74 -> 77 (item 1).
     "W-INTERP-IN-RAW-CONTENT": 3,
     "W-PROGRAM-001": 4,
-    "W-PROGRAM-REDUNDANT-LOGIC": 18,
+    // phase-b1-examples-rewrite (ss11 item 7, canonical-form pass): each trucking
+    // page file carried a redundant top-level `${ import ... }` wrapper inside its
+    // `<page>` body. Under v0.3 default-logic mode bare top-level imports+decls
+    // auto-lift without the wrapper (SPEC §40.8), so all 18 wrappers were dropped;
+    // W-PROGRAM-REDUNDANT-LOGIC no longer fires and is REMOVED from the baseline
+    // (a 0-count entry would also trip the "no UNEXPECTED codes" inverse). 77 -> 59.
     "W-SQL-ROW-UNTYPED": 6,
     // S208 Fix B (W-SERVER-IMPORT-UNEMITTED, g-pure-module-server-emit) fired 6
     // distinct missing-EXPORT shapes here — a server-CALLED exported helper

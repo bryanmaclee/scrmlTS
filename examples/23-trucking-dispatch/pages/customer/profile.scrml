@@ -11,11 +11,9 @@
 
 <page db="../../dispatch.db" auth="required">
 
-  ${
-      import { accountStatusLabel, accountStatusClasses, paymentTermsLabel } from '../../components/customer-card.scrml'
-      import { createSessionStore } from 'scrml:store'
-      import { SESSION_DB_PATH } from '../../models/auth.scrml'
-  }
+  import { accountStatusLabel, accountStatusClasses, paymentTermsLabel } from '../../components/customer-card.scrml'
+  import { createSessionStore } from 'scrml:store'
+  import { SESSION_DB_PATH } from '../../models/auth.scrml'
 
   <db src="../../dispatch.db" protect="password_hash" tables="users, customers">
 

@@ -50,8 +50,8 @@ The PA does NOT mark rows checked. PA's compile-tests are recorded in audit repo
 | 19 | `19-lin-token.scrml` | [ ] | — | NEW S42 — §35 linear types. Uses direct `${ticket}` interpolation post-A4 fix. |
 | 20 | `20-middleware.scrml` | [ ] | — | NEW S42 — §40 `<program>` attrs + `handle()` |
 | 21 | `21-navigation.scrml` | [ ] | — | NEW S42 — §20 `navigate()` + `route` |
-| 22 | `22-multifile/app.scrml` | [ ] | — | NEW S42 — §21 cross-file imports + pure-type files. 3 files in subdir. |
-| 23 | `23-trucking-dispatch/app.scrml` | [ ] | — | Multi-file full-stack dispatch app (channels/components/models/pages + `dispatch.db`). Added 2026-04-29. |
+| 22 | `22-multifile/app.scrml` | [ ] | — | NEW S42 — §21 cross-file imports + pure-type files. 3 files in subdir. phase-b1-examples-rewrite: redundant top-level `${...}` wrapper dropped (canonical §40.8 auto-lift) — needs re-verify after canonical rewrite. |
+| 23 | `23-trucking-dispatch/app.scrml` | [ ] | — | Multi-file full-stack dispatch app (channels/components/models/pages + `dispatch.db`). Added 2026-04-29. phase-b1-examples-rewrite: 18 page files had redundant top-level `${...}` import wrappers dropped (canonical §40.8 auto-lift) — needs re-verify after canonical rewrite. |
 | 24 | `24-tilde-pipeline.scrml` | [ ] | — | §32 `~` last-unbound-expression carry-forward (pipeline accumulator). |
 | 25 | `25-triage-board.scrml` | [ ] | — | NEW S95 — §51.0.S engine-message-dispatch worked example. |
 | 26 | `26-type-derived-schema.scrml` | [ ] | — | NEW S104 — §41.15 `schemaFor(StructType)` (L22 type-as-arg #3). |

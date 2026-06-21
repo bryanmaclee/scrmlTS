@@ -64,14 +64,12 @@
 
 <page db="../../dispatch.db" auth="required">
 
-  ${
-      // `DriverStatus` is the shared enum (schema.scrml); the `match` helpers
-      // below + in driver-card.scrml dispatch on its variant names.
-      import { DriverStatus } from '../../schema.scrml'
-      import { driverStatusClasses, driverStatusLabel, isValidHosTransition } from '../../components/driver-card.scrml'
-      import { createSessionStore } from 'scrml:store'
-      import { SESSION_DB_PATH } from '../../models/auth.scrml'
-  }
+  // `DriverStatus` is the shared enum (schema.scrml); the `match` helpers
+  // below + in driver-card.scrml dispatch on its variant names.
+  import { DriverStatus } from '../../schema.scrml'
+  import { driverStatusClasses, driverStatusLabel, isValidHosTransition } from '../../components/driver-card.scrml'
+  import { createSessionStore } from 'scrml:store'
+  import { SESSION_DB_PATH } from '../../models/auth.scrml'
 
   // HOS state machine — the server-authoritative `<engine for=DriverStatus
   // server=@currentDriver.current_status>` LANDED S199 (the E-leg). It renders

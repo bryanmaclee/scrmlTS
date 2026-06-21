@@ -16,13 +16,11 @@
 
 <page db="../../dispatch.db" auth="required">
 
-  ${
-      import { AddressForm } from '../../components/address-form.scrml'
-      import { createSessionStore } from 'scrml:store'
-      import { SESSION_DB_PATH } from '../../models/auth.scrml'
-      // M5: centralized real-time channel — see SPEC §38.12.6.
-      import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml'
-  }
+  import { AddressForm } from '../../components/address-form.scrml'
+  import { createSessionStore } from 'scrml:store'
+  import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  // M5: centralized real-time channel — see SPEC §38.12.6.
+  import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml'
 
   <db src="../../dispatch.db" protect="password_hash" tables="users, customers, loads">
 

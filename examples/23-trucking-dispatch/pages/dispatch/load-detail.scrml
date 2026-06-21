@@ -23,19 +23,17 @@
 
 <page db="../../dispatch.db" auth="required">
 
-  ${
-      import { LoadStatusBadge } from '../../components/load-status-badge.scrml'
-      import { StatusPicker, validNextStates } from '../../components/status-picker.scrml'
-      import { AssignmentPicker } from '../../components/assignment-picker.scrml'
-      import { formatRate, formatPickupAt } from '../../components/load-card.scrml'
-      import { createSessionStore } from 'scrml:store'
-      import { randomInt } from 'scrml:random'
-      import { LoadStatus } from '../../schema.scrml'
-      import { SESSION_DB_PATH } from '../../models/auth.scrml'
-      // M5: centralized real-time channels — see SPEC §38.12.6.
-      import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml'
-      import { "load-events" as loadEvents } from '../../channels/load-events.scrml'
-  }
+  import { LoadStatusBadge } from '../../components/load-status-badge.scrml'
+  import { StatusPicker, validNextStates } from '../../components/status-picker.scrml'
+  import { AssignmentPicker } from '../../components/assignment-picker.scrml'
+  import { formatRate, formatPickupAt } from '../../components/load-card.scrml'
+  import { createSessionStore } from 'scrml:store'
+  import { randomInt } from 'scrml:random'
+  import { LoadStatus } from '../../schema.scrml'
+  import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  // M5: centralized real-time channels — see SPEC §38.12.6.
+  import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml'
+  import { "load-events" as loadEvents } from '../../channels/load-events.scrml'
 
   <db src="../../dispatch.db" protect="password_hash" tables="users, loads, customers, assignments, drivers, tractors, trailers, log_entries, lin_tokens">
 

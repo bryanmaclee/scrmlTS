@@ -15,32 +15,27 @@
 
   // Cross-file imports — types and components both work (§21.3).
   // The imported UserRole enum is usable in @var type annotations,
-  // match subjects, and prop types. The imports + the resulting `const
-  // team = [...]` decl live in an explicit `${...}` block because the
-  // bare-decl auto-lift currently does not pair imports with the
-  // following type-qualifier-using decls at `<program>` direct-child
-  // position (E-SCOPE-001 on the imported `UserRole` identifier when
-  // unwrapped). The W-PROGRAM-REDUNDANT-LOGIC lint flagged for this
-  // wrapper is a false-positive (tracked as a separate compiler gap).
-  ${
-    import { UserRole } from './types.scrml'
-    import { UserBadge } from './components.scrml'
+  // match subjects, and prop types. Under v0.3 the `<program>` body
+  // parses in default-logic mode, so these imports + the `const team`
+  // decl auto-lift as bare top-level declarations — no `${...}`
+  // wrapper needed (SPEC §40.8).
+  import { UserRole } from './types.scrml'
+  import { UserBadge } from './components.scrml'
 
-    // Static seed data — in production this would come from a server
-    // fn. The variant qualifier `UserRole::Admin` is the canonical
-    // fully-qualified form here (LHS isn't statically narrowed by the
-    // const inference path — bare `.Admin` would resolve only when
-    // the field's type is known).
-    const team = [
-      { name: "Ada Lovelace",    role: UserRole::Admin },
-      { name: "Grace Hopper",    role: UserRole::Moderator },
-      { name: "Alan Turing",     role: UserRole::Member },
-      { name: "Linus Torvalds",  role: UserRole::Member },
-      { name: "Anonymous",       role: UserRole::Guest },
-    ]
-  }
+  // Static seed data — in production this would come from a server
+  // fn. The variant qualifier `UserRole::Admin` is the canonical
+  // fully-qualified form here (LHS isn't statically narrowed by the
+  // const inference path — bare `.Admin` would resolve only when
+  // the field's type is known).
+  const team = [
+    { name: "Ada Lovelace",    role: UserRole::Admin },
+    { name: "Grace Hopper",    role: UserRole::Moderator },
+    { name: "Alan Turing",     role: UserRole::Member },
+    { name: "Linus Torvalds",  role: UserRole::Member },
+    { name: "Anonymous",       role: UserRole::Guest },
+  ]
 
-  // Team-shell + hint styles — co-located with the outer team wrapper.
+  // Team-shell + hint styles — co-located with the team markup below.
   #{
     .team {
       max-width: 520px;
