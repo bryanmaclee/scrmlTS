@@ -87,6 +87,7 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 > `bun scripts/state.ts --write` regenerates it; `--check` gates it.
 
 <!-- @generated:recent-sessions START (do not edit — `bun scripts/state.ts --write`) -->
+- `4a67f5bb` — wrap(s210): close — A2 W0-W3 + ss2/ss3/ss8 + sibling idiomatic audits + AF/B rulings — **LOCAL-ONLY**
 - `28de9c81` — wrap(s209): close — crash-recovered; despace arc + 7-sPA wave + cPA correction + B/C; ss4/ss13/DD-verdict to next PA — **pushed**
 - `d0c5a96a` — chore(s208): wrap-finalize — recent-sessions + digest regen at settled HEAD — **pushed**
 - `916fe3ae` — wrap(s207): close — block-analysis-emit arc complete (D3-D5) + 2 MED codegen fixes + flogence pure-module HIGH (Fix A in-flight) — **pushed**
@@ -94,7 +95,6 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 - `74d7d0e2` — wrap(s205): close — 3 MED gaps + slice-3 <each> + 3 ratifications; 3 agent landings deferred (F3) — **pushed**
 - `e723de04` — chore(s204): wrap-finalize — recent-sessions + digest regen at settled HEAD d64d4519 — **pushed**
 - `69172d25` — wrap(s203): close — vPA-deputy LIVE (F1/F2/F3 + self-poke loop) + e2e backlog triaged + flograph filter; #3 fix left in-flight (first F3 reboot-bridge use) — **pushed**
-- `1bcf5c71` — wrap(s202): close — each-inline arc closed (board HIGH 0) + trucking flagship complete + flograph & L1 render-map built + 4 DDs (dock/e2e/deputy adopted, baton retired) — **pushed**
 <!-- @generated:recent-sessions END -->
 
 ## A. Compiler core
