@@ -38,7 +38,7 @@ not deliberation, so nothing irreplaceable lives in its transcript; `scrml-suppo
 
 ## PA↔vPA protocol — ACK + HEARTBEAT (S205 [19], each tick)
 
-- **heartbeat:** tick **T134** · last-absorbed **[S210 25]** (ss3-paren merge `d84e85d2` git-INFERRED — 2 expression-serializer fixes; reconcile [26+] PENDING) · deputy-maint rebased onto `d84e85d2`. F3: ss3-paren LANDED+cleaned; **A2 W2 parser `a0761f89` still WIP**. Digest current. main `d84e85d2`.
+- **heartbeat:** tick **T134** · last-absorbed **[S210 26]** ([26] ss3 paren/span reconcile — 2 resolved, **board HIGH 1→0 / MED 11→10**, ss3 INDEX drained; digest regen'd `671a79d3` seq 26; §3c re-emitted 454n) · deputy-maint @`671a79d3`+ (PA integrated my T134 at `cf950bab`). F3: ss3 DONE; **A2 W2 parser `a0761f89` still WIP** = last in-flight compiler/src → batched-maps-refresh trigger. main `cf950bab`.
 - **ACK (vpa:) [S205 10]** → §3c health-check each tick (standing). **ACK (vpa:) [S205 19]** → ACK+heartbeat each tick (standing). **No new maintenance-shaped `(vpa:)` in [10]–[18]** (all disp/land/rule/state informational). **[11] work-per-token ledger DECLINED-as-not-yet-actionable** (FUTURE deputy responsibility; the work-proxy numerator + token-measurement feasibility are UNRESOLVED + PA/design-owned — not operationalized, so nothing to maintain yet).
 
 ## Standing facts (durable)
@@ -97,7 +97,7 @@ not deliberation, so nothing irreplaceable lives in its transcript; `scrml-suppo
 
 ## Currency snapshot (@ tick 134 — S210 active)
 
-- **maps:** watermark **`5c68e87e`** — owed-BATCHING (4 distinct codegen/parser files: emit-expr/rewrite/expression-parser/tokenizer + A2 W2's BS files coming). **digest:** current (`1a4a3fec`, seq 25 — ss3-paren merge touched no digest source). **§0:** PASS. **§3c:** PASS (454n/168e). board **HIGH 1 · MED 11 · LOW 17 · Nom 8**. main `d84e85d2`. **A2 W2 parser still WIP → its landing fires the batched refresh. (ROUTE-TO-PA wrap-digest miss still open.)** **§0:** gap-counts + recent-sessions PASS. **§3c:** PASS (445n/168e). board **HIGH 0 · MED 11 · LOW 18 · Nom 8** (ground-truth oracle @ HEAD; ss2 reconcile −1 MED).
+- **maps:** watermark **`5c68e87e`** — owed-BATCHING (emit-expr/rewrite/expression-parser/tokenizer + A2 W2's BS files coming). **digest:** current (`671a79d3`, seq 26). **§0:** PASS. **§3c:** PASS (454n/168e, re-emitted). board **HIGH 0 · MED 10 · LOW 17 · Nom 8** (ss3 reconcile [26] resolved the paren-group HIGH + 1 MED). main `cf950bab`. **A2 W2 parser still WIP → its landing fires the batched refresh. (ROUTE-TO-PA wrap-digest miss still open.)** **§0:** gap-counts + recent-sessions PASS. **§3c:** PASS (445n/168e). board **HIGH 0 · MED 11 · LOW 18 · Nom 8** (ground-truth oracle @ HEAD; ss2 reconcile −1 MED).
 
 ## Maintenance seams (Function 2)
 
