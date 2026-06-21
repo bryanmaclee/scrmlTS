@@ -1,9 +1,9 @@
-<!-- @digest head=c1c96ca1 delta-seq=17 -->
+<!-- @digest head=8c27805e delta-seq=23 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `c1c96ca1`** + delta-log **[17]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `c1c96ca1`
+> **HEAD `8c27805e`** + delta-log **[23]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `8c27805e`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,26 +13,27 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `c1c96ca1`
-- **HIGH 0** · MED 11 · LOW 17 · Nominal 8
-- Named open HIGHs: _none_
+## Board — from `@gap` tokens @ `8c27805e`
+- **HIGH 1** · MED 11 · LOW 17 · Nominal 8
+- Named open HIGHs: `g-paren-binary-group-dropped-before-method`
 
-## Recent rulings — last 4 `rule` (delta-log S210 — 2026-06-20)
-- `[6]` rule/disp · **AE ruling (a) REVERSED → re-dispatched as (b) (user "your reco looks good, go").** PA Rule-4 MISS: ruling (a) "reject name= on <engine>" was keyed on the §51.… → docs/changes/engine-name-dual-table-fix-2026-06-20/BRIEF.md
+## Recent rulings — last 5 `rule` (delta-log S210 — 2026-06-20)
 - `[8]` rule/disp · **sPA list REBUILD launched + fattening rule folded into doctrine (user "go, run the rebuild and fold in the fattening rule").** Trigger: user note that sPAs fi… → spa-scrml.md + wf_93dd3ae0-922
 - `[10]` rule/disp · **dPA MV BUILT + backend debate banked (user "try the dpa for the backend debate").** First dPA instantiation (DD-designed S206, never built). MV (PA-direct, li… → dpa-scrml.md + dpa-queue.md#dpa-001
 - `[13]` rule/land · **dpa-001 external-backend A2 RATIFIED (user "ratify ship A2").** Accepted the dPA advisory verdict: ship A2 (thin declared-shape `<api>`, request/endpoint half… → design-insights.md + dpa-queue.md#dpa-001 + debate artifact
+- `[21]` rule · **A2 W0 F1 RATIFIED = A (user "A").** The element name `<api>` (vs `<db>`) IS the type-system-visible decl-site marker — no `unverified` token (B), no propagati… → docs/changes/api-primitive-a2-2026-06-20/SCOPE-AND-DECOMPOSITION.md §3
+- `[22]` rule/land · **6nz AF RULED by-design + confirmed (user "confirm AF").** §36.6 normative: input-state reads set up NO reactive subscriptions (intentional) → `${<#id>.x}` ren… → SPEC §36.1/§36.6 + known-gaps
 
 ## Recent activity — last 6 `disp`/`land`/`find`/`state`
-- `[11]` disp/land · **sPA lists REBUILT + landed (user "land them").** Workflow wf_93dd3ae0 (5 agents: 3 inventory scanners → cluster+fatten synth → worktree writer) rebuilt spa-li… → 2ee52738 + spa-lists/INDEX.md
-- `[13]` rule/land · **dpa-001 external-backend A2 RATIFIED (user "ratify ship A2").** Accepted the dPA advisory verdict: ship A2 (thin declared-shape `<api>`, request/endpoint half… → design-insights.md + dpa-queue.md#dpa-001 + debate artifact
-- `[14]` state · **6nz 1624 provenance reply SENT (user "knock out the 6nz reply").** Q1: last S13 contact 2026-05-30 1130 (their `3d29aaa` = deliberate status-checkpoint then w… → 6nz/handOffs/incoming/2026-06-20-1709-scrml-to-6nz-s13-provenance-AB-AA-reconciliation.md
-- `[15]` state · **bookkeeping done (user "do the bookkeeping").** user-voice S210 appended (scrml-support); changelog S210 block; inbox→read/ (7 tracked msgs incl. 1624-replied… → hand-off + this commit
-- `[16]` disp/state · **A2 build SCOPED (user "scope the build").** Authored `docs/changes/api-primitive-a2-2026-06-20/SCOPE-AND-DECOMPOSITION.md` — A2 = thin `<api>`, request-side d… → docs/changes/api-primitive-a2-2026-06-20/SCOPE-AND-DECOMPOSITION.md
 - `[17]` find/state · **6nz AF SURFACED for ruling (user "surface 6nz AF").** §36.6 DECISIVE+normative: "Input state is read at the moment of the animationFrame callback — no reactiv… → SPEC §36.6 + 6nz AF
+- `[18]` disp/land · **sPA ss3 (codegen-expr-attr, S210-rebuild run) RE-INTEGRATED** (user "ss3 is done, integrate it"). S83-verified (tip 8676687b==reported, base db906e40, DISJOIN… → 2eea9d4e + known-gaps
+- `[19]` find · **flogence paren-group bug R26-CONFIRMED + filed HIGH** (new inbox intake during ss3 integration). `(a+b).method()`→`a + b.method()` (grouping parens dropped be… → known-gaps + flogence ack
+- `[20]` disp/land · **A2 W0 decl-site-epistemics DD LANDED** (user "go on A2"; scrml-deep-dive bg, pure-research). **C ELIMINATED** (propagating external type-tier — Rust rejected… → scrml-support/docs/deep-dives/api-primitive-decl-site-epistemics-2026-06-20.md
+- `[22]` rule/land · **6nz AF RULED by-design + confirmed (user "confirm AF").** §36.6 normative: input-state reads set up NO reactive subscriptions (intentional) → `${<#id>.x}` ren… → SPEC §36.1/§36.6 + known-gaps
+- `[23]` state · **ss3 list REFRESHED + fire-ready (user "refresh ss3").** spa-lists/ss3-codegen-expr-attr.md: prior 3 items marked integrated (2eea9d4e); re-clustered to the op… → spa-lists/ss3-codegen-expr-attr.md
 
 ## State
-- Version: 0.7.0 · maps: 9 commits behind HEAD (watermark 5c68e87e, HEAD c1c96ca1)
+- Version: 0.7.0 · maps: 21 commits behind HEAD (watermark 5c68e87e, HEAD 8c27805e)
 - Recent wraps:
   - 28de9c81 wrap(s209): close — crash-recovered; despace arc + 7-sPA wave + cPA correction + B/C; ss4/ss13/DD-verdict to next PA
   - d0c5a96a chore(s208): wrap-finalize — recent-sessions + digest regen at settled HEAD
