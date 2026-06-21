@@ -13549,6 +13549,258 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         };
       }
 
+
+      // ----------------------------------------------------------------
+      // <api> declaration (SPEC §60 — typed external API; A2 W2 parser).
+      //
+      // `<api base="..." [src="..."]> endpoint-decl+ </api>` declares a
+      // typed external HTTP boundary (the BYOB / bring-your-own-backend
+      // model — §60.1). It mirrors the SHAPE of `<db src= tables>`
+      // (§4.12.6 / §60.2): a block element declaring a connection (`base=`)
+      // plus the typed surface (endpoint declarations) reachable through it.
+      //
+      // BS produces a `type=markup name=api` block whose `block.raw` holds
+      // the FULL `<api ...>...</api>` text including the closer (the body
+      // endpoint lines are bare — not nested `<...>` tags — so the BS
+      // compound-scan does not misclassify them). This dispatch mirrors the
+      // match-block / each-block structural dispatches above: find the
+      // brace-aware opener-end `>`, parse the opener attrs from the header,
+      // slice the body raw, then parse the endpoint declarations.
+      //
+      // W2 (THIS LANDING — parser only): build the `api-decl` AST node
+      // carrying { base, src?, endpoints } and fire the PARSE-level
+      // E-API-* diagnostics (E-API-BASE-MISSING / E-API-METHOD-INVALID /
+      // E-API-RESPONSE-TYPE-UNDECLARED / E-API-ENDPOINT-MALFORMED).
+      //
+      // W3 DEFERS: request/response type RESOLUTION against §53/§14 (the
+      // `reqShape`/`responseType` are captured as raw type-ref text here,
+      // NOT resolved), E-API-ENDPOINT-UNKNOWN / E-API-REQ-SHAPE-MISMATCH /
+      // E-API-PATH-PARAM-UNBOUND, and the `<request api=>` bind (W4).
+      //
+      // A VALID `<api>` emits NOTHING — emit-html.ts emitNode falls through
+      // on the unrecognized `api-decl` kind (no HTML), and the type-system
+      // walks it conservatively as-is (no codegen). Later waves consume the
+      // node.
+      if (block.name === "api") {
+        const apiRaw = (block.raw || "").trim();
+
+        // Brace+paren+bracket-aware opener-end finder (mirrors match-block /
+        // each-block). The opener attrs are plain string-literal values
+        // (`base="..."`, `src="..."`), but track `(){}[]` + string state so
+        // a `>` inside a quoted URL or a future expression value does not
+        // truncate the header.
+        function _findApiOpenerEnd(s) {
+          let depth = 0;
+          let parenDepth = 0;
+          let bracketDepth = 0;
+          let inDQ = false;
+          let inSQ = false;
+          for (let i = 0; i < s.length; i++) {
+            const c = s[i];
+            if (inDQ) { if (c === '"') inDQ = false; else if (c === "\\") i++; continue; }
+            if (inSQ) { if (c === "'") inSQ = false; else if (c === "\\") i++; continue; }
+            if (c === '"') { inDQ = true; continue; }
+            if (c === "'") { inSQ = true; continue; }
+            if (c === "{") { depth++; continue; }
+            if (c === "}") { if (depth > 0) depth--; continue; }
+            if (c === "(") { parenDepth++; continue; }
+            if (c === ")") { if (parenDepth > 0) parenDepth--; continue; }
+            if (c === "[") { bracketDepth++; continue; }
+            if (c === "]") { if (bracketDepth > 0) bracketDepth--; continue; }
+            if (c === ">" && depth === 0 && parenDepth === 0 && bracketDepth === 0) return i;
+          }
+          return -1;
+        }
+
+        const openerEnd = _findApiOpenerEnd(apiRaw);
+        const headerLine = openerEnd >= 0
+          ? apiRaw.slice(0, openerEnd)
+          : apiRaw.split("\n")[0];
+        // Strip the `<api` prefix (also handles `< api` with a leading space).
+        let header = headerLine;
+        const apiIdx = header.indexOf("api");
+        if (apiIdx >= 0) header = header.slice(apiIdx + "api".length).trim();
+        // Strip any trailing `/` (self-closing — invalid for api, defensive)
+        // or `>` fragments from the header.
+        header = header.replace(/[/>]+\s*$/, "").trim();
+
+        // §60.2 opener attrs: `base=` (required string), `src=` (optional
+        // string). Accept double- OR single-quoted string-literal values.
+        const STR = /(?:"([^"]*)"|'([^']*)')/;
+        const baseMatch = header.match(new RegExp(`\\bbase\\s*=\\s*${STR.source}`));
+        const srcMatch = header.match(new RegExp(`\\bsrc\\s*=\\s*${STR.source}`));
+        const base = baseMatch ? (baseMatch[1] !== undefined ? baseMatch[1] : baseMatch[2]) : null;
+        const src = srcMatch ? (srcMatch[1] !== undefined ? srcMatch[1] : srcMatch[2]) : null;
+
+        // §60.9 — E-API-BASE-MISSING: an `<api>` declaration with no `base=`.
+        if (base === null) {
+          errors.push(new TABError(
+            "E-API-BASE-MISSING",
+            `E-API-BASE-MISSING: \`<api>\` declaration has no \`base=\` URL. ` +
+            `Per SPEC §60.2 an \`<api>\` SHALL declare a \`base=\` URL ` +
+            `(the external HTTP boundary's base address), e.g. ` +
+            `\`<api base="https://api.example.com">\`.`,
+            span,
+          ));
+        }
+
+        // Slice the body raw between the opener-end `>` and the closer
+        // (`</api>` or the generic `</>`). The endpoint declaration lines
+        // live here verbatim (path templates like `/users/${id}` are
+        // preserved — NOT interpreted as interpolations at this stage).
+        let bodyRaw = "";
+        if (openerEnd >= 0) {
+          bodyRaw = apiRaw.slice(openerEnd + 1);
+        }
+        bodyRaw = bodyRaw.replace(/<\s*\/\s*(?:api)?\s*>\s*$/, "");
+
+        // §60.2 endpoint-decl grammar:
+        //   endpoint-decl ::= identifier '(' req-shape? ')' '->'
+        //                     http-method string-literal ':' response-type
+        //   http-method   ::= GET | POST | PUT | PATCH | DELETE
+        // One endpoint per line. Blank lines + `//` / `/* */` comment lines
+        // are skipped. Anchored capture groups split the line into:
+        //   name '(' reqShape? ')' '->' METHOD "path" ':' ResponseT
+        const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+        const endpoints = [];
+        // Full shape: name ( reqShape? )  ->  METHOD  "path"  :  ResponseT
+        const ENDPOINT_RE =
+          /^([A-Za-z_$][A-Za-z0-9_$]*)\s*\(\s*([^)]*?)\s*\)\s*->\s*([A-Za-z]+)\s+(?:"([^"]*)"|'([^']*)')\s*:\s*(.+?)\s*$/;
+        // Prefix shape (everything up to — but NOT including — the `: ResponseT`
+        // tail): name ( reqShape? ) -> METHOD "path". A line that matches the
+        // prefix but NOT the full grammar is a well-formed endpoint head with a
+        // MISSING response type → E-API-RESPONSE-TYPE-UNDECLARED (a precise
+        // diagnostic, distinct from the catch-all E-API-ENDPOINT-MALFORMED).
+        const ENDPOINT_PREFIX_RE =
+          /^([A-Za-z_$][A-Za-z0-9_$]*)\s*\(\s*([^)]*?)\s*\)\s*->\s*([A-Za-z]+)\s+(?:"([^"]*)"|'([^']*)')\s*$/;
+        const lines = bodyRaw.split("\n");
+        // Track byte offset within bodyRaw so each endpoint's diagnostic
+        // span can point at the right source line.
+        const bodyStartOffset = (openerEnd >= 0) ? (openerEnd + 1) : 0;
+        let lineByteCursor = bodyStartOffset;
+        for (const rawLine of lines) {
+          const lineStartByte = lineByteCursor;
+          lineByteCursor += rawLine.length + 1; // +1 for the consumed "\n"
+
+          const line = rawLine.trim();
+          if (line === "") continue;
+          // Skip whole-line comments (`//` and a single-line `/* ... */`).
+          if (line.startsWith("//")) continue;
+          if (line.startsWith("/*") && line.endsWith("*/")) continue;
+
+          // Compute the 1-based source line for this body line: count the
+          // newlines from the apiRaw start to lineStartByte, added to the
+          // block opener line. `span.line` is the `<api` opener's line.
+          const newlinesBefore = (() => {
+            let n = 0;
+            const upTo = Math.min(lineStartByte, apiRaw.length);
+            for (let i = 0; i < upTo; i++) if (apiRaw[i] === "\n") n++;
+            return n;
+          })();
+          const lineSpan = {
+            file: span.file,
+            start: span.start + lineStartByte,
+            end: span.start + lineStartByte + rawLine.length,
+            line: span.line + newlinesBefore,
+            col: rawLine.length - rawLine.trimStart().length + 1,
+          };
+
+          const m = line.match(ENDPOINT_RE);
+          if (!m) {
+            // The line did NOT match the full grammar. Distinguish the
+            // well-formed-head-missing-response-type case (prefix matches:
+            // `name(Req?) -> METHOD "path"` with no `: ResponseT`) from a
+            // genuinely malformed line (the catch-all).
+            const pm = line.match(ENDPOINT_PREFIX_RE);
+            if (pm) {
+              // §60.9 — E-API-RESPONSE-TYPE-UNDECLARED: a complete endpoint
+              // head with NO `: ResponseT` tail.
+              const pName = pm[1];
+              const pReqShape = (pm[2] && pm[2].trim() !== "") ? pm[2].trim() : null;
+              const pMethod = pm[3];
+              const pPath = (pm[4] !== undefined) ? pm[4] : pm[5];
+              errors.push(new TABError(
+                "E-API-RESPONSE-TYPE-UNDECLARED",
+                `E-API-RESPONSE-TYPE-UNDECLARED: \`<api>\` endpoint \`${pName}\` omits its ` +
+                `\`: ResponseT\` response type. Per SPEC §60.2 each endpoint SHALL declare ` +
+                `a response type (decoded via parseVariant, §41.13), e.g. ` +
+                `\`${pName}(...) -> ${pMethod} "${pPath}" : SomeType\`.`,
+                lineSpan,
+              ));
+              // A method check still applies to the recovered head.
+              if (!HTTP_METHODS.has(pMethod)) {
+                errors.push(new TABError(
+                  "E-API-METHOD-INVALID",
+                  `E-API-METHOD-INVALID: \`<api>\` endpoint \`${pName}\` declares HTTP method ` +
+                  `\`${pMethod}\`, which is not a recognized method. Per SPEC §60.2 the ` +
+                  `method SHALL be one of GET, POST, PUT, PATCH, DELETE.`,
+                  lineSpan,
+                ));
+              }
+              // Record the partial endpoint (responseType null) so the node
+              // shape is uniform; W3 resolves / re-validates.
+              endpoints.push({
+                name: pName,
+                reqShape: pReqShape,
+                method: pMethod,
+                path: pPath,
+                responseType: null,
+                span: lineSpan,
+              });
+              continue;
+            }
+            // §60.9 — E-API-ENDPOINT-MALFORMED: a body line that does not
+            // match the §60.2 grammar at all. The body admits ONLY endpoint
+            // declarations, so any non-conforming, non-comment, non-blank
+            // line is malformed-as-endpoint.
+            errors.push(new TABError(
+              "E-API-ENDPOINT-MALFORMED",
+              `E-API-ENDPOINT-MALFORMED: \`<api>\` endpoint declaration does not ` +
+              `match the §60.2 grammar \`name(ReqShape?) -> METHOD "path" : ResponseT\`. ` +
+              `Offending line: \`${line}\`. Each endpoint binds a name, an optional ` +
+              `request shape, an HTTP method, a quoted path template, and a response type.`,
+              lineSpan,
+            ));
+            continue;
+          }
+
+          const name = m[1];
+          const reqShape = (m[2] && m[2].trim() !== "") ? m[2].trim() : null;
+          const method = m[3];
+          const path = (m[4] !== undefined) ? m[4] : m[5];
+          const responseType = (m[6] && m[6].trim() !== "") ? m[6].trim() : null;
+
+          // §60.9 — E-API-METHOD-INVALID: method not in the recognized set.
+          if (!HTTP_METHODS.has(method)) {
+            errors.push(new TABError(
+              "E-API-METHOD-INVALID",
+              `E-API-METHOD-INVALID: \`<api>\` endpoint \`${name}\` declares HTTP method ` +
+              `\`${method}\`, which is not a recognized method. Per SPEC §60.2 the ` +
+              `method SHALL be one of GET, POST, PUT, PATCH, DELETE.`,
+              lineSpan,
+            ));
+          }
+
+          endpoints.push({
+            name,
+            reqShape,      // raw type-ref text (W3 resolves against §53/§14)
+            method,
+            path,          // verbatim path template ( `${...}` params bound in W3 )
+            responseType,  // raw type-ref text (W3 resolves)
+            span: lineSpan,
+          });
+        }
+
+        return {
+          id: ++counter.next,
+          kind: "api-decl",
+          base,            // required string URL (null → E-API-BASE-MISSING above)
+          src,             // optional string (A2 declared-shape source; A1 ingest deferred §60.8)
+          endpoints,       // [{ name, reqShape?, method, path, responseType, span }]
+          span,
+          openerHadSpaceAfterLt: block.openerHadSpaceAfterLt === true,
+        };
+      }
       // ----------------------------------------------------------------
       // Each block-form (SPEC §17.X NEW per S130 HU-1 ratifications;
       // iteration Landing 1 of 5).

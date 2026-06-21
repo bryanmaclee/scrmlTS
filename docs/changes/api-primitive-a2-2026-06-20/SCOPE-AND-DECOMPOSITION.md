@@ -88,8 +88,11 @@ compile error = the identity's own value applied to the one boundary scrml ships
   F1=A element-name marker · `<request api=>` bind (F4) · parseVariant response reuse · client-only §12.2 +
   SSR-gap · LIMIT-PRIMITIVES · A1-deferred · planned E-API-* codes (§60.9 — §34 rows land WITH the impl, Rule 4).
   SPEC-INDEX §60 row + section count 59→60. **W2 (parser) is next.**
-- **W2 — parser** (BS / TAB / ast-builder): recognize the `<api>` element + endpoint sub-declarations +
-  attrs; emit `E-API-*` codes for malformed declarations.
+- **W2 — parser ✅ DONE (S210).** ast-builder recognizes `<api>` → `api-decl` AST node (BS needed NO
+  change — `<api>` already yields a markup block carrying full raw); parses `base=`(req)/`src=`(opt) +
+  §60.2 endpoint decls (`${}` path-params verbatim); fires §34 **+4 E-API-*** (BASE-MISSING / METHOD-INVALID /
+  RESPONSE-TYPE-UNDECLARED / ENDPOINT-MALFORMED). NO emission (valid `<api>` ships zero content). +20 tests;
+  full suite 24712/0. Landed via S67 file-delta (agent a0761f89e7066e52a @143a73b2). **W3 next.**
 - **W3 — type-system**: the declared-shape request typing + the F1 unowned-boundary tier/annotation +
   response-`T` resolution against §53 + the §12.2 client-only confirmation gate.
 - **W4 — codegen**: emit the thin typed fetch callable, wiring the existing `<request>` + `parseVariant`
