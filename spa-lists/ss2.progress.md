@@ -29,3 +29,37 @@ Append-only. Each line: what was done / next / blockers.
 
 ## LIST COMPLETE (S209)
 All 5 items dispositioned: 4 LANDED (items 1,4,3,2) + 1 PARTIAL-LANDED (item 5: 6/8 cases activated, 3 parked). Final integrated `bun run test` (incl. browser) on spa/ss2: **24618 pass / 0 fail / 231 skip / 1 todo** across 1035 files (128.5s, exit 0) — ZERO regressions. Branch ready for PA re-integration. Re-integration message sent to scrml/handOffs/incoming/. No main advance, no push.
+
+---
+
+# S210-REBUILD RUN (2026-06-20) — single item `g-derived-engine-autoderive-crash`
+(The S209 run above INTEGRATED → `spa/ss2` GONE, Bucket C. S210 rebuilt ss2 with one NEW item.)
+Fresh branch `spa/ss2` from `origin/main` cf950bab. node_modules + samples dist symlinked from main.
+
+- [boot] worktree from cf950bab; symlinks wired; clean. Read coreFiles targeted + traced the crash.
+- [item-1 scope/repro] R26-reproduced on clean main via CLI: `<engine for=@phase>` →
+  `ReferenceError: autoDeriveEngineVarName is not defined`. `--verbose` stack: crash at
+  symbol-table.ts:5554:17 in `registerEngineDecl` (← walkRegisterEngines ← runSYM).
+  FOOTPRINT CORRECTIONS (R4): (a) locus is symbol-table.ts ONLY — NOT emit-engine.ts (brief-seed
+  guessed both). (b) trigger is `for=@cell` (`@` sigil makes the `for=` bareword regex fail → opener
+  falls to the pre-S25 sentence-form else-branch, engineName back-filled to raw `"for=@phase"`,
+  E-ENGINE-020 queued; SYM then calls the unbound symbol). The CANONICAL derived form
+  `<engine for=Type derived=expr>` does NOT crash (gives E-ENGINE-018 correctly) → severity stays
+  MED, NOT bumped to HIGH (does not fire on the common derived form).
+- [item-1 root cause] `autoDeriveEngineVarName` was only RE-EXPORTED at symbol-table.ts:5180
+  (`export { x } from "./y"` → no local binding); the in-module derive-site calls at 5554/5556 threw.
+  bun doesn't type-check so it slipped to a runtime crash.
+- [item-1 fix + verify] symbol-table.ts:5180 → real local `import` + re-export. Crash → clean
+  diagnostics (E-ENGINE-020 + E-ENGINE-004); canonical derived form unaffected. Coupled regression
+  test (S113) in derived-engine-rejections.test.js (+2 tests) — CONFIRMED both fail without the fix
+  (exact ReferenceError) and pass with it. PA-direct (verified one-liner; no agent dispatch).
+- [item-1 verified] gate suite (unit+integration+conformance) **17439 pass/0 fail/68 skip/1 todo**
+  (961 files); browser **442 pass/0 fail/8 skip** (after symlinking the gitignored todomvc dist —
+  S209 env-gap, 2 spurious distExists fails resolved once dist materialized, NOT a regression).
+- [item-1 COMMITTED] spa/ss2 tip = `3a29be32` (hook exit 0, gate suite re-run green). Coherence:
+  origin/main advanced cf950bab → +3 (deputy 134/134b + `<api>` feat 8d4e96ae) — NONE touch my
+  files (symbol-table.ts/test/engine-varname.ts) → clean source merge for PA.
+
+## S210-REBUILD RUN — LIST COMPLETE
+Single item LANDED on `spa/ss2` (tip after bookkeeping commit). Re-integration message → PA inbox.
+No SPEC touch, no new code, no fixture/allowlist shift. No main advance, no push.

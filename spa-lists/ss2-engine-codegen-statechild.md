@@ -15,7 +15,7 @@ derived-engine autoderive crash keys on the engine codegen/resolution understand
 `compiler/src/codegen/emit-engine.ts` · `compiler/src/symbol-table.ts` · `compiler/src/type-system.ts`
 
 ## Items (least-ingestion-first)
-1. **`g-derived-engine-autoderive-crash`** `[status=open]` MED · tier med — `<engine for=@expr>` (derived-engine form) crashes compiler with `'autoDeriveEngineVarName is not defined'`. derived-engine decl (§51.0.J) throws a compiler-side `ReferenceError` (NOT a scrml diagnostic). `autoDeriveEngineVarName` IS a real symbol-table.ts export (§51.0.C lowercase-first, B14) → missing-import/out-of-scope CALL at the derived-engine codegen/resolution site. Reproduces on CLEAN main; ss3-surfaced S209 (two independent agents hit it incidentally); ss2 did NOT cover the derived-FORM crash. status=open.
+1. **`g-derived-engine-autoderive-crash`** `[status=landed-on-branch 3a29be32]` MED · tier med — `<engine for=@expr>` (derived-engine form) crashes compiler with `'autoDeriveEngineVarName is not defined'`. derived-engine decl (§51.0.J) throws a compiler-side `ReferenceError` (NOT a scrml diagnostic). `autoDeriveEngineVarName` IS a real symbol-table.ts export (§51.0.C lowercase-first, B14) → missing-import/out-of-scope CALL at the derived-engine codegen/resolution site. Reproduces on CLEAN main; ss3-surfaced S209 (two independent agents hit it incidentally); ss2 did NOT cover the derived-FORM crash. status=open.
    > **Brief seed:** Fix the out-of-scope `autoDeriveEngineVarName` call at the derived-engine codegen/resolution site (emit-engine.ts/symbol-table.ts). PA-repro first to verify scope + BUMP to HIGH if it fires on the common derived form. Convert the `ReferenceError` into either correct codegen or a proper scrml diagnostic.
 
 ## Progress

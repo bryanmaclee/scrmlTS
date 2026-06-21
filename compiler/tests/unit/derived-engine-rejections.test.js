@@ -516,3 +516,62 @@ describe("B16 — derived engine LEGAL forms (no false positives)", () => {
     expect(getErrorsByCode(b16Errors, "E-DERIVED-ENGINE-NO-WRITE")).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// g-derived-engine-autoderive-crash (ss2, 2026-06-20) — malformed
+// `<engine for=@cell>` opener must produce a scrml DIAGNOSTIC, never a
+// compiler crash.
+//
+// `for=@phase` points `for=` at a CELL (`@phase`), not a Type bareword. The
+// ast-builder `for=` regex is a bareword IDENT (no `@` sigil), so `forMatch`
+// fails and the opener falls into the pre-S25 sentence-form `else` branch:
+// `engineName` is back-filled to the raw header `"for=@phase"` and E-ENGINE-020
+// is queued. SYM then runs `registerEngineDecl`, which (varName/varNameOverride
+// empty, engineName non-empty) called `autoDeriveEngineVarName(engineName)`.
+// That symbol was only RE-EXPORTED from symbol-table.ts (`export { x } from`),
+// which creates NO local binding — so the in-module call threw
+// `ReferenceError: autoDeriveEngineVarName is not defined`, crashing the whole
+// compile instead of surfacing the already-queued E-ENGINE-020. Fix: a real
+// local `import` of the symbol. This test pins that runSYM no longer THROWS on
+// the malformed opener and that the proper diagnostic survives.
+// ---------------------------------------------------------------------------
+
+describe("g-derived-engine-autoderive-crash — malformed `<engine for=@cell>` diagnoses, never crashes", () => {
+  const malformed = [
+    "${",
+    "  type Phase:enum = { Idle, Loading, Done }",
+    "}",
+    "",
+    "<engine for=Phase initial=.Idle>",
+    "  <Idle rule=.Loading></>",
+    "  <Loading rule=.Done></>",
+    "  <Done></>",
+    "</>",
+    "",
+    "<engine for=@phase>",
+    "  <Idle></>",
+    "  <Loading></>",
+    "  <Done></>",
+    "</>",
+    "",
+  ].join("\n");
+
+  test("runSYM does NOT throw a ReferenceError on `for=@cell` (the crash regression)", () => {
+    // Before the fix this threw `autoDeriveEngineVarName is not defined`
+    // inside registerEngineDecl. It must now return a normal SYM result.
+    expect(() => runUpToSYM(malformed)).not.toThrow();
+  });
+
+  test("the malformed opener surfaces E-ENGINE-020 (proper scrml diagnostic), not a crash", () => {
+    // E-ENGINE-020 is a TAB-stage (buildAST) diagnostic, so gather across both
+    // stages — buildAST's returned `errors` plus the runSYM result — to prove
+    // the proper diagnostic survives the (now-fixed) crash window.
+    const bs = splitBlocks("/test/app.scrml", malformed);
+    const { ast, errors: tabErrors } = buildAST(bs);
+    const sym = runSYM({ filePath: "/test/app.scrml", ast });
+    const all = [...tabErrors, ...sym.errors, ...(sym.warnings ?? [])];
+    expect(all.some((d) => d.code === "E-ENGINE-020")).toBe(true);
+    // And no diagnostic leaks the internal ReferenceError text.
+    expect(all.every((d) => !/autoDeriveEngineVarName is not defined/.test(d.message ?? ""))).toBe(true);
+  });
+});

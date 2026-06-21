@@ -5177,7 +5177,13 @@ function stringLiteralValueOf(arg: any): string | null {
  * Examples: `MarioState`→`marioState`, `Health`→`health`, `URL`→`url`,
  * `UIState`→`uiState`, `HTTPClient`→`httpClient`.
  */
-export { autoDeriveEngineVarName } from "./engine-varname";
+// Local import (creates the in-module binding registerEngineDecl reads at the
+// §51.0.C derive sites) + re-export (preserves the stable-name surface external
+// importers/tests resolve). A bare `export { x } from "./y"` re-export does NOT
+// create a local binding — referencing it inside this module threw a runtime
+// `ReferenceError: autoDeriveEngineVarName is not defined` (g-derived-engine-autoderive-crash).
+import { autoDeriveEngineVarName } from "./engine-varname";
+export { autoDeriveEngineVarName };
 
 /**
  * Construct a `StateCellRecord` for an engine's auto-declared variable.
