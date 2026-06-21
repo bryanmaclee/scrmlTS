@@ -641,9 +641,9 @@ function serializeTypeEntry(entry: TypeRegistryEntry): string {
   const parts: string[] = [`kind: ${JSON.stringify(entry.kind)}`];
 
   if (entry.kind === "enum") {
-    const variants = (entry.variants as Array<{ name: string }> | undefined) ?? [];
+    const variants = (entry.variants as Array<{ name: string } | string> | undefined) ?? [];
     const variantStrings = variants.map(v =>
-      `{name: ${JSON.stringify(v.name)}}`
+      JSON.stringify(typeof v === "string" ? v : v.name)
     );
     parts.push(`variants: [${variantStrings.join(", ")}]`);
   } else if (entry.kind === "struct") {

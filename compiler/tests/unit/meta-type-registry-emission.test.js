@@ -79,7 +79,7 @@ describe("meta-type-registry-emission TR-2: enum type emission", () => {
     expect(output).toContain("variants:");
   });
 
-  test("enum variants are emitted as array of name objects", () => {
+  test("enum variants are emitted as bare name strings (§14.4.2)", () => {
     const node = makeMetaNodeWithTypes([makeBareExpr("x()")], 2, [
       {
         name: "Status",
@@ -88,9 +88,9 @@ describe("meta-type-registry-emission TR-2: enum type emission", () => {
       },
     ]);
     const output = emitLogicNode(node);
-    // The variants should be {name: "Active"} style
-    expect(output).toContain('{name: "Active"}');
-    expect(output).toContain('{name: "Inactive"}');
+    expect(output).toContain('"Active"');
+    expect(output).toContain('"Inactive"');
+    expect(output).not.toContain('{name: "Active"}');
   });
 });
 
