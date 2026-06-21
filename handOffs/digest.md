@@ -1,9 +1,9 @@
-<!-- @digest head=8569f774 delta-seq=13 -->
+<!-- @digest head=ac87b4e3 delta-seq=13 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `8569f774`** + delta-log **[13]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `8569f774`
+> **HEAD `ac87b4e3`** + delta-log **[13]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `ac87b4e3`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `8569f774`
+## Board — from `@gap` tokens @ `ac87b4e3`
 - **HIGH 0** · MED 10 · LOW 14 · Nominal 8
 - Named open HIGHs: _none_
 
@@ -29,7 +29,7 @@
 - `[13]` land · **flogence Bug B (match-arm reactive-attr/class effects) LANDED (S67, agent a0f78a14 @9fb58e81==FINAL).** CLOBBER HAZARD handled (agent-self-flagged): base 09cc… → known-gaps + (commit after full-suite)
 
 ## State
-- Version: 0.7.0 · maps: current
+- Version: 0.7.0 · maps: 1 commits behind HEAD (watermark 8569f774, HEAD ac87b4e3)
 - Recent wraps:
   - 0a605d3e chore(s210): wrap-finalize — recent-sessions + digest regen at settled HEAD 4a67f5bb
   - 28de9c81 wrap(s209): close — crash-recovered; despace arc + 7-sPA wave + cPA correction + B/C; ss4/ss13/DD-verdict to next PA
