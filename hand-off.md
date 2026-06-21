@@ -6,7 +6,7 @@
 
 ## Boot/current state
 - scrml + scrml-support **0/0 with origin** as of the last push (`c1c96ca1`); **ss3 + gap-reconcile committed locally on top, UNPUSHED** (HEAD past `2eea9d4e`).
-- Board **HIGH 1 · MED 11 · LOW 16 · Nominal 8** (the HIGH = `g-paren-binary-group-dropped-before-method`, flogence, filed this turn). Tests **17,384 / 68 skip / 0 fail** (subset) @ v0.7.0.
+- Board **HIGH 1 · MED 11 · LOW 17 · Nominal 8** (HIGH = `g-paren-binary-group-dropped-before-method` flogence; +AF lint gap `g-input-state-markup-nonreactive-lint` LOW). Tests **17,384 / 68 skip / 0 fail** (subset) @ v0.7.0.
 - Maps behind HEAD — **deputy-owned + deputy active → left to deputy.**
 - `docs/graph/` (flograph projection) keeps getting staged **directly into main's index** (S119 hazard — a flograph/deputy tool, NOT via deputy-maint) → kept out of every PA commit via explicit pathspec. **Watch:** worth checking why the deputy/flograph writes main's index.
 - **Worktrees:** main · `../scrml-deputy-maint` (deputy, KEEP). (ss3 integrated + 6b-cleaned; stale `agent-a4e244bf…` already gone.)
@@ -18,9 +18,9 @@
 - **6nz 1624 reply** sent (AB closed @ `2ebd107a`; AA open; X/Y/Z/AC current). **giti GITI-015** + **flogence paren-bug** acks sent. Bookkeeping done (user-voice/changelog/state/inbox).
 
 ## ⚠️ OPEN — needs the USER / next action
-1. **A2 W0 — the A-vs-B ruling (Q1).** DD verdict: **C eliminated**; live fork = **A (element-name `<api>` alone)** vs **B (required `unverified` token)** — both decl-site-only, both ride existing honesty (§53.4 SPARK + parseVariant). Turns on ONE question: the user's reading of "type-system-visible" (visible-in-the-value's-type → C-only; visible-as-a-required-decl-construct → B-over-A). Settles A-vs-B with NO debate. F2/F3/F4 collapse (F3 = **new top-level §60**, not §6.7.x). **Ruling → then W1 SPEC §60 Nominal authoring.** delta-log [20].
-2. **6nz AF — §36 ruling.** §36.6 is decisive: input-state reads set up NO reactive subscriptions, *intentional* → AF (`${<#cursor>.x}` render-once) is **BY-DESIGN.** PA lean: (a) confirm by-design + clarify the §36.1 "like `<poll>`" overclaim + add a `W-INPUT-STATE-MARKUP-NONREACTIVE` lint, vs (b) reverse §36.6 [not recommended — SPEC amendment + perf + reverses ratified gaming-canvas debate]. Reply to 6nz owed once ruled. delta-log [17].
-3. **NEXT sPA — PA rec: re-fire `ss3`** (refreshed list = the NEW **expression-serializer paren/span cluster**: `g-paren-binary-group-dropped-before-method` HIGH + `g-isop-call-tail-lhs-paren-miscompile` MED — both ss3's expr-serializer ingestion; one fix may cover ≥2 + the resolved `g-literal-arg-expr-serializer-wrong-span` sibling). **Alternate:** `ss2` (engine-codegen — the poss-HIGH `g-derived-engine-autoderive-crash`, PA-repro pending). The ss3 list needs a PA refresh (mark 1-3 landed, add the cluster) before firing — offered, not yet done.
+1. **A2 — F1 RATIFIED = A** (user "A"; W0 CLOSED). Element name `<api>` is the type-system-visible decl-site marker (no `unverified` token; C eliminated). F2/F3/F4 collapsed (F3 = **new top-level §60**). Recorded: scope doc §3 banner + DD artifact banner. **NEXT BUILD STEP → W1: author SPEC §60 (`<api>`, Nominal/spec-ahead) — awaiting a "go".** delta-log [21].
+2. **6nz AF — CONFIRMED by-design** (user "confirm AF"; reply sent). §36.1 clarified (dropped the `<poll>`-style overclaim) + §36.6 markup-interp note added (PA-direct, SPEC currency). **Lint impl pending:** `g-input-state-markup-nonreactive-lint` (LOW — the planned `W-INPUT-STATE-MARKUP-NONREACTIVE`; §34 row lands WITH the impl per Rule 4). A small dispatch when scheduled. delta-log [22].
+3. **ss3 REFRESHED + fire-ready** (user "refresh ss3"). `read spa.md ss3` → the expression-serializer **paren/span cluster** (`g-paren-binary-group-dropped-before-method` HIGH + `g-isop-call-tail-lhs-paren-miscompile` MED; same `_rewriteParenthesizedIsOp`/serializer ingestion, one fix may cover both). User fires. delta-log [23]. (Alternate ss: `ss2` engine-codegen poss-HIGH crash.)
 4. **flogence raw-route (serve-side)** — fold into A2 philosophy or bank as **dpa-002**.
 5. **stdlib Phase 3** — needs a §40.4 `fail`/`!{}`/bun-import ruling.
 6. **AA lint-fire regression** — `W-MATCH-VALUE-UNUSED` (S144, `emit-functions.ts:1021`) no longer fires on the v0.7.0 bare-tail-`match` repro. Not yet board-filed; investigation-worthy.

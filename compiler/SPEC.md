@@ -18035,8 +18035,12 @@ ${
 
 ### 36.1 Overview
 
-Input state types are built-in state types that provide reactive access to keyboard, mouse,
-and gamepad input. They follow the same lifecycle pattern as `<timer>` and `<poll>`:
+Input state types are built-in state types that provide **live access** (the current value at the
+moment of the read) to keyboard, mouse, and gamepad input. They follow the compiler-managed
+listener/polling lifecycle of `<timer>` and `<poll>` (automatic setup + cleanup). **Note (S210, 6nz AF):
+unlike `<poll>`, an input-state `<#id>` read does NOT establish a reactive subscription** (§36.6) — it
+returns the current value at read-time and does not re-render on input change; for reactive UI, bridge
+via an `@cell` assigned inside an `animationFrame` loop. The shared lifecycle pattern:
 
 - They are declared as markup elements in the program body.
 - They emit no HTML output.
@@ -18325,6 +18329,15 @@ Input state is read at the moment of the `animationFrame` callback — no reacti
 subscriptions are set up. This is intentional: input drives imperative game logic, not
 reactive state updates. If you need to trigger a reactive update from input, assign to an
 `@variable` inside the loop.
+
+**Markup interpolation is the same (S210, 6nz AF ruling).** A bare input-state read in a markup
+interpolation — `<div>cursor.x = ${<#cursor>.x}</div>` — is rendered ONCE at mount with no effect
+subscription and does NOT re-render on input change. This is the same intentional non-reactivity, NOT a
+codegen gap: input-state is a live-read source, not a reactive cell. For live UI (e.g. an editor showing
+cursor coordinates in its chrome), use the `@cell` bridge — read `<#id>` inside an `animationFrame` loop
+and assign to an `@cell`, then interpolate the `@cell` (which IS reactive). A planned info-lint
+`W-INPUT-STATE-MARKUP-NONREACTIVE` (tracked: `docs/known-gaps.md` `g-input-state-markup-nonreactive-lint`)
+will flag the bare-markup form and point at this bridge so it is not a silent footgun.
 
 ---
 

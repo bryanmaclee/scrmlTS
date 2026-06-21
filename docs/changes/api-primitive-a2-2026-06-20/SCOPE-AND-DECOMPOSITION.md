@@ -55,6 +55,14 @@ compile error = the identity's own value applied to the one boundary scrml ships
 
 ## §3 EMBEDDED DESIGN FORKS — resolve in Wave 0 (these GATE the build shape)
 
+> **✅ RESOLVED S210 (W0 DD + user ruling "A").** DD: `scrml-support/docs/deep-dives/api-primitive-decl-site-epistemics-2026-06-20.md`.
+> - **F1 = A** — the element name `<api>` (vs `<db>`) IS the type-system-visible decl-site marker. NO `unverified` token (option B), NO propagating type-tier (option C eliminated: Rust viral-taint precedent + the decode IS the proof via `parseVariant`). The owned-vs-unowned asymmetry is already in-spec at §39.11 `W-SCHEMA-003` (`<db>` drift is fixable via `scrml migrate`; `<api>` has NO migrate lever — that missing lever IS the must-not-lie distinction A relies on).
+> - **F2** = mirror `<db src= tables>` → `<api src= base=>` block with child endpoint decls (`endpoint name(reqShape) -> METHOD "path" : ResponseT`).
+> - **F3** = **new top-level §60** (the "§39/§52" below is loose — §52 is State-Authority; §60 is the next free top-level, Nominal banner per the §58/§59 precedent). NOT a §6.7.x sub-mode.
+> - **F4** = `<request>` gains an `api="endpointName"` mode; response `T → parseVariant` is automatic-but-visible (driven by the endpoint's `: ResponseT`). §12.2 client-only confirmed unchanged.
+>
+> **W0 DONE → W1 (author SPEC §60, Nominal/spec-ahead) is the next build step (awaiting a "go").**
+
 - **F1 — decl-site epistemic encoding (THE gating fork; from constraint 1).** How does `<api>` make
   "this is a belief, not a guarantee" type-system-visible? Candidates: (a) a distinct keyword/element
   (`<api>` already reads differently from `<db>` — is the element name alone enough?); (b) a required
