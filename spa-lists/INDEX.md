@@ -35,7 +35,7 @@ design-track (debates / DDs / from-scratch subsystems / axiom Qs / rulings) → 
 | 7 | meta-reflect-l22 | 2 | meta-checker.ts · rails-dev.scrml · render-harness.js | `reflect()`/`^{}` meta-eval + happy-dom mount (variant-shape + mount-hang). | ~45% · at-ceiling |
 | 10 | e2e-render-map-test-hygiene | 1 | e2e-render-map/seed-fixtures.js · render-harness.js · render-detectors.js | render-map harness needs-server classification (verify-close). | ~30% · at-ceiling |
 | 5 | channel-codegen | 1 | type-system.ts · emit-server.ts | channel codegen + server-fn typed-object-literal-return (`E-SCOPE-001` over-fire). | ~30% · at-ceiling |
-| 2 | engine-codegen-statechild | 1 | emit-engine.ts · symbol-table.ts · type-system.ts | engine codegen + derived-engine autoderive crash. | ~28% · at-ceiling |
+| 2 | engine-codegen-statechild | 0 | symbol-table.ts | **DRAINED S210** — g-derived-engine-autoderive-crash (`for=@cell` compiler crash) RESOLVED `3a29be32` (symbol-table.ts bare-re-export → real import). | drained |
 | 6 | type-system-lifecycle-refinement | 2 | type-system.ts | §6.8 reset/lifecycle heuristics (Q6-narrow). _Both deferred-confirmed, friction-gated._ | ~25% · at-ceiling |
 | ~~9~~ | ~~server-authority-keyword~~ | — | — | **RETIRED this rebuild.** All sPA work integrated S210; survivors (SSE-keyword KEEP near-dup, §20.5 ruling, g-tier1-ssr-prerender) are all design → Bucket B. Number reserved. | — |
 | ~~13~~ | ~~phantom-codegen-nominal-stdlib~~ | — | — | **RETIRED this rebuild.** All items are Nominal feature arcs or the stdlib §40.4 ruling → Bucket B. `spa/ss13` branch still LIVE (the stdlib entry-test .skips). Number reserved. | — |
