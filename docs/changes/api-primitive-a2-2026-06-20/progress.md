@@ -47,3 +47,9 @@ change-id: api-primitive-a2-2026-06-20 · wave W3 (type-system; resolve + CHECK,
 - The thin typed fetch callable codegen; automatic parseVariant(response, ResponseT) decode wiring;
   the actual <request> runtime integration (loading/data/error/stale + .data:ResponseT). A typed-and-
   checked <api> + <request api=> STILL emits nothing runtime at W3 (confirmed by compile-verify).
+
+## W4 FINISH (S212, 2026-06-21 — PA-direct salvage apply + (b) honesty lint)
+- Applied the crash-salvage (emit-parse-variant.ts + emit-reactive-wiring.ts + api-decl-typer.test.js) + typer-prep (type-system.ts responseEnum) off current main — ZERO drift (0 main-side commits on the 3 W4 files since base 612f92e6), 3-way clean.
+- R26 verified: client `fetch(base+path)` with arg-substitution + method; full <request> reactive surface; ENUM ResponseT → parseVariant decode IIFE (→.data/::ParseError→.error); NO .server.js (client-only); node --check clean. Typer test 16/16.
+- (b) RULING (user): a NON-VARIANT ResponseT was raw-passed silently (parseVariant §41.13 is variant-only). Added typer info-lint W-API-RESPONSE-NOT-VARIANT (type-system.ts checkApiDeclarations; resolved-non-enum only, excludes unknown/error/asIs — no double-report w/ E-TYPE-UNKNOWN-NAME; asIs = deliberate raw-boundary). + §34 row (Info) + §60.5 variant-vs-non-variant amendment + §60.9 wired note. +3 lint tests (19/19). SPEC-INDEX regen.
+- §60 banner STAYS Nominal (W5 flips). Full suite 24821/0, within-node clean.

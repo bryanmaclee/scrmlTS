@@ -18068,6 +18068,10 @@ function checkApiDeclarations(
     path: string;
     responseType: string | null;
     span: Span;
+    // §60.5 — set in Pass 2 when `responseType` resolves to an `:enum`. Read by
+    // W4 codegen (emit-reactive-wiring) to drive the automatic parseVariant
+    // decode; null/absent when the response is a non-enum (or unresolved) type.
+    responseEnum?: ResolvedType;
   }
   const apiDecls: ASTNodeLike[] = [];
   // Walk top-level nodes only — `<api>` is a top-level declaration (§60.2); it
@@ -18154,6 +18158,46 @@ function checkApiDeclarations(
       }
       if (ep.responseType) {
         checkEndpointTypeRef(ep.responseType, `\`<api>\` endpoint \`${ep.name}\` response type`, epSpan);
+        // §60.5 — annotate the endpoint with its resolved response type so W4
+        // codegen can drive the automatic `parseVariant` decode (§41.13) from
+        // the endpoint's declared `: ResponseT` WITHOUT a codegen-side
+        // typeRegistry. Mirrors the parseVariant call-site annotation
+        // (`parseVariantEnum` on the CallExpr, walkAndValidateParseVariantCalls)
+        // — the decode is "automatic-but-visible" (§60.4 F4), driven by the
+        // decl, not re-stated at the call site. Only an `:enum` response type
+        // carries a parseVariant decode; a non-enum (or unresolved) response
+        // type leaves `responseEnum` null and W4 raw-passes the JSON body —
+        // see W-API-RESPONSE-NOT-VARIANT below.
+        const resolvedResp = resolveTypeExpr(ep.responseType, typeRegistry);
+        if (resolvedResp && resolvedResp.kind === "enum") {
+          (ep as Record<string, unknown>).responseEnum = resolvedResp;
+        } else if (resolvedResp && resolvedResp.kind !== "unknown" && resolvedResp.kind !== "error" && resolvedResp.kind !== "asIs") {
+          // §60.5 — a NON-VARIANT ResponseT (struct / primitive / refinement)
+          // cannot be decoded by parseVariant (§41.13 is a tagged-variant
+          // decoder): W4 raw-passes the wire body into `.data`, so the §60.5
+          // boundary-parse guarantee (total + failable + §53 refinement
+          // enforcement) does NOT apply. Silently trusting an unvalidated
+          // external response is the must-not-lie footgun the A2 ratification
+          // (§60.3) exists to prevent — fire an Info-lint so the raw boundary is
+          // explicit (the adopter declares a variant ResponseT for the §60.5
+          // guarantee, or accepts the raw boundary knowingly). Fires ONLY for a
+          // RESOLVED, concrete non-enum type: an UNRESOLVED responseType (kind
+          // `unknown`/`error`) already fired E-TYPE-UNKNOWN-NAME above, and
+          // `asIs` is the deliberate untyped escape hatch (the adopter already
+          // chose the raw boundary) — neither double-reports.
+          errors.push(new TSError(
+            "W-API-RESPONSE-NOT-VARIANT",
+            `W-API-RESPONSE-NOT-VARIANT: \`<api>\` endpoint \`${ep.name}\` declares a ` +
+            `non-variant response type \`${ep.responseType}\`. parseVariant (§41.13) ` +
+            `decodes tagged variants only, so the response is raw-passed into the ` +
+            `\`<request>\` \`.data\` surface WITHOUT the SPEC §60.5 boundary-parse ` +
+            `(no total/failable decode, no §53 refinement enforcement). Declare a ` +
+            `variant (\`:enum\`) response type to get the §60.5 guarantee, or accept ` +
+            `the raw boundary knowingly.`,
+            epSpan,
+            "info",
+          ));
+        }
       }
 
       // 2. E-API-PATH-PARAM-UNBOUND — each `${param}` in the path template MUST

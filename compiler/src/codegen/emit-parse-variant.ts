@@ -179,7 +179,29 @@ export function emitParseVariantCall(node: CallExpr, ctx: EmitExprContext): stri
   }
   const rawExpr = emitExpr(node.args[0] as ExprNode, ctx);
 
-  // Build the IIFE.
+  return emitParseVariantDecodeIIFE(enumType, rawExpr);
+}
+
+/**
+ * Emit the §41.13 parseVariant decode IIFE for an already-resolved enum type and
+ * an already-emitted raw-value JS expression.
+ *
+ * This is the single source of the boundary-decode shape — both the call-site
+ * monomorphizer (`emitParseVariantCall` above) and the §60.5 `<api>`/`<request
+ * api=>` automatic response decode (emit-reactive-wiring.ts) call through here so
+ * there is exactly ONE parseVariant decode surface (§60.5: "`<api>` adds **no**
+ * response-decoding machinery").
+ *
+ * `rawExpr` is a JS expression that evaluates to the wire value (a JSON string or
+ * an already-parsed object); the IIFE JSON-parses-or-passes-through, validates the
+ * tagged-variant shape, dispatches per-variant, and returns either the constructed
+ * enum value or a `::ParseError` fail object (routed by the caller's failable
+ * handling — for `<api>`, the fail lands in `<#id>.error`, §60.4).
+ */
+export function emitParseVariantDecodeIIFE(
+  enumType: ParseVariantEnumLike,
+  rawExpr: string,
+): string {
   const lines: string[] = [];
   lines.push(`((_raw) => {`);
   lines.push(`  let _v;`);

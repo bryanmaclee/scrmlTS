@@ -284,28 +284,83 @@ describe("<api> typer — §60.6 client-only confirmation (no §12.2 server plac
     expect(hasServerBundle(r)).toBe(false);
   });
 
-  test("W3 emits NO runtime for <api> — base URL / endpoint name do not leak into any artifact", () => {
+  // W4 SUPERSEDES the W3-era "zero-emission" assertion (this test previously
+  // checked that NOTHING — not even the base URL — reached any artifact, the
+  // W3 milestone). W4's whole purpose (§60.4 codegen) is to emit a thin
+  // client-side fetch, so the base URL now CORRECTLY lands in the client bundle
+  // (it is the fetch target — a client fetch, not server-only data). §60.6's
+  // actual security guarantee is the SERVER side: an <api>-only app emits NO
+  // server bundle (the previous test in this describe block) — the base URL is
+  // a public client-fetch target, not a secret.
+  test("W4 emits the client fetch — base URL lands in the CLIENT bundle (the fetch target), still NO server bundle (§60.4/§60.6)", () => {
     const r = compile(
       `type Q :struct = { id: number }\n` +
       `type User :struct = { id: number }\n` +
       `<query>: Q = { id: 0 }\n` +
-      `<api base="https://secret-backend.example.com">\n` +
+      `<api base="https://api.example.com">\n` +
       `  getUser(Q) -> GET "/users/\${id}" : User\n` +
       `</api>\n` +
       `<request id="r" api="getUser" args=@query></>\n` +
       `<p>hi</p>\n`
     );
-    let checkedAnArtifact = false;
+    // §60.6 — the actual client-only guarantee: NO server bundle.
+    expect(hasServerBundle(r)).toBe(false);
+    // §60.4 — the base URL DOES appear in the client artifact (it is the fetch
+    // target of the emitted thin typed callable).
+    let clientHasBase = false;
+    let sawHtml = false;
     for (const [, entry] of (r.outputs ?? new Map())) {
-      const fields = entry && typeof entry === "object" ? entry : { v: entry };
-      for (const v of Object.values(fields)) {
-        if (typeof v !== "string") continue;
-        checkedAnArtifact = true;
-        // W3 wires NO codegen — the api-decl contributes nothing to any artifact.
-        expect(v).not.toContain("secret-backend.example.com");
+      const clientJs = entry && typeof entry === "object" ? entry.clientJs : null;
+      if (typeof clientJs === "string" && clientJs.includes("https://api.example.com")) {
+        clientHasBase = true;
+        // The emitted fetch uses the endpoint's method + the path template.
+        expect(clientJs).toContain("fetch(");
+        expect(clientJs).toContain("/users/");
       }
-      if (typeof entry?.html === "string") expect(entry.html).toContain("hi");
+      if (typeof entry?.html === "string") { expect(entry.html).toContain("hi"); sawHtml = true; }
     }
-    expect(checkedAnArtifact).toBe(true);
+    expect(clientHasBase).toBe(true);
+    expect(sawHtml).toBe(true);
+  });
+});
+
+// ===========================================================================
+describe("<api> typer — W-API-RESPONSE-NOT-VARIANT on a non-variant response (§60.5, S212 W4)", () => {
+  test("a STRUCT responseType fires the info-lint (raw boundary, no parseVariant)", () => {
+    const r = compile(
+      `type Q :struct = { id: number }\n` +
+      `type User :struct = { id: number, name: string }\n` +
+      `<api base="https://x.com">\n` +
+      `  getUser(Q) -> GET "/u" : User\n` +
+      `</api>\n` +
+      `<p>x</p>\n`
+    );
+    expect(warnCodes(r, "W-API-RESPONSE-NOT-VARIANT").length).toBe(1);
+    // info-lint routes to result.warnings, NOT result.errors
+    expect(errCodes(r, "W-API-RESPONSE-NOT-VARIANT").length).toBe(0);
+  });
+
+  test("an ENUM responseType does NOT fire (it gets the §60.5 parseVariant guarantee)", () => {
+    const r = compile(
+      `type Q :struct = { id: number }\n` +
+      `type Status :enum = { Active, Inactive }\n` +
+      `<api base="https://x.com">\n` +
+      `  getStatus(Q) -> GET "/s" : Status\n` +
+      `</api>\n` +
+      `<p>x</p>\n`
+    );
+    expect(warnCodes(r, "W-API-RESPONSE-NOT-VARIANT").length).toBe(0);
+  });
+
+  test("an UNRESOLVED responseType does NOT double-report (E-TYPE-UNKNOWN-NAME only)", () => {
+    const r = compile(
+      `type Q :struct = { id: number }\n` +
+      `<api base="https://x.com">\n` +
+      `  getUser(Q) -> GET "/u" : NopeResponse\n` +
+      `</api>\n` +
+      `<p>x</p>\n`
+    );
+    expect(errCodes(r, "E-TYPE-UNKNOWN-NAME").length).toBeGreaterThanOrEqual(1);
+    expect(warnCodes(r, "W-API-RESPONSE-NOT-VARIANT").length).toBe(0);
   });
 });
