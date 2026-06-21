@@ -1,9 +1,9 @@
-<!-- @digest head=87b3311e delta-seq=5 -->
+<!-- @digest head=b6950595 delta-seq=5 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `87b3311e`** + delta-log **[5]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `87b3311e`
+> **HEAD `b6950595`** + delta-log **[5]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `b6950595`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,9 +13,9 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `87b3311e`
-- **HIGH 3** · MED 10 · LOW 14 · Nominal 8
-- Named open HIGHs: `g-tailwind-class-scan-skips-markup-block-bodies`, `g-lift-concurrent-transitive-exclusion-tdz`, `g-nested-each-no-own-subscription`
+## Board — from `@gap` tokens @ `b6950595`
+- **HIGH 2** · MED 10 · LOW 14 · Nominal 8
+- Named open HIGHs: `g-lift-concurrent-transitive-exclusion-tdz`, `g-nested-each-no-own-subscription`
 
 ## Recent rulings — last 0 `rule` (delta-log S212 — 2026-06-21)
 - _(none in the latest session)_
@@ -28,7 +28,7 @@
 - `[5]` file/disp · **flogence bug #3 (nested-each) FILED HIGH + 3rd fix DISPATCHED (user "file it HIGH and dispatch the 3rd fix").** g-nested-each-no-own-subscription (HIGH, §S212… → BRIEF.md + agent a0374ad6
 
 ## State
-- Version: 0.7.0 · maps: 7 commits behind HEAD (watermark 6d8a47ab, HEAD 87b3311e)
+- Version: 0.7.0 · maps: 8 commits behind HEAD (watermark 6d8a47ab, HEAD b6950595)
 - Recent wraps:
   - 0a605d3e chore(s210): wrap-finalize — recent-sessions + digest regen at settled HEAD 4a67f5bb
   - 28de9c81 wrap(s209): close — crash-recovered; despace arc + 7-sPA wave + cPA correction + B/C; ss4/ss13/DD-verdict to next PA
