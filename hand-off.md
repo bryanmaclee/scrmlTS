@@ -28,7 +28,12 @@
 ## CORPUS IDIOMATIC-IFICATION (S210 — in flight)
 - **Goal:** extend the example-corpus idiomatic sweep to ALL scrml-written projects (user directive). Mechanism RATIFIED: **scrml-PA runs read-only audits, sibling-PAs rewrite** (per-repo scope). Portable rubric = `scrml-support/docs/idiomatic-audit-kit.md` (S210).
 - **scrml's own LIGHT-EDIT tier** — CONFIRMED owed (7/9 examples still `${for/lift}`, 0 `<each>`; +13 try/catch +17 null). It's `ss11` item b1 (phase-b1-examples-rewrite) backlog — waves 1-3 did the REWRITE tier only. Fire ss11 to sweep it (eligible items 1/3/5/7/8).
-- **Sibling audits IN FLIGHT** (read-only, no-worktree): giti `acafe0a5` (52f, WORST — 0 each/0 engine/8 null) · 6nz `a01ba38d` (11f — engines-yes/each-no) · flogence `ae88b4a5` (7f — cleanest). → per-repo audit DDs in `scrml-support/docs/deep-dives/<repo>-idiomatic-audit-2026-06-20.md`. **NEXT: on completion, draft + send (confirm-first) the 3 sibling-PA rewrite directives via each `<repo>/handOffs/incoming/`; route any compiler-gap workarounds back to scrml as bugs.** delta-log [28].
+- **Sibling audits DONE + directives SENT + gaps triaged** (delta-log [28]/[30]/[31]; DDs at `scrml-support/docs/deep-dives/{giti,6nz,flogence}-idiomatic-audit-2026-06-20.md`, committed+pushed):
+  - **flogence** EXEMPLARY (7/7 KEEP, 5/5 pillars) — directive = no rewrites + drop 2 workarounds (14fb0230/aae34c26) + corpus-feed candidate.
+  - **6nz** half-idiomatic (KEEP1·EDIT7·REWRITE3) — directive = 3-tier (each-sweep · render→`<match for=Mode>` · async→`<engine>`).
+  - **giti** gap in 6 UI pages only (KEEP16·EDIT8·REWRITE5) — directive = 3-tier (each-sweep ~16 sites · status→Phase+`<match>` · live/feed→`<engine>`).
+  - **Gap triage: all 5 NEW confirm-live flags NOT-REPRODUCED** (6nz #2-#5 + giti CG-5) → ZERO new scrml bugs; sibling comments stale (removable). 6nz Bug AA stays open.
+  - **AWAITING:** the 3 sibling PAs to execute their rewrites (per-repo scope; runs in their own instances). The corpus-feed idea (flogence → scrml G1/G2/G5 examples) is a parked candidate.
 
 ## OPEN escalations carried (S209)
 - ss5 item3 `g-channel-server-keyword-auto-migrate` (Enhanced-A, DEFERRED S189) · ss9 §20.5 SPEC examples (migrate vs carve-out) · ss10 item7 render-gap-ingestion + item8 L2/L3 oracle-strategy · ss6 b17 cases 1-3 (gated on `g-component-body-markup-parser-absent`) · §58 build-story re-bucket · §20.5+despace residual (ss11 items 4-8, partly Rule-1 marketing-gated).
