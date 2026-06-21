@@ -632,19 +632,39 @@ function renderTemplateChildToJs(
     // directly into it.
     const innerMountVar = `_scrml_each_mount_${nextLocalId()}`;
     const innerItemsVar = `_scrml_each_items_${nextLocalId()}`;
+    // The item-local mount is created + appended ONCE (stable DOM node identity
+    // across inner re-renders); the inner reconcile writes into it in place.
     lines.push(`${indent}const ${innerMountVar} = document.createElement("div");`);
     lines.push(`${indent}${innerMountVar}.setAttribute("data-scrml-each-mount", "each_${innerNode.id}");`);
     lines.push(`${indent}${fragmentVar}.appendChild(${innerMountVar});`);
-    lines.push(`${indent}const ${innerItemsVar} = ${innerItemsExpr};`);
-    // Inline empty-guard + reconcile. Wrap in a block so the empty-guard's
-    // `return` (from emitEachReconcileLines) short-circuits ONLY the inner
-    // list build, not the whole outer factory — an arrow-IIFE provides the
-    // local function frame the `return` needs.
-    lines.push(`${indent}(() => {`);
+    // g-nested-each-no-own-subscription (2026-06-21) — the inner each must own a
+    // reactive subscription to ITS source so a post-mount cell update (the
+    // load-on-demand case: `@shared` empty at outer-render, populated by a later
+    // event) re-renders it. Pre-fix this branch read the source ONCE and ran the
+    // reconcile ONCE inline (a bare IIFE) — NO subscription — so the inner list
+    // froze at its outer-render-time value (EMPTY in the load-on-demand case).
+    //
+    // Fix (Approach C): wrap the source-read + reconcile in a PER-ITEM
+    // `_scrml_effect`. This closure already binds BOTH the OUTER iter var (so a
+    // source depending on the enclosing scope — `<each in=g.items>` — resolves)
+    // AND the closure-captured `innerMountVar` (so the effect re-reconciles THIS
+    // outer item's own mount — N outer items share the `each_<id>` data-attr, so
+    // a single global renderer keyed by that id could not address them
+    // individually). `_scrml_effect` un-pauses dependency tracking around its
+    // body (runtime-template.js, S139 Bug 11), so the `_scrml_reactive_get(...)`
+    // inside `innerItemsExpr` SUBSCRIBES correctly even though this effect is
+    // created during the OUTER `_scrml_reconcile_list` pass (which pauses
+    // tracking). Lifecycle is identical to the existing per-item text/class
+    // effects: when the outer item is removed the effect is not explicitly
+    // disposed but goes inert (its mount detached) — no NEW leak class. The
+    // `return` in the empty-guard (from emitEachReconcileLines) short-circuits
+    // ONLY this effect callback.
+    lines.push(`${indent}_scrml_effect(() => {`);
+    lines.push(`${indent}  const ${innerItemsVar} = ${innerItemsExpr};`);
     for (const l of emitEachReconcileLines(innerNode, innerIterVar, innerIdxName, innerMountVar, innerItemsVar, `${indent}  `, engineCtx)) {
       lines.push(l);
     }
-    lines.push(`${indent}})();`);
+    lines.push(`${indent}});`);
     return;
   }
 
@@ -1790,17 +1810,27 @@ export function emitNestedEachFromMarkup(
   const innerIdxName = "_scrml_each_idx";
   const innerMountVar = `_scrml_each_mount_${nextLocalId()}`;
   const innerItemsVar = `_scrml_each_items_${nextLocalId()}`;
+  // The item-local mount is created + appended ONCE (stable DOM node identity
+  // across inner re-renders); the inner reconcile writes into it in place.
   lines.push(`${indent}const ${innerMountVar} = document.createElement("div");`);
   lines.push(`${indent}${innerMountVar}.setAttribute("data-scrml-each-mount", "each_${eachBlock.id}");`);
   lines.push(`${indent}${fragmentVar}.appendChild(${innerMountVar});`);
-  lines.push(`${indent}const ${innerItemsVar} = ${innerItemsExpr};`);
-  // Inline empty-guard + reconcile (arrow-IIFE so the empty-guard `return`
-  // short-circuits only the inner list build — same shape as the Tier-1 branch).
-  lines.push(`${indent}(() => {`);
+  // g-nested-each-no-own-subscription (2026-06-21) — Tier-0 `${for…lift}`-nested
+  // sibling of the Tier-1 nested-each branch. Same fix: wrap the source-read +
+  // reconcile in a per-item `_scrml_effect` so a post-mount `@cell` update
+  // re-renders THIS item's inner list. The effect closure binds the enclosing
+  // for-loop scope var AND the closure-captured `innerMountVar`; `_scrml_effect`
+  // un-pauses tracking so a `_scrml_reactive_get(...)` inside `innerItemsExpr`
+  // subscribes even though created during the outer reconcile. A purely
+  // enclosing-scope source (`row.cells`, no `@cell`) tracks no reactive dep and
+  // the effect simply runs once (byte-equivalent behavior to the pre-fix IIFE).
+  // The empty-guard `return` short-circuits only this effect callback.
+  lines.push(`${indent}_scrml_effect(() => {`);
+  lines.push(`${indent}  const ${innerItemsVar} = ${innerItemsExpr};`);
   for (const l of emitEachReconcileLines(eachBlock, innerIterVar, innerIdxName, innerMountVar, innerItemsVar, `${indent}  `, engineCtx)) {
     lines.push(l);
   }
-  lines.push(`${indent}})();`);
+  lines.push(`${indent}});`);
   return lines;
 }
 
