@@ -16099,14 +16099,17 @@ The supported utility prefixes are:
 - Grid (S109): `grid-cols` (grid-template-columns), `grid-rows` (grid-template-rows), `col-span` (grid-column: span N / span N), `row-span` (grid-row: span N / span N), `col-start`, `col-end`, `row-start`, `row-end`
 - Flex (S109): `flex` (flex shorthand), `grow` (flex-grow), `shrink` (flex-shrink), `order`, `basis` (flex-basis)
 - Aspect (S109): `aspect` (aspect-ratio)
+- Content (S210): `content` (the `content` property — accepts a string / ident / number / list value)
+- Font (S210): `font` (overloaded — a bare integer → `font-weight`, otherwise → `font-family`)
 
-For overloaded prefixes (`text`, `bg`, `border`), value disambiguation is heuristic per the value's parsed shape:
+For overloaded prefixes (`text`, `bg`, `border`, `font`), value disambiguation is heuristic per the value's parsed shape:
 
 - Hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), color function (`rgb(`, `rgba(`, `hsl(`, `hsla(`, `hwb(`, `lab(`, `lch(`, `oklab(`, `oklch(`, `color(`, `color-mix(`), or CSS keyword (`currentColor`, `transparent`) → color (`color` for `text-`, `background-color` for `bg-`, `border-color` for `border-`).
 - `<number><unit>` length → size (`font-size` for `text-`, `border-width` for `border-`, etc.).
 - `url(...)` (only valid for `bg-`) → `background-image`.
 - `var(--ident)` or `var(--ident, fallback)` → defaults to length/size for `text-`, `border-`; defaults to `background-color` for `bg-`.
 - Bare CSS keyword (`auto`, `none`, `inherit`, `initial`, `unset`, `revert`, `revert-layer`) → accepted as the property value.
+- `font` (S210): a bare integer (`font-[550]`) → `font-weight`; otherwise (`font-[Inter]`, `font-['Helvetica_Neue']`) → `font-family`.
 
 #### 26.4.1 Compile-time Validation
 
@@ -16123,6 +16126,8 @@ The compiler SHALL validate `<value>` at compile time and reject invalid syntax 
 - `url()` body may be unquoted, single-quoted, or double-quoted; quoted forms must have matching trailing quote.
 
 **S109 — underscore-as-space convention (multi-token list values).** Per the Tailwind v3 convention, an underscore (`_`) appearing OUTSIDE any `(...)` parens in the bracket content is a space substitute. `grid-cols-[auto_1fr_auto]` emits `grid-template-columns: auto 1fr auto`. `m-[1rem_2rem]` emits `margin: 1rem 2rem`. Each underscore-separated segment is validated independently per the rules above; an empty segment (leading `_`, trailing `_`, or `__`) → reject. Underscores INSIDE function parens are preserved literally (the splitter is paren-depth-aware so function bodies stay intact).
+
+**S210 — string value-kind.** A bracket value wholly wrapped in matching `'` or `"` (length ≥ 2) is a CSS **string** (used by `content-[…]` / `font-[…]`): top-level underscores within the string → spaces; an embedded SAME-quote char → reject E-TAILWIND-001; a DIFFERENT quote inside is permitted (`content-['a"b']` → `content: 'a"b'`); a `\_`-escape is not supported (consistent with the list-split path). The quoted value is treated as one token (checked BEFORE the underscore list-split). Examples: `content-['hello']` → `content: 'hello'`; `content-['hello_world']` → `content: 'hello world'`; `font-['Helvetica_Neue']` → `font-family: 'Helvetica Neue'`.
 
 **S109 — ratio value shape.** `<number>/<number>` (e.g. `aspect-[16/9]`, `aspect-[4/3]`) is accepted as a `ratio` value-kind. CSS `aspect-ratio` parses this form natively; the value is emitted verbatim.
 
@@ -16261,6 +16266,8 @@ The `var()` references carry **INLINE fallbacks** (`, 0 0 #0000`). This is the l
 `shadow-none` sets `--tw-shadow: 0 0 #0000` (a transparent layer), not a single-property `box-shadow`, so a `ring-2 shadow-none` pairing still draws the ring.
 
 **Arbitrary `ring-[…]`.** The **color** form (`ring-[#ff0000]`, `ring-[var(--c)]`, `ring-[red]`, `ring-[currentColor]`) follows the composing model: it sets `--tw-ring-color` and emits the shorthand (with a default 3px ring via `--tw-ring-shadow`), so it composes with a named `shadow-*` / `ring-{w}`. The **width-only** form (`ring-[3px]`, `ring-[2.5rem]`) keeps a single-property `box-shadow: 0 0 0 <w> currentColor` — an arbitrary ring width with no companion color is self-contained and has no second var to compose with.
+
+**Arbitrary `ring-offset-[…]` (S210).** Mirrors the named `ring-offset-{w}` / `ring-offset-{color}` utilities, kind-dispatched. The **width** form (`ring-offset-[3px]`) sets `--tw-ring-offset-width` + the offset-shadow var + the composing `box-shadow` shorthand (composes with `ring-[3px]` via `calc(<w> + var(--tw-ring-offset-width, 0px))`). The **color / var / keyword** form (`ring-offset-[#fff]`, `ring-offset-[var(--c)]`) sets only `--tw-ring-offset-color`.
 
 **Default ring color = `currentColor` (deliberate scrml divergence).** Tailwind v3 defaults `--tw-ring-color` to `rgb(59 130 246 / 0.5)` (blue-500/50). scrml instead defaults to `currentColor` (the convention already established by scrml's arbitrary `ring-[3px]` width form), via the `var(--tw-ring-color, currentColor)` inline fallback in the ring setter. A bare `ring-2` with no `ring-{color}` therefore draws a `currentColor` ring, not blue. This is intentional consistency with scrml's existing ring convention; adopters wanting blue write `ring-blue-500` explicitly. The corpus does NOT introduce a blue ring default.
 

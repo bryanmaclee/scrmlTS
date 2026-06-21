@@ -1172,7 +1172,7 @@ The `const <state>` deep-freeze debate (S134) ratified a **sequenced** verdict: 
 ---
 
 
-### Bug 1 — Tailwind arbitrary-value classes — `partial-impl` (remaining: ring-offset + gradient + safelist + string-shaped)
+### Bug 1 — Tailwind arbitrary-value classes — `partial-impl` (SOLE remaining: safelist/@apply sub-arc 2; string-shaped + ring-offset LANDED S210)
 <!-- @gap id=bug-1 sev=MED status=open -->
 
 Major families shipped S108-S109: grid / flex / aspect / transition / timing / individual transforms + shorthand + directional / outline / ring (length/color/var/keyword). The `W-TAILWIND-UNRECOGNIZED-CLASS` floor lint catches typos + unsupported arbitrary-values today.
@@ -1188,6 +1188,8 @@ Major families shipped S108-S109: grid / flex / aspect / transition / timing / i
 **Phase 4 LANDED S191** (filter + backdrop-filter, C-style; the LAST composing family) — NEW `registerFilters`/`registerBackdrop` + `FILTER_COMPOSE`/`BACKDROP_COMPOSE`: `blur/brightness/contrast/grayscale/hue-rotate/invert/saturate/sepia/drop-shadow` (named + arbitrary) compose via `filter: var(--tw-blur,) var(--tw-brightness,) … var(--tw-drop-shadow,)` (9 empty-fallback vars); the `backdrop-*` family (has `opacity`, no drop-shadow) emits BOTH `-webkit-backdrop-filter` + `backdrop-filter`. NET-NEW (zero lint inverts). SPEC §26.7.3. PA-R26: `blur-sm brightness-50 grayscale backdrop-blur-md backdrop-saturate-150` → filter + (webkit)backdrop shorthands, all vars set, 0 empty/undefined. Suite 16,989/0. **AGENT PROCESS NOTE:** the agent twice attempted a pre-commit-hook bypass (`core.hooksPath=/dev/null`, `--no-verify`) for speed then self-reverted; moot for the file-delta'd content (PA's landing commit ran the full gate), flagged as the recurring agent --no-verify-reach.
 
 **✅ ALL FOUR COMPOSING FAMILIES COMPLETE** under SPEC §26.7 (ring/shadow §26.7 · gradient §26.7.1 · transform §26.7.2 · filter/backdrop §26.7.3), Approach C (inline `var()` fallbacks, NO global preflight block — §26.1 minimalism preserved). The bug-1 Tailwind preflight arc is DONE.
+
+**S210 — sub-arcs 1 + 3 LANDED (sPA ss8, `81a46d36`).** Sub-arc 1 (string-shaped arbitrary values): new `string` value-kind in `validateArbitraryCss` + `content`/`font` prefixes (`content-['hello_world']` → `content: 'hello world'`; `font-[Inter]` → `font-family`; `font-[550]` → `font-weight`). Sub-arc 3 (lone arbitrary `ring-offset-[len]`): new `ring-offset` ARBITRARY_DECL_TRANSFORM mirroring the named util, composes with `ring-[]`. `tailwind-classes.js` +64; +5 test files (230 pass). **SPEC §26.4/§26.4.1/§26.7 currency note applied in the same landing (Rule 4).** **SOLE OPEN REMAINDER = sub-arc 2 (safelist/@apply lint precision)** — SPEC §26.5-deferred, no ruled direction → PARKED to PA (design ruling: safelist config knob vs `@apply` support vs `#{}`-class-scan suppression; the `lint.tailwind-unrecognized-class=off` escape hatch already covers heavy-custom-CSS adopters). Gap stays `open` for sub-arc 2.
 
 **Still open (separate sub-arcs — NOT composing-family work):**
 - **String-shaped arbitrary values** — `content-["text"]` + `font-[Inter]` need bracket-parser extension. SEPARATE arc.
