@@ -617,6 +617,14 @@
     "MISSING-FIELD": 99,
     "SPAN-COORD": 68
   },
+  "examples/32-external-api.scrml": {
+    "KIND-NAME": 1,
+    "FIELD-SHAPE": 3,
+    "MISSING-FIELD": 27,
+    "EXTRA-FIELD": 14,
+    "COUNT-LENGTH": 1,
+    "SPAN-COORD": 57
+  },
   "samples/admin-panel.scrml": {
     "COUNT-LENGTH": 6,
     "EXTRA-FIELD": 103,

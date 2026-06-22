@@ -1,0 +1,136 @@
+// Example 32: Typed external API — `<api>` + `<request api=>` (§60).
+//
+// The bring-your-own-backend (BYOB) boundary. scrml's pitch is "no API
+// layer to drift out of sync" — true where scrml owns BOTH ends (`<db>` +
+// `?{}`, §8). BYOB is the case where it does NOT: a foreign backend (Rust /
+// Go / Python / a vendor) that already built its API and that scrml cannot
+// migrate. `<api>` types THAT boundary — and only that boundary.
+//
+// The identity reframe (§60.1): the real choice for a BYOB adopter is not
+// "API layer or none" — the foreign backend already has one — but
+// untyped-silent-drift vs typed-compile-loud-drift. `<api>` declares the
+// endpoint's request/response shapes; a backend shape change becomes a
+// compile-time mismatch against the declared shape (and a runtime
+// `parseVariant` failure routed to `.error`), instead of a silent crash.
+//
+// This is a PURE-CLIENT SPA (§60.6): a raw `fetch()` to a foreign backend is
+// not a §12.2 server-placement trigger, so an `<api>`-only app compiles to a
+// client bundle with NO scrml server tier — no `.server.js`, no DB, no
+// `<schema>`. (The owned-data full-stack story is examples 03 / 16 / 23.)
+//
+// What `<api>` is NOT (§60.7, LIMIT-PRIMITIVES): it is a thin typed callable,
+// not a data-fetching framework. NO retry, cache, pagination, rate-limiting,
+// dedup, or auth-flow orchestration — those stay in userspace (compose them
+// in your own scrml helper). The primitive types the boundary; it does not
+// grow a gravity well.
+
+<program>
+
+${
+  // The request shape for the endpoint — a §53 struct. Its fields are the
+  // source for the `${id}` path-template parameter (§60.2): every `${param}`
+  // in the path SHALL be a field of the request shape, or the compiler fires
+  // E-API-PATH-PARAM-UNBOUND.
+  type UserQuery:struct = {
+    id: int
+  }
+
+  // The VARIANT (`:enum`) response type. This is what engages the §60.5
+  // boundary-parse: the response decode reuses `parseVariant` (§41.13), a
+  // tagged-variant decoder. The wire body is decoded total-and-failable
+  // against this shape — a malformed / unexpected response surfaces as a
+  // `::ParseError` routed to the request's `.error` surface, never silently
+  // trusted (the must-not-lie principle, §60.3).
+  //
+  // Declare a variant response type (not a bare struct) to get this guarantee.
+  // A non-variant response type raw-passes the body and the compiler fires the
+  // W-API-RESPONSE-NOT-VARIANT info-lint to keep that raw boundary honest.
+  type UserResult:enum = {
+    Found(name: string, email: string)
+    NotFound
+  }
+
+  // The args cell bound to `<request args=@query>`. Its `id` field feeds the
+  // `${id}` path parameter at the fetch boundary.
+  <query>: UserQuery = { id: 1 }
+
+  // A second endpoint's request/response shapes — a body-carrying POST. The
+  // POST body is the args value, JSON-serialized at the call boundary (§60.4).
+  type FeedbackInput:struct = {
+    rating: int
+    note:   string
+  }
+  type FeedbackResult:enum = {
+    Recorded
+    Rejected(reason: string)
+  }
+  <feedback>: FeedbackInput = { rating: 5, note: "great" }
+}
+
+// The `<api>` declaration (§60.2). `base=` is the external HTTP boundary's
+// address; each endpoint binds a name, an optional request shape, an HTTP
+// method, a path template, and a response type:
+//
+//   name(ReqShape) -> METHOD "path" : ResponseT
+//
+// The endpoint shape mirrors `<db src= tables>` (§4.12.6) — a connection plus
+// the typed surface reachable through it. The compiler emits one thin typed
+// `fetch(base + path, { method, body? })` callable per endpoint; co-located
+// with the call site, not pulled away into name-indirected machinery.
+<api base="https://api.example.com">
+  getUser(UserQuery)        -> GET  "/users/${id}"  : UserResult
+  sendFeedback(FeedbackInput) -> POST "/feedback"     : FeedbackResult
+</api>
+
+#{
+  .app {
+    max-width: 560px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+  .endpoint {
+    padding: 0.75rem 1rem;
+    margin: 0.75rem 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f9fafb;
+  }
+  code {
+    color: #2563eb;
+    font-size: 0.85rem;
+  }
+}
+<div class="app">
+  <h1>External API — BYOB</h1>
+  <p>
+    A scrml frontend over a foreign backend scrml does not own. The
+    <code>&lt;api&gt;</code> block below types the boundary; the
+    <code>&lt;request api=&gt;</code> element fires a thin typed
+    <code>fetch</code> and decodes the response via
+    <code>parseVariant</code> (§60.5).
+  </p>
+
+  <!-- The GET endpoint. `<request api="getUser" args=@query>` (§60.4) fires
+       the endpoint's typed fetch with @query's fields: the `${id}` path
+       parameter is substituted from @query.id, URL-encoded at the boundary.
+       The variant response is decoded against UserResult via parseVariant;
+       the decoded value lands in the request's `.data` surface, a
+       `::ParseError` decode failure in `.error` (§6.7.7 state model:
+       `.loading` / `.data` / `.error` / `.stale`). -->
+  <div class="endpoint">
+    <h2>GET <code>/users/&dollar;{id}</code> → UserResult</h2>
+    <request id="profile" api="getUser" args=@query></>
+    <p>Fetches user 1 on mount; re-fetches when <code>@query</code> changes.</p>
+  </div>
+
+  <!-- A body-carrying POST endpoint. The args value (@feedback) is
+       JSON-serialized as the request body (§60.4); the FeedbackResult variant
+       response is parseVariant-decoded the same way. -->
+  <div class="endpoint">
+    <h2>POST <code>/feedback</code> → FeedbackResult</h2>
+    <request id="sent" api="sendFeedback" args=@feedback></>
+    <p>Posts <code>@feedback</code> as a JSON body on mount.</p>
+  </div>
+</div>
+
+</program>
