@@ -1182,7 +1182,7 @@ function emitRequestNode(node: any, errors: CGError[], filePath: string, apiEndp
     const carriesBody = method === "POST" || method === "PUT" || method === "PATCH";
 
     lines.push(`// <request id="${requestId}" api="${endpointName}"> (§60.4 — typed external API)`);
-    lines.push(`var ${stateVar} = { loading: true, data: null, error: null, stale: false };`);
+    lines.push(`var ${stateVar} = _scrml_deep_reactive({ loading: true, data: null, error: null, stale: false });`);
     lines.push(`var ${seqVar} = 0;`);
     lines.push(`var ${mountedVar} = true;`);
     lines.push(`async function ${fetchFn}() {`);
@@ -1197,7 +1197,6 @@ function emitRequestNode(node: any, errors: CGError[], filePath: string, apiEndp
     lines.push(`  ${stateVar}.loading = true;`);
     lines.push(`  ${stateVar}.error = null;`);
     lines.push(`  if (${stateVar}.data !== null) { ${stateVar}.stale = true; }`);
-    lines.push(`  _scrml_notify(${JSON.stringify(requestId)});`);
     lines.push(`  try {`);
     // Request init: method always; body for body-carrying methods (the args
     // object serialized as JSON, §60.4 — the args value IS the request shape).
@@ -1236,7 +1235,6 @@ function emitRequestNode(node: any, errors: CGError[], filePath: string, apiEndp
     lines.push(`  }`);
     lines.push(`  ${stateVar}.loading = false;`);
     lines.push(`  ${stateVar}.stale = false;`);
-    lines.push(`  _scrml_notify(${JSON.stringify(requestId)});`);
     lines.push(`}`);
     lines.push(`${stateVar}.refetch = ${fetchFn};`);
     lines.push(`_scrml_register_cleanup(function() { ${mountedVar} = false; });`);
@@ -1301,7 +1299,7 @@ function emitRequestNode(node: any, errors: CGError[], filePath: string, apiEndp
   const mountedVar = `_scrml_request_${requestId}_mounted`;
 
   lines.push(`// <request id="${requestId}">`);
-  lines.push(`var ${stateVar} = { loading: true, data: null, error: null, stale: false };`);
+  lines.push(`var ${stateVar} = _scrml_deep_reactive({ loading: true, data: null, error: null, stale: false });`);
   lines.push(`var ${seqVar} = 0;`);
   lines.push(`var ${mountedVar} = true;`);
   lines.push(`async function ${fetchFn}() {`);
@@ -1309,7 +1307,6 @@ function emitRequestNode(node: any, errors: CGError[], filePath: string, apiEndp
   lines.push(`  ${stateVar}.loading = true;`);
   lines.push(`  ${stateVar}.error = null;`);
   lines.push(`  if (${stateVar}.data !== null) { ${stateVar}.stale = true; }`);
-  lines.push(`  _scrml_notify(${JSON.stringify(requestId)});`);
   lines.push(`  try {`);
   lines.push(`    var _res = await fetch(${urlExpr}, { method: ${JSON.stringify(method)} });`);
   lines.push(`    if (!_res.ok) throw new Error("HTTP " + _res.status);`);
@@ -1322,7 +1319,6 @@ function emitRequestNode(node: any, errors: CGError[], filePath: string, apiEndp
   lines.push(`  }`);
   lines.push(`  ${stateVar}.loading = false;`);
   lines.push(`  ${stateVar}.stale = false;`);
-  lines.push(`  _scrml_notify(${JSON.stringify(requestId)});`);
   lines.push(`}`);
   lines.push(`${stateVar}.refetch = ${fetchFn};`);
   lines.push(`_scrml_register_cleanup(function() { ${mountedVar} = false; });`);

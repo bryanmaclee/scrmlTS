@@ -143,6 +143,7 @@ const MARKUP_FOR_STMT_SENTINEL = Symbol("MARKUP_FOR_STMT_BOTH_PRESENT");
 const CHUNKED_MARKUP_TAGS = new Set([
   "timer", "poll", "timeout",         // → chunks.add("timers") + chunks.add("deep_reactive")
   "keyboard", "mouse", "gamepad",     // → chunks.add("input")
+  "request",                          // → chunks.add("deep_reactive") (request-state-render-bridge)
 ]);
 function detectMarkupForStmtChunkPresence(
   nodes: any[],

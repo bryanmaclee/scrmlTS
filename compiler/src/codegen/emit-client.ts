@@ -247,7 +247,8 @@ function hasRuntimeMetaBlocks(fileAST: any): boolean {
 //   transitions   logic binding or event binding with transitionEnter/transitionExit
 //   input         markup tag "keyboard", "mouse", or "gamepad"
 //   deep_reactive state-decl (uses _scrml_deep_reactive), when-effect, bind: directives,
-//                 CSS variable bridge with reactive refs, bind-props wiring
+//                 CSS variable bridge with reactive refs, bind-props wiring,
+//                 markup tag "request" (request-state object is deep-reactive-wrapped)
 //   equality      match-stmt with enum arms, == / != binary ops (uses _scrml_structural_eq)
 // ---------------------------------------------------------------------------
 
@@ -897,6 +898,12 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
           }
           if (tag === "keyboard" || tag === "mouse" || tag === "gamepad") {
             chunks.add("input");
+          }
+          if (tag === "request") {
+            // <request> state object is _scrml_deep_reactive(...)-wrapped so its
+            // .loading/.data/.error mutations trigger effect re-render (the §6.7.7
+            // render bridge). It uses _scrml_register_cleanup (always in 'scope').
+            chunks.add("deep_reactive");
           }
           if (tag === "channel") {
             // <channel> generates inline WebSocket code (no runtime chunk needed)
