@@ -191,3 +191,73 @@ describe("VP-2 §7: F-COMPONENT-001 reproducer (lift+import pattern)", () => {
     expect(codes(errors)).toContain("E-COMPONENT-035");
   });
 });
+
+// ---------------------------------------------------------------------------
+// §7: g-block-match-in-lift — block `<match>` inside `${...lift}` → a targeted
+//     E-MATCH-BLOCK-IN-LIFT steer (REPLACING the misleading E-COMPONENT-035
+//     cascade), not "unresolved component". User ruling S212 (b); S213 impl.
+// ---------------------------------------------------------------------------
+
+describe("VP-2 §7: block <match> inside ${...lift} → E-MATCH-BLOCK-IN-LIFT", () => {
+  test("lift-loop block-<match> fires E-MATCH-BLOCK-IN-LIFT, not E-COMPONENT-035", () => {
+    const src = `<program>
+\${ type Status:enum = { Open, Closed } }
+<items>: Status[] = []
+<ul>
+\${ for (let s of @items) {
+  lift <li>
+    <match for=Status on=s>
+      <Open>open</>
+      <Closed>closed</>
+    </match>
+  </li>
+} }
+</ul>
+</program>`;
+    const { errors } = compile(src);
+    const cs = codes(errors);
+    expect(cs).toContain("E-MATCH-BLOCK-IN-LIFT");
+    // The misleading "unresolved component" cascade on the arms is REPLACED.
+    expect(cs).not.toContain("E-COMPONENT-035");
+    // Exactly ONE steer regardless of arm count (one per unrecognized <match>).
+    expect(cs.filter((c) => c === "E-MATCH-BLOCK-IN-LIFT").length).toBe(1);
+  });
+
+  test("E-MATCH-BLOCK-IN-LIFT names the for= type and steers to <each>", () => {
+    const src = `<program>
+\${ type Status:enum = { Open, Closed } }
+<items>: Status[] = []
+<ul>
+\${ for (let s of @items) {
+  lift <li>
+    <match for=Status on=s>
+      <Open>open</>
+      <Closed>closed</>
+    </match>
+  </li>
+} }
+</ul>
+</program>`;
+    const { errors } = compile(src);
+    const e = errors.find((x) => x.code === "E-MATCH-BLOCK-IN-LIFT");
+    expect(e).toBeDefined();
+    expect(e.severity).toBe("error");
+    expect(e.message).toContain("Status");
+    expect(e.message).toContain("<each>");
+  });
+
+  test("a recognized block-<match> in markup position does NOT fire E-MATCH-BLOCK-IN-LIFT", () => {
+    // Markup-position <match> builds a `match-block` node (not a raw markup
+    // tag=match), so the unrecognized-block-match signal is absent.
+    const src = `<program>
+\${ type Status:enum = { Open, Closed } }
+<status>: Status = .Open
+<match for=Status on=@status>
+  <Open>open</>
+  <Closed>closed</>
+</match>
+</program>`;
+    const { errors } = compile(src);
+    expect(codes(errors)).not.toContain("E-MATCH-BLOCK-IN-LIFT");
+  });
+});

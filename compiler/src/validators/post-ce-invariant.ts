@@ -52,6 +52,89 @@ export interface PostCEInvariantError {
 }
 
 // ---------------------------------------------------------------------------
+// g-block-match-in-lift — unrecognized block-`<match>` in a lift context
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect a block `<match for=Type on=expr>` that was parsed by the logic-context
+ * inline-markup path (a `${ ... lift ... }` loop body) rather than the BS-layer
+ * S107 match-block recognition (`ast-builder.js` `block.name === "match"`). The
+ * recognized form builds a `kind:"match-block"` node; the unrecognized form lands
+ * as a RAW `kind:"markup" tag:"match"` node whose variant arms (`<Open>`/`<Closed>`)
+ * are uppercase-tag markup children that survive CE unresolved and would otherwise
+ * fire a misleading E-COMPONENT-035 cascade pointing at a phantom cross-file
+ * component-import problem.
+ *
+ * Per the S212 user ruling ("(b) targeted diagnostic, steer to `<each>`"; option
+ * (a) support-the-form REJECTED — limit-primitives, `<each>` is canonical per S130
+ * HU-1), emit ONE targeted `E-MATCH-BLOCK-IN-LIFT` per unrecognized `<match>` and
+ * collect its arm nodes into `suppressed` so the E-COMPONENT-035 walk skips them
+ * (this shape's misleading cascade is REPLACED, not supplemented). SPEC §34.
+ */
+function collectUnrecognizedMatchBlocks(
+  root: unknown,
+  errors: PostCEInvariantError[],
+  suppressed: Set<object>,
+  filePath: string,
+): void {
+  const seen = new Set<object>();
+  function visit(node: unknown, insideMatch: boolean): void {
+    if (!node || typeof node !== "object" || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const c of node) visit(c, insideMatch);
+      return;
+    }
+    const n = node as {
+      kind?: string;
+      tag?: string;
+      attrs?: Array<{ name?: string; value?: { name?: string; exprNode?: { name?: string } } }>;
+      span?: Span;
+    };
+    const tag = n.tag ?? "";
+    let nowInside = insideMatch;
+    // The recognized block-form is `kind:"match-block"`; a residual
+    // `kind:"markup" tag:"match"` carrying a `for=` attr is the unrecognized form.
+    const forAttr = Array.isArray(n.attrs)
+      ? n.attrs.find((a) => a && a.name === "for")
+      : undefined;
+    if (n.kind === "markup" && tag === "match" && forAttr) {
+      const forType = forAttr.value?.name ?? forAttr.value?.exprNode?.name ?? "Type";
+      const span = n.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+      errors.push({
+        code: "E-MATCH-BLOCK-IN-LIFT",
+        message:
+          `E-MATCH-BLOCK-IN-LIFT: A block \`<match for=${forType} ...>\` is not supported inside a ` +
+          `\`\${ ... lift ... }\` logic loop — its variant arms are not recognized as match arms in this ` +
+          `context (they would otherwise surface a misleading "unresolved component" error). The supported ` +
+          `per-item form is the Tier-1 \`<each>\` block: move the \`<match>\` into an ` +
+          `\`<each in=@collection as item> ... <match for=${forType} on=item> ... </match> ... </each>\` body ` +
+          `— the same block \`<match>\` compiles there. See SPEC §17.7 (\`<each>\`) and §18.0.1 (block-form \`<match>\`).`,
+        span,
+        severity: "error",
+      });
+      nowInside = true;
+    }
+    // While inside an unrecognized `<match>`, every uppercase-tag markup descendant
+    // is an arm (or arm content) whose E-COMPONENT-035 would be the misleading cascade.
+    if (
+      insideMatch &&
+      n.kind === "markup" &&
+      tag.length > 0 &&
+      tag.charCodeAt(0) >= 65 &&
+      tag.charCodeAt(0) <= 90
+    ) {
+      suppressed.add(node);
+    }
+    for (const k of Object.keys(n)) {
+      const v = (n as Record<string, unknown>)[k];
+      if (v && typeof v === "object") visit(v, nowInside);
+    }
+  }
+  visit(root, false);
+}
+
+// ---------------------------------------------------------------------------
 // Public entry — single file
 // ---------------------------------------------------------------------------
 
@@ -67,6 +150,13 @@ export function runPostCEInvariantFile(file: {
   const ast = file.ast;
   if (!ast) return errors;
 
+  // g-block-match-in-lift (S213, user ruling S212): pre-scan for unrecognized
+  // block-`<match>` nodes (lift-context), emit E-MATCH-BLOCK-IN-LIFT, and collect
+  // their arm nodes into `suppressed` so the E-COMPONENT-035 walk below skips the
+  // misleading cascade. See collectUnrecognizedMatchBlocks above.
+  const suppressed = new Set<object>();
+  collectUnrecognizedMatchBlocks(ast, errors, suppressed, file.filePath);
+
   walkFileAst(ast, (node) => {
     if (!node || typeof node !== "object") return;
     const n = node as {
@@ -77,6 +167,10 @@ export function runPostCEInvariantFile(file: {
       span?: Span;
     };
     if (n.kind !== "markup") return;
+    // Suppressed: a variant arm of an unrecognized block-`<match>` in a lift
+    // context — E-MATCH-BLOCK-IN-LIFT already fired for the enclosing `<match>`
+    // (g-block-match-in-lift). Skip the misleading E-COMPONENT-035 for it.
+    if (suppressed.has(node)) return;
     // P3-FOLLOW: route on NR's resolvedKind / resolvedCategory (authoritative).
     // VP-2 fires on:
     //   (a) resolvedKind === "user-component" — a known component CE should
