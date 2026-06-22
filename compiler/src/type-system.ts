@@ -6255,6 +6255,15 @@ const LOGIC_SCOPE_GLOBAL_ALLOWLIST: ReadonlySet<string> = new Set([
   // plain call rather than the builtin lowering. `log` is NOT a reserved
   // keyword (so `function log` stays legal — it is the shadowing case).
   "log",
+  // §6.7.9 — animationFrame(callback) game-loop builtin. Registered by the
+  // tokenizer + handled by the §6.7.9 lifecycle checker + lowered at codegen
+  // (the scrml builtin with auto scope-cancellation; the raw host
+  // `requestAnimationFrame` is allowlisted above but the scrml builtin was
+  // OMITTED). Without it a bare `animationFrame(loop)` fired a spurious
+  // E-SCOPE-001, breaking the documented game-loop idiom — and the compiler's
+  // OWN fixture phase2-animationframe-in-element-091.scrml (.expected: clean)
+  // regressed. PongAI C1 (adopter dog-food), S213.
+  "animationFrame",
 ]);
 
 /**
