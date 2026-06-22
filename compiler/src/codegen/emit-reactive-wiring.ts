@@ -673,7 +673,7 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
   }
 
   // Single-pass classification of markup nodes (replaces 5 independent AST walks)
-  const { lifecycleNodes, inputStateNodes, requestNodes, timeoutNodes, bindPropsWirings } =
+  const { lifecycleNodes, inputStateNodes, requestNodes, apiDeclNodes, timeoutNodes, bindPropsWirings } =
     classifyMarkupNodes(getNodes(fileAST));
 
   // Step 5: Generate <timer> and <poll> lifecycle initialization (§6.7.5, §6.7.6)
@@ -717,7 +717,9 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
   // §60.4 — also handles `<request api="endpointName">` (typed external API);
   // the endpoint registry is built once from the file's `<api>` decls.
   if (requestNodes.length > 0) {
-    const apiEndpoints = buildApiEndpointRegistry(getNodes(fileAST));
+    // Deep-walked api-decl set (classifyMarkupNodes descends into <program>/
+    // <page>/engine bodies) — getNodes() top-level-only missed a wrapped <api>.
+    const apiEndpoints = buildApiEndpointRegistry(apiDeclNodes);
     lines.push("");
     lines.push("// --- request async fetch initialization (§6.7.7, compiler-generated) ---");
     for (const rqNode of requestNodes) {
@@ -801,6 +803,7 @@ interface WiringCollections {
   lifecycleNodes: any[];
   inputStateNodes: any[];
   requestNodes: any[];
+  apiDeclNodes: any[];
   timeoutNodes: any[];
   bindPropsWirings: BindPropsWiring[];
 }
@@ -820,6 +823,7 @@ function classifyMarkupNodes(nodes: any[]): WiringCollections {
     lifecycleNodes: [],
     inputStateNodes: [],
     requestNodes: [],
+    apiDeclNodes: [],
     timeoutNodes: [],
     bindPropsWirings: [],
   };
@@ -853,6 +857,16 @@ function classifyMarkupNodes(nodes: any[]): WiringCollections {
         if (Array.isArray(node.children)) {
           visit(node.children);
         }
+        continue;
+      }
+
+      // §60.4 'api-decl' nodes are NOT kind==="markup" (they are their own
+      // top-level kind), and they nest inside the '<program>'/'<page>' markup
+      // subtree in the canonical app shape. Collect them here so emitRequestNode's
+      // api= mode can build its endpoint registry from the DEEP-walked set
+      // (getNodes() returns only top-level nodes, so a wrapped <api> was missed).
+      if (node.kind === "api-decl") {
+        result.apiDeclNodes.push(node);
         continue;
       }
 

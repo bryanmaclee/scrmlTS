@@ -18074,12 +18074,27 @@ function checkApiDeclarations(
     responseEnum?: ResolvedType;
   }
   const apiDecls: ASTNodeLike[] = [];
-  // Walk top-level nodes only — `<api>` is a top-level declaration (§60.2); it
-  // does not nest inside markup. (A defensive deep walk would also pick up a
-  // stray nested form, but the W2 parser only produces api-decl at the top.)
-  for (const n of topNodes) {
-    if (n && typeof n === "object" && n.kind === "api-decl") apiDecls.push(n);
+  // Deep-walk for `api-decl` nodes. In the canonical app shape the `<api>` block
+  // nests inside the `<program>`/`<page>` markup subtree (and may sit inside an
+  // engine state-child body), so it is NOT a top-level node. A shallow top-level
+  // scan missed every wrapped `<api>` — leaving the endpoint registry empty, the
+  // `responseEnum` annotation unset (W4 then raw-passed a variant response), and
+  // the typer checks (§60.2/§60.4) silently skipped. Mirror Pass 3's `walkRequests`
+  // deep walk.
+  const seenApiWalk = new WeakSet<object>();
+  function collectApiDecls(node: unknown): void {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { for (const c of node) collectApiDecls(c); return; }
+    if (seenApiWalk.has(node as object)) return;
+    seenApiWalk.add(node as object);
+    const n = node as Record<string, unknown>;
+    if (n.kind === "api-decl") apiDecls.push(n as ASTNodeLike);
+    if (Array.isArray(n.body)) collectApiDecls(n.body);
+    if (Array.isArray(n.children)) collectApiDecls(n.children);
+    if (Array.isArray(n.bodyChildren)) collectApiDecls(n.bodyChildren);
+    if (Array.isArray(n.branches)) collectApiDecls(n.branches);
   }
+  collectApiDecls(topNodes);
   if (apiDecls.length === 0) return; // nothing api-shaped in this file
 
   const endpointRegistry = new Map<string, ApiEndpoint>();
