@@ -124,3 +124,32 @@ Keeps par 36 render-once semantics intact (only <request> ids become reactive).
   §3 match-on routing+effect-wrap; §4 if= member-preserved+routed+effect-wrap+GREEN;
   §5 const routed+hoisted (decl-before-read, exactly-once); §6 §36 input-state UNCHANGED
   (cursor stays registry); §7 every form parses. 20/0 local.
+
+## FINAL VERIFICATION
+- Blocking gate (unit+integration+conformance): 17558 pass / 68 skip / 1 todo / 0 fail
+  (baseline was 17538 pass; +20 = the new request-id-render-bridge tests). within-node
+  canary test is in this suite and passed — NO over-budget fixture, allowlist UNCHANGED.
+- FULL suite (bun run test, browser/lsp live): 24857 pass / 210 skip / 1 todo / 0 fail
+  across 1050 files. Zero regressions.
+- R26: a `<program>` with a `<request api=>` (variant UserResult) + a `<request url=>`
+  rendering `if=<#profile>.loading` + `${<#feed>.data}` + `<match on=${<#profile>.data}>`
+  compiles GREEN, node --check clean, ZERO input_state_registry / _scrml_notify / mangling /
+  E-SCOPE in the bridged output; both request state objects are _scrml_deep_reactive-hoisted;
+  the api= variant decode routes _decoded → .data/.error; every ref reads _scrml_request_<id>;
+  the match dispatch + interp + if= controller are _scrml_effect-wrapped.
+
+## DEFERRED (surfaced to PA — separate seams, NOT attempted to protect high-churn machinery)
+- D1 (MED) g-request-lift-nested-interp-mangle: `lift <h1>${<#id>.data}</>` nested inside a
+  markup-lift block (`<div>${ if(...){ lift <h1>${<#id>.data}</> } }</>`, the §6.7.7 Example-1
+  shape) mangles the inner `${<#id>.data}` — the lift content-text re-parse splits it into a
+  stray text node (`_scrml_input_feed_` clipped to `crml_input_feed_` + a leftover `"feed_.data}"`).
+  Distinct lift-template + markup-as-value re-parse interaction with the `<#id>` `<`/`>` chars; the
+  emit-lift path does not thread requestIds AND the content split is corrupted before routing.
+  The §6.7.7 canonical Example-1 also pre-dates S204 (bare `if(){lift}` directly in <div> now needs
+  ${} wrapping per E-CONTROL-FLOW-IN-MARKUP), so the example itself is stale. RECOMMEND: separate
+  lift-path dispatch (emit-lift.js content-parser + requestIds threading) — high-churn, do not
+  bundle with the codegen render-bridge.
+- D2 (LOW) the bare `${ if (<#id>.loading) { lift } }` condition (emit-lift path) reads the §36
+  registry, not _scrml_request_<id> — same emit-lift requestIds-threading gap as D1.
+- Both D1/D2 are LIFT-PATH; the 4 brief-listed forms (interpolation / match-on / if= attr /
+  file-scope const) all work end-to-end in both url= and api= modes.
