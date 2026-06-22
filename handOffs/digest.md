@@ -1,9 +1,9 @@
-<!-- @digest head=d4d489bf delta-seq=9 -->
+<!-- @digest head=dd5331e2 delta-seq=9 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `d4d489bf`** + delta-log **[9]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `d4d489bf`
+> **HEAD `dd5331e2`** + delta-log **[9]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `dd5331e2`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `d4d489bf`
+## Board — from `@gap` tokens @ `dd5331e2`
 - **HIGH 0** · MED 10 · LOW 14 · Nominal 8
 - Named open HIGHs: _none_
 
@@ -29,7 +29,7 @@
 - `[9]` rule/state · **C3/C4/C5 ALL ROOT-CAUSED (next session).** C3 emit-expr:1726 render-hijack→mirror `log` shadowing. C4 ==-vs-payload-variant-ctor always-false→lint. C5 dot-var… → hand-off OPEN
 
 ## State
-- Version: 0.7.0 · maps: 2 commits behind HEAD (watermark fec0a054, HEAD d4d489bf)
+- Version: 0.7.0 · maps: 7 commits behind HEAD (watermark fec0a054, HEAD dd5331e2)
 - Recent wraps:
   - d4d489bf chore(s213): wrap bookkeeping — hand-off close + delta-log + gaps + §0/digest + BRIEFs
   - ca712295 chore(s212): wrap-finalize — recent-sessions + digest regen at settled HEAD e4c33498
