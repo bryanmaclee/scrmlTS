@@ -1,9 +1,9 @@
-<!-- @digest head=1ce8de34 delta-seq=9 -->
+<!-- @digest head=a93223fe delta-seq=11 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `1ce8de34`** + delta-log **[9]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `1ce8de34`
+> **HEAD `a93223fe`** + delta-log **[11]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `a93223fe`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,23 +13,19 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `1ce8de34`
-- **HIGH 0** · MED 10 · LOW 15 · Nominal 8
+## Board — from `@gap` tokens @ `a93223fe`
+- **HIGH 0** · MED 10 · LOW 16 · Nominal 8
 - Named open HIGHs: _none_
 
-## Recent rulings — last 1 `rule` (delta-log S213 — 2026-06-22)
-- `[9]` rule/state · **C3/C4/C5 ALL ROOT-CAUSED (next session).** C3 emit-expr:1726 render-hijack→mirror `log` shadowing. C4 ==-vs-payload-variant-ctor always-false→lint. C5 dot-var… → hand-off OPEN
+## Recent rulings — last 0 `rule` (delta-log S214)
+- _(none in the latest session)_
 
-## Recent activity — last 6 `disp`/`land`/`find`/`state`
-- `[4]` land · **PongAI C1 `acec6c10` + C2 `85881459`.** C1: `animationFrame` missing from LOGIC_SCOPE_GLOBAL_ALLOWLIST → spurious E-SCOPE-001 (compiler's own fixture red). C2… → acec6c10 + 85881459
-- `[5]` find/file/disp · **`<request>` `<#id>` render-bridge (HIGH) `4118ef4d`.** `<request>` fetch+decode into `_scrml_request_<id>` but `<#id>` refs read an unpopulated input-state re… → 4118ef4d + BRIEF
-- `[6]` land · **mid-session PUSH `9a4950f3`** (g-block-match + deep-walk + C1 + C2 + render-bridge-gap-filing + deputy-maint merge; coherence 0/0, deputy^main==0, S205 gate h… → origin 9a4950f3
-- `[7]` land · **render-bridge FIXED `fec0a054` (merge).** agent a7ebad43 (13 src files): `_scrml_request_<id>` now `_scrml_deep_reactive`; `<#id>` refs route to it (interp/if… → fec0a054
-- `[8]` land · **A2 §60 Nominal→Implemented + examples/32 + B-docs `46f2c56f` (user "banner now").** Held W5 trio landed (render bridge wired); §60 3-way onto §34; SPEC-INDEX… → 46f2c56f
-- `[9]` rule/state · **C3/C4/C5 ALL ROOT-CAUSED (next session).** C3 emit-expr:1726 render-hijack→mirror `log` shadowing. C4 ==-vs-payload-variant-ctor always-false→lint. C5 dot-var… → hand-off OPEN
+## Recent activity — last 2 `disp`/`land`/`find`/`state`
+- `[10]` land · **S214 doc/sPA push `1ce8de34`** — PRIMER §9.8 scoped-CSS (verified @scope) · known-gaps §S214 css-papercut (LOW) · sPA ss15+ss16 BUILT · S214 hand-off + S213 r… → origin 1ce8de34
+- `[11]` land · **sPA ss16 RE-INTEGRATED `6650f1eb` (FF-merge spa/ss16, user "integrate ss16").** PongAI cluster, agent a58f1b20: C5 ctor-arg contextual typing (§14.10) · C4 W-… → 6650f1eb + known-gaps §S214
 
 ## State
-- Version: 0.7.0 · maps: 10 commits behind HEAD (watermark fec0a054, HEAD 1ce8de34)
+- Version: 0.7.0 · maps: 14 commits behind HEAD (watermark fec0a054, HEAD a93223fe)
 - Recent wraps:
   - d4d489bf chore(s213): wrap bookkeeping — hand-off close + delta-log + gaps + §0/digest + BRIEFs
   - ca712295 chore(s212): wrap-finalize — recent-sessions + digest regen at settled HEAD e4c33498
