@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlts
-# updated: 2026-06-21  commit: 8ddc8448
+# updated: 2026-06-22  commit: fec0a054
 
 ## Entry Points
 compiler/bin/scrml.js — CLI binary registered as `scrml`; thin Bun launcher
@@ -52,6 +52,54 @@ docs/website-viewer/  — C1 self-demo scrml app (viewer shell + real provenance
 scripts/  — maintenance + state tooling: regen-spec-index.ts, compile-test-samples.sh, git-hooks/, state.ts (DD3 project-state tool, S172 — see build.map.md)
 editors/  — editor extension stubs (VS Code etc.)
 scratch/  — throwaway working files
+
+## Key S213 Source Changes (since watermark 8ddc8448)
+
+### S213 Arc 1 — g-block-match-in-lift: E-MATCH-BLOCK-IN-LIFT targeted diagnostic (`43a996c1`)
+- compiler/src/validators/post-ce-invariant.ts — NEW `collectUnrecognizedMatchBlocks(root, errors, suppressed, filePath)` pre-scan (+89L). Detects a `kind:"markup" tag:"match"` node carrying a `for=` attr (the unrecognized form produced by the inline-markup path when a block-`<match>` appears inside `${ ... lift ... }`) and emits ONE targeted `E-MATCH-BLOCK-IN-LIFT` per such node. Collects its uppercase-tag descendant arm nodes into `suppressed: Set<object>`. `runPostCEInvariantFile` calls this BEFORE the `walkFileAst` E-COMPONENT-035 walk; nodes in `suppressed` are skipped (the misleading cascade is REPLACED, not supplemented). The ruling (b) fix from S212: limit-the-primitive, `<each>` is canonical.
+- ZERO new functions added to any other file. No new AST shapes. No registry changes.
+
+### S213 Arc 2 — A2 W5: `<api-decl>` deep-walk (top-level-only scan missed wrapped `<api>`) (`9d30ee93`)
+- compiler/src/type-system.ts `checkApiDeclarations` (+24L) — replaced the shallow top-level scan (`for (const n of topNodes) if n.kind === "api-decl"`) with a deep-walk `collectApiDecls(node)` (recursive descent into `body`/`children`/`bodyChildren`/`branches` — mirrors Pass 3's `walkRequests` descent). The shallow scan missed every `<api>` block nested inside a `<program>`/`<page>` markup subtree (the canonical app shape). Symptoms: endpoint registry empty → `responseEnum` annotation unset → W-API-RESPONSE-NOT-VARIANT raw-passed a variant response + W3 typer checks (§60.2/§60.4) silently skipped.
+- compiler/src/codegen/emit-reactive-wiring.ts `classifyMarkupNodes` (+10L) — `WiringCollections` gains `apiDeclNodes: any[]`; the classification loop adds a `node.kind === "api-decl"` branch that pushes to `apiDeclNodes` (descends the deep-walked set from the BS/TAB output, NOT getNodes() top-level-only). `buildApiEndpointRegistry(apiDeclNodes)` receives the deep-walked set at Step 5c (was `getNodes(fileAST)` — same shallow-scan miss).
+- compiler/src/codegen/emit-reactive-wiring.ts `emitReactiveWiring` — now imports `collectRequestIds` from `reactive-deps.ts`; threads `requestIds` into `emitOpts` (both branches); hoist pass for `_scrml_request_<id>` state objects emitted BEFORE top-level logic (see Arc 4).
+
+### S213 Arc 3 — PongAI fixes (`acec6c10` C1 / `85881459` C2)
+- C1 (`acec6c10`): compiler/src/type-system.ts `LOGIC_SCOPE_GLOBAL_ALLOWLIST` (+9L) — `"animationFrame"` added. The scrml game-loop builtin (`animationFrame(callback)`) was omitted from the allowlist — a bare `animationFrame(loop)` fired a spurious E-SCOPE-001, breaking the documented game-loop idiom and the compiler's own fixture `phase2-animationframe-in-element-091.scrml`.
+- C2 (`85881459`): `fileURLToPath` import + usage at 3 sites replacing `new URL(import.meta.url).pathname`:
+  - compiler/src/validators/lint-async-user-source.ts `STDLIB_ROOT` — was `.pathname` (Windows: `/C:/…` leading-slash → `resolve` treats as relative → `C:\C:\…` → E-IMPORT-006 on every `scrml:` import).
+  - compiler/src/module-resolver.js `STDLIB_ROOT` — same Windows double-drive path corruption.
+  - compiler/src/commands/compile.js `compilerSrcDir` (selfHost path) — same class.
+  - All three now use `fileURLToPath(import.meta.url)` which yields a correct native path on both POSIX and Windows.
+
+### S213 Arc 4 — render-bridge: `<request> <#id>` render bridge wired (`fec0a054` merge of `f144d7b1`→`635eb355`)
+The gap: `g-request-id-render-bridge-unwired` (HIGH, closed S213). A `<request id="x" url=…>` emitted `var _scrml_request_x = { loading, data, error, stale }` (PLAIN object) — mutations never triggered re-render. A `${<#x>.data}` markup ref lowered to `_scrml_input_state_registry.get("x")` (the §36 input-state registry which a `<request>` never populates → `undefined` → `.data` throws). Three seams + two parse fixes + one ordering fix:
+
+**Seam 1** (`f144d7b1` — deep-reactive wrap + dead-notify removal):
+- compiler/src/codegen/emit-reactive-wiring.ts `emitRequestNode` — both the api= branch and the url= branch: `var _scrml_request_<id> = _scrml_deep_reactive({ loading: true, data: null, error: null, stale: false })` (was plain `{}`); the two dead `_scrml_notify(...)` calls removed (the deep-reactive Proxy auto-tracks reads inside `_scrml_effect`; explicit notify was a no-op since the DOM had no subscriptions to the non-reactive object).
+- compiler/src/codegen/emit-client.ts `detectRuntimeChunks` — `tag === "request"` branch adds `chunks.add("deep_reactive")` so the `_scrml_deep_reactive`/`_scrml_effect` runtime chunk is pulled for any file containing a `<request>`.
+- compiler/src/compute-pgo-flags.ts `CHUNKED_MARKUP_TAGS` — `"request"` added to the set.
+
+**Seam 2** (`173add1f` — `<#id>` refs route to `_scrml_request_<id>` in interpolation, match `on=`, and `if=`):
+- compiler/src/codegen/reactive-deps.ts NEW `collectRequestIds(fileAST): Set<string>` (+73L) — collects every `<request>` `id` value via deep descent (`children`/`bodyChildren`/`logic`/`if-stmt`/`for-stmt`/`while-stmt`/`match-stmt`). Used as the routing key: a `<#id>` ref whose id is in this set is a REQUEST-STATE ref; the rest fall through to the §36 input-state registry.
+- compiler/src/codegen/emit-expr.ts NEW `requestIds?: Set<string>` on `EmitExprContext` (+18L) — `emitInputStateRef(node, ctx)` checks `ctx.requestIds?.has(node.name)` → returns `_scrml_request_<id>` instead of the registry call; `emitIdent` bare-recovery path does the same for the `_scrml_input_<id>_` TAB-lowered form.
+- compiler/src/codegen/emit-logic.ts `EmitLogicOpts` NEW `requestIds?: Set<string>` (+9L) — threaded into `_makeExprCtx(opts)` + forwarded in `for-stmt`/`do-while-stmt`/nested-if-expr-alt-chain (which previously used `_makeExprCtx({})` dropping all opts).
+- compiler/src/codegen/emit-match.ts `resolveOnExpr` (+9L) — imports `collectRequestIds` + threads `requestIds` into the `emitExpr` call for the `on=` expression (so a `<match for=T on=<#id>.data>` routes to `_scrml_request_<id>.data`).
+- compiler/src/type-system.ts `annotateNodes` (+14L) — E-SCOPE-001 EXEMPTION: identifiers matching `_scrml_input_<id>_` (TAB-lowered `<#id>` form, trailing `_` anchor) are never user scope bindings; skip the scope check so `if=<#id>.X` no longer false-fires E-SCOPE-001.
+
+**Seam 3** (`173add1f` — `if=<#id>.member` effect-wrapped path):
+- compiler/src/codegen/emit-event-wiring.ts NEW `hasRequestRef?: boolean` on `LogicBinding` (+7L); imports `collectRequestIds`; `requestIds` threaded into `engineExprCtxExtras`; the `if=`/`show=`/`else-if=` condition-code branch: a `_scrml_input_<id>_` varName whose id is in `requestIds` routes to `(_scrml_request_<id>.tail)` rather than `_scrml_reactive_get(...)` (which reads a nonexistent reactive cell); the `varRefs.length > 0 || binding.hasRequestRef` guard forces the `_scrml_effect`-wrapped path for a request-ref interpolation that carries no `@var` dep.
+- compiler/src/codegen/emit-html.ts NEW `exprHasRequestRef(expr: string): boolean` (+30L); imports `collectRequestIds`; `hasRequestRef` flag stamped on `addLogicBinding` for `${}` interpolation bindings whose expr contains a `<#id>` or `_scrml_input_<id>_` token naming a `<request>`.
+- compiler/src/codegen/binding-registry.ts `LogicBinding` interface — NEW `hasRequestRef?: boolean` field (+6L).
+
+**Parse fix 1** (`45295eb2` — `if=<#id>.member` block-splitter attribute scanner):
+- compiler/src/block-splitter.js `scanOpenerAttributes` — NEW `hashRefAngleDepth` counter (+22L). A `<#id>` token in an unquoted attr value has an embedded `>` (the `<#id>` close) that was read as the opener terminator — trailing `.member` (`.loading`/`.data`) was shredded into body content. `<#` increments depth; matching `>` decrements and is absorbed into `attrRaw` (NOT a terminator). Analogue of the S206 `shorthandAngleDepth` rule.
+
+**Parse fix 2** (`45295eb2` — `if=<#id>.member` tokenizer member-chain):
+- compiler/src/tokenizer.ts `tokenizeAttributes` standalone `<#name>` branch — NEW member-chain consumer (+18L). The prior code produced `ATTR_IDENT _scrml_input_<id>_` and discarded any trailing `.member` chain. Now consumes `.fieldName` runs (while `ch() === '.'` + identifier chars) and appends them: `_scrml_input_<id>_.loading`. The `.send(` worker form is already handled above; the member chain is attr-read-only.
+
+**Ordering fix** (`f21486dc` — hoist `_scrml_request_<id>` before top-level logic):
+- compiler/src/codegen/emit-reactive-wiring.ts `emitReactiveWiring` — HOISTS the `var _scrml_request_<id> = _scrml_deep_reactive(...)` declaration BEFORE top-level logic statements (+30L). A file-scope `const <x> = <#id>.data` (top-level logic) reads `_scrml_request_<id>` at module-init BEFORE Step 5c emits it → `undefined.data` throw. The fetch fn + invocation + seq/mounted vars stay in Step 5c (only read by the late-emitted fetch fn + deps-effect). Also: `extractRequestId(node)` helper (+13L) extracted for reuse between the hoist pass and `emitRequestNode`.
 
 ## Key S154-S159 Source Changes (since watermark c665714c)
 
