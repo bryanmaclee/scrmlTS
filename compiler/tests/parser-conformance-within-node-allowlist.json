@@ -776,7 +776,7 @@
   },
   "samples/compilation-tests/combined-007-crud.scrml": {
     "COUNT-LENGTH": 1,
-    "EXTRA-FIELD": 18,
+    "EXTRA-FIELD": 19,
     "FIELD-SHAPE": 12,
     "KIND-NAME": 5,
     "MISSING-FIELD": 54,
