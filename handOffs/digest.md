@@ -1,9 +1,9 @@
-<!-- @digest head=d4385bd3 delta-seq=11 -->
+<!-- @digest head=9cd5ae81 delta-seq=12 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `d4385bd3`** + delta-log **[11]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `d4385bd3`
+> **HEAD `9cd5ae81`** + delta-log **[12]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `9cd5ae81`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,23 +13,24 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `d4385bd3`
+## Board — from `@gap` tokens @ `9cd5ae81`
 - **HIGH 0** · MED 10 · LOW 16 · Nominal 8
 - Named open HIGHs: _none_
 
 ## Recent rulings — last 0 `rule` (delta-log S214)
 - _(none in the latest session)_
 
-## Recent activity — last 2 `disp`/`land`/`find`/`state`
+## Recent activity — last 3 `disp`/`land`/`find`/`state`
 - `[10]` land · **S214 doc/sPA push `1ce8de34`** — PRIMER §9.8 scoped-CSS (verified @scope) · known-gaps §S214 css-papercut (LOW) · sPA ss15+ss16 BUILT · S214 hand-off + S213 r… → origin 1ce8de34
 - `[11]` land · **sPA ss16 RE-INTEGRATED `6650f1eb` (FF-merge spa/ss16, user "integrate ss16").** PongAI cluster, agent a58f1b20: C5 ctor-arg contextual typing (§14.10) · C4 W-… → 6650f1eb + known-gaps §S214
+- `[12]` land · **sPA ss15 RE-INTEGRATED `1ff06eae` (3-way merge spa/ss15 over ss16 stale-base, user "integrate 15").** render-collection cluster, 5/5: tailwind-scoped-class li… → 1ff06eae + known-gaps §S214
 
 ## State
-- Version: 0.7.0 · maps: 1 commits behind HEAD (watermark 1ff06eae, HEAD d4385bd3)
+- Version: 0.7.0 · maps: 3 commits behind HEAD (watermark 1ff06eae, HEAD 9cd5ae81)
 - Recent wraps:
+  - cab2cca0 wrap(s214): integrate sPA ss15 + close — render-collection cluster + reconciliation
   - d4d489bf chore(s213): wrap bookkeeping — hand-off close + delta-log + gaps + §0/digest + BRIEFs
   - ca712295 chore(s212): wrap-finalize — recent-sessions + digest regen at settled HEAD e4c33498
-  - 0a605d3e chore(s210): wrap-finalize — recent-sessions + digest regen at settled HEAD 4a67f5bb
 
 ## NOT in the digest (read source for these)
 - Open questions awaiting you → `hand-off.md` §"OPEN THREADS / Open questions"
