@@ -1,6 +1,6 @@
 # primary.map.md
 # project: scrmlts
-# updated: 2026-06-23  commit: 1ff06eae
+# updated: 2026-06-23  commit: a2137214
 
 ## Project Fingerprint
 Language:   TypeScript / JavaScript (mixed; Bun runtime)
