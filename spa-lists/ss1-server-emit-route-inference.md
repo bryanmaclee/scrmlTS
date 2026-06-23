@@ -1,5 +1,7 @@
 # sPA ss1 — server-emit-route-inference
 
+> **DRAINED / RE-INTEGRATED S216 (2026-06-23).** sPA ran (branch `spa/ss1` tip `1861b4c9`); PA cherry-picked the 4 landed items to main. **Item 1** g-route-001 → RESOLVED (`8bda46cb`). **Item 2** g-const-only-module → RESOLVED (`f1ab99ab`). **Item 3** g-section52-server-cell-load → parser leak-stop RESOLVED (`9b1b683a`); the LOAD-wiring escalation was **RULED LOAD/Pattern-C S216** (DD `section52-server-cell-load-rhs-2026-06-23.md`) → Pattern-C load fix IN-FLIGHT (`section52-server-cell-load-pattern-c-2026-06-23`). **Item 5** g-e-ri-002 → RESOLVED (`5e3a1dbf`). **Item 4** g-route-attr-for-server-generator-app-mode → STILL PARKED (escalation #2, `route=` app-mode un-ruled — dpa-002 OQ-1). Combined within-node re-baseline: combined-007-crud EXTRA-FIELD 18→19 (`96745d34`). DRAINED — do not re-route 1/2/3-leak-stop/5; item 4 awaits a user ruling.
+
 **Launch:** `read spa.md ss1` · **Branch:** `spa/ss1` · **Worktree:** `../scrml-spa-ss1`
 
 **Fill:** ~60% · `healthy` (REFRESHED S215 — +3 server-codegen items from the dPA batch: §52 server-cell-load, dpa-002 `route=`-for-`server function*`, targeted E-RI-002)
