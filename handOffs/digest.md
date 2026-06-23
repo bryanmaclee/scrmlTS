@@ -1,9 +1,9 @@
-<!-- @digest head=a2137214 delta-seq=27 -->
+<!-- @digest head=ec2ff3ee delta-seq=27 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `a2137214`** + delta-log **[27]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `a2137214`
+> **HEAD `ec2ff3ee`** + delta-log **[27]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `ec2ff3ee`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `a2137214`
+## Board — from `@gap` tokens @ `ec2ff3ee`
 - **HIGH 1** · MED 13 · LOW 14 · Nominal 8
 - Named open HIGHs: `g-bindvalue-wiring-dropped-in-match-arm`
 
@@ -31,7 +31,7 @@
 - `[27]` land · **(a) currency + (b) 2 residuals LANDED `0d4ba428` (user "a and b"; user already fired ss1).** **(b)** g-typer-render-call-not-in-builtin-allowlist RESOLVED — `… → 0d4ba428
 
 ## State
-- Version: 0.7.0 · maps: current
+- Version: 0.7.0 · maps: 1 commits behind HEAD (watermark a2137214, HEAD ec2ff3ee)
 - Recent wraps:
   - a2137214 chore(s215): wrap-finalize — recent-sessions + digest regen at settled HEAD 27900a6c
   - cab2cca0 wrap(s214): integrate sPA ss15 + close — render-collection cluster + reconciliation
