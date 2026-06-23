@@ -1,9 +1,9 @@
-<!-- @digest head=f4e11438 delta-seq=38 -->
+<!-- @digest head=a107f268 delta-seq=40 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `f4e11438`** + delta-log **[38]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `f4e11438`
+> **HEAD `a107f268`** + delta-log **[40]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `a107f268`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,16 +13,16 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `f4e11438`
-- **HIGH 1** · MED 13 · LOW 13 · Nominal 8
-- Named open HIGHs: `g-bindvalue-wiring-dropped-in-match-arm`
+## Board — from `@gap` tokens @ `a107f268`
+- **HIGH 0** · MED 13 · LOW 13 · Nominal 8
+- Named open HIGHs: _none_
 
 ## Recent rulings — last 5 `rule` (delta-log S215 — 2026-06-23)
-- `[16]` state/rule · **S215 verification-doctrine RATIFIED → pa.md S215 addendum** (Part 1 adversarial-gate for non-PA fixes + Part 2 random-sample-10× audit, knobs: per-wrap cadenc… → pa-scrml.md
-- `[24]` rule · **dPA batch RATIFIED + in-Q DDs banked (user "Ok, lets go. tread softly, DD anything even at all in Q").** **dpa-004 RATIFIED** — SCOPED-RETIRE the S199 boundar… → dpa-queue.md + design-insights.md
 - `[25]` rule/state · **`_{}` design-conv (user) — "Inline all the way" RULED + dpa-009 banked.** dpa-003 narrowed to the INLINE value-returning form (`const out = _={…}=`) NOT the §… → dpa-queue.md
 - `[31]` find/rule · **Bug-51 fix S215-ADVERSARIAL-GATE run by PA-as-lander (`/code-review` 3-angle finder fan-out) — caught real adjacents; scary headline EMPIRICALLY REFUTED.** Fi… → known-gaps §S216 + /tmp/bug51-toenum
 - `[35]` rule · **§52 server-cell decl-RHS `?{}` = LOAD (Pattern C) RATIFIED (user "rule LOAD, ship param-free first").** Disposition A from the §52 DD. The "conflict" was narr… → design-insights + DD doc
+- `[39]` rule · **Escalation-#2 RATIFIED (user "ratify both") — author `route=` on `server function*` allowed in APP mode (narrow BYOB serve-side carve-out).** scrml honors an… → design-insights
+- `[40]` rule · **dpa-003 RATIFIED (user "ratify both") — foreign-code `_{}` OUT-typing = `<api>`-proven hybrid; inline+sidecar COEXIST by process-lifetime.** (a) eliminate inf… → design-insights + dpa-queue
 
 ## Recent activity — last 6 `disp`/`land`/`find`/`state`
 - `[32]` disp · **Bug-51 follow-up DISPATCHED (collision guard + import-prune ordering + collision test).** scrml-js-codegen-engineer · isolation:worktree · opus · bg. FF-merge… → giti-bug51 change-id
@@ -33,11 +33,11 @@
 - `[38]` state · **3 intakes + a dPA verdict + §52-fix dispatch.** (1) giti REPLIED — **Bug-51 VERIFIED fixed** (7 pages compile, server bundles carry enum defs, SSE 3 frames, l… → known-gaps + dpa-queue + §52 change-id
 
 ## State
-- Version: 0.7.0 · maps: 14 commits behind HEAD (watermark a2137214, HEAD f4e11438)
+- Version: 0.7.0 · maps: 17 commits behind HEAD (watermark a2137214, HEAD a107f268)
 - Recent wraps:
+  - 6c5c0d58 chore(s216): wrap — close + bookkeeping (hand-off close, changelog S216, master-list §0 [HIGH 1->0], known-gaps HIGH-flip + §0 regen, delta-log [39-40], dpa-queue+artifact ratification flips, 3 inbox->read)
   - a2137214 chore(s215): wrap-finalize — recent-sessions + digest regen at settled HEAD 27900a6c
   - cab2cca0 wrap(s214): integrate sPA ss15 + close — render-collection cluster + reconciliation
-  - d4d489bf chore(s213): wrap bookkeeping — hand-off close + delta-log + gaps + §0/digest + BRIEFs
 
 ## NOT in the digest (read source for these)
 - Open questions awaiting you → `hand-off.md` §"OPEN THREADS / Open questions"
