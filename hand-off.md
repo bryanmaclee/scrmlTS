@@ -15,7 +15,7 @@
 
 ## ⏸️ OPEN — S218 (priority order)
 0. **Outbox replies OWED (write at S218 open or now):** (a) **giti** — GITI-029/030/031 RESOLVED + the GITI-030 §4.17 adopter-note (`<code>`/`<pre>` `${...}` doesn't interpolate by spec — use a non-raw element); (b) **flogence** — g-onmount-async FIXED + each-item-hidden-stale NOT-REPRODUCED (need their LIVE repro / stale-dist check). *(If not sent at wrap, these are the first S218 action.)*
-1. **Ryan PR round-2** — await his reworked branch on the fork (force-push); re-fetch + re-run the FULL adversarial pass (incl. the 2 regressions A/B + the lambda-blind D4 root) + re-verify F1/F3 still closed; land #1+#2 TOGETHER. Guidance drafted.
+1. **Ryan PR#1 round-2 + #2 — LANDED + PUSHED (post-wrap, S217).** Round-2 closed all round-1 findings (A/B regressions + D4 lambda-blind), F1/F3 held, fresh-adversarial clean, suite 25022/0. #1 `--no-ff` merge `b2bf9959` (authorship preserved); #2 CSRF cherry-picked `939d673e`+`d706f111` (his branch was on a STALE S214 base → cherry-pick the diff, NOT merge, to avoid reverting S216/S217). First external-contributor landing. delta-log [54]. **NOTHING owed** — both adopted.
 2. **escalation-2 typer-scope follow-on** — `g-sse-route-object-typer-scope` (route.lastEventId/route.query in SSE body → E-SCOPE-001; blocks the resumable-SSE FSP cursor). MED, dispatchable.
 3. **dpa-003 `_{}` inline-codegen BUILD** + §23.2.4 amendment (downstream of dpa-004; §23.2.4 forbids logic-ctx `_{}` → reconcile with §13180).
 4. **Half-2 convergence** — `<each>` bind: + `buildHandlerExpr` dedup (Family-A; fixes g-expr-event-handler-dead-in-each MED). SCOPING `docs/changes/family-a-converge-half1-...`.
