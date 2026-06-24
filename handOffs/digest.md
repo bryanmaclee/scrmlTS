@@ -1,9 +1,9 @@
-<!-- @digest head=d34e473a delta-seq=56 -->
+<!-- @digest head=05e29eae delta-seq=58 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `d34e473a`** + delta-log **[56]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `d34e473a`
+> **HEAD `05e29eae`** + delta-log **[58]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `05e29eae`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,18 +13,20 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `d34e473a`
+## Board — from `@gap` tokens @ `05e29eae`
 - **HIGH 0** · MED 13 · LOW 13 · Nominal 8
 - Named open HIGHs: _none_
 
 ## Recent rulings — last 0 `rule` (delta-log S218 — 2026-06-24)
 - _(none in the latest session)_
 
-## Recent activity — last 1 `disp`/`land`/`find`/`state`
+## Recent activity — last 3 `disp`/`land`/`find`/`state`
 - `[56]` disp · **GITI-032 (HIGH) DISPATCHED — ternary-returning-markup dropped inside a `<match>` arm body.** PA R26-reverse-VERIFIED GENUINE @HEAD ca12a295 before dispatch: `… → BRIEF.md + agent a315ec6b
+- `[57]` land/state · **BOOT GATE hardening LANDED + propagated (user "yes, commit; also propagate to siblings").** Two boot-contract rules — Rule 1 boot-only-on-explicit-first-messa… → d34e473a + a9875c8 + 3 sibling inboxes
+- `[58]` land · **GITI-032 (HIGH) FIXED + LANDED (PA file-delta, agent a315ec6b @832ec4d0 → PA commit next).** Root CORRECTED vs dispatch hypothesis (NOT emit-match.ts): the na… → PA commit + known-gaps@wrap
 
 ## State
-- Version: 0.7.0 · maps: 3 commits behind HEAD (watermark 489951aa, HEAD d34e473a)
+- Version: 0.7.0 · maps: 5 commits behind HEAD (watermark 489951aa, HEAD 05e29eae)
 - Recent wraps:
   - 489951aa chore(s217): wrap-finalize — digest regen at settled HEAD + 3 intakes carried
   - 6c5c0d58 chore(s216): wrap — close + bookkeeping (hand-off close, changelog S216, master-list §0 [HIGH 1->0], known-gaps HIGH-flip + §0 regen, delta-log [39-40], dpa-queue+artifact ratification flips, 3 inbox->read)
