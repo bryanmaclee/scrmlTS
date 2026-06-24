@@ -1,9 +1,9 @@
-<!-- @digest head=a107f268 delta-seq=40 -->
+<!-- @digest head=7c01b22a delta-seq=40 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `a107f268`** + delta-log **[40]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `a107f268`
+> **HEAD `7c01b22a`** + delta-log **[40]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `7c01b22a`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `a107f268`
+## Board — from `@gap` tokens @ `7c01b22a`
 - **HIGH 0** · MED 13 · LOW 13 · Nominal 8
 - Named open HIGHs: _none_
 
@@ -33,7 +33,7 @@
 - `[38]` state · **3 intakes + a dPA verdict + §52-fix dispatch.** (1) giti REPLIED — **Bug-51 VERIFIED fixed** (7 pages compile, server bundles carry enum defs, SSE 3 frames, l… → known-gaps + dpa-queue + §52 change-id
 
 ## State
-- Version: 0.7.0 · maps: 17 commits behind HEAD (watermark a2137214, HEAD a107f268)
+- Version: 0.7.0 · maps: current
 - Recent wraps:
   - 6c5c0d58 chore(s216): wrap — close + bookkeeping (hand-off close, changelog S216, master-list §0 [HIGH 1->0], known-gaps HIGH-flip + §0 regen, delta-log [39-40], dpa-queue+artifact ratification flips, 3 inbox->read)
   - a2137214 chore(s215): wrap-finalize — recent-sessions + digest regen at settled HEAD 27900a6c
