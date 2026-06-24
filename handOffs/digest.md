@@ -1,9 +1,9 @@
-<!-- @digest head=ea41edc1 delta-seq=53 -->
+<!-- @digest head=65fa1a7f delta-seq=53 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `ea41edc1`** + delta-log **[53]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `ea41edc1`
+> **HEAD `65fa1a7f`** + delta-log **[53]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `65fa1a7f`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `ea41edc1`
+## Board — from `@gap` tokens @ `65fa1a7f`
 - **HIGH 0** · MED 13 · LOW 13 · Nominal 8
 - Named open HIGHs: _none_
 
@@ -33,7 +33,7 @@
 - `[53]` state · **S217 WRAP.** Combined full-suite GREEN 25007/0 (1063 files) — within-node re-baseline + all 4 codegen landings hold. **5 commits this session** (escalation-2… → S217 close
 
 ## State
-- Version: 0.7.0 · maps: 8 commits behind HEAD (watermark 7c01b22a, HEAD ea41edc1)
+- Version: 0.7.0 · maps: 1 commits behind HEAD (watermark 062165a5, HEAD 65fa1a7f)
 - Recent wraps:
   - c7247965 chore(s217): wrap — close + bookkeeping
   - 6c5c0d58 chore(s216): wrap — close + bookkeeping (hand-off close, changelog S216, master-list §0 [HIGH 1->0], known-gaps HIGH-flip + §0 regen, delta-log [39-40], dpa-queue+artifact ratification flips, 3 inbox->read)
