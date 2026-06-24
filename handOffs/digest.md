@@ -1,9 +1,9 @@
-<!-- @digest head=162564f3 delta-seq=64 -->
+<!-- @digest head=46bd6021 delta-seq=64 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `162564f3`** + delta-log **[64]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `162564f3`
+> **HEAD `46bd6021`** + delta-log **[64]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `46bd6021`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,7 +13,7 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `162564f3`
+## Board — from `@gap` tokens @ `46bd6021`
 - **HIGH 0** · MED 15 · LOW 15 · Nominal 8
 - Named open HIGHs: _none_
 
@@ -29,7 +29,7 @@
 - `[64]` state · **S218 WRAP.** Full suite **25050/0/213**. **6 commits this session** (d34e473a boot-gate+bookkeeping · e493bace GITI-032 · e64c4095 6nz · 85e0d687 `_{}` · 82f7… → S218 close
 
 ## State
-- Version: 0.7.0 · maps: current
+- Version: 0.7.0 · maps: 1 commits behind HEAD (watermark 162564f3, HEAD 46bd6021)
 - Recent wraps:
   - 162564f3 chore(s218): wrap-finalize — digest regen at settled HEAD (post deputy-maint merge, delta-seq 64)
   - 489951aa chore(s217): wrap-finalize — digest regen at settled HEAD + 3 intakes carried
