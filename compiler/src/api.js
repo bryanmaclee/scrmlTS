@@ -51,6 +51,7 @@ import { runWEachPromotable } from "./lint-w-each-promotable.js";
 import { runWEachKey } from "./lint-w-each-key.js";
 import { runWMapIterationOrder } from "./lint-w-map-iteration-order.js";
 import { runWInterpInRawContent } from "./lint-w-interp-in-raw-content.js";
+import { runWInputStateMarkupNonreactive } from "./lint-w-input-state-markup-nonreactive.js";
 import { findUnsupportedTailwindShapes, findUnrecognizedClasses } from "./tailwind-classes.js";
 import { runGauntletPhase1Checks } from "./gauntlet-phase1-checks.js";
 import { runGauntletPhase3EqChecks } from "./gauntlet-phase3-eq-checks.js";
@@ -981,6 +982,29 @@ export function compileScrml(options = {}) {
     }
   } catch (e) {
     if (verbose) log(`  [LINT] W-INTERP-IN-RAW-CONTENT pass threw: ${e?.message ?? String(e)}`);
+  }
+
+  // Stage 2.5b: W-INPUT-STATE-MARKUP-NONREACTIVE info-level lint (SPEC §36.6).
+  // An input-state `<#id>.field` read (`<keyboard>`/`<mouse>`/`<gamepad>`, §36)
+  // placed inside a markup interpolation renders ONCE at mount with no reactive
+  // subscription — §36.6 normative, ruled + ratified by-design (S210 + S219).
+  // The render-once behavior is CORRECT and is NOT changed; the defect this lint
+  // closes is the SILENCE (an author reaching for `${<#cursor>.x}` expecting live
+  // coordinates gets a one-shot value with zero diagnostic). Runs over the
+  // block-split AST (`bsResults`) alongside the sibling raw-content lint — a
+  // markup `${...}` interp is a BS-captured `{ type: "logic" }` node. Conservative:
+  // fires ONLY when the ref id matches a DECLARED input-state element (never the
+  // reactive §6.7.7 `<request>` bridge) and NOT inside an `animationFrame` loop
+  // (the §36.6 `@cell` bridge). Pushed through `collectErrors` so the `W-` prefix
+  // + `severity:"info"` partition it into `result.warnings` (non-fatal; CLI exit
+  // 0) — never `result.errors`. The message steers to the `@cell` bridge.
+  try {
+    const inputStateMarkupDiags = runWInputStateMarkupNonreactive(bsResults);
+    for (const d of inputStateMarkupDiags) {
+      collectErrors("BS-LINT", [d], d.filePath || null);
+    }
+  } catch (e) {
+    if (verbose) log(`  [LINT] W-INPUT-STATE-MARKUP-NONREACTIVE pass threw: ${e?.message ?? String(e)}`);
   }
 
   // Stage 3: TAB (per-file)
