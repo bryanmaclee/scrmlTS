@@ -1,38 +1,40 @@
-# scrml — Session 218 (CLOSE)
+# scrml — Session 219 (OPEN)
 
-**Date:** 2026-06-24. **Profile:** A — FULL. **Boot:** digest `current`. A **two-adopter-bug + new-primitive + PA-infrastructure** session: 2 render bugs fixed+verified, the ratified `_{}` inline foreign-code primitive built end-to-end, and the PA boot path hardened.
+**Date:** 2026-06-24. **Profile:** A — FULL ("read pa.md and start session"). **Boot:** digest `current`. **Deputy:** LIVE (tick T260, on `deputy-maint`).
 
-> **Thinned (S205).** Board/counts → `bun scripts/state.ts` + `handOffs/digest.md`. Fine-grained stream → `handOffs/delta-log.md` [56]–[63]. This carries the IRREDUCIBLE + open threads.
+> **Thinned (S205).** Board/counts → `bun scripts/state.ts` + `handOffs/digest.md`. Fine-grained stream → `handOffs/delta-log.md`. This carries the IRREDUCIBLE + open threads.
 
-## Board @ close
-**HIGH 0 · MED 15 · LOW 15 · Nom 8** (+4 deferred gaps filed this session). v0.7.0. Full suite **25050/0/213**. **6 commits pushed this wrap** + scrml-support (pa-global pointer + the boot-gate authority). origin scrml `85e0d687`+wrap, scrml-support `90f1e24`+wrap.
+## Board @ boot
+**HIGH 0 · MED 15 · LOW 15 · Nom 8** · v0.7.0 · suite 25050/0/213 (S218 wrap). Boot integration: FF'd `deputy-maint` ticks 259/260 (S218-wrap maps-batch + digest lag-fix) → main `50aa6728`, **2 ahead of origin (unpushed deputy maintenance)**, deputy-maint ^main == 0, maps watermark current to S218-wrap.
 
-## ✅ DONE
-1. **GITI-032 (HIGH) `e493bace`** — markup-as-value dropped inside `<match>`/`<engine>` arm body. Root CORRECTED from the dispatch hypothesis: the native→live bridge `translate-expr.js` translated `MarkupValue` to an EMPTY escape-hatch (not emit-match.ts as guessed). Fixed to the live `markup-value` node + a separate engine-path `isHtmlFragment` over-fire. PA R26 dual-verified. giti's first external HIGH.
-2. **6nz Bug AI (MED) `e64c4095`** — `<each>`/`<empty>` fallback not torn down on empty→non-empty. Shared runtime `_scrml_reconcile_list` `oldNodes.size===0` bulk-create didn't clear the stray non-keyed fallback. 9-line fix + happy-dom test w/ R26 adversarial proof.
-3. **`_{}` inline foreign-code primitive BUILT `85e0d687`** (dpa-003, ratified S215/S216) — see narrative below. A NEW PRIMITIVE + a SPEC §23.2.4 amendment; PA-reviewed the normative change + fixed a `§23.2.6→§23.2.4a` cross-ref typo; PA R26-verified end-to-end.
-4. **BOOT GATE + CLAUDE.md trim** (PA infra) — stub hardened (boot-only-on-explicit-command + boot-atomicity) + propagated to giti/6nz/scrml-support; `~/.claude/CLAUDE.md` 86→16 lines, ~70 lines relocated → NOT-auto-loaded `~/.claude/pa-global.md`. Backup `~/.claude/CLAUDE.md.bak-s218-2026-06-24`.
-
-## 🎯 The `_{}` primitive — design-narrative (IRREDUCIBLE; the deputy can't synthesize this)
-The inline value-returning form `const x = _={ in:{names} … }=` in a **server function body**, `lang=ts/js`, **in-app** only. Before: §23 `_{}` was spec+markup-parse-only with NO codegen consumer; in logic `_={` mis-tokenized as `_ = {` → E-CODEGEN-INVALID-JS. Built per the ratified **Approach B** (logic recognition + ts/js value-flow mirroring `?{}` + explicit named-pass capture) + the **S216 `<api>`-OUT-typing hybrid** (asIs default + annotation + parseVariant). **Two user rulings this session (FINAL):** crossing syntax = the **`in:{}` header** form; first target = **in-app** (AskUserQuestion). The slice is server-colored (stripped from client) + opaque to RI/TS/DG; only the `in:{}` names + the OUT value are scrml-visible. **This unblocks flogence's in-app dispatch loop** (the primitive they requested). **NOT built (separate items, not gated on this):** standalone `dispatch.scrml` (needs library-mode-db `?{}` §44.7.1 W5a/W5b — OQ-F1); arbitrary-lang inline (dpa-009, no runtime model); the §23 sidecar (coexists, untouched). Authority: `scrml-support/docs/deep-dives/foreign-code-{logic-context-codegen,inline-typed-boundary}-2026-06-23.md` + `~/.claude/design-insights.md` [S216/dpa-003].
+## ⚠️ Boot anomaly — 5 uncommitted working-tree files in main (S218 residue, surfaced to user)
+S218 pushed code (6 commits) but left additive bookkeeping uncommitted in main's working tree:
+- `handOffs/dpa-queue.md` (M) — the dPA's S218 banking (dpa-010 source-of-truth debate COMPLETE/ADVISORY + dpa-011).
+- `docs/graph/graph.json` + `graph.mmd` (new) — `scripts/flograph.ts` projection output; **never committed** (new dir; deputy-surface per the write-partition).
+- 2 inbox→read moves (giti `conditional-markup-in-match-arm`, 6nz `each-empty-fallback-leak`) — S218 processed these.
+Disposition PENDING user direction (see open Q1).
 
 ## ⏸️ OPEN — S219 (priority order)
-0. **Outbox replies SENT this wrap** (verify in giti/6nz/flogence inboxes if a reply is owed back): giti GITI-032 RESOLVED (+ the nested-`${}`-in-markup caveat for status.scrml `<section>` bodies + the payload-binding-by-name note); 6nz Bug-AI RESOLVED; flogence `_{}` inline BUILT (their requested primitive). *(If any didn't send at wrap, first S219 action.)*
-1. **4 NEW deferred gaps** (filed, MED 15/LOW 15): `g-each-peritem-markup-value-ternary` (MED — `${@. ? <markup>:""}` in `<each>`; dedicated dispatch) · `g-nested-interp-in-markup-value-literal` (LOW) · `g-nested-each-outer-key-reuse-inner-frozen` (MED — Bug-72 residual) · `g-foreign-inline-crossing-shadow` (LOW — → future `E-FOREIGN-006`).
-2. **dpa-003 follow-ons:** standalone/library-mode-db `?{}` (OQ-F1, the standalone `dispatch.scrml` path) · dpa-009 arbitrary-lang inline marshaling (banked candidate) · dpa-006 build-story×`_{}` (banked) · dpa-008 `_{}` capability-gating (banked).
-3. **escalation-2 typer-scope follow-on** — `g-sse-route-object-typer-scope` (MED; blocks resumable-SSE cursor).
-4. **Half-2 convergence** (`<each>` bind: + buildHandlerExpr dedup, Family-A) · g-enum-toenum-not-lowered-server-side (MED) · giti three-codegen library-mode cluster.
-5. **Multi-user PA MVP refinements** (now intertwined with today's pa-global.md): user-voice-scrml→-bryan rename · methodology-memory-lift residual · **full pa-scrml→pa-base+overlay migration (should coordinate with/absorb pa-global.md)** · `$SCRML_HOME` path-param. **User's step: add Ryan (rjantz3) as a scrml-support GitHub collaborator.**
-6. **S215 random-sample-10× audit:** all 3 substantive landings (GITI-032/6nz/`_{}`) already got per-fix adversarial passes (the agents ran /code-review + R26 adversarial; `_{}` agent found+fixed 2 real bugs; PA dual-verified all 3) — the formal random-sample-10× was DEFERRED (low marginal value given full per-fix adversarial coverage). Re-run normally at S219+.
-7. **Maps 12 commits behind HEAD** (watermark 489951aa) — OWED to the deputy's next maps tick (this session's deputy ticks were digest-only). WARN-only, not gated.
+0. **Disposition of the 5 S218-residue files** (Q1) + **push the 2 unpushed deputy commits** (needs auth).
+1. **6nz inbox (READ this boot) — 3 NEW codegen findings to triage** (`handOffs/incoming/2026-06-23-1917-6nz-...idiomatic-rewrite-findings.md`):
+   - **B1** `<pre>`/`<code>` raw-content (§4.17) silently drops `${...}` → ships literal source text; broke 6nz p4/p6. 6nz Q: is §4.17 enforcement newly tightened? lint is `info` for a silent-render-break — promote to `warning`?
+   - **B2** arrow-form `<engine>` (`.A => .B`) emits NO `_scrml_reactive_set` init → governed cell `undefined` at mount, `<match on=@var>` renders empty. State-child form (`<A rule=.B/>`) DOES emit init. Context-wrinkle: 6nz p1/p5/p7 arrow+`name=` DO emit init; minimal `name=PM` repro does NOT.
+   - **B3** bare `.Variant` in ternary value position (`@x = cond ? .B : .A`) → emits string literals `? "B" : "A"` (representation leak; harmless under string-repr enums). Direct `@x=.B` + if/else emit correctly. **(This is the SAME shape 6nz reported, and matches the carried S218 gap `g-each-peritem-markup-value-ternary` family + the bare-variant-in-ternary class.)**
+   - PART A (FYI/closure): gaps #2/#3/#4/#5 all NOT-REPRODUCED on current main; 6nz retired the stale workaround comments. No action.
+2. **4 NEW S218 deferred gaps** (filed): `g-each-peritem-markup-value-ternary` (MED) · `g-nested-interp-in-markup-value-literal` (LOW) · `g-nested-each-outer-key-reuse-inner-frozen` (MED, Bug-72) · `g-foreign-inline-crossing-shadow` (LOW → future E-FOREIGN-006).
+3. **dpa-003 follow-ons:** standalone/library-mode-db `?{}` (OQ-F1) · dpa-009 arbitrary-lang inline · dpa-006 build-story×`_{}` · dpa-008 `_{}` capability-gating.
+4. **escalation-2 typer-scope** — `g-sse-route-object-typer-scope` (MED; blocks resumable-SSE cursor).
+5. **Half-2 convergence** (`<each>` bind: + buildHandlerExpr dedup, Family-A) · g-enum-toenum-not-lowered-server-side (MED) · giti three-codegen library-mode cluster.
+6. **Multi-user PA MVP refinements:** user-voice-scrml→-bryan rename · methodology-memory-lift residual · full pa-scrml→pa-base+overlay migration (coordinate with pa-global.md) · `$SCRML_HOME`. **User's step: add Ryan (rjantz3) as scrml-support GitHub collaborator.**
+7. **S215 random-sample-10× audit** — re-run normally at S219+ (S218 deferred; all 3 S218 landings had per-fix adversarial passes).
 
-## Anomalies / lessons
-- **Push-rejection = benign GitHub PR merge.** origin advanced via a GitHub merge of Ryan's PR #4 (CSRF) — which S217 had ALREADY cherry-picked (`939d673e`/`d706f111`) → the merge was a content NO-OP (empty `ca12a295..edb812d1` diff), no revert (S216/S217 intact). Integrated via `git merge` (preserves deputy SHAs). **Process note for Ryan-coordination: a PR already cherry-picked should be CLOSED, not merged** (avoids the duplicate-history wrinkle).
-- **`_{}` is a new PRIMITIVE landing** — heavier PA review than a bug fix: read+verified the SPEC §23.2.4 amendment (faithful to the ratified design), fixed the cross-ref typo, R26-verified end-to-end (server-only emit + node-check + negatives) + full suite. The agent's S215 adversarial gate found+fixed 2 REAL bugs (level-2 `_=={}==` orphan-brace counter; nested-arrow `return` regex breaking value-flow) — the gate works.
-- **Root-cause hypotheses were corrected twice by the agents** (GITI-032: not emit-match.ts but the native→live bridge; 6nz: PA direction was exactly right). The depth-of-survey discount + Rule-4 cross-checks held.
+## Open questions to surface immediately
+- **Q1 — the 5 S218-residue files:** commit the inbox-moves + dpa-queue as S218-residue bookkeeping (main-side PA/dPA surface)? The `docs/graph/*` flograph output is deputy-surface — route to deputy or commit to main? (flograph never been committed before.)
+- **Q2 — push:** 2 unpushed deputy commits on local main (`50aa6728`, 2 ahead of origin). Push now or hold?
+- **Q3 — S219 priority:** the 6nz B1/B2/B3 triage (concrete adopter findings) is the highest-signal ready work. B2 (arrow-engine no-init) is the most concerning (silent empty render).
 
 ## pa.md directives in force
-R1–R5 · `---` · Profile A · digest-first · S88/S99/S126 path-discipline · S136 BRIEF · S138 R26 (fwd+reverse) · S147 coherence · S199/S205 deputy + merge-before-push · S119 explicit-pathspec · S215 adversarial-verify + random-sample-10× · S217 per-user profile · **S218 NEW: BOOT GATE in the stub (boot-only-on-explicit-command + atomicity) + the `~/.claude/pa-global.md` relocation (CLAUDE.md trimmed)** · wrap 8-step.
+R1–R5 · `---` · Profile A · digest-first · S88/S99/S126 path-discipline · S136 BRIEF · S138 R26 (fwd+reverse) · S147 coherence · S199/S205 deputy + merge-before-push · S119 explicit-pathspec · S215 adversarial-verify + random-sample-10× · S217 per-user profile · S218 BOOT GATE + pa-global.md relocation · wrap 8-step.
 
 ## Tags
-#session-218 #close #giti-032-markup-value-in-arm #6nz-bug-ai-each-empty-fallback #foreign-inline-_{}-primitive-built #boot-gate #claude-md-trim #pushed
+#session-219 #open #boot-complete #6nz-b1-b2-b3-triage #s218-residue-files #deputy-ff-integrated

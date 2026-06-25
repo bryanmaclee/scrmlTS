@@ -269,3 +269,89 @@ The dpa-003 build is the INLINE value-returning form (`const out = _={ … }=`),
 status: candidate     # banked S215 (user design-conv)
 why-in-Q: "Inline all the way" makes language support HARDER than the sidecar form (sidecar = uniform `build=`+IPC, language-agnostic). The inline value-flow needs the foreign value to cross into scrml's **Bun/JS runtime** — a per-language MARSHALING bridge, NOT just "run the compiler." **ts/js is FREE** (same runtime — the `_{}` slice IS JS spliced into the emit, value crosses natively → why it's dpa-003's first cut). Every NON-JS language needs its own bridge, and the bridge (not the compile) is the cost. Honest ranking for INLINE-over-Bun: **ts/js (native) ≫ clean-C-ABI langs (Odin/Zig/Rust via `bun:ffi` dlopen — typed signature IS the contract) > Go (native but runtime+GC; `-buildmode=c-shared`/cgo awkward — far better for the SIDECAR-service shape) ≫ Python (interpreted; CPython C-API or subprocess; heavy boundary).** User's instinct (Go>Python) correct; refinement: **Odin likely beats Go for INLINE** (no runtime, clean C-ABI), Go wins for sidecar — they serve different shapes.
 scope-when-fired: which non-JS langs get inline support + the per-language marshaling architecture (`bun:ffi` for C-ABI langs? subprocess+serialize for others?) · whether sidecar (§23 today) is the language-agnostic answer for non-C-ABI langs (Go service) and inline is reserved for ts/js + C-ABI-FFI langs · the `lang=` toolchain resolution §23.5.
+
+---
+
+## [dpa-010] debate — Source of truth for an exploratory agentic app: reasoning-store (reason-VCS) vs executable-contracts (+ the landing-gate fork)
+status: complete     # banked → running → complete → ratified(by PA)  ·  COMPLETE dPA 2026-06-24 (ADVISORY) → artifact written, staged insight CANDIDATE, NOT ratified. INVOCATION CAVEAT RESOLVED: live expert dispatch WORKED (real 4-pole poll, not synthesis).
+banked: S12 2026-06-24 (flogence PA)
+scope: **FLOGENCE / PA-process deliberation — NOT a scrml-language question. Pull NO SPEC sections; there is no scrml-SPEC fact at stake.**
+source-DD: `flogence/docs/deep-dives/source-of-truth-agentic-builds-2026-06-24.md` (§Recommendation-for-Debate)
+output-path: **`flogence/docs/debates/source-of-truth-reason-vcs-vs-contracts-2026-06-24.md`** (flogence-scoped artifact, NOT scrml-support — these are flogence's own deliberations)
+
+### Scope-lock (COMPLETE framing — lifted from the source DD §Recommendation-for-Debate)
+Question: For an exploratory agentic app with **NO upfront spec** (e.g. flogence-the-app), should the durable source of truth be (⑤) a dock-served **REASONING store** the agent navigates-then-verifies, or (②) a generated **EXECUTABLE CONTRACT** (VibeContract mold — an unfakeable gate that cannot capture free "why") — AND is the landing gate **runtime-only (④)** or **tests-as-gate (②)**?
+In scope: the ⑤-vs-② FORM fork + the runtime-vs-tests GATE fork, for the `exploratory-no-spec` project type ONLY.
+Out of scope: the `stable-with-spec` type (scrml-the-language — SETTLED in the source DD: spec + conformance-tests, do not re-open). The reason-VCS-as-dock-query CONDITIONAL-GO is already accepted as direction; this debate STRESS-TESTS it against the executable-contracts pole before committing build — the judge may land that they are COMPLEMENTARY (reason-VCS = the cross-session FORM; an executable gate = the LANDING), not rivals.
+Already-known (source-DD-verified S12 — do NOT re-litigate): the load-bearing element is ALWAYS an EXECUTABLE GATE, never prose-spec-first; **nobody serves reasoning deterministically** (the truth-ceiling is the open gap the field left); reason-VCS pays ONLY on the re-grounding line (a ~$0 deterministic query crushes the documented 7442× re-synthesis cost — the flogence product thesis) and ONLY if the keep-it-true cost is bounded by the dock's edge→live-node supersession; a trusted FREE-PROSE store re-imports ADR-rot → an authoritative-looking LIE (strictly worse than none).
+
+### Load-bearing CONSTRAINTS (verbatim — prevents scope-blindness)
+- THE TRUTH-CEILING (dock DDs, verbatim): a provenance record can be well-formed + `verified` + STILL WRONG about *why*. This is reason-VCS's central risk; the ⑤ pole must own it, not wish it away.
+- "green compile ≠ works — RUN it" (the standing flogence lesson): runtime behavior is a real, already-relied-on truth-form (pole ④).
+- reason-VCS = a deterministic QUERY elevation of the EXISTING `dock`, **gated on dock coverage rising from today's 0/628** — NOT a new authored prose store. (NO-GO as a free-prose store.)
+- The re-grounding-cost gap (deterministic query ≪ re-synthesis) IS the flogence monetization premise — weigh accordingly.
+
+### Approaches
+- **⑤** reason-VCS-as-dock-query (navigate-then-verify; the operator's candidate; provenance/reasoning attached + served deterministically).
+- **②** executable-contracts (VibeContract; spec/contract as the unfakeable source-of-truth gate).
+- GATE fork: **④** runtime-only vs **②** tests-as-gate.
+- (Judge may synthesize: reason-VCS as the cross-session FORM + an executable gate as the LANDING — complementary.)
+
+### Expert / forge list
+- **STAGED, live at boot** (`flogence/.claude/agents/`): `simplicity-defender` (does reason-VCS earn its apparatus / can the answer be lighter), `fsharp-type-providers-expert` (the gate / compiler-as-read-only-observer / anti-confabulation).
+- **PA pre-forged at bank-time** (`flogence/.claude/agents/`, live at the dPA's fresh boot): `spec-driven-development-expert` (the ② executable-contracts/spec pole — Spec-Kit/Kiro/VibeContract/design-by-contract), `code-provenance-traceability-expert` (the ⑤ provenance/reasoning-attached pole, WITH the truth-ceiling caveat — ADR/DO-178C-traceability/literate-programming/dock).
+
+### Report-back: §3 — one-liner + scorecard path + staged design-insight CANDIDATE (`authority: dPA-produced, awaiting PA+user ratification`) + a `(dpa:)` breadcrumb. Do NOT ratify. Artifact → `flogence/docs/debates/`.
+### ⚠ INVOCATION CAVEAT (load-bearing): the source-of-truth DD's expert-consult was SYNTHESIZED, not polled — sub-agent expert invocation returned "agent type not found". This batch is run from a FRESH dPA boot (full roster live at process start) — but if invoking the staged experts STILL fails (nested curator→expert), FLAG it and degrade to synthesis HONESTLY; never fake a poll. Quick-verify invocation before the real run.
+
+### Verdict (dPA, 2026-06-24 — ADVISORY, NOT ratified)
+**Artifact:** `flogence/docs/debates/source-of-truth-reason-vcs-vs-contracts-2026-06-24.md`
+**Invocation caveat RESOLVED:** a quick-verify probe + all 4 poles LIVE-DISPATCHED from a fresh boot (experts invoked directly from the orchestrator, NOT nested through curator) + neutral debate-judge. First source-of-truth deliberation in the lineage run on a REAL poll, not synthesis.
+**One-line:** Adopt the **SYNTHESIS** (judge 48.5 / ④ runtime 43.5 / ② contracts 37.5 / ⑤-as-gate 30) — "source of truth" is **two orthogonal axes**: a GATE (must-pass, executable, unfakeable) and a NAVIGATION form (serves "why" at ~$0 vs the 7442× re-synthesis). The answer is a **non-promotion composition**: ④ runtime primary for the in-flux UI + ② tests-as-gate for the stable infra scripts + ③ types as the always-on shape-gate + ⑤ reason-VCS ONLY as a coverage-gated dock-query *navigation* form, never the gate. **②/⑤ are NOT rivals** (all 4 poles + judge reject the rivalry framing — gate vs form).
+**Load-bearing rule:** the **non-promotion invariant** (honesty contract) — "a `verified` reasoning record is navigable, NOT authoritative; landing on served reasoning without passing the executable gate IS drift." Plus `simplicity-defender`'s sequencing: **build the unverified-reasoning sweep before the serve-reasoning layer.** reason-VCS CONDITIONAL-GO survives the stress test, in exactly the bounded dock-query shape (gated on coverage rising from 0/628).
+**Staged design-insight CANDIDATE** in artifact (the two-axis split + non-promotion invariant + asymmetric gate-by-component-stability); `design-insights.md` NOT written (judge confirmed). **PA action requested** (4 items) in the artifact footer. RUN-not-RATIFY honored.
+
+---
+
+## [dpa-011] DD — Designing a valid PA test rig (FLOGENCE / PA-process)
+status: complete     # banked → running → complete → ratified(by PA)  ·  COMPLETE dPA 2026-06-24 (ADVISORY) → artifact written, staged insight CANDIDATE, NOT ratified. INVOCATION CAVEAT RESOLVED: live expert dispatch WORKED (real 4-expert poll).
+banked: S12 2026-06-24 (flogence PA)
+scope: **FLOGENCE / PA-process deliberation — NOT scrml-language. Pull NO SPEC sections.**
+source: PA-authored scope-lock S12 (user-approved 2026-06-24)
+output-path: **`flogence/docs/deep-dives/pa-test-rig-design-2026-06-24.md`**
+
+### Scope-lock (COMPLETE framing)
+ANCHOR: this rig IS the executable gate for the PA system itself — the source-of-truth DD's own conclusion (you can't harden by prose; you need an unfakeable gate) turned recursively on the PA hardened-by-accretion. The DD DESIGNS the gate; it does NOT run it.
+Question: How to design a rig that yields a CLEAN VERDICT — does `pa-base` actually work, and is it drifting — by running it on a real, bounded (~5–10 session) NEUTRAL project, without the three failure modes: (a) measuring the wrong thing, (b) no valid control, (c) ballooning into a measurement cathedral?
+The design FORKS to resolve (the work):
+- **F1 Measurement:** hypothesis + metric set — *behavioral* (drift incidents · re-synthesis cost · friction · recovery · deliberation triggers · which Rules fired) + *outcome* (completed? passed its executable gate?). NOT a Q&A judge.
+- **F2 Control:** isolate "the PA moved the needle" from "the model is just good": (A) two comparable projects PA-vs-plain-Claude · (B) one richly-instrumented PA run vs documented baselines · (C) parallel independent slices. None clean — pick + mitigate.
+- **F3 Works-vs-drift:** the rig tests works-NOW; detecting DRIFT needs the {og·base·spawn} lineage baseline. How they fuse into one verdict.
+- **F4 Project profile + shortlist:** real · complex-enough-to-drift · bounded (~5–10 sessions) · VERIFIABLE executable done-gate · NEUTRAL (not scrml/flogence). 2–3 candidates.
+- **F5 Which-PA + readiness:** `pa-base` (clean/productizable) vs og-PA (entangled) vs flogence-spawn — and CONFIRM pa-base is in a testable state (precondition; a moving target invalidates the rig).
+- **F6 Rig weight:** pure-reuse of the PA's own emissions (delta-log / friction / wrap cost) vs light-additional instrumentation. Stay LIGHTWEIGHT — the cardinal constraint.
+In scope: the rig DESIGN only + a go/no-go on the 5–10 session run + the first session's concrete plan.
+Out of scope: actually RUNNING the rig; new measurement infrastructure beyond what the PA already emits; the model-split/dictionary; flogence features.
+Already-known (don't re-litigate): measure behavior+outcome not Q&A (S12 comparison-instrument lesson); the done-condition must be an executable gate per project type (S12 source-of-truth DD); the lineage frame is where control + drift-baseline live; the S12 probe's lane realities (open lane fails on OOD, ~50% serial reliability, the gate holds, true-parallel needs git-worktrees) — though pa-base work is the heavy-reasoning lane, not the open lane; the 5–10 session cost is accepted; lightweight is mandatory.
+Needs-discovery: the control-method pick + its validity threats; the project shortlist; pa-base's actual testable state; the minimal-yet-meaningful metric set from existing emissions; how works+drift fuse; prior art on honestly evaluating agentic-dev systems.
+
+### Approaches: the F2 control-method fork (A two-projects · B single-instrumented-vs-baseline · C parallel-slices) is the load-bearing one; plus F5 which-PA. The answer is likely a composition.
+
+### Expert / forge list
+- **STAGED, live at boot:** `simplicity-defender` (is the rig worth its cost / can it be lighter), `fsharp-type-providers-expert` (the done-gate as read-only observer).
+- **PA pre-forged at bank-time** (`flogence/.claude/agents/`, live at fresh boot): `experiment-design-causal-inference-expert` (F2 — the control/validity problem IS causal inference), `dev-tool-evaluation-expert` (F1 — measurement + anti-gaming: SWE-bench critiques / DORA / SPACE / Goodhart).
+
+### Research (5 sources): project data (the comparison-instrument doc · source-of-truth DD · dpa-deliberation DD · lineage memory · flogence's existing delta-log/friction/wrap instrumentation · the S12 probe) · prior art w/ URLs (SWE-bench + critiques · RCT/causal-inference · DORA/SPACE dev-productivity-measurement · benchmark-gaming) · expert consult (above) · pa-base readiness check · synthesis = the runnable rig-design spec + validity-threats ledger + go/no-go.
+
+### What-counts-as-an-answer: a concrete RUNNABLE rig design — chosen control method, metric set (mapped to existing emissions), a 2–3 project shortlist (each w/ a verifiable done-gate + why-it-tests-the-PA), which-PA + pa-base-readiness verdict, the lightweight reused instrumentation, an honest validity-threats+mitigations ledger, and a go/no-go on the run with the first session's plan. NOT "build a project."
+
+### Report-back: §3 — one-liner + artifact path + staged insight CANDIDATE + `(dpa:)` breadcrumb. Do NOT ratify. Artifact → `flogence/docs/deep-dives/`. Feeds a debate (the F2 control-method fork) only if ≥2 methods survive.
+### ⚠ Same INVOCATION CAVEAT as dpa-010 — verify the dPA can invoke its rooted experts; degrade to synthesis HONESTLY if not.
+
+### Verdict (dPA, 2026-06-24 — ADVISORY, NOT ratified)
+**Artifact:** `flogence/docs/deep-dives/pa-test-rig-design-2026-06-24.md`
+**Invocation caveat RESOLVED:** all 4 experts live-dispatched + prior-art researched & adversarially verified (SWE-bench-Verified retirement CONFIRMED; "59%" narrowed to 59.4% of AUDITED failures; 10.6% leakage CONFIRMED).
+**One-line:** **GO on Phase 1 (the premise test), runnable today; NO-GO on a direct "pa-base works" verdict until the extraction build lands.** The load-bearing F5 fact: **pa-base is NOT runnable (v1 design-ratified S181 but BUILD-QUEUED)** — so the rig runs **spawn-PA as the pa-base proxy (explicitly labeled)** in a **two-phase design**: Phase 1 tests the PREMISE (does ANY PA discipline beat bare-claude) now; Phase 2 (pa-base v1 arm vs the identical frozen control) is gated on extraction, does NOT block Phase 1.
+**The rig (composition):** F2 control = **parallel independent slices, alternating, simultaneous bare-claude control arm, binary executable gate** (eliminates the judge); licenses only a **premise-scoped, threat-conditioned** claim (operator-spillover at n=1 is the unfixable threat — named/bounded). F1 metrics = behavioral counts (delta-log) + the binary done-gate (the only anti-gameable anchor) + cost-ratio; **NO composite score** (Goodhart/SWE-bench/DORA); PA never sees a running score. Done-gate = an **externally-authored, pre-committed, hash-locked executable oracle** (parser-conformance / differential-test reference) — the `compare.ts` 1-5 judge is the inversion to avoid. F6 = **reuse `compare.ts`/`lanes.ts`/`delta-log`; only net-new = a `--lane` flag + an aggregation query + the oracle exit-code wiring**; smell to watch = "the rig has its own backlog."
+**Inherits dpa-010:** the rig's binary done-gate IS dpa-010's "executable read-only unfakeable gate"; the delta-log behavioral signals are the NAVIGATION layer, explicitly NOT promoted to the verdict — the two DDs fuse on the non-promotion invariant.
+**Debate?** NO — F2 converged on C+spawn-proxy (the other control methods were eliminated, not left standing). **Staged design-insight CANDIDATE** in artifact; `design-insights.md` NOT touched. **PA action requested** (6 items, incl. the OQ-2 narrowing: the rig is a REAL but NARROW gate, not a general proof). RUN-not-RATIFY honored.
