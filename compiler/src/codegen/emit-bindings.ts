@@ -8,6 +8,7 @@ import { rewriteTemplateAttrValue, rewriteReactiveRefs } from "./rewrite.js";
 import type { EncodingContext } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
 import { parsePredicateAnnotation, predicateToJsExpr, deriveHtmlAttrs } from "./emit-predicates.ts";
+import { collectCompoundLeafTargets } from "./reactive-deps.ts";
 
 /** A loosely-typed AST node from the pipeline. */
 type ASTNode = Record<string, unknown>;
@@ -449,6 +450,21 @@ export interface BindDirectiveBodyOpts {
   /** encoding context for per-field `touched` storage-key encoding (§55.7). */
   encodingCtx: EncodingContext | null | undefined;
   /**
+   * Variant-C structural-compound (form-group) retarget sets, from
+   * {@link collectCompoundLeafTargets}. When a dotted `bind:value=@form.field`'s
+   * ROOT is a compound PARENT (`compoundParentNames`), the parent is a DERIVED
+   * `_scrml_derived_declare` proxy — a `_scrml_deep_set` on it is a no-op that
+   * the next recompute clobbers (typed input never sticks, §55 validity surface
+   * stays dead). The read/write must instead target the field's BACKING LEAF
+   * SOURCE cell (`compoundLeafKeys`, e.g. `form.field`). This is the DOM-bind
+   * analog of Bug B's statement-write retarget (`stampCompoundDeepSetTargets`)
+   * and the hand-authored analog of the formFor `_flatBindKey` synth-bind path.
+   * Optional: callers that omit them (or files with no compound parents) keep
+   * the generic `_scrml_deep_set` lowering byte-for-byte.
+   */
+  compoundLeafKeys?: Set<string>;
+  compoundParentNames?: Set<string>;
+  /**
    * Optional placeholder-id override for the `data-scrml-bind-*` selector. The
    * file-scope path leaves this undefined and the helper derives the selector
    * from `bAttr._bindId`. The per-arm path passes the per-render `bindId` it
@@ -488,7 +504,7 @@ export function emitBindDirectiveBody(
   if (!bAttr || !bAttr.name || !bAttr.name.startsWith("bind:")) return lines;
   if (!bAttr.value || bAttr.value.kind !== "variable-ref") return lines;
 
-  const { acquire, wrapEffect, enumVarMap, reactiveTypeMap, encodingCtx, bindIdOverride } = opts;
+  const { acquire, wrapEffect, enumVarMap, reactiveTypeMap, encodingCtx, bindIdOverride, compoundLeafKeys, compoundParentNames } = opts;
 
   const bVarRaw = (bAttr.value.name ?? "").replace(/^@/, ""); // e.g. "name" or "form.email"
   const bElemId = genVar(`bind_elem_${(mkNode.tag as string) ?? "el"}`);
@@ -512,13 +528,46 @@ export function emitBindDirectiveBody(
   const rootKey = isPath ? bVarRaw.slice(0, dotIndex) : bVarRaw;
   const pathSegs = isPath ? bVarRaw.slice(dotIndex + 1).split(".") : [];
 
-  const readExpr = isPath
-    ? `_scrml_reactive_get(${JSON.stringify(rootKey)})${pathSegs.map(s => `.${s}`).join("")}`
-    : `_scrml_reactive_get(${JSON.stringify(rootKey)})`;
+  // ss20 g-compound-bind: when the dotted path's ROOT is a Variant-C structural
+  // compound PARENT, the parent (`loginForm`) is a DERIVED `_scrml_derived_declare`
+  // proxy that recomputes `{ email, password }` from per-field SOURCE cells on
+  // every read. A `_scrml_deep_set` on it is a no-op clobbered by the next
+  // recompute (typed input never sticks; §55 validity surface stays dead). So we
+  // retarget the read/write to the field's BACKING LEAF source cell — the deepest
+  // statically-resolvable leaf along the path — mirroring the statement-write
+  // retarget in `stampCompoundDeepSetTargets` (reactive-deps.ts, Bug B). A PLAIN
+  // nested-object cell (`<a> = { x }`) is NOT a compound parent, so its bind keeps
+  // the `_scrml_deep_set` on the real cell value.
+  let leafRetarget: { leafKey: string; residual: string[] } | null = null;
+  if (isPath && compoundParentNames?.has(rootKey) && compoundLeafKeys) {
+    let bestKey: string | null = null;
+    let bestLen = 0;
+    let acc = rootKey;
+    for (let i = 0; i < pathSegs.length; i++) {
+      acc = `${acc}.${pathSegs[i]}`;
+      if (compoundLeafKeys.has(acc)) { bestKey = acc; bestLen = i + 1; }
+    }
+    if (bestKey !== null) leafRetarget = { leafKey: bestKey, residual: pathSegs.slice(bestLen) };
+  }
 
-  const writeExpr = (newValExpr: string): string => isPath
-    ? `_scrml_reactive_set(${JSON.stringify(rootKey)}, _scrml_deep_set(_scrml_reactive_get(${JSON.stringify(rootKey)}), ${JSON.stringify(pathSegs)}, ${newValExpr}))`
-    : `_scrml_reactive_set(${JSON.stringify(rootKey)}, ${newValExpr})`;
+  const readExpr = leafRetarget
+    ? `_scrml_reactive_get(${JSON.stringify(leafRetarget.leafKey)})${leafRetarget.residual.map(s => `.${s}`).join("")}`
+    : isPath
+      ? `_scrml_reactive_get(${JSON.stringify(rootKey)})${pathSegs.map(s => `.${s}`).join("")}`
+      : `_scrml_reactive_get(${JSON.stringify(rootKey)})`;
+
+  const writeExpr = (newValExpr: string): string => {
+    if (leafRetarget) {
+      // residual empty → plain set of the source cell; non-empty → deep_set the
+      // remainder INTO the source cell's value (a leaf cell holding an object).
+      return leafRetarget.residual.length === 0
+        ? `_scrml_reactive_set(${JSON.stringify(leafRetarget.leafKey)}, ${newValExpr})`
+        : `_scrml_reactive_set(${JSON.stringify(leafRetarget.leafKey)}, _scrml_deep_set(_scrml_reactive_get(${JSON.stringify(leafRetarget.leafKey)}), ${JSON.stringify(leafRetarget.residual)}, ${newValExpr}))`;
+    }
+    return isPath
+      ? `_scrml_reactive_set(${JSON.stringify(rootKey)}, _scrml_deep_set(_scrml_reactive_get(${JSON.stringify(rootKey)}), ${JSON.stringify(pathSegs)}, ${newValExpr}))`
+      : `_scrml_reactive_set(${JSON.stringify(rootKey)}, ${newValExpr})`;
+  };
 
   const elemExpr = acquire(bindSelector);
 
@@ -626,6 +675,11 @@ export function emitBindings(ctx: CompileContext): string[] {
   const lines: string[] = [];
   // §53.7.2: Build map of reactive variable name → typeAnnotation for predicate checking.
   const reactiveTypeMap = buildReactiveTypeMap(fileAST);
+  // ss20 g-compound-bind: compound-parent + backing-leaf sets so a dotted
+  // `bind:value=@form.field` writes the field's SOURCE cell, not a no-op
+  // `_scrml_deep_set` on the derived parent. Computed once per file.
+  const { leafKeys: compoundLeafKeys, parentNames: compoundParentNames } =
+    collectCompoundLeafTargets(fileAST as Record<string, unknown>);
 
   // -------------------------------------------------------------------------
   // Step 2.5: Generate ref= attribute wiring (DOM element references)
@@ -674,6 +728,8 @@ export function emitBindings(ctx: CompileContext): string[] {
           enumVarMap,
           reactiveTypeMap,
           encodingCtx,
+          compoundLeafKeys,
+          compoundParentNames,
         })) {
           lines.push(_bindLine);
         }

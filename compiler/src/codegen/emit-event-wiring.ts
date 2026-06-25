@@ -144,6 +144,24 @@ interface LogicBinding {
    * list for follow-on work.
    */
   engineArm?: string;
+
+  /**
+   * ss20 item-1 (g-if-guard-inner-effect-not-gated) — stamped by emit-html.ts
+   * when this interpolation binding sits inside an `if=` DISPLAY-TOGGLE subtree
+   * (NOT the clean-subtree mount/unmount path; NOT `show=`). Carries the
+   * enclosing if='s guard fields (same shape the toggle binding stores). The
+   * inner effect is gated on this predicate — lowered via the shared
+   * computeDisplayToggleCondition helper, in lockstep with the toggle — so the
+   * effect body short-circuits while the guard is false, preventing a
+   * `null.field` crash on mount when the guarded cell starts absent.
+   */
+  ifGuard?: {
+    condExpr?: string;
+    condExprNode?: ExprNode;
+    refs?: string[];
+    varName?: string;
+    dotPath?: string;
+  };
 }
 
 /**
@@ -344,6 +362,34 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
   });
 
   const encodingCtx = ctx.encodingCtx;
+
+  // ss20 item-1 — lower an `if=` DISPLAY-TOGGLE predicate to its JS condition
+  // string. Shared by the display-toggle emission AND the inner-effect gating
+  // (binding.ifGuard) so the toggle and the effects it guards stay in lockstep
+  // (identical encoding + lowering — do not re-lower independently). Accepts the
+  // toggle binding OR a stamped ifGuard sub-object (same field shape). Returns
+  // null when neither a condExpr nor a varName is present.
+  function computeDisplayToggleCondition(
+    b: { condExpr?: string; condExprNode?: any; refs?: string[]; varName?: string; dotPath?: string },
+  ): { conditionCode: string; subscribeVars: string[] } | null {
+    if (b.condExpr) {
+      // Bug 61 — thread synthCellKeys + derivedNames so `if=@form.isValid`
+      // conditional-display reads route to the dotted synth cell.
+      const compiled = emitExprField(b.condExprNode, b.condExpr, { mode: "client", derivedNames: ctx.derivedNames, synthCellKeys: ctx.synthCellKeys });
+      return { conditionCode: `(${compiled})`, subscribeVars: b.refs ?? [] };
+    } else if (b.varName) {
+      const condVarName = b.varName;
+      const encodedCondVar = encodingCtx && encodingCtx.enabled ? encodingCtx.encode(condVarName) : condVarName;
+      let conditionCode: string;
+      if (b.dotPath) {
+        conditionCode = `(_scrml_reactive_get(${JSON.stringify(encodedCondVar)}).${b.dotPath.slice(condVarName.length + 1)})`;
+      } else {
+        conditionCode = `_scrml_reactive_get(${JSON.stringify(encodedCondVar)})`;
+      }
+      return { conditionCode, subscribeVars: [encodedCondVar] };
+    }
+    return null;
+  }
   const serverFnNames = buildServerFnNames(fnNameMap);
   const lines: string[] = [];
 
@@ -1068,21 +1114,10 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
         // activate the condExpr path. This caused `is .Variant` expressions (which have
         // no @-prefixed reactive refs) to silently fall through, producing no output.
         // condExpr is valid even when refs is empty — emit the condition unconditionally.
-        if (binding.condExpr) {
-          // Bug 61 — thread synthCellKeys + derivedNames so `if=@form.isValid`
-          // conditional-display reads route to the dotted synth cell.
-          const compiled = emitExprField(binding.condExprNode, binding.condExpr, { mode: "client", derivedNames: ctx.derivedNames, synthCellKeys: ctx.synthCellKeys });
-          conditionCode = `(${compiled})`;
-          subscribeVars = binding.refs ?? [];
-        } else if (binding.varName) {
-          const condVarName = binding.varName;
-          const encodedCondVar = encodingCtx && encodingCtx.enabled ? encodingCtx.encode(condVarName) : condVarName;
-          if (binding.dotPath) {
-            conditionCode = `(_scrml_reactive_get(${JSON.stringify(encodedCondVar)}).${binding.dotPath.slice(condVarName.length + 1)})`;
-          } else {
-            conditionCode = `_scrml_reactive_get(${JSON.stringify(encodedCondVar)})`;
-          }
-          subscribeVars = [encodedCondVar];
+        const _ddCond = computeDisplayToggleCondition(binding);
+        if (_ddCond) {
+          conditionCode = _ddCond.conditionCode;
+          subscribeVars = _ddCond.subscribeVars;
         }
 
         if (conditionCode && subscribeVars !== undefined) {
@@ -1280,19 +1315,39 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
         // re-runs on @var change; each re-run re-fires the server call.
         const needsAsync = exprUsesServerFn(expr, serverFnNames);
 
+        // ss20 item-1 — when this interpolation sits inside an `if=` display-
+        // toggle subtree, gate the effect on the SAME guard predicate the toggle
+        // uses (computed via the shared helper → lockstep). The guarded cell may
+        // be absent while the toggle hides the element; reading `.field` would
+        // crash on mount. The guard reads its own reactive cell INSIDE the
+        // effect, so a false→true flip re-runs the effect (deps are re-tracked
+        // each run) and renders the real values. `show=` is never stamped, so it
+        // keeps running its inner effects.
+        const _ifgCond = binding.ifGuard ? computeDisplayToggleCondition(binding.ifGuard) : null;
+        const _guardCond = _ifgCond ? _ifgCond.conditionCode : null;
         lines.push(`  {`);
         lines.push(`    const el = document.querySelector('[data-scrml-logic="${placeholderId}"]');`);
         lines.push(`    if (el) {`);
         if (needsAsync) {
-          lines.push(`      (async () => { try { el.textContent = await (${rewrittenExpr}); } catch (_e) { el.textContent = ""; } })();`);
-          lines.push(`      _scrml_effect(function() { (async () => { try { el.textContent = await (${rewrittenExpr}); } catch (_e) { el.textContent = ""; } })(); });`);
+          if (_guardCond) {
+            lines.push(`      if (${_guardCond}) { (async () => { try { el.textContent = await (${rewrittenExpr}); } catch (_e) { el.textContent = ""; } })(); }`);
+            lines.push(`      _scrml_effect(function() { if (!(${_guardCond})) return; (async () => { try { el.textContent = await (${rewrittenExpr}); } catch (_e) { el.textContent = ""; } })(); });`);
+          } else {
+            lines.push(`      (async () => { try { el.textContent = await (${rewrittenExpr}); } catch (_e) { el.textContent = ""; } })();`);
+            lines.push(`      _scrml_effect(function() { (async () => { try { el.textContent = await (${rewrittenExpr}); } catch (_e) { el.textContent = ""; } })(); });`);
+          }
         } else {
           // markup-as-value (§1.4/§7.4 Pillar 1): node-aware display. A markup-
           // typed value is a DOM node → render it into el; a string/primitive
           // keeps the byte-identical textContent path. _scrml_render_value
           // (core chunk) dispatches on `instanceof Node` at runtime.
-          lines.push(`      _scrml_render_value(el, ${rewrittenExpr});`);
-          lines.push(`      _scrml_effect(function() { _scrml_render_value(el, ${rewrittenExpr}); });`);
+          if (_guardCond) {
+            lines.push(`      if (${_guardCond}) { _scrml_render_value(el, ${rewrittenExpr}); }`);
+            lines.push(`      _scrml_effect(function() { if (!(${_guardCond})) return; _scrml_render_value(el, ${rewrittenExpr}); });`);
+          } else {
+            lines.push(`      _scrml_render_value(el, ${rewrittenExpr});`);
+            lines.push(`      _scrml_effect(function() { _scrml_render_value(el, ${rewrittenExpr}); });`);
+          }
         }
         lines.push(`    }`);
         lines.push(`  }`);

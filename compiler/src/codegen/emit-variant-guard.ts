@@ -637,6 +637,17 @@ function emitArmWireFunction(
       };
     const _armEnumVarMap = buildEnumVarMap(ctx.fileAST);
     const _armReactiveTypeMap = buildReactiveTypeMap(ctx.fileAST);
+    // ss20 g-compound-bind: per-arm dotted `bind:value=@form.field` must also
+    // retarget to the field's SOURCE cell (not a no-op deep-set on the derived
+    // compound parent). Rebuild the compound-parent/leaf sets from ctx.fileAST
+    // (cheap; once per arm wire fn) — same as the enum/type maps above.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { collectCompoundLeafTargets } =
+      require("./reactive-deps.ts") as {
+        collectCompoundLeafTargets: (fileAST: any) => { leafKeys: Set<string>; parentNames: Set<string> };
+      };
+    const { leafKeys: _armCompoundLeafKeys, parentNames: _armCompoundParentNames } =
+      collectCompoundLeafTargets(ctx.fileAST);
     for (const binding of wireableBinds) {
       const bodyLines = emitBindDirectiveBody(binding.bindAttr, binding.bindNode, {
         // `_root`-rooted acquire: the arm subtree is mounted under `_root`, so
@@ -648,6 +659,8 @@ function emitArmWireFunction(
         enumVarMap: _armEnumVarMap,
         reactiveTypeMap: _armReactiveTypeMap,
         encodingCtx: ctx.encodingCtx,
+        compoundLeafKeys: _armCompoundLeafKeys,
+        compoundParentNames: _armCompoundParentNames,
         // Pin the placeholder id captured at registration time (lockstep with
         // THIS arm-render's HTML, even when the engine re-renders the body).
         bindIdOverride: typeof binding.bindIdForArm === "string" ? binding.bindIdForArm : undefined,

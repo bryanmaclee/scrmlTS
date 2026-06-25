@@ -394,6 +394,26 @@ export interface LogicBinding {
   boundaryFallbackExpr?: string;
   boundaryVariantRenders?: Record<string, string>;
   boundaryHasFallback?: boolean;
+
+  /**
+   * ss20 item-1 (g-if-guard-inner-effect-not-gated) — stamped by emit-html.ts
+   * when this `${...}` interpolation binding sits inside an `if=` DISPLAY-TOGGLE
+   * subtree (NOT the clean-subtree mount/unmount path; NOT `show=`). Carries the
+   * enclosing if='s guard fields (same shape the toggle binding stores:
+   * condExpr/condExprNode for `if=(...)`/`if=fn()`, or varName/dotPath for
+   * `if=@var`). emit-event-wiring lowers it via the shared
+   * computeDisplayToggleCondition helper (lockstep with the toggle) and gates
+   * the inner effect on it — the effect body short-circuits while the guard is
+   * false, preventing a `null.field` crash on mount when the guarded cell starts
+   * absent.
+   */
+  ifGuard?: {
+    condExpr?: string;
+    condExprNode?: any;
+    refs?: string[];
+    varName?: string;
+    dotPath?: string;
+  };
 }
 
 export class BindingRegistry {

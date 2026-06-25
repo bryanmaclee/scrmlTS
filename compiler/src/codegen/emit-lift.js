@@ -1339,7 +1339,50 @@ export function emitCreateElementFromMarkup(node, lines, engineCtx = null, scope
 
       if (child.kind === "text") {
         const text = child.value ?? child.text ?? "";
-        if (text.trim()) {
+        // g-emit-lift-markup-text-interp-not-lowered (ss20 items 4+5): a markup
+        // TEXT child whose value carries an un-split `${...}` interpolation. The
+        // top-level emit-expr "markup-value" salvage path (ternary arms / bare
+        // markup-value-in-expression) hands the whole "Saved ${@cell}" string
+        // through as ONE text child — unlike the const-derived / fn-return /
+        // in-arm-extraction paths, which split text from interp UPSTREAM so this
+        // branch only ever saw clean text. Pre-fix the literal JSON.stringify
+        // shipped a raw "${@cell}" to the DOM. Lower it exactly the way the
+        // sibling logic-block bare-expr branch (below) and the interpolated-attr
+        // path (above) do: split into per-segment text nodes, routing each
+        // `${...}` through emitExprField so the interpolation is REACTIVE
+        // (re-evaluated by the enclosing display/derived effect on cell change),
+        // honouring the request-state seam. Genuinely-static text (no `${}`)
+        // keeps the byte-identical literal append.
+        //
+        // SCOPED to NON-EACH callers (`!currentLiftReconcileCtx()`): inside an
+        // `<each>` / `<tableFor>` per-item factory the each machinery + the
+        // sibling logic-block branch already lower interp with the correct ITER
+        // scope (`@row` → the loop-local `row` via maybeWrapLiftPerItemEffect),
+        // so this branch must NOT intercept — re-lowering here would emit a
+        // reactive cell read (`_scrml_reactive_get("row")`) against a non-existent
+        // "row" cell. In a reconcile ctx we fall through to the byte-identical
+        // literal append (pre-fix behaviour; the each path owns its own interp).
+        const _hasInterp = text.includes("${") || /\$\s*\{/.test(text) || text.includes("$$");
+        if (_hasInterp && !currentLiftReconcileCtx()) {
+          const _tparts = [];
+          parseLiftContentParts(text, _tparts);
+          for (const _pt of _tparts) {
+            if (_pt.type === "expr") {
+              const _rw = cleanRenderPlaceholder(emitExprField(null, rewriteRenderCall(_pt.value), liftExprCtx()));
+              if (_rw.trim() === "") continue;
+              if (liftExprReadsRequestState(_rw)) {
+                const _tn = genVar('lift_tn');
+                lines.push(`const ${_tn} = document.createTextNode("");`);
+                lines.push(`${elVar}.appendChild(${_tn});`);
+                lines.push(`_scrml_effect(function() { ${_tn}.textContent = String((${_rw}) ?? ""); });`);
+              } else {
+                lines.push(`${elVar}.appendChild(document.createTextNode(String((${_rw}) ?? "")));`);
+              }
+            } else if (_pt.value !== "") {
+              lines.push(`${elVar}.appendChild(document.createTextNode(${JSON.stringify(_pt.value)}));`);
+            }
+          }
+        } else if (text.trim()) {
           lines.push(`${elVar}.appendChild(document.createTextNode(${JSON.stringify(text)}));`);
         }
       } else if (child.kind === "markup") {

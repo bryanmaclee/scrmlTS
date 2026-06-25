@@ -700,6 +700,26 @@ export function generateHtml(
   }
   const boundaryStack: ActiveBoundary[] = [];
 
+  // ss20 item-1 (g-if-guard-inner-effect-not-gated) — the active `if=` DISPLAY-
+  // TOGGLE guard stack. When the markup walker enters a standalone `if=` element
+  // that fell through to the display-toggle path (NOT the clean-subtree
+  // mount/unmount path, which returns early above; NOT `show=`, which keeps
+  // running its inner effects), it pushes the if='s guard fields here before
+  // recursing into children. A `${...}` interpolation descendant stamps the
+  // top-of-stack onto its LogicBinding as `ifGuard` so emit-event-wiring gates
+  // the inner interpolation effect on the SAME predicate the toggle uses — the
+  // effect body short-circuits while the guard is false, preventing a
+  // `null.field` crash on mount when the guarded cell starts absent. Popped on
+  // the way out. Empty stack → no enclosing if= guard.
+  interface IfDisplayGuard {
+    condExpr?: string;
+    condExprNode?: any;
+    refs?: string[];
+    varName?: string;
+    dotPath?: string;
+  }
+  const ifGuardStack: IfDisplayGuard[] = [];
+
   // ss15 item-2 (S214) -- enclosing-markup-element tag stack. The logic-node
   // branch keys on the immediate parent tag to decide render-slot vs effect:
   // an empty stack means file top-level (a default-logic root); a top-of-stack
@@ -2303,11 +2323,40 @@ export function generateHtml(
       // default-logic body (<program>/<page>/<channel> -> mount effect, no
       // render slot) or inside a real markup element (-> markup-interpolation,
       // renders). See the logic-node branch below + DEFAULT_LOGIC_MODE_TAGS.
+      // ss20 item-1 — if this generic markup element carries an `if=` attr it
+      // took the display-toggle path (the clean-subtree mount/unmount path
+      // returns early above; if-chain branches have `if=` stripped before they
+      // reach here). Push its guard so descendant `${...}` interpolation effects
+      // gate on the SAME predicate as the toggle. `show=` is NOT pushed (Vue
+      // v-show keeps running its inner effects).
+      let _ifGuardPushed = false;
+      const _ifGuardAttr = attrs.find((a: any) => a.name === "if");
+      if (_ifGuardAttr && _ifGuardAttr.value) {
+        const _gv = _ifGuardAttr.value;
+        if (_gv.kind === "expr") {
+          ifGuardStack.push({ condExpr: _gv.raw, condExprNode: _gv.exprNode, refs: _gv.refs });
+          _ifGuardPushed = true;
+        } else if (_gv.kind === "call-ref") {
+          const _condRaw = `${_gv.name}(${(_gv.args ?? []).join(", ")})`;
+          const _condRefs = (_gv.args ?? [])
+            .filter((a: any) => typeof a === "string" && a.startsWith("@"))
+            .map((a: any) => a.replace(/^@/, "").split(/[.[(]/)[0]);
+          ifGuardStack.push({ condExpr: _condRaw, refs: _condRefs });
+          _ifGuardPushed = true;
+        } else if (_gv.kind === "variable-ref") {
+          const _ifVarName = (_gv.name ?? "").replace(/^@/, "");
+          const _ifBaseVar = _ifVarName.split(".")[0];
+          const _hasDotPath = _ifVarName.includes(".");
+          ifGuardStack.push({ varName: _ifBaseVar, ...(_hasDotPath ? { dotPath: _ifVarName } : {}) });
+          _ifGuardPushed = true;
+        }
+      }
       markupParentStack.push(tag);
       for (const child of children) {
         emitNode(child);
       }
       markupParentStack.pop();
+      if (_ifGuardPushed) ifGuardStack.pop();
 
       parts.push(`</${tag}>`);
       return;
@@ -2493,16 +2542,21 @@ export function generateHtml(
             // emit-event-wiring.ts emits the typed-error dispatch + the C-hybrid
             // host-JS backstop (§19.6.8) instead of a bare textContent write.
             const eb = boundaryStack.length > 0 ? boundaryStack[boundaryStack.length - 1] : null;
+            // ss20 item-1 — stamp the innermost enclosing `if=` display-toggle
+            // guard (if any) so emit-event-wiring gates this interpolation's
+            // effect on the same predicate as the toggle.
+            const ifg = ifGuardStack.length > 0 ? ifGuardStack[ifGuardStack.length - 1] : null;
             registry.addLogicBinding(eb
               ? {
                   placeholderId, expr: exprStr, exprNode: child.exprNode, reactiveRefs,
                   ...(hasRequestRef ? { hasRequestRef: true } : {}),
+                  ...(ifg ? { ifGuard: ifg } : {}),
                   boundaryId: eb.boundaryId,
                   boundaryFallbackExpr: eb.fallbackExpr,
                   boundaryHasFallback: eb.hasFallback,
                   boundaryVariantRenders: eb.variantRenders,
                 }
-              : { placeholderId, expr: exprStr, exprNode: child.exprNode, reactiveRefs, ...(hasRequestRef ? { hasRequestRef: true } : {}) });
+              : { placeholderId, expr: exprStr, exprNode: child.exprNode, reactiveRefs, ...(hasRequestRef ? { hasRequestRef: true } : {}), ...(ifg ? { ifGuard: ifg } : {}) });
           }
         }
       }

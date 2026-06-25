@@ -1285,8 +1285,18 @@ function renderTemplateAttrToJs(
     // so the handler runs against the LIVE item (not the create-time snapshot)
     // on same-key reconcile / in-place field mutation. Global handlers and
     // literal-only bodies stay plain (gated by the iter-scope token scan).
+    // g-each-mount-form-submit-no-preventdefault (ss20) — mirror the registry /
+    // top-level event-wiring path (emit-event-wiring.ts L658/L680): a per-item
+    // `<form onsubmit=fn()>` inside an `<each>` must auto-inject
+    // `event.preventDefault()` so Enter / submit-button does NOT reload the page.
+    // LOCAL injection: the each path builds its own `function(event){...}` string
+    // and does NOT share the registry handler-body builder, so there is no
+    // double-inject risk. preventDefault is the FIRST statement — BEFORE the
+    // Bug-73 live-keying prelude — so it fires even if the prelude early-returns
+    // on a stale (reconciled-away) item.
+    const preventLine = ev === "submit" ? "event.preventDefault(); " : "";
     const wrappedHandlerBody = maybeWrapEachPerItemHandler(handlerBody, iterVarName);
-    lines.push(`${indent}${elVar}.addEventListener(${JSON.stringify(ev)}, function(event) { ${wrappedHandlerBody} });`);
+    lines.push(`${indent}${elVar}.addEventListener(${JSON.stringify(ev)}, function(event) { ${preventLine}${wrappedHandlerBody} });`);
     return;
   }
 
