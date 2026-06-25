@@ -24,8 +24,9 @@
 4. **`g-db-src-compile-vs-runtime-path`** (#9, MED) `[status=open]` — `<db src>` file-relative at compile, cwd-relative at runtime → multi-dir projects diverge. Resolve consistently (project-root-relative or normalize the emitted `sqlite:…` literal). Loci: db-resolver / emit-server.
 5. **`g-generate-auth-redirect-mismatch`** (#14, MED) `[status=open]` — `scrml generate auth` scaffolds `/auth/login` but default `loginRedirect=/login` → `I-AUTH-REDIRECT-UNRESOLVED` + `W-AUTH-LOGIN-MISSING`. Align the generator scaffold path with the default redirect (`commands/generate*` vs `auth-graph.ts`).
 6. **`g-schema-block-raw-ddl-silent-noop`** (MED, PA-found) `[status=open]` — raw `CREATE TABLE` inside `<schema>` not recognized by `parseSchemaBlock` → silent zero-tables → `E-PA-002`. Parse `CREATE TABLE` in `<schema>` OR diagnose the unrecognized form (don't fall through to E-PA-002).
+7. **`g-sql-in-arrow-body-invalid-js`** (#12, MED) `[status=open]` — a `?{}` SQL block inside an arrow-function body emits JS the compiler can't parse (`E-CODEGEN-INVALID-JS`). Locus: emit-server / `?{}` SQL-lowering — lower it inside arrow bodies correctly, or reject the shape with a clear diagnostic. Repro `/tmp/ryan-verify/08-arrow-sql.scrml`.
 
-### Group B — render-codegen (⚠ land AFTER ss17)
+### Group B — render-codegen — ⚠ MOVED to `ss20-each-codegen-followon` (S220, post-ss17); do NOT dispatch from here (kept for provenance)
 7. **`g-compound-bind-value-not-two-way`** (#10, HIGH) `[status=open]` — compound `bind:value=@form.field` writes the DERIVED parent, not the source sub-field → input empty, isValid stuck. Locus `codegen/emit-bindings.ts:513-520` — dotted-path bind must target the source sub-field cell, not the root (derived) token. (Less ss17-overlap than #11, but render-codegen.)
 8. **`g-if-guard-inner-effect-not-gated`** (#11, HIGH) `[status=open]` — `if=(@x is some)` only toggles `el.style.display`; inner `${@x.field}` effect runs on mount with `x===null` → null crash. Locus `codegen/emit-html.ts` — gate the subtree's inner interpolation effects on the guard condition. **EACH/MARKUP-BODY family — highest ss17 collision risk; land after ss17.**
 
