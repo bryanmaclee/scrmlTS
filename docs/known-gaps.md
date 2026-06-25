@@ -15,8 +15,8 @@
 | Severity | Open |
 |---|---|
 <!-- @generated:gap-counts START (do not edit — `bun scripts/state.ts --write`) -->
-| HIGH | 6 |
-| MED | 22 |
+| HIGH | 7 |
+| MED | 23 |
 | LOW | 15 |
 | Nominal (spec-ahead-of-impl) | 7 |
 <!-- @generated:gap-counts END -->
@@ -2517,3 +2517,9 @@ ss17 item-2 fixed the `<each>` per-item markup-value path by splitting markup-te
 
 ### G-LIBRARY-MODE-SQL-NO-DB-CONTEXT — a library/pure-fn `.scrml` (no `<program>`) cannot run `?{}` SQL; the §44.7.1 module-with-db-context lowering (W5a/W5b) is unbuilt — `NEW S220 (sharpens dpa OQ-F1); MED; build-candidate scoped`
 A `.scrml` compiled as a library/module (§21.5 — exports fns, NO `<program>`) cannot run `?{}`: SQL needs a db-resolution scope and a library has no `<program db=>` ancestor. §44.7.1 ratifies the fix (the library declares its OWN top-level `<db src>` → *module-with-db-context*; the module owns its connection) but the lowering is STAGED + UNBUILT — today a library `?{}` hits `E-SQL-004` / `E-SQL-009` / "does not emit cleanly as a library export". **Built (S145):** emission shaping (`--mode library` + suppress the `.server.js` route wrapper for body-escalated fns) + §21.5.1 export-modifier parsing. **Remaining = W5a + W5b:** W5a auto-detect-library (classify a no-`<program>`-exports file as library without the explicit flag; api.js/codegen/index.ts/module-resolver; ~3-6h) + W5b cross-file-`?{}`-resolve (resolve `?{}` against the file's OWN `<db src>`; cross-file db-context travel to the importing page; narrow `E-SQL-009` to the no-`<db>` case; route-inference.ts + db-driver.ts/emit-server.ts + module-resolver; ~10-18h). EXTENDS the existing `<program db>` resolution infra (not new) — survey-first per depth-of-survey (likely less). **First consumer: flogence** (scrml-authored tooling that wants SQL; on TS bridge/digest today). Full scope + build sub-steps: `docs/changes/library-mode-db-w5ab-2026-06-25/SCOPE.md`. Sharpens the banked dpa OQ-F1 stub. <!-- @gap id=g-library-mode-sql-no-db-context sev=MED status=open -->
+
+### G-ENDPOINT-PRIVATE-ARM-HANDLER-TREE-SHAKEN — §61.2's "canonical" `<endpoint>` arm form (a terse call to a private `fn`) is non-functional: the private handler is tree-shaken → runtime ReferenceError — `NEW S220 (ss18-W4 build-surfaced); HIGH; spec-vs-impl gap`
+§61.2 calls `<FleetStatus : fleetStatus()>` (a terse arm calling a handler) "the canonical arm form", but a non-exported pure `fn` referenced ONLY from an endpoint arm is TREE-SHAKEN → the emitted `.server.js` references an UNDEFINED symbol (runtime ReferenceError) + a misleading `W-DEAD-FUNCTION`. There is NO "private server helper callable only from an endpoint arm" today: `export fn` over-bundles into client.js; `server function` gets its own RPC route + client fetch-stub (over-exposes, dents §61.6). **The DOCUMENTED canonical form doesn't work** (example 33 sidesteps via inline-value arms). Fix (ss18 sPA sketch): DG (`dependency-graph.ts collectAllMarkupNodes`) + lint (`route-inference.ts markupReferencedNames`) sweep `endpoint-decl` arm bodies for callees + seed as reachability roots (gated on endpoint-decl presence — tiny blast radius); emit-server value-export path retains them server-side. **Same reachability/tree-shake class as the each-component-helper bug (S200) + adjacent to Ryan #04.** Recommend a W6 / ss-list item. <!-- @gap id=g-endpoint-private-arm-handler-tree-shaken sev=HIGH status=open -->
+
+### G-ENDPOINT-MULTI-STATEMENT-ARM-INVALID-JS — multi-statement bare-body `<endpoint>` arms emit invalid JS, caught only by the generic `E-CODEGEN-INVALID-JS` (no clean endpoint diagnostic) — `NEW S220 (ss18-W4 build-surfaced); MED`
+W4 lowers `:`-shorthand / single-expr-bare / self-closing arm bodies (the witnessed need); a MULTI-STATEMENT bare-body arm emits invalid JS surfaced only by the generic `E-CODEGEN-INVALID-JS` (`--validate-emit`), not a clean endpoint-specific diagnostic. Documented as a known limit in §61.10. Future: lower multi-statement arm bodies OR fire a clean diagnostic. <!-- @gap id=g-endpoint-multi-statement-arm-invalid-js sev=MED status=open -->
