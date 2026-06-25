@@ -1046,7 +1046,7 @@ Each `:`-shorthand body here is a display-text literal (§4.18.3). `"Loading… 
 
 ### 4.15 Scrml-defined structural elements (registered at the block-grammar layer)
 
-**Added:** 2026-05-04 — registers the v0.next scrml-defined elements that the block splitter and tokenizer recognise alongside HTML elements. These are NOT HTML elements; the element registry (§24) distinguishes them and routes them to their owning sections for behavioural semantics. Updated 2026-05-10 (S77 + S78) for `<onTimeout>` (§51.0.M), `<onIdle>` (§51.0.R). Updated 2026-05-12 (v0.3 Wave 1) for `<page>` (§40). Updated 2026-05-20 (S111 — quoted-text model) — `<engine>` / `<match>` body-form notes mark their state-child / arm bodies as code-default bodies (§4.18). Updated 2026-06-04 (S162) for `<each>` (§17.7) — closes the §4.15/§24.4 registry gap: `<each>` is normatively structural per §17.7 / §18.5.6 (S130 HU-1) but had been omitted from these registry enumerations; the native parser registered it at the #2f each-promotion landing. Updated 2026-06-15 (S196) for `<render>` (§19.15) — the render-expression that fires a held enum value's per-variant `renders` markup (held-error-display, RATIFIED S195).
+**Added:** 2026-05-04 — registers the v0.next scrml-defined elements that the block splitter and tokenizer recognise alongside HTML elements. These are NOT HTML elements; the element registry (§24) distinguishes them and routes them to their owning sections for behavioural semantics. Updated 2026-05-10 (S77 + S78) for `<onTimeout>` (§51.0.M), `<onIdle>` (§51.0.R). Updated 2026-05-12 (v0.3 Wave 1) for `<page>` (§40). Updated 2026-05-20 (S111 — quoted-text model) — `<engine>` / `<match>` body-form notes mark their state-child / arm bodies as code-default bodies (§4.18). Updated 2026-06-04 (S162) for `<each>` (§17.7) — closes the §4.15/§24.4 registry gap: `<each>` is normatively structural per §17.7 / §18.5.6 (S130 HU-1) but had been omitted from these registry enumerations; the native parser registered it at the #2f each-promotion landing. Updated 2026-06-15 (S196) for `<render>` (§19.15) — the render-expression that fires a held enum value's per-variant `renders` markup (held-error-display, RATIFIED S195). Updated 2026-06-25 (S219) for `<endpoint>` (§61) — the typed-inbound endpoint primitive (the serve-side mirror of §60 `<api>`); Nominal/spec-ahead per the §61 banner.
 
 **The registered structural elements:**
 
@@ -1061,15 +1061,16 @@ Each `:`-shorthand body here is a display-text literal (§4.18.3). `"Loading… 
 | `<onTimeout>` (S67; `name=` S79) | §51.0.M | `after=DURATION` (required), `to=.Variant` (required), `name=IDENT` (optional, S79 — addressable for `cancelTimer`) | self-closing only |
 | `<onIdle>` (S77) | §51.0.R | `after=DURATION` (required), `to=.Variant` (required) | self-closing only |
 | `<page>` (v0.3 Wave 1) | §40 | `db=`, `auth=`, `csrf=`, `ratelimit=` (per-route only; see §40 for canonical value sets) | default-logic body (mode-equivalent to `<program>` body in v0.3) |
+| `<endpoint>` (S219) | §61 | `path=string` (required), `method=HTTP-METHOD` (required), `accepts=:enum` (required) | bare-body (per-variant arms; REUSE §18.0.1 arm + §51.0.B.1 payload binding); each arm body is a **code-default body** (§4.18) |
 
 **Normative statements:**
 
-- The block splitter SHALL classify openers `<engine`, `<match>`, `<each`, `<errors`, `<onTransition`, `<onTimeout`, `<onIdle`, `<render`, and `<page` (no whitespace between `<` and the identifier — they follow the canonical no-space convention; the convention precedes NR-authoritative routing per §4.3) as scrml-defined structural elements.
+- The block splitter SHALL classify openers `<engine`, `<match>`, `<each`, `<errors`, `<onTransition`, `<onTimeout`, `<onIdle`, `<render`, and `<endpoint`, and `<page` (no whitespace between `<` and the identifier — they follow the canonical no-space convention; the convention precedes NR-authoritative routing per §4.3) as scrml-defined structural elements.
 - These element names SHALL NOT be treated as HTML elements. The HTML element registry (§24) excludes them; the scrml structural-element registry includes them.
 - (S111 — quoted-text model.) The state-child bodies of `<engine>` and the arm bodies of `<match>` are **code-default bodies** (§4.18.1) — a bare run in those bodies is code; display text is a `"..."` display-text literal (§4.18.3). The `<errors>` override-template body and any plain-markup element body are free-text bodies. The `<page>` body is a distinct **third** body-mode — `default-logic` (§40.8) — neither code-default nor free-text; the §4.18 split does not classify it. The body-mode of a structural element's body is fixed by the element kind per §4.18.
 - Attribute slots listed above are recognised at parse time. Unknown attributes on these elements emit `W-ATTR-001` (attribute allowlist warning, §3.3 / VP-1) and may escalate to error in stricter modes.
-- Component names (PascalCase user types) and these scrml-defined element names are disjoint — registering a user component named `engine`, `match`, `each`, `errors`, `onTransition`, `onTimeout`, `onIdle`, `render`, or `page` is `E-NAME-COLLIDES-RESERVED` (the names are reserved structural-element identifiers).
-- These element names are ONLY recognised in their owning loci; e.g., `<onTransition>` is grammatical only as a child of `<engine>`; `<onTimeout>` is grammatical only as a child of an engine state-child; `<onIdle>` is grammatical only at engine root (sibling of state-children); `<page>` is grammatical only as a child of `<program>` in multi-page apps. Use outside the owning locus is `E-STRUCTURAL-ELEMENT-MISPLACED` or the element's specific misplacement code (e.g. `E-IDLE-MISPLACED` per §51.0.R).
+- Component names (PascalCase user types) and these scrml-defined element names are disjoint — registering a user component named `engine`, `match`, `each`, `errors`, `onTransition`, `onTimeout`, `onIdle`, `render`, `page`, or `endpoint` is `E-NAME-COLLIDES-RESERVED` (the names are reserved structural-element identifiers).
+- These element names are ONLY recognised in their owning loci; e.g., `<onTransition>` is grammatical only as a child of `<engine>`; `<onTimeout>` is grammatical only as a child of an engine state-child; `<onIdle>` is grammatical only at engine root (sibling of state-children); `<page>` is grammatical only as a child of `<program>` in multi-page apps. Use outside the owning locus is `E-STRUCTURAL-ELEMENT-MISPLACED` or the element's specific misplacement code (e.g. `E-IDLE-MISPLACED` per §51.0.R). (`<endpoint>`, like `<match>`/`<each>`, is a top-level declaration — grammatical at program scope where a route declaration goes, NOT locus-restricted to a parent structural element; it is absent from this owning-locus restriction.)
 - `<page>` SHALL NOT carry a `route=` attribute. Routing in scrml is filesystem-inferred (per Pillar 3 — compiler owns the wiring; cross-ref §47.9.2 path-preserve emission); a `route=` attr on `<page>` is `E-PAGE-ROUTE-ATTR-FORBIDDEN` (doubly forbidden: it both regresses against filesystem inference AND collides with the existing nested-program `route=` per §4.12.2). The allowed attribute set on `<page>` is exactly the four PER-ROUTE concerns — `db=`, `auth=`, `csrf=`, `ratelimit=` — and any other attribute fires `E-PAGE-INVALID-ATTR` with guidance toward the markup-element alternative or moving the attribute to `<program>` (app-wide concerns).
 
 **Cross-references:**
@@ -1081,6 +1082,7 @@ Each `:`-shorthand body here is a display-text literal (§4.18.3). `"Loading… 
 - `<onTimeout>` shape, attribute legality, firing rules: §51.0.M (S67 amendment).
 - `<onIdle>` shape, attribute legality, firing rules: §51.0.R (S77 amendment).
 - `<page>` shape, per-route attribute semantics, multi-page-app placement: §40 (v0.3 Wave 1).
+- `<endpoint>` shape, `path=`/`method=`/`accepts=` attributes, the per-variant arm form, exhaustiveness, the decode + envelope: §61 (S219; the typed-inbound mirror of §60 `<api>`).
 
 ### 4.16 M7 — multi-close shorthand `<///>` is NOT a part of scrml (negative-space)
 
@@ -16025,7 +16027,7 @@ The HTML elements `<pre>` and `<code>` are **raw-content elements** at the scrml
 
 ### 24.4 Scrml-defined structural elements (Stage 0b D4 — registry distinction)
 
-**Added:** 2026-05-04 — registers the v0.next scrml-defined structural elements alongside the HTML element registry. These are NOT HTML elements; the registry distinguishes them. Updated 2026-05-10 (S77 + S78) for `<onTimeout>` (§51.0.M), `<onIdle>` (§51.0.R). Updated 2026-05-12 (v0.3 Wave 1) for `<page>` (§40). Updated 2026-06-04 (S162) for `<each>` (§17.7 — registry catch-up; cross-ref §4.15). Updated 2026-06-15 (S196) for `<render>` (§19.15 — the held-variant render-expression; cross-ref §4.15).
+**Added:** 2026-05-04 — registers the v0.next scrml-defined structural elements alongside the HTML element registry. These are NOT HTML elements; the registry distinguishes them. Updated 2026-05-10 (S77 + S78) for `<onTimeout>` (§51.0.M), `<onIdle>` (§51.0.R). Updated 2026-05-12 (v0.3 Wave 1) for `<page>` (§40). Updated 2026-06-04 (S162) for `<each>` (§17.7 — registry catch-up; cross-ref §4.15). Updated 2026-06-15 (S196) for `<render>` (§19.15 — the held-variant render-expression; cross-ref §4.15). Updated 2026-06-25 (S219) for `<endpoint>` (§61 — the typed-inbound endpoint primitive; serve-side mirror of §60 `<api>`; cross-ref §4.15).
 
 **Registered scrml structural elements:**
 
@@ -16040,13 +16042,14 @@ The HTML elements `<pre>` and `<code>` are **raw-content elements** at the scrml
 | `<onIdle>` (S77) | §51.0.R | Engine-wide event-timeout watchdog; child of `<engine>` only (sibling of state-children); one per engine maximum |
 | `<page>` (v0.3 Wave 1) | §40 | Per-route attribute container in multi-page apps; child of `<program>` only; route URL is filesystem-inferred (no `route=` attr); accepts exactly the four per-route concerns `db=`, `auth=`, `csrf=`, `ratelimit=` |
 | `<render>` (S196) | §19.15 | Held-variant render-expression; self-closing, `of=expr` required; fires the held enum value's per-variant `renders` markup (§19.2), exhaustiveness-fenced (§19.15.3) |
+| `<endpoint>` (S219) | §61 | Typed inbound endpoint (the serve-side mirror of §60 `<api>`); `path=`/`method=`/`accepts=:enum`; per-variant arms (REUSE §18.0.1/§51.0.B.1) exhaustive over `accepts=`; compiler owns decode (parseVariant §41.13) + JSON envelope; server-handler-only codegen; Nominal/spec-ahead per §61 banner |
 
 **Normative statements:**
 
 - The HTML element registry (§24.1) SHALL NOT include these names. They are scrml-defined structural elements with their own owning-section semantics (cross-ref §4.15).
-- The compiler SHALL NOT apply HTML attribute validation (§24.2) to these elements. Each scrml structural element has its own attribute slot catalog defined in its owning section (§51.0 for `<engine>`, §18.0.1 for `<match>`, §17.7 for `<each>`, §55.8 for `<errors>`, §51.0.H for `<onTransition>`, §51.0.M for `<onTimeout>`, §51.0.R for `<onIdle>`, §40 for `<page>`).
+- The compiler SHALL NOT apply HTML attribute validation (§24.2) to these elements. Each scrml structural element has its own attribute slot catalog defined in its owning section (§51.0 for `<engine>`, §18.0.1 for `<match>`, §17.7 for `<each>`, §55.8 for `<errors>`, §51.0.H for `<onTransition>`, §51.0.M for `<onTimeout>`, §51.0.R for `<onIdle>`, §40 for `<page>`, §61 for `<endpoint>`).
 - These element names SHALL NOT be valid component names. Defining `const engine = <article>` (lowercase) or `const Engine = <div>` is `E-NAME-COLLIDES-RESERVED` — the names are reserved scrml structural-element identifiers. The same applies to `page` / `Page`.
-- The unified state-type registry (§15.15) routes these names per their NR `resolvedCategory`: `<engine>` → `engine`, `<match>` → a dedicated category, `<errors>` → a dedicated category, `<onTransition>` → resolved relative to its parent `<engine>`, `<onTimeout>` → resolved relative to its parent engine state-child, `<onIdle>` → resolved relative to its parent `<engine>`, `<page>` → resolved relative to its parent `<program>`.
+- The unified state-type registry (§15.15) routes these names per their NR `resolvedCategory`: `<engine>` → `engine`, `<match>` → a dedicated category, `<errors>` → a dedicated category, `<onTransition>` → resolved relative to its parent `<engine>`, `<onTimeout>` → resolved relative to its parent engine state-child, `<onIdle>` → resolved relative to its parent `<engine>`, `<page>` → resolved relative to its parent `<program>`, `<endpoint>` → a dedicated route-declaration category (a top-level endpoint declaration, like `<api>` §60).
 - Validation pass VP-1 (§3.3 attribute allowlist) registers the per-element attribute catalogs for these structural elements in `compiler/src/attribute-registry.js` (cross-ref Stage 3.3 contract).
 
 **Cross-references:**
@@ -16058,6 +16061,7 @@ The HTML elements `<pre>` and `<code>` are **raw-content elements** at the scrml
 - §51.0.M — `<onTimeout>` semantics (S67 amendment).
 - §51.0.R — `<onIdle>` semantics (S77 amendment).
 - §40 — `<page>` semantics; per-route attribute set; one-program-per-application rule (v0.3 Wave 1).
+- §61 — `<endpoint>` semantics; `path=`/`method=`/`accepts=` attributes; the arm form + exhaustiveness; the decode + envelope (S219; the typed-inbound mirror of §60 `<api>`).
 
 ---
 
@@ -33179,3 +33183,162 @@ The A2 implementation waves wired the surface below; every code carries a §34 c
 ### 60.11 Cross-references
 
 §8 / §4.12.6 (`<db>` — the owned-boundary sibling `<api>` is shaped against) · §39.12 `W-SCHEMA-003` (the `scrml migrate` reconciliation lever `<api>` deliberately lacks — the must-not-lie asymmetry, §60.3) · §6.7.7 `<request>` (the `api=` bind target, §60.4) · §41.13 `parseVariant` (response decode, §60.5) · §53 / §14 (the request/response type surface) · §12.2 (escalation triggers — `<api>` stays client-only, §60.6) · §1.1 (the "no API layer to drift" identity — the reframe, §60.1). Build arc: `docs/changes/api-primitive-a2-2026-06-20/`. Design: the dpa-001 debate + the W0 decl-site-epistemics deep-dive.
+
+---
+
+## 61. Typed Inbound Endpoint — `<endpoint>`
+
+**Added:** S219, 2026-06-25. **Source:** reopen of dpa-002 (`serve-side-raw-route`); W0 deep-dive `scrml-support/docs/deep-dives/raw-route-primitive-reopen-2026-06-25.md`. **Authority:** ratified S219 (user "ratify a+b as a typed-default + raw-escape PAIR, `<endpoint>` first") — the witnessed flogence need is typed; the path-bound `raw` server-fn (a) is deferred to a witnessed untypeable case; `handle()` (§40) covers the interim raw escape. Scope confirmed **general typed-inbound endpoint** (no shape debate). Build SCOPE: `docs/changes/endpoint-primitive-2026-06-25/SCOPE.md`. Design-insight: `~/.claude/design-insights.md` "External-boundary typing — owned vs unowned" (the serve-side mirror).
+
+> **Nominal section.** This section specifies the `<endpoint>` primitive **as designed** and is **spec-ahead-of-implementation** — W1 of the `<endpoint>` build arc (the SCOPE's W1 SPEC-author wave). **No `<endpoint>` implementation exists in the compiler as of S219.** The later waves wire it: **W2** the parser (`compiler/src/ast-builder.js` + the native parser — recognize the `<endpoint>` structural element + its `path=`/`method=`/`accepts=` attributes + the per-variant arms, reusing the §18.0.1 / §51.0.B.1 arm + payload-binding grammar); **W3** the typer (`compiler/src/type-system.ts` / `symbol-table.ts` — resolve `accepts=` to the enum, run the §18.0.1/§51 exhaustiveness check → `E-ENDPOINT-NOT-EXHAUSTIVE`, bind each arm's payload type); **W4** the codegen (`compiler/src/codegen/emit-server.ts` — decode the request body via `parseVariant` §41.13, dispatch through the arms reusing `emit-variant-guard`, envelope the typed arm-result as JSON, register at `path=`/`method=`, **skip** the paired client fetch-stub); **W5** the tests + an `examples/NN-endpoint` worked example + the R26 conformance run + the flogence `fsp-wire-smoke` re-host. Clauses describing behaviour the compiler does not yet perform are spec-ahead. The `E-ENDPOINT-*` Error codes (§61.9) are **named and reserved here** but are deliberately **NOT catalogued in §34 yet** — per Rule 4 (and exactly as §60's `E-API-*` codes did) each `E-ENDPOINT-*` row lands in §34 **with** the W2-W4 implementation wave that fires it.
+
+### 61.1 Overview — the typed inbound edge (the `<api>` mirror)
+
+`<endpoint>` is the typed **INBOUND** edge: a scrml-served HTTP route that a **foreign** client (a non-scrml agent, a webhook source, another codebase's HTTP caller) calls directly. It is the structural **mirror** of §60 `<api>` — `<api>` types the **OUTBOUND** boundary (a scrml frontend calling a foreign backend scrml does not own), and `<endpoint>` types the **INBOUND** boundary (a scrml server receiving a request from a foreign client scrml does not own):
+
+| Axis | `<api>` (§60) | `<endpoint>` (§61) |
+|---|---|---|
+| Direction | outbound — scrml **calls** a foreign backend | inbound — scrml **is called by** a foreign client |
+| scrml owns | the request encode + the response decode | the request **decode** + the response **envelope** + the dispatch |
+| The author fills | the endpoint declaration (URL/method/shapes) | the per-variant **arms** (the handler bodies) |
+| The typed boundary | the response, via `parseVariant` (§41.13) | the request, via `parseVariant` (§41.13) over the body |
+| Codegen | a client fetch-callable, no server tier (§60.6) | a server route-handler, **no** paired client fetch-stub (§61.6) |
+
+For an `<endpoint>`, the compiler **owns the decode + the exhaustive dispatch + the JSON envelope**; the author fills the per-variant arms. A request body decodes into a declared enum (`accepts=`), the compiler dispatches to the matching arm, and the arm's typed return value is enveloped as a JSON response.
+
+**The inbound-edge honesty (why this is a sharp primitive, not god-ification).** On the inbound edge scrml **owns the request-decode codec** — it, not a foreign SDK, is responsible for reading the wire into a typed value. That ownership is the primitive's justification: because scrml owns the decode, an inbound variant the author has **not** handled is a hole scrml can see, so an un-handled variant is a **compile error** (§61.4), not a silent runtime 404/500. This is the serve-side dual of §60.3's must-not-lie principle: where §60 makes a foreign-backend drift loud at compile time, §61 makes an unhandled inbound variant loud at compile time. `<endpoint>` adds exactly this — a typed, exhaustive, compiler-owned inbound dispatch — and nothing else; it is **not** a request framework (§61.7 keeps auth/retry/middleware out of the primitive, the §60.7 LIMIT-PRIMITIVES boundary applied to the inbound edge).
+
+**Not a JSON-RPC dispatcher.** `<endpoint>` is a **general** typed-inbound endpoint, not a baked-in JSON-RPC mode. JSON-RPC's `{ method, params }` request shape and `{ jsonrpc, id, result | error }` response shape are a **convention** an author expresses via the `accepts=` enum + the arm result (§61.5), not a framework the primitive ships. No scrml framework ships a JSON-RPC dispatcher; `<endpoint>` is the general primitive from which that convention is one expressible shape.
+
+### 61.2 The `<endpoint>` declaration
+
+`<endpoint>` is a scrml-defined structural element (§4.15 / §24.4 — NOT an HTML element). It is a block element: an opener carrying the route attributes, a body of per-variant arms, and a close.
+
+```
+endpoint-decl    ::= '<endpoint' endpoint-attrs '>' endpoint-arm+ '</endpoint>'
+endpoint-attrs   ::= path-attr method-attr accepts-attr
+path-attr        ::= 'path=' string-literal          // an author-stable URL (the contract; §61.7)
+method-attr      ::= 'method=' http-method-literal    // 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+accepts-attr     ::= 'accepts=' enum-type-ref         // a §14 / §53 :enum type; decoded via parseVariant (§41.13)
+
+endpoint-arm     ::= variant-arm                       // REUSES the §18.0.1 / §51.0.B.1 arm grammar
+```
+
+The arm form **reuses** the `<match>` block-form arm grammar (§18.0.1) and the §51.0.B.1 payload-binding surface — each arm is a state-child named for a variant of the `accepts=` enum, with the variant's payload destructured into per-arm locals:
+
+```scrml
+${ type FspMethod:enum = { FleetStatus, Dispatch(prompt: string, project: string), DeltaSince(seq: int) } }
+
+<endpoint path="/fsp" method="POST" accepts=FspMethod>
+    <FleetStatus : fleetStatus()>
+    <Dispatch(prompt, proj) : dispatch(prompt, proj)>
+    <DeltaSince(seq) : deltasSince(seq)>
+</endpoint>
+```
+
+**Arm bodies + payload binding (REUSE §18.0.1 / §51.0.B.1).** An arm body is a **code-default body** (§4.18 — a bare run is code; display text is a `"..."` display-text literal) and uses the three legitimate body forms (§4):
+
+- `:`-shorthand single-expression body — `<Variant(payload) : expr>` — the `:` opens INSIDE the arm opener (following the variant name / payload binding, the body running to the `>`; the single canonical placement, §4.14). This is the canonical arm form for an `<endpoint>` (a terse per-variant handler call).
+- Bare body — `<Variant(payload)>...</>` — a code-default body, for a multi-statement handler.
+- Self-closing `<Variant/>` — a no-op handler that returns the §61.5 default-success envelope with no result.
+
+Payload variants destructure positionally per the §18.0.1 / §51.0.B.1 surface: `<Dispatch(prompt, proj)>` binds the variant's two payload fields to per-arm locals available in that arm's body. The parenthesized positional form is canonical at the `<endpoint>` arm locus, mirroring the `<match>` state-child rule (§18.0.1 — the bare-attribute and named forms are §51-locus-only).
+
+**Normative statements:**
+- An `<endpoint>` declaration SHALL carry a `path=` (a string-literal URL), a `method=` (a recognized HTTP method literal), and an `accepts=` (a §14 / §53 `:enum` type-ref). A missing `path=` is `E-ENDPOINT-PATH-MISSING`; a `method=` that is not a recognized HTTP method is `E-ENDPOINT-METHOD-INVALID`; an `accepts=` resolving to a non-`:enum` type is `E-ENDPOINT-ACCEPTS-NOT-ENUM` (§61.9). [spec-ahead — these fire with the W2/W3 implementation.]
+- An `<endpoint>` body SHALL contain one arm per variant of the `accepts=` enum (the exhaustiveness rule, §61.4). The arms reuse the §18.0.1 arm grammar + the §51.0.B.1 payload binding; `<endpoint>` introduces **no new arm machinery**.
+- Each arm body is a code-default body (§4.18). The arm's value-return is the typed result the compiler envelopes (§61.5).
+- An `<endpoint>` declaration emits a **server route-handler only** (§61.6) — no HTML, no paired client fetch-stub.
+
+### 61.3 Request decode — `accepts=` via `parseVariant` (§41.13)
+
+`<endpoint>` adds **no** request-decoding machinery. The `accepts=` enum is the type argument to `parseVariant` (§41.13): the compiler decodes the inbound request body (the JSON wire) into a value of the `accepts=` enum via the same total-and-failable tagged-variant decoder `<api>` uses for the response half (§60.5). The discriminator field selects the variant; the variant's payload fields are decoded with §53 refinement enforcement; the decoded variant drives the §61.4 dispatch.
+
+A **malformed or unknown-variant** request body — a missing discriminator, an unknown variant tag, or an invalid payload — is a `parseVariant` failure. The compiler does NOT route such a failure to an author arm (the author's arms are exhaustive over the *known* variants only); instead the compiler emits a **structured error response** (the compiler-owned envelope, §61.5) describing the decode failure. The author does not re-state the decode and does not hand-write the malformed-input path — the compiler owns it, exactly as the inbound-edge-honesty principle requires (§61.1).
+
+**Normative statements:**
+- The request body SHALL be decoded via `parseVariant` (§41.13) against the `accepts=` enum **automatically** — the author does not re-state the decode. [spec-ahead — W4.]
+- A `parseVariant` decode failure (the §41.13 `::ParseError` family — `::MissingDiscriminator`, `::UnknownVariant`, `::InvalidPayload`) SHALL surface as a compiler-owned structured error response (§61.5), NOT as an author arm. The author's arms are exhaustive over the enum's declared variants (§61.4), not over the decode-failure space.
+- Because `parseVariant` is a tagged-variant decoder, `accepts=` SHALL resolve to a `:enum` type (a non-enum is `E-ENDPOINT-ACCEPTS-NOT-ENUM`, §61.9) — the same variant-only constraint §60.5 records for the response half.
+
+### 61.4 Exhaustiveness — the inbound-honesty guarantee
+
+The arms SHALL be **exhaustive** against the `accepts=` enum: every variant of the enum SHALL have a matching arm. This reuses the `<match>` / §18.0.1 exhaustiveness machinery (the same engine §51 / §18.6 exhaustiveness surface that fences `<match for=>` and engine state-children) — `<endpoint>` adds **no new** exhaustiveness check, it applies the existing one over the `accepts=` enum.
+
+An `accepts=` enum variant with **no** matching arm is `E-ENDPOINT-NOT-EXHAUSTIVE` (§61.9) — **a compile error**. This is the load-bearing inbound-honesty guarantee (§61.1): adding a variant to the `accepts=` enum without adding its arm does not silently ship an endpoint that 404s/500s on the new method at runtime — it fails the build. Because scrml owns the inbound decode (§61.3), scrml can see the hole, so the hole is loud. (This is the serve-side dual of §60.3: §60 makes outbound drift loud; §61 makes an unhandled inbound variant loud.)
+
+**Normative statements:**
+- The arms SHALL be exhaustive against the `accepts=` enum (reusing §18.0.1 / §51 exhaustiveness). A variant with no arm is `E-ENDPOINT-NOT-EXHAUSTIVE` (Error, §61.9). [spec-ahead — W3.]
+- A `<.subset>`-style refinement of the `accepts=` enum (the §53.15 / §18.0.1 enum-subset narrowing) MAY narrow the exhaustiveness obligation where the type system proves the inbound variant space is a subset; absent such a proof the full enum SHALL be covered. [spec-ahead — W3; the §18.0.1 subset rule is reused, not re-specified.]
+- A duplicate arm for the same variant, or an arm naming a variant not in the `accepts=` enum, follows the §18.0.1 arm-validity rules (a dead/unknown arm is the §18.0.1 diagnostic, not an `E-ENDPOINT-*` code — `<endpoint>` reuses that surface).
+
+### 61.5 The response envelope
+
+The compiler **envelopes** the typed arm-result as a JSON response. An arm's value-return is the typed result; the compiler serializes it into the response body and sets the JSON content type. The author returns a typed value; the wire shape is compiler-owned.
+
+**The default envelope.** The default success envelope wraps the arm result as the response payload; the default error envelope (for a §61.3 decode failure or an arm-raised failure) carries a structured error describing the failure. The JSON-RPC `{ jsonrpc, id, result | error }` shape is the **common convention** for a typed inbound endpoint, and it is expressible directly: the author models the request as a JSON-RPC-shaped `accepts=` enum and returns a result/error from each arm, and the compiler envelopes it. JSON-RPC is therefore a convention **expressed via the enum + the arm result**, NOT a baked-in `<endpoint>` mode (§61.1).
+
+**The author-override path.** Where the default envelope is not the desired wire shape, the author returns an explicit response-shaped value from the arm (a struct / variant modelling the exact envelope the foreign client expects); the compiler serializes that value verbatim rather than wrapping it. The default envelope is the convenience; the explicit-return is the escape — the author owns the wire when the foreign contract demands a specific shape. (The author-override path is the inbound dual of §60's "the author declares the exact boundary shape"; the precise default-envelope schema + the override-detection rule are specified normatively with the W4 codegen wave.)
+
+**Normative statements:**
+- The compiler SHALL envelope an arm's typed value-return as a JSON response (the default envelope) and set the JSON content type. [spec-ahead — W4.]
+- A §61.3 decode failure SHALL produce the compiler-owned structured error envelope (§61.3), distinct from the success envelope.
+- An author MAY override the default envelope by returning an explicit response-shaped value from the arm; the compiler serializes that value as the response body. JSON-RPC is one such expressible shape, NOT a baked-in mode.
+
+### 61.6 Client-codegen SKIP — server handler only
+
+`<endpoint>` emits the **server route-handler only**. Unlike a §12.3 data-layer route (where the compiler emits both a server handler AND the paired client fetch-stub that calls it), `<endpoint>` emits **no** paired client fetch-stub: the consumer is a **foreign** client with its **own** SDK / HTTP caller, so there is no compiler-generated scrml caller to pair with. This is strictly **simpler** than a data-layer route — half the bundle (server only), no client wire-caller, no client-side reactive surface.
+
+This is the inbound mirror of §60.6 (where `<api>` emits a *client* callable and no server tier): `<api>` is client-only because the server is foreign; `<endpoint>` is server-only because the client is foreign. In both cases scrml emits exactly the half it owns and skips the half the foreign party provides.
+
+**Normative statements:**
+- An `<endpoint>` declaration SHALL emit a server route-handler mounted at `path=` for `method=` (§61.7), and SHALL NOT emit a paired client fetch-stub. [spec-ahead — W4.]
+- An `<endpoint>` is a server-placement surface (it serves a route); it does not introduce a client bundle for the endpoint itself.
+
+### 61.7 `method=` / `path=` / auth
+
+**`method=`** declares the HTTP method (`GET` / `POST` / `PUT` / `PATCH` / `DELETE`) the route-handler is mounted for. A `method=` that is not a recognized HTTP method is `E-ENDPOINT-METHOD-INVALID` (§61.9). (The recognized method set is the §60.2 `http-method` set — `<endpoint>` reuses it.)
+
+**`path=`** declares the **author-stable URL** the handler mounts at. The `path=` is the **contract**: a foreign client connects to that exact URL, so — exactly as the §12.3 foreign-facing carve-out (the author-declared `route=` on a `server function*` SSE generator, §37.3) and the §40.3 `handle()` raw escape do — the author-declared `path=` IS the contract, never a compiler-internal route hash. The compiler SHALL honor the author-declared `path=` as the mounted handler path. (The compiler MAY still export the handler under a compiler-internal JS binding identifier; the `path=` is the route record's `path:`, never the binding name — the two are distinct, per the §12.3 carve-out rule `<endpoint>` reuses.) A missing `path=` is `E-ENDPOINT-PATH-MISSING` (§61.9).
+
+**Auth.** A JSON-body + bearer-token endpoint is **CSRF-exempt by construction** (dpa-002): CSRF is a same-origin-cookie ambient-credential attack, and a foreign client presenting an explicit bearer token over a JSON body carries no ambient cookie credential, so the CSRF gate does not apply. The `csrf` strawman from the dpa-002 reopen is therefore **dropped** — `<endpoint>` does NOT take a `csrf=` attribute and does NOT route through the §12 CSRF gate. A bearer / header check is **author-in-arm** (the author reads the request authorization inside the handler and fails the arm on a bad token) **or** a future first-class auth mode (deferred — gated on a witnessed need; not part of this section, per LIMIT-PRIMITIVES §60.7 applied to the inbound edge).
+
+**Normative statements:**
+- `method=` SHALL be a recognized HTTP method literal (the §60.2 set); otherwise `E-ENDPOINT-METHOD-INVALID` (§61.9). [spec-ahead — W2.]
+- `path=` SHALL be present and SHALL be honored as the author-declared mounted handler path (the §12.3 / §37.3 foreign-facing-endpoint contract rule, reused); a missing `path=` is `E-ENDPOINT-PATH-MISSING` (§61.9). [spec-ahead — W2.]
+- `<endpoint>` SHALL NOT carry a `csrf=` attribute and SHALL NOT be routed through the §12 CSRF gate (JSON+bearer is CSRF-exempt by construction, dpa-002). Auth is author-in-arm or a future first-class mode (deferred).
+
+### 61.8 Relationship map — the inbound/outbound boundary surface
+
+`<endpoint>` is one element in scrml's foreign-boundary surface. Its place among the siblings:
+
+- **§60 `<api>` (typed OUTBOUND)** — the direct mirror. `<api>` types the boundary where scrml **calls** a foreign backend; `<endpoint>` types the boundary where scrml **is called by** a foreign client (§61.1). Together they type both directions of a foreign HTTP wire scrml does not own end-to-end.
+- **§37 `server function* route=` (the SSE leg — ALREADY LANDED, escalation-2)** — an author-declared `route=` on a `server function*` SSE generator serves a **streaming** foreign-facing endpoint (an `EventSource` subscriber connects directly). Landed S216 (`escalation-2-sse-author-route-app-mode-2026-06-23`, `f5f15009`). `<endpoint>` is the **request/response** (non-streaming, typed-dispatch) counterpart to that streaming leg; an app with both serves a foreign client a typed request/response surface (`<endpoint>`) AND a typed SSE stream (`server function* route=`).
+- **§40 `handle()` (the global-middleware raw escape — stays)** — the onion-model request interceptor (§40.3 / §39.3). `handle()` is the **global, untyped** raw escape (it sees every request as a raw `request`); `<endpoint>` is a **per-path, typed** inbound surface. `handle()` stays as the interim raw escape for an untypeable per-path need until the deferred `raw` server-fn (below) is witnessed.
+- **§12 routes (the owned data-layer)** — a §12.3 data-layer route is the boundary where scrml owns **both** ends (it emits both a server handler AND the paired client fetch-stub). `<endpoint>` is precisely the case where scrml does **not** own the client end, so it emits the server half only (§61.6) and applies inbound-edge honesty (§61.4) rather than the owned-boundary disappearing-server promise.
+- **The DEFERRED `raw` server-fn (the path-bound raw escape)** — a path-bound *raw* (untyped-wire) inbound escape was the (a) half of the dpa-002 a+b pair. It is **DEFERRED** — gated on a witnessed *untypeable* inbound case (a foreign contract that cannot be modelled as an `accepts=` enum). Until then, `handle()` (§40) is the interim raw escape. `raw` SHALL NOT ship without its own ratification (mirroring the §60.8 A1 deferral).
+
+### 61.9 Planned error codes (named + reserved — §34 rows land WITH impl, Rule 4)
+
+The `<endpoint>` implementation waves will fire these. Each is **named and reserved here**; per Rule 4 (and exactly as §60's `E-API-*` codes did — they were named in §60.9 and catalogued in §34 only as each wave wired them) the matching **§34 catalog row lands WITH the implementation wave that fires the code**. **None of these are added to §34 by this Nominal section.**
+
+- `E-ENDPOINT-NOT-EXHAUSTIVE` — an `accepts=` enum variant has no matching arm (§61.4 — the inbound-honesty guarantee; reuses the §18.0.1/§51 exhaustiveness surface). *(planned — W3 typer.)* **Error.**
+- `E-ENDPOINT-ACCEPTS-NOT-ENUM` — the `accepts=` attribute resolves to a non-`:enum` type (a struct / primitive / refinement); `parseVariant` (§41.13) is a tagged-variant decoder and cannot decode the request body against a non-enum (§61.3). *(planned — W3 typer; resolves `accepts=` against the §14/§53 type surface, reusing the §14.1.2 `E-TYPE-UNKNOWN-NAME` machinery for an undeclared type-ref.)* **Error.**
+- `E-ENDPOINT-PATH-MISSING` — an `<endpoint>` declaration with no `path=` (the contract URL is required, §61.7). *(planned — W2 parser; parse-time.)* **Error.**
+- `E-ENDPOINT-METHOD-INVALID` — a `method=` that is not a recognized HTTP method literal (§61.7; the §60.2 method set). *(planned — W2 parser; parse-time.)* **Error.**
+- `E-ENDPOINT-ACCEPTS-MISSING` — an `<endpoint>` declaration with no `accepts=` (the typed inbound surface is required; without it there is nothing to decode or dispatch). *(planned — W2 parser; parse-time. The catch-all the parser needs alongside the path/method codes, mirroring §60.9's `E-API-ENDPOINT-MALFORMED`.)* **Error.**
+
+(An unknown / dead arm — an arm naming a variant not in `accepts=`, or a duplicate arm — is the §18.0.1 arm-validity diagnostic, NOT an `E-ENDPOINT-*` code; `<endpoint>` reuses that surface rather than minting a parallel code.)
+
+### 61.10 Out of scope / known limits / Nominal gaps
+
+- **Nominal — no implementation as of S219.** Every behavioural clause in this section is the spec-ahead target the W2-W5 waves wire (the §61 banner). The `E-ENDPOINT-*` codes are named, not yet catalogued (§61.9 — they land in §34 with their wave, Rule 4).
+- **The `raw` path-bound raw-wire escape** — DEFERRED, gated on a witnessed untypeable inbound case (§61.8); `handle()` (§40) is the interim raw escape. Not part of this section; needs its own ratification.
+- **First-class auth mode** — deferred (§61.7); auth is author-in-arm until a witnessed need justifies a first-class mode. `<endpoint>` is a thin typed-dispatch primitive, not an auth framework (the §60.7 LIMIT-PRIMITIVES boundary applied to the inbound edge — no retry, no rate-limiting, no middleware orchestration owned by `<endpoint>`; those stay in `handle()` / userspace).
+- **Non-`:enum` request shapes** — `accepts=` is `:enum`-only (§61.3 — `parseVariant` is variant-only, the same constraint §60.5 records for the response half). A non-variant inbound shape is not expressible as an `accepts=` enum and is `E-ENDPOINT-ACCEPTS-NOT-ENUM`; such a contract is the deferred `raw` escape's territory (or `handle()` today).
+- **The default-envelope schema + the author-override-detection rule** are specified normatively with the W4 codegen wave (§61.5 records the model; the exact default JSON schema lands with the implementation).
+- **The conformance bar** is flogence's `scripts/fsp-wire-smoke.ts` (11 assertions — 8 FSP methods over JSON-RPC + a terminal-state error + SSE replay-from-0 + SSE resume-from-cursor) re-hosted against the scrml-served `/fsp` endpoint (W5; SCOPE §"Conformance bar").
+
+### 61.11 Cross-references
+
+§60 `<api>` (the typed-OUTBOUND mirror — `<endpoint>` is the typed-INBOUND dual; §61.1, §61.8) · §41.13 `parseVariant` (the request decode, §61.3 — the same total/failable tagged-variant decoder §60.5 uses for the response half) · §18.0.1 `<match>` block-form arms + exhaustiveness (the arm grammar + the exhaustiveness surface `<endpoint>` reuses, §61.2 / §61.4) · §51.0.B.1 payload binding (the per-arm payload destructure, §61.2) · §4.14 `:`-shorthand body (the canonical terse arm form, §61.2) · §4.18 code-default body (the arm-body mode, §61.2) · §53.15 enum-subset refinement (the §61.4 subset-narrows exhaustiveness rule) · §37.3 `server function* route=` (the foreign-facing SSE leg — the streaming counterpart, ALREADY LANDED escalation-2; §61.8) · §40 / §39.3 `handle()` (the global raw escape — interim raw, §61.8) · §12.2 / §12.3 (server placement + the owned data-layer route `<endpoint>` is distinguished from; §61.6) · §14 / §53 (the `accepts=` enum type surface) · §4.15 / §24.4 (the structural-element registry — `<endpoint>` is registered there). Build arc: `docs/changes/endpoint-primitive-2026-06-25/`. Design: the dpa-002 reopen deep-dive + the S219 ratification.
