@@ -1224,7 +1224,7 @@
   },
   "samples/compilation-tests/engine-009-hierarchy-basic.scrml": {
     "COUNT-LENGTH": 3,
-    "EXTRA-FIELD": 42,
+    "EXTRA-FIELD": 44,
     "FIELD-SHAPE": 9,
     "KIND-NAME": 8,
     "MISSING-FIELD": 38,
@@ -1232,7 +1232,7 @@
   },
   "samples/compilation-tests/engine-010-history.scrml": {
     "COUNT-LENGTH": 5,
-    "EXTRA-FIELD": 42,
+    "EXTRA-FIELD": 44,
     "FIELD-SHAPE": 9,
     "KIND-NAME": 8,
     "MISSING-FIELD": 40,
@@ -1240,7 +1240,7 @@
   },
   "samples/compilation-tests/engine-011-internal-rule.scrml": {
     "COUNT-LENGTH": 3,
-    "EXTRA-FIELD": 46,
+    "EXTRA-FIELD": 48,
     "FIELD-SHAPE": 11,
     "KIND-NAME": 10,
     "MISSING-FIELD": 34,
@@ -1248,7 +1248,7 @@
   },
   "samples/compilation-tests/engine-012-hierarchy-cascade.scrml": {
     "COUNT-LENGTH": 5,
-    "EXTRA-FIELD": 96,
+    "EXTRA-FIELD": 98,
     "FIELD-SHAPE": 38,
     "KIND-NAME": 22,
     "MISSING-FIELD": 67,
