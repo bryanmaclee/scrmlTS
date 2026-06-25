@@ -14118,6 +14118,194 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
           openerHadSpaceAfterLt: block.openerHadSpaceAfterLt === true,
         };
       }
+
+      // ----------------------------------------------------------------
+      // <endpoint> declaration (SPEC §61 — typed inbound endpoint; W2 parser,
+      // endpoint-primitive-2026-06-25).
+      //
+      // `<endpoint path="..." method="POST" accepts=Enum> <Variant…> … </endpoint>`
+      // declares the typed INBOUND edge — the mirror of §60 `<api>` (typed
+      // OUTBOUND). A foreign client calls a scrml-served route; the compiler
+      // owns the decode + exhaustive dispatch + the JSON envelope; the author
+      // fills per-variant arms (§61.1).
+      //
+      // The KEY architectural divergence from `<api>`: an `<endpoint>` body is
+      // `<Variant>` ARMS (the §18.0.1 `<match>` arm grammar, REUSED), NOT bare
+      // endpoint lines like `<api>`. So BS registers `<endpoint>` in BOTH
+      // STRUCTURAL_RAW_BODY_ELEMENTS and COMPOUND_LIFT_EXEMPT_TAGS (block-
+      // splitter.js, exactly like `<match>`/`<each>`) — the arm body would
+      // otherwise trip the compound-lift heuristic (the pre-S107 `<match>`
+      // failure). BS produces a `type=markup name=endpoint` block whose body is
+      // captured raw; this dispatch re-tokenizes the arms via `parseMatchArms`.
+      //
+      // W2 (THIS LANDING — parser only): build the `endpoint-decl` AST node
+      // carrying { path, method, acceptsRaw, arms } and fire the THREE PARSE-
+      // level diagnostics (E-ENDPOINT-PATH-MISSING / E-ENDPOINT-METHOD-INVALID
+      // / E-ENDPOINT-ACCEPTS-MISSING). The `accepts=` enum type-ref is captured
+      // as RAW text — NOT resolved (W3 resolves it against §14/§53 and fires
+      // E-ENDPOINT-NOT-EXHAUSTIVE / E-ENDPOINT-ACCEPTS-NOT-ENUM).
+      //
+      // A VALID `<endpoint>` emits NOTHING in W2 — emit-html.ts emitNode falls
+      // through on the unrecognized `endpoint-decl` kind, and the type-system
+      // walks it conservatively as-is. Later waves (W3 typer / W4 codegen)
+      // consume the node. Client-codegen is SKIPPED (§61.6 — foreign clients
+      // have their own SDKs; emit the server handler only).
+      //
+      // Native-parser mirror DEFERRED (S162 conditional): `<api>` (§60) is
+      // native-UNMIRRORED (zero `api-decl` in `compiler/native-parser/*.js`);
+      // `<endpoint>` follows that precedent — the native front-end gains the
+      // `<endpoint>` production when the `<api>`/`<endpoint>` family is mirrored.
+      if (block.name === "endpoint") {
+        const endpointRaw = (block.raw || "").trim();
+
+        // Brace+paren+bracket-aware opener-end finder (mirrors <api> / <match>).
+        // The opener attrs are `path="..."` (string), `method=...` (string or
+        // bareword), `accepts=Enum` (bareword type-ref); track `(){}[]` +
+        // string state so a `>` inside a quoted URL does not truncate the header.
+        function _findEndpointOpenerEnd(s) {
+          let depth = 0;
+          let parenDepth = 0;
+          let bracketDepth = 0;
+          let inDQ = false;
+          let inSQ = false;
+          for (let i = 0; i < s.length; i++) {
+            const c = s[i];
+            if (inDQ) { if (c === '"') inDQ = false; else if (c === "\\") i++; continue; }
+            if (inSQ) { if (c === "'") inSQ = false; else if (c === "\\") i++; continue; }
+            if (c === '"') { inDQ = true; continue; }
+            if (c === "'") { inSQ = true; continue; }
+            if (c === "{") { depth++; continue; }
+            if (c === "}") { if (depth > 0) depth--; continue; }
+            if (c === "(") { parenDepth++; continue; }
+            if (c === ")") { if (parenDepth > 0) parenDepth--; continue; }
+            if (c === "[") { bracketDepth++; continue; }
+            if (c === "]") { if (bracketDepth > 0) bracketDepth--; continue; }
+            if (c === ">" && depth === 0 && parenDepth === 0 && bracketDepth === 0) return i;
+          }
+          return -1;
+        }
+
+        const openerEnd = _findEndpointOpenerEnd(endpointRaw);
+        const headerLine = openerEnd >= 0
+          ? endpointRaw.slice(0, openerEnd)
+          : endpointRaw.split("\n")[0];
+        // Strip the `<endpoint` prefix (also handles `< endpoint` w/ leading
+        // space). The tag name is the FIRST `endpoint` token in the opener, so
+        // an `accepts=` / `path=` value containing "endpoint" is unaffected.
+        let header = headerLine;
+        const epIdx = header.indexOf("endpoint");
+        if (epIdx >= 0) header = header.slice(epIdx + "endpoint".length).trim();
+        // Strip any trailing `/` (self-closing — invalid for endpoint, defensive)
+        // or `>` fragments from the header.
+        header = header.replace(/[/>]+\s*$/, "").trim();
+
+        // §61.2 opener attrs:
+        //   path=   string-literal URL (required; the contract — §61.7)
+        //   method= recognized HTTP method literal (quoted OR bareword)
+        //   accepts= enum type-ref (bareword; captured RAW — W3 resolves)
+        const STR = /(?:"([^"]*)"|'([^']*)')/;
+        const E_IDENT = /[A-Za-z_$][A-Za-z0-9_$]*/;
+
+        const pathMatch = header.match(new RegExp(`\\bpath\\s*=\\s*${STR.source}`));
+        const path = pathMatch ? (pathMatch[1] !== undefined ? pathMatch[1] : pathMatch[2]) : null;
+
+        // method= accepts a quoted string OR a bareword (§61.7 — the §60.2 set).
+        const methodMatch = header.match(
+          new RegExp(`\\bmethod\\s*=\\s*(?:"([^"]*)"|'([^']*)'|(${E_IDENT.source}))`),
+        );
+        const method = methodMatch
+          ? (methodMatch[1] !== undefined ? methodMatch[1]
+            : (methodMatch[2] !== undefined ? methodMatch[2] : methodMatch[3]))
+          : null;
+
+        // accepts= bareword enum type-ref — captured RAW (W3 resolves against
+        // §14/§53 + checks exhaustiveness / non-enum).
+        const acceptsMatch = header.match(new RegExp(`\\baccepts\\s*=\\s*(${E_IDENT.source})\\b`));
+        const acceptsRaw = acceptsMatch ? acceptsMatch[1] : null;
+
+        // §61.9 — E-ENDPOINT-PATH-MISSING: an `<endpoint>` with no `path=`.
+        if (path === null) {
+          errors.push(new TABError(
+            "E-ENDPOINT-PATH-MISSING",
+            `E-ENDPOINT-PATH-MISSING: \`<endpoint>\` declaration has no \`path=\` URL. ` +
+            `Per SPEC §61.7 an \`<endpoint>\` SHALL declare a \`path=\` — the author-stable ` +
+            `URL a foreign client connects to (the contract), e.g. ` +
+            `\`<endpoint path="/fsp" method="POST" accepts=FspMethod>\`.`,
+            span,
+          ));
+        }
+
+        // §61.9 — E-ENDPOINT-METHOD-INVALID: a `method=` that is not a
+        // recognized HTTP method literal (the §60.2 set, reused). A missing
+        // `method=` is also reported here (no recognized method literal).
+        const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+        if (method === null || !HTTP_METHODS.has(method)) {
+          const shown = method === null ? "(none)" : method;
+          errors.push(new TABError(
+            "E-ENDPOINT-METHOD-INVALID",
+            `E-ENDPOINT-METHOD-INVALID: \`<endpoint>\` declares HTTP method \`${shown}\`, ` +
+            `which is not a recognized method. Per SPEC §61.7 the \`method=\` SHALL be ` +
+            `one of GET, POST, PUT, PATCH, DELETE (the §60.2 method set).`,
+            span,
+          ));
+        }
+
+        // §61.9 — E-ENDPOINT-ACCEPTS-MISSING: an `<endpoint>` with no
+        // `accepts=` (the typed inbound surface is required — without it there
+        // is nothing to decode or dispatch, §61.3).
+        if (acceptsRaw === null) {
+          errors.push(new TABError(
+            "E-ENDPOINT-ACCEPTS-MISSING",
+            `E-ENDPOINT-ACCEPTS-MISSING: \`<endpoint>\` declaration has no \`accepts=\` ` +
+            `enum type. Per SPEC §61.3 an \`<endpoint>\` SHALL declare an \`accepts=\` ` +
+            `\`:enum\` type — the request body decodes into it via parseVariant (§41.13), ` +
+            `e.g. \`<endpoint path="/fsp" method="POST" accepts=FspMethod>\`.`,
+            span,
+          ));
+        }
+
+        // Capture armsRaw: the body text between the opener `>` and the closer.
+        // BS captures the body as a single text-node child via
+        // STRUCTURAL_RAW_BODY_ELEMENTS (mirrors <match>). Concatenate the raw
+        // text of those children; fall back to a raw slice when absent.
+        let armsRaw = "";
+        if (Array.isArray(block.children)) {
+          for (const child of block.children) {
+            if (child && typeof child === "object" && typeof child.raw === "string") {
+              armsRaw += child.raw;
+            }
+          }
+        }
+        if (!armsRaw && openerEnd >= 0) {
+          armsRaw = endpointRaw.slice(openerEnd + 1);
+          armsRaw = armsRaw.replace(/<\s*\/\s*(?:endpoint)?\s*>\s*$/, "");
+        }
+        armsRaw = armsRaw.trim();
+
+        // §61.2 — the arm grammar REUSES the §18.0.1 `<match>` block-form arm
+        // parser VERBATIM. parseMatchArms tokenizes each `<Variant(payload) :
+        // expr>` / `<Variant>...</>` / `<Variant/>` arm into a structured entry
+        // (variantName, payloadBindingsRaw, attrs, bodyForm, bodyRaw, spans).
+        // W2 just tokenizes — exhaustiveness / arm-validity is W3 (the typer).
+        let arms = [];
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { parseMatchArms } = require("./match-statechild-parser.ts");
+          const parsed = parseMatchArms(armsRaw);
+          if (parsed && Array.isArray(parsed.arms)) arms = parsed.arms;
+        } catch (_e) { arms = []; }
+
+        return {
+          id: ++counter.next,
+          kind: "endpoint-decl",
+          path,          // required string URL (null → E-ENDPOINT-PATH-MISSING above)
+          method,        // recognized HTTP method (invalid/missing → E-ENDPOINT-METHOD-INVALID)
+          acceptsRaw,    // raw enum type-ref text (W3 resolves against §14/§53)
+          arms,          // MatchArmEntry[] from parseMatchArms (§18.0.1 reuse)
+          span,
+          openerHadSpaceAfterLt: block.openerHadSpaceAfterLt === true,
+        };
+      }
       // ----------------------------------------------------------------
       // Each block-form (SPEC §17.X NEW per S130 HU-1 ratifications;
       // iteration Landing 1 of 5).

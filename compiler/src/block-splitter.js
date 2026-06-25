@@ -134,6 +134,16 @@ const STRUCTURAL_RAW_BODY_ELEMENTS = new Set([
   // walk the body without firing E-CTX-003 on opener-without-closer
   // `:`-shorthand children.
   "each",
+  // S219 W2 (endpoint-primitive-2026-06-25) — SPEC §61 typed-inbound
+  // `<endpoint path= method= accepts=Enum> <Variant…> … </endpoint>`. Its body
+  // is `<Variant>` arms (the §18.0.1 `<match>` arm grammar, REUSED), NOT bare
+  // lines like `<api>` (§60). The arms use the canonical inside-opener
+  // `:`-shorthand (`<Variant(payload) : expr>`) whose opener has no closer —
+  // exactly the shape-confusion the `match`/`each` raw-body capture addresses.
+  // Capturing the body raw lets the `block.name === "endpoint"` dispatch in
+  // ast-builder.js re-tokenize the arms via parseMatchArms without firing
+  // E-CTX-003 on the opener-without-closer arms.
+  "endpoint",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -185,6 +195,16 @@ const COMPOUND_LIFT_EXEMPT_TAGS = new Set([
   // engine-decl.rulesRaw for the engine-statechild-parser re-parse.
   "engine",
   "machine",
+  // S219 W2 (endpoint-primitive-2026-06-25) — same reasoning as `match` above.
+  // `<endpoint path= method= accepts=Enum> <Variant…> … </endpoint>` (SPEC §61)
+  // is a Tier-1 typed-inbound structural container, NOT a compound state-decl.
+  // Its `<Variant>` arm body trips the compound-lift heuristic (the pre-S107
+  // `<match>` failure); the exemption lets BS fall through to the regular
+  // markup-opener path → a `type=markup name=endpoint` block whose body the
+  // STRUCTURAL_RAW_BODY_ELEMENTS gate captures raw for the endpoint dispatch.
+  // (`<api>` §60 needed NEITHER set — its body is bare endpoint lines, not
+  // nested `<Variant>` openers.)
+  "endpoint",
 ]);
 
 // ---------------------------------------------------------------------------

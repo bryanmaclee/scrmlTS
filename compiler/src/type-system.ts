@@ -19049,6 +19049,221 @@ function checkApiDeclarations(
 
 
 // ---------------------------------------------------------------------------
+// TS-ENDPOINT: §61 — `<endpoint>` typed-inbound-endpoint resolution + checks
+// (S219 W3, endpoint-primitive-2026-06-25). Mirrors `checkApiDeclarations`
+// above (the §60 OUTBOUND dual): resolve each `<endpoint>`'s `accepts=` enum
+// type-ref against the §14/§53 type surface, then run the §18.0.1/§51
+// exhaustiveness check over the per-variant arms.
+//
+// W3 wires three diagnostics:
+//   - E-TYPE-UNKNOWN-NAME       — an UNDECLARED `accepts=` ref (§14.1.2 reuse,
+//                                 exactly as `<api>`'s reqShape/responseType).
+//   - E-ENDPOINT-ACCEPTS-NOT-ENUM — `accepts=` resolves to a CONCRETE non-enum
+//                                 (struct/primitive/refinement). Unlike `<api>`'s
+//                                 non-variant RESPONSE (an Info-lint — the wire
+//                                 body is still raw-passable), a non-enum INBOUND
+//                                 `accepts=` is a HARD Error: parseVariant (§41.13)
+//                                 is a tagged-variant decoder, so a non-enum
+//                                 request shape cannot be decoded OR dispatched —
+//                                 there is no recoverable raw path (§61.3).
+//   - E-ENDPOINT-NOT-EXHAUSTIVE — an `accepts=` enum variant has no matching arm
+//                                 (§61.4 inbound-honesty guarantee, §61.9).
+//
+// A dead/duplicate arm reuses the EXISTING §18.0.1 arm-validity diagnostics
+// (E-MATCH-SUBSET-DEAD-ARM / E-TYPE-023) rather than minting a parallel
+// `E-ENDPOINT-*` code (§61.4 / §61.9 explicit). NO codegen — the parseVariant
+// decode + dispatch + JSON envelope + route registration is W4.
+function checkEndpointDeclarations(
+  topNodes: ASTNodeLike[],
+  typeRegistry: Map<string, ResolvedType>,
+  exemptTypeNames: Set<string>,
+  errors: TSError[],
+  fileSpan: Span,
+): void {
+  // ---- Pass 1: collect endpoint-decl nodes (deep walk) ---------------------
+  // An `<endpoint>` is NOT a top-level node — it nests inside the `<program>` /
+  // `<page>` markup subtree (and may sit inside an engine state-child body), so
+  // mirror `collectApiDecls`'s deep recursion. A shallow top-level scan would
+  // miss every wrapped `<endpoint>`.
+  const endpointDecls: ASTNodeLike[] = [];
+  const seenEndpointWalk = new WeakSet<object>();
+  function collectEndpointDecls(node: unknown): void {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { for (const c of node) collectEndpointDecls(c); return; }
+    if (seenEndpointWalk.has(node as object)) return;
+    seenEndpointWalk.add(node as object);
+    const n = node as Record<string, unknown>;
+    if (n.kind === "endpoint-decl") endpointDecls.push(n as ASTNodeLike);
+    if (Array.isArray(n.body)) collectEndpointDecls(n.body);
+    if (Array.isArray(n.children)) collectEndpointDecls(n.children);
+    if (Array.isArray(n.bodyChildren)) collectEndpointDecls(n.bodyChildren);
+    if (Array.isArray(n.branches)) collectEndpointDecls(n.branches);
+  }
+  collectEndpointDecls(topNodes);
+  if (endpointDecls.length === 0) return; // nothing endpoint-shaped in this file
+
+  // ---- helper: resolve the `accepts=` type-ref + fire E-TYPE-UNKNOWN-NAME ---
+  // An undeclared `accepts=` ref is an UNRECOGNIZED type name — the SAME class
+  // `checkUnknownTypeNames` (§14.1.2) / `checkApiDeclarations` cover — so reuse
+  // its per-leaf classifier rather than inventing a new code (§61.9: the
+  // undeclared-ref case reuses E-TYPE-UNKNOWN-NAME).
+  const seenTypeRefKeys = new Set<string>();
+  function checkEndpointAcceptsRef(typeText: string, where: string, span: Span): void {
+    if (typeof typeText !== "string" || typeText.trim() === "") return;
+    forEachTypeNameLeaf(typeText, (leafName) => {
+      if (!isUnrecognizedTypeNameAtom(leafName, typeRegistry, exemptTypeNames)) return;
+      const key = `${span.start}:${span.end}:${where}:${leafName}`;
+      if (seenTypeRefKeys.has(key)) return;
+      seenTypeRefKeys.add(key);
+      errors.push(new TSError(
+        "E-TYPE-UNKNOWN-NAME",
+        `E-TYPE-UNKNOWN-NAME: ${where} is annotated with an unrecognized type ` +
+        `name '${leafName}'. No type with that name is defined — it is not a ` +
+        `built-in, not declared in this file, and not imported. Define the type, ` +
+        `fix the spelling, import it, or use 'asIs' for a deliberate untyped ` +
+        `escape hatch. See SPEC §14.1.2 / §61.3.`,
+        span,
+        "error",
+      ));
+    }, { emitMapKeys: false });
+  }
+
+  // ---- Pass 2: per-`<endpoint>` resolution + checks ------------------------
+  for (const decl of endpointDecls) {
+    const span = (decl.span as Span | undefined) ?? fileSpan;
+    const acceptsRaw = decl.acceptsRaw as string | null | undefined;
+    // A missing `accepts=` already fired E-ENDPOINT-ACCEPTS-MISSING at W2 parse
+    // time — there is nothing to resolve, so skip (no double-report).
+    if (typeof acceptsRaw !== "string" || acceptsRaw.trim() === "") continue;
+
+    // 1. Resolve the `accepts=` type-ref. An UNDECLARED ref fires
+    //    E-TYPE-UNKNOWN-NAME (§14.1.2 reuse) — exactly like `<api>`'s type-refs.
+    checkEndpointAcceptsRef(acceptsRaw, `\`<endpoint>\` \`accepts=${acceptsRaw}\``, span);
+
+    // 2. Capture the EnumType the arms dispatch over, OR fire
+    //    E-ENDPOINT-ACCEPTS-NOT-ENUM for a CONCRETE non-enum `accepts=`.
+    const resolved = resolveTypeExpr(acceptsRaw, typeRegistry);
+    let enumType: EnumType | null = null;
+    let subsetVariants: Set<string> | undefined = undefined;
+    if (resolved.kind === "enum") {
+      enumType = resolved as EnumType;
+    } else if (
+      resolved.kind === "predicated" &&
+      (resolved as PredicatedType).baseType === "enum" &&
+      (resolved as PredicatedType).enumBase
+    ) {
+      // §53.15 enum-subset refinement (`Enum oneOf([.A, .B])`). NOTE: W2 captures
+      // `accepts=` as a single bareword type-ref (E_IDENT), so a subset-refined
+      // `accepts=` is NOT representable through the current parser — this branch
+      // is forward-compat (it activates the moment W2 widens the capture) and
+      // narrows the exhaustiveness set to the subset (§18.8.1 Option A).
+      enumType = (resolved as PredicatedType).enumBase as EnumType;
+      subsetVariants = (resolved as PredicatedType).subsetVariants;
+    } else if (
+      resolved.kind !== "unknown" &&
+      resolved.kind !== "error" &&
+      resolved.kind !== "asIs"
+    ) {
+      // A CONCRETE non-enum (struct / primitive / array / map / union / inline
+      // refinement). HARD Error — unlike `<api>`'s non-variant RESPONSE (Info,
+      // raw-passable), a non-enum INBOUND `accepts=` cannot be decoded by
+      // parseVariant (§41.13 is a tagged-variant decoder), so there is nothing
+      // to dispatch — the endpoint is undecodable (§61.3 / §61.9).
+      errors.push(new TSError(
+        "E-ENDPOINT-ACCEPTS-NOT-ENUM",
+        `E-ENDPOINT-ACCEPTS-NOT-ENUM: \`<endpoint>\` declares \`accepts=${acceptsRaw}\`, ` +
+        `which resolves to a non-\`:enum\` type (a struct / primitive / refinement). ` +
+        `Per SPEC §61.3 \`accepts=\` SHALL resolve to a \`:enum\` type — the request ` +
+        `body decodes into it via \`parseVariant\` (§41.13), a tagged-variant decoder ` +
+        `that cannot decode against a non-enum, so there is nothing to dispatch. ` +
+        `Declare an \`:enum\` accepts type, or use \`handle()\` for a raw inbound shape.`,
+        span,
+        "error",
+      ));
+    }
+    // An UNKNOWN/ERROR `accepts=` already fired E-TYPE-UNKNOWN-NAME above; `asIs`
+    // is the deliberate untyped escape hatch — neither double-reports here.
+
+    // §61.3/§61.4 — W4 codegen (emit-server.ts) reads this resolved EnumType off
+    // the decl node to synthesize the parseVariant request-decode IIFE + the
+    // dispatch switch (mirrors the `<api>` `responseEnum` annotation precedent,
+    // Pass 2). A forward annotation — the typer itself does not consume it.
+    if (enumType) (decl as Record<string, unknown>).acceptsEnum = enumType;
+
+    if (!enumType) continue;
+
+    // 3. Exhaustiveness over the `accepts=` enum (reuse the §18.0.1/§51
+    //    machinery — `checkEnumExhaustiveness`). Build the `ArmPattern[]` from
+    //    the parsed arms: a wildcard `<_>` arm satisfies exhaustiveness.
+    const arms = (decl.arms as ASTNodeLike[] | undefined) ?? [];
+    const armPatterns: ArmPattern[] = arms.map(a => ({
+      kind: (a as { isWildcard?: boolean }).isWildcard ? "wildcard" : "variant",
+      variantName: (a as { variantName?: string }).variantName,
+    }));
+    const { missing, duplicateArms, deadArms } =
+      checkEnumExhaustiveness(enumType, armPatterns, subsetVariants);
+
+    // E-ENDPOINT-NOT-EXHAUSTIVE — one Error per decl naming the missing
+    // variants (§61.4 inbound-honesty guarantee — an unhandled inbound variant
+    // is loud at build time, the serve-side dual of §60.3).
+    if (missing.length > 0) {
+      errors.push(new TSError(
+        "E-ENDPOINT-NOT-EXHAUSTIVE",
+        `E-ENDPOINT-NOT-EXHAUSTIVE: \`<endpoint>\` arms over \`accepts=${enumType.name}\` ` +
+        `are not exhaustive. Missing variant(s): ${missing.map(v => `\`.${v}\``).join(", ")}. ` +
+        `Per SPEC §61.4 every \`accepts=\` enum variant SHALL have a matching arm — ` +
+        `because scrml owns the inbound decode (§61.3) the hole is visible, so it is ` +
+        `loud: add an arm for each missing variant, or add a wildcard \`<_>\` arm to ` +
+        `handle the rest.`,
+        span,
+        "error",
+      ));
+    }
+
+    // A dead/duplicate arm reuses the EXISTING §18.0.1 arm-validity diagnostics
+    // (NOT an `E-ENDPOINT-*` code — §61.4 / §61.9 explicit). `<endpoint>` shares
+    // the `<match>` arm surface, so it shares the arm-validity surface too.
+    for (const variantName of deadArms) {
+      errors.push(new TSError(
+        "E-MATCH-SUBSET-DEAD-ARM",
+        `E-MATCH-SUBSET-DEAD-ARM: \`<endpoint>\` arm \`.${variantName}\` is dead — the ` +
+        `\`accepts=\` enum-subset refinement excludes \`.${variantName}\`, so that variant ` +
+        `can never inhabit the decoded request (§18.8.1 / §53.15). Remove the \`.${variantName}\` arm.`,
+        span,
+      ));
+    }
+    for (const variantName of duplicateArms) {
+      errors.push(new TSError(
+        "E-TYPE-023",
+        `E-TYPE-023: Duplicate \`<endpoint>\` arm for variant \`::${variantName}\`. ` +
+        `The second arm for \`${variantName}\` can never be reached. Remove the duplicate arm.`,
+        span,
+      ));
+    }
+
+    // 4. Payload binding — resolve each arm's positional payload bindings to the
+    //    matched variant's field types so the per-arm locals are typed for W4's
+    //    dispatch codegen. Mirrors the §51.0.B.1 / match-block payload typing
+    //    (the `vDef.payload` lookup): annotate each non-wildcard arm with the
+    //    positional ResolvedType[] of its variant's payload, following the
+    //    `responseEnum`-on-the-endpoint annotation precedent (`<api>` Pass 2).
+    //    A forward-looking annotation — W3 itself does not consume it.
+    for (const arm of arms) {
+      if (!arm || typeof arm !== "object") continue;
+      const a = arm as Record<string, unknown>;
+      if (a.isWildcard) continue;
+      const vName = a.variantName;
+      if (typeof vName !== "string") continue;
+      const vDef = enumType.variants.find(v => v.name === vName);
+      if (vDef && vDef.payload && vDef.payload.size > 0) {
+        a.payloadBindingTypes = Array.from(vDef.payload.values());
+      }
+    }
+  }
+}
+
+
+// ---------------------------------------------------------------------------
 // Per-file processor
 // ---------------------------------------------------------------------------
 
@@ -19619,6 +19834,13 @@ function processFile(
       }
     }
     checkApiDeclarations(allNodes, typeRegistry, apiExemptTypeNames, errors, fileSpan);
+    // TS-ENDPOINT: §61 — `<endpoint>` typed-inbound resolution + checks (S219
+    // W3). Resolves each `<endpoint>`'s `accepts=` enum type-ref + runs the
+    // §18.0.1/§51 exhaustiveness check (→ E-ENDPOINT-NOT-EXHAUSTIVE /
+    // E-ENDPOINT-ACCEPTS-NOT-ENUM; an undeclared ref reuses E-TYPE-UNKNOWN-NAME).
+    // NO codegen (W4). Short-circuits when the file declares no `<endpoint>`.
+    // Reuses the SAME exempt set as `<api>` (imported specifier + machine names).
+    checkEndpointDeclarations(allNodes, typeRegistry, apiExemptTypeNames, errors, fileSpan);
   }
 
   // dpa-003 (S216) — inline `_={ … }=` foreign-code lang gate (E-FOREIGN-003 /

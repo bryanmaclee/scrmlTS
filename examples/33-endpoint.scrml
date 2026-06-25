@@ -1,0 +1,159 @@
+// Example 33: Typed inbound endpoint — `<endpoint>` (§61).
+//
+// The serve-side MIRROR of example 32's `<api>` (§60). `<api>` types the
+// OUTBOUND boundary — a scrml frontend CALLS a foreign backend scrml does not
+// own. `<endpoint>` types the INBOUND boundary — a scrml server IS CALLED BY a
+// foreign client (a webhook source, another codebase's HTTP caller, a non-scrml
+// agent) over a route scrml serves directly. Together they type both directions
+// of a foreign HTTP wire scrml does not own end-to-end.
+//
+//   <api>      (§60):  scrml owns the request ENCODE + the response DECODE.
+//   <endpoint> (§61):  scrml owns the request DECODE + the response ENVELOPE
+//                      + the exhaustive dispatch. The author fills the per-
+//                      variant ARMS (the handler bodies).
+//
+// WHO OWNS WHAT (§61.1). The compiler owns the decode (`parseVariant` §41.13
+// over the request body against `accepts=`), the exhaustive dispatch (§61.4),
+// and the JSON response envelope (§61.5). The author owns ONLY the per-variant
+// arms — the typed value each variant returns.
+//
+// THE INBOUND-HONESTY GUARANTEE (§61.4). Because scrml owns the inbound decode,
+// scrml can SEE an unhandled variant — so a variant of the `accepts=` enum with
+// no matching arm is a COMPILE error (E-ENDPOINT-NOT-EXHAUSTIVE), not a silent
+// runtime 404/500. Add a method to the protocol enum without adding its arm and
+// the BUILD fails. This is the serve-side dual of §60.3's must-not-lie: §60
+// makes a foreign-backend drift loud at compile time; §61 makes an unhandled
+// inbound variant loud at compile time. (Try it: delete the `<DeltaSince…>` arm
+// below and recompile — E-ENDPOINT-NOT-EXHAUSTIVE names the missing variant.)
+//
+// SERVER-ONLY — NO client stub (§61.6). An `<endpoint>` emits a SERVER route-
+// handler ONLY. Unlike a §12.3 data-layer route (which emits both a server
+// handler AND the paired client fetch-stub that calls it), `<endpoint>` emits
+// NO client caller: the consumer is a FOREIGN client with its OWN SDK, so there
+// is no compiler-generated scrml caller to pair with. The endpoint NEVER appears
+// in `.client.js`. This is the inbound mirror of §60.6 (where `<api>` emits a
+// CLIENT callable and no server tier): `<api>` is client-only because the server
+// is foreign; `<endpoint>` is server-only because the client is foreign.
+//
+// CSRF-EXEMPT by construction (§61.7). CSRF is a same-origin-cookie ambient-
+// credential attack. A foreign client presenting an explicit bearer token over a
+// JSON body carries NO ambient cookie credential, so the CSRF gate does not
+// apply — `<endpoint>` takes no `csrf=` attribute and is not routed through the
+// §12 CSRF gate. A bearer / header check is author-in-arm (read the request
+// authorization inside the handler and fail the arm on a bad token).
+//
+// NOT a JSON-RPC dispatcher (§61.5). `<endpoint>` is the GENERAL typed-inbound
+// primitive, not a baked-in JSON-RPC mode. The JSON-RPC `{ jsonrpc, result }`
+// response shape is a CONVENTION the author expresses by RETURNING that exact
+// shape from each arm — the compiler direct-serializes the arm's typed value as
+// the response body. The author owns the wire by returning the wire. (No scrml
+// framework ships a JSON-RPC dispatcher; it is one shape this primitive expresses.)
+
+<program>
+
+// The `accepts=` enum (§61.2 / §61.3). The request body is decoded against THIS
+// enum via `parseVariant` (§41.13) — the SAME total-and-failable tagged-variant
+// decoder example 32's `<api>` uses for its RESPONSE half. The discriminator
+// (`tag`) selects the variant; the variant's payload fields are decoded with
+// §53 refinement enforcement. A malformed body / unknown variant / bad payload
+// is a decode failure the COMPILER owns — it returns a structured 400 error
+// envelope, never an author arm (the arms are exhaustive over the KNOWN variants
+// only, §61.3). `accepts=` is `:enum`-only: a non-enum is E-ENDPOINT-ACCEPTS-NOT-ENUM
+// (parseVariant is a tagged-variant decoder; a non-variant inbound shape is the
+// deferred `raw`-escape's territory, §61.8).
+//
+// This models a small "Fleet Service Protocol" (FSP) — three methods a foreign
+// dispatch client calls over a single JSON route.
+type FspMethod:enum = {
+  // A no-payload query — the unit-variant arm form.
+  FleetStatus
+  // A payload-bearing command. The two positional fields (prompt, project) are
+  // decoded and bound to per-arm locals (§51.0.B.1 payload binding).
+  Dispatch(prompt: string, project: string)
+  // A typed-int cursor query — `seq` is refinement-checked at the decode (a
+  // non-int `seq` is an InvalidPayload 400, never reaches the arm).
+  DeltaSince(seq: int)
+}
+
+// The typed inbound endpoint (§61.2). `path=` is the author-stable contract URL
+// the foreign client connects to (§61.7 — honored verbatim, never a compiler
+// hash). `method=` is the HTTP method the handler mounts for. `accepts=` is the
+// `:enum` the request body decodes into. The body is one arm per enum variant
+// (the §18.0.1 `<match>` arm grammar, REUSED — `<endpoint>` adds no new arm
+// machinery), exhaustive over `accepts=` (§61.4).
+//
+// Each arm is a `:`-shorthand single-expression body (§4.14) returning a typed
+// value. That value IS the response wire: the compiler direct-serializes it as
+// JSON (§61.5). Here every arm returns the JSON-RPC `{ jsonrpc, result }` shape,
+// so the foreign client sees a JSON-RPC response — expressed purely by what the
+// arm RETURNS, with no JSON-RPC mode baked into the primitive.
+<endpoint path="/fsp" method="POST" accepts=FspMethod>
+  // Unit variant — no payload to bind. Returns the current fleet snapshot.
+  <FleetStatus : { jsonrpc: "2.0", result: { active: 3, idle: 1, offline: 0 } }>
+
+  // Payload variant — `prompt` / `project` are bound positionally from the
+  // decoded body and are in scope in the arm body. The arm returns a ticket
+  // acknowledgement; `project` flows straight through into the typed result.
+  <Dispatch(prompt, project) : { jsonrpc: "2.0", result: { accepted: true, project: project } }>
+
+  // Typed-int cursor variant — `seq` is already an `int` (the decode enforced
+  // it). The arm returns the delta window since that sequence number.
+  <DeltaSince(seq) : { jsonrpc: "2.0", result: { since: seq, count: 0 } }>
+</endpoint>
+
+#{
+  .app {
+    max-width: 560px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+  .method {
+    padding: 0.75rem 1rem;
+    margin: 0.75rem 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f9fafb;
+  }
+  code {
+    color: #2563eb;
+    font-size: 0.85rem;
+  }
+}
+
+// A small docs panel. This UI is purely a human-facing description of the
+// contract — a FOREIGN client calls `/fsp` with its own SDK (§61.6), so there is
+// nothing here to wire up. Note the asymmetry this example demonstrates: the
+// markup below compiles to `.client.js`, while the `<endpoint>` above compiles
+// to `.server.js` ONLY — the endpoint route-handler never leaks into the client
+// bundle (grep the emitted `.client.js`: no `_scrml_endpoint_`, no fetch-stub).
+<div class="app">
+  <h1>Fleet Service Protocol — typed inbound endpoint</h1>
+  <p>
+    A foreign dispatch client calls <code>POST /fsp</code> with a JSON body
+    naming one of three methods. scrml owns the decode, the exhaustive dispatch,
+    and the JSON envelope; the <code>&lt;endpoint&gt;</code> arms fill the
+    per-method handlers. This panel is documentation only — the endpoint serves
+    a foreign client that brings its own SDK (§61.6).
+  </p>
+
+  <div class="method">
+    <h2><code>FleetStatus</code> → fleet snapshot</h2>
+    <p>Body <code>{ "tag": "FleetStatus" }</code> → active/idle/offline counts.</p>
+  </div>
+
+  <div class="method">
+    <h2><code>Dispatch(prompt, project)</code> → ticket ack</h2>
+    <p>Body <code>{ "tag": "Dispatch", "prompt": "…", "project": "…" }</code>
+       → an accepted ticket for the named project.</p>
+  </div>
+
+  <div class="method">
+    <h2><code>DeltaSince(seq)</code> → delta window</h2>
+    <p>Body <code>{ "tag": "DeltaSince", "seq": 42 }</code> → deltas since the
+       given (integer) sequence cursor. A non-integer <code>seq</code> is a
+       compiler-owned <code>InvalidPayload</code> 400 (§61.3), never reaching
+       the arm.</p>
+  </div>
+</div>
+
+</program>

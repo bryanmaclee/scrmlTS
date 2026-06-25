@@ -15,6 +15,7 @@ import { returnTypeAllowsAbsence, SERVER_WIRE_ENCODER_HELPER } from "./wire-form
 import { SERVER_LOG_HELPER } from "./log-loc.ts";
 import { parseExprToNode } from "../expression-parser.ts";
 import { extractCalleeNames } from "./scheduling.ts";
+import { emitParseVariantDecodeIIFE, type ParseVariantEnumLike } from "./emit-parse-variant.ts";
 
 // g-pure-module-server-emit (S207): sentinel line marking where deferred
 // local-`.scrml` server imports are re-injected after usage-pruning. Pruned by
@@ -734,6 +735,74 @@ export function generateValueOnlyServerJs(fileAST: any): string {
   return emitted;
 }
 
+// ---------------------------------------------------------------------------
+// §61 — `<endpoint>` typed-inbound route-handler emission (W4,
+// endpoint-primitive-2026-06-25).
+//
+// An `<endpoint>` emits a SERVER route-handler ONLY (§61.6 — no paired client
+// fetch-stub; the foreign client has its own SDK). The compiler owns the request
+// decode (§61.3 — `parseVariant` §41.13 over the body against `accepts=`), the
+// exhaustive dispatch (§61.4), and the JSON response envelope (§61.5). It is
+// CSRF-exempt by construction (§61.7 — a JSON+bearer endpoint carries no ambient
+// cookie credential), so — unlike a §12.3 data-layer handler — it emits NO CSRF
+// block and is NOT routed through the §12 CSRF gate.
+// ---------------------------------------------------------------------------
+
+/**
+ * Deep-collect every `<endpoint>` (`endpoint-decl`) node. An `<endpoint>` nests
+ * inside the `<program>` / `<page>` markup subtree (never a top-level node), so
+ * mirror `checkEndpointDeclarations`'s deep recursion (body / children /
+ * bodyChildren / branches). A shallow top-level scan misses every wrapped one.
+ */
+function collectEndpointDecls(nodes: any[]): any[] {
+  const out: any[] = [];
+  const seen = new WeakSet<object>();
+  const walk = (node: any): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) { for (const c of node) walk(c); return; }
+    if (seen.has(node)) return;
+    seen.add(node);
+    if (node.kind === "endpoint-decl") out.push(node);
+    if (Array.isArray(node.body)) walk(node.body);
+    if (Array.isArray(node.children)) walk(node.children);
+    if (Array.isArray(node.bodyChildren)) walk(node.bodyChildren);
+    if (Array.isArray(node.branches)) walk(node.branches);
+  };
+  walk(nodes);
+  return out;
+}
+
+/** A single parsed arm payload binding (§18.0.1 / §51.0.B.1). */
+interface EndpointArmBinding {
+  discard: boolean;        // `_` — bind nothing
+  field: string | null;    // named form `field: local` — the wire field name
+  local: string | null;    // the per-arm local identifier
+}
+
+/**
+ * Parse an arm's `payloadBindingsRaw` (the comma-joined text inside `(...)`) into
+ * positional / named / discard bindings. Reuses the §18.0.1 / §51.0.B.1 binding
+ * surface shapes: `prompt` (positional), `level: l` (named), `_` (discard).
+ */
+function parseArmBindings(raw: string | undefined | null): EndpointArmBinding[] {
+  if (typeof raw !== "string" || raw.trim() === "") return [];
+  const out: EndpointArmBinding[] = [];
+  for (const part of raw.split(",")) {
+    const t = part.trim();
+    if (t === "") continue;
+    if (t === "_") { out.push({ discard: true, field: null, local: null }); continue; }
+    const colon = t.indexOf(":");
+    if (colon >= 0) {
+      const field = t.slice(0, colon).trim();
+      const local = t.slice(colon + 1).trim();
+      out.push({ discard: false, field: field || null, local: local || null });
+    } else {
+      out.push({ discard: false, field: null, local: t });
+    }
+  }
+  return out;
+}
+
 /**
  * Generate server-side route handler code for all server-boundary functions
  * in a file.
@@ -964,6 +1033,14 @@ export function generateServerJs(
   );
   const _hasPatternCLoad = _patternCLoadDecls.length > 0;
 
+  // §61.6 — an `<endpoint>` emits a server route-handler directly (bypassing the
+  // function-route path), so the emission gate must fire on a file that has an
+  // `<endpoint>` even when it has NO developer-authored server fns (mirror of the
+  // Tier-1 / Pattern-C server-authority gates above). Collected ONCE here and
+  // reused by the endpoint-handler emit block after the function-handler loop.
+  const _endpointDecls = collectEndpointDecls(getNodes(fileAST));
+  const _hasEndpointDecls = _endpointDecls.length > 0;
+
   if (
     serverFns.length === 0 &&
     !authMiddlewareEntry &&
@@ -972,7 +1049,8 @@ export function generateServerJs(
     !_scrml_handleNodeEarly &&
     !_needsMountHydrate &&
     !_hasServerAuthorityCells &&
-    !_hasPatternCLoad
+    !_hasPatternCLoad &&
+    !_hasEndpointDecls
   ) return "";
 
   const lines: string[] = [];
@@ -2135,6 +2213,165 @@ export function generateServerJs(
     lines.push(`};`);
     lines.push("");
     } // end per-batch emit loop (Ext 1 M1.5)
+  }
+
+  // ---- §61 `<endpoint>` typed-inbound route handlers (W4) ------------------
+  // Emitted BEFORE the peer-callable loop below so an arm body's server-fn call
+  // target registers into `_calledPeerNames` (the handler's `await dispatch(...)`
+  // would otherwise reference an undefined symbol). Each `<endpoint>` decodes the
+  // request body via `parseVariant` (§61.3), dispatches over the `accepts=` enum
+  // (§61.4), envelopes the typed arm result as JSON (§61.5), and registers at the
+  // author-stable `path=`/`method=` (§61.7). NO CSRF block (§61.7 — CSRF-exempt).
+  if (_hasEndpointDecls) {
+    // The arm value-return envelope (§61.5). The `:`-shorthand / code-default
+    // body is lowered as a server VALUE-expression (REUSE `emitExprField` — do
+    // NOT hand-roll), `await`-ed (the target may be sync or async), and its typed
+    // return value serialized DIRECTLY as the JSON success body — the author owns
+    // the exact wire by returning the exact shape (JSON-RPC is a convention via
+    // the return value, NOT a baked-in mode). A self-closing `<Variant/>` arm is
+    // a no-op handler → default-success with no body (204 No Content).
+    const emitEndpointArmEnvelope = (arm: any): string[] => {
+      const out: string[] = [];
+      const bodyRaw = typeof arm?.bodyRaw === "string" ? arm.bodyRaw.trim() : "";
+      if (arm?.bodyForm === "self-closing" || bodyRaw === "") {
+        out.push(`return new Response(null, { status: 204 });`);
+        return out;
+      }
+      const expr = emitExprField(null, bodyRaw, {
+        mode: "server",
+        serverFnNames: _serverFnPeerNames,
+        syncPeerCalls: _syncPeerCalls,
+      } as unknown as EmitExprContext);
+      out.push(`const _scrml_result = await (${expr});`);
+      out.push(`return new Response(JSON.stringify(_scrml_result), {`);
+      out.push(`  status: 200,`);
+      out.push(`  headers: { "Content-Type": "application/json" },`);
+      out.push(`});`);
+      return out;
+    };
+
+    // §61.3 / §61.5 — one shared decode-failure envelope helper (minimal runtime,
+    // the §60.7 LIMIT-PRIMITIVES boundary applied to the inbound edge). A
+    // `parseVariant` `::ParseError` → 400 + the compiler-owned structured error
+    // `{ error: { kind, message } }` (kind ∈ the §41.13 ParseError family).
+    lines.push(`// --- §61.3/§61.5: <endpoint> request-decode failure envelope ---`);
+    lines.push(`function _scrml_endpoint_decode_error(_scrml_decoded) {`);
+    lines.push(`  const _scrml_data = _scrml_decoded.data || {};`);
+    lines.push(`  let _scrml_message;`);
+    lines.push(`  switch (_scrml_decoded.variant) {`);
+    lines.push(`    case "MissingDiscriminator": _scrml_message = "request body is missing the variant discriminator field 'tag'"; break;`);
+    lines.push(`    case "UnknownVariant": _scrml_message = "request body names an unknown variant '" + _scrml_data.tag + "'"; break;`);
+    lines.push(`    case "InvalidPayload": _scrml_message = "request payload field '" + _scrml_data.field + "' is invalid: " + _scrml_data.reason; break;`);
+    lines.push(`    default: _scrml_message = "request body is malformed: " + _scrml_data.reason;`);
+    lines.push(`  }`);
+    lines.push(`  return new Response(JSON.stringify({ error: { kind: _scrml_decoded.variant, message: _scrml_message } }), {`);
+    lines.push(`    status: 400,`);
+    lines.push(`    headers: { "Content-Type": "application/json" },`);
+    lines.push(`  });`);
+    lines.push(`}`);
+    lines.push("");
+
+    for (const _epDecl of _endpointDecls) {
+      // The resolved `accepts=` EnumType the W3 typer annotated onto the decl
+      // node (mirrors `<api>`'s `responseEnum`). A non-enum / unresolved
+      // `accepts=` already fired a hard typer error (E-ENDPOINT-ACCEPTS-NOT-ENUM /
+      // E-TYPE-UNKNOWN-NAME) — there is nothing decodable, so skip the emit.
+      const _epEnum = (_epDecl as { acceptsEnum?: ParseVariantEnumLike }).acceptsEnum;
+      if (!_epEnum || _epEnum.kind !== "enum") continue;
+      const _epPath = typeof _epDecl.path === "string" ? _epDecl.path : null;
+      const _epMethod = typeof _epDecl.method === "string" ? _epDecl.method : null;
+      // A missing path/method already fired a W2 parse error — skip the emit.
+      if (!_epPath || !_epMethod) continue;
+      const _epId = _epDecl.id;
+      const _epHandler = `_scrml_endpoint_${_epId}`;
+      const _epRoute = `__ri_route_endpoint_${_epId}`;
+      const _epArms: any[] = Array.isArray(_epDecl.arms) ? _epDecl.arms : [];
+
+      // Register every arm-body server-fn call target as a peer so the loop below
+      // emits it (otherwise `await dispatch(...)` references an undefined symbol).
+      // Pure fns are emitted by the value-export path; only server fns need this.
+      for (const _arm of _epArms) {
+        if (_arm && typeof _arm.bodyRaw === "string" && _arm.bodyRaw.length > 0) {
+          for (const _c of extractCalleeNames(_arm.bodyRaw)) {
+            if (_serverFnPeerNames.has(_c)) _calledPeerNames.add(_c);
+          }
+        }
+      }
+
+      // §61.3 — synthesize the `parseVariant` request-decode IIFE against the
+      // resolved `accepts=` enum (REUSE emit-parse-variant — NO new decoder).
+      const _epDecode = emitParseVariantDecodeIIFE(_epEnum, "_scrml_body");
+
+      lines.push(`// --- §61 <endpoint> ${_epMethod} ${_epPath} (accepts=${_epEnum.name}) ---`);
+      lines.push(`async function ${_epHandler}(_scrml_req) {`);
+      lines.push(`  const _scrml_body = await _scrml_req.json();`);
+      lines.push(`  // §61.3 — decode the request body against accepts= (parseVariant §41.13).`);
+      lines.push(`  const _scrml_decoded = ${_epDecode};`);
+      lines.push(`  // §61.3 — a ::ParseError decode failure → the compiler-owned 400 envelope.`);
+      lines.push(`  if (_scrml_decoded && _scrml_decoded.__scrml_error) {`);
+      lines.push(`    return _scrml_endpoint_decode_error(_scrml_decoded);`);
+      lines.push(`  }`);
+      lines.push(`  // The decoded value is a bare string (unit variant) or { variant, data }.`);
+      lines.push(`  const _scrml_tag = typeof _scrml_decoded === "string" ? _scrml_decoded : _scrml_decoded.variant;`);
+      lines.push(`  // §61.4 — dispatch over the exhaustive arms (one per accepts= variant).`);
+      lines.push(`  switch (_scrml_tag) {`);
+
+      let _wildcardArm: any = null;
+      for (const _arm of _epArms) {
+        if (!_arm || typeof _arm !== "object") continue;
+        if (_arm.isWildcard) { _wildcardArm = _arm; continue; }
+        const _vName = _arm.variantName;
+        if (typeof _vName !== "string") continue;
+        lines.push(`    case ${JSON.stringify(_vName)}: {`);
+        // §51.0.B.1 / §18.0.1 payload binding — positionally bind each arm local
+        // to the matched variant's declared payload field (the decoded payload
+        // variant carries `.data` keyed by the declared field name).
+        const _vDef = _epEnum.variants.find((v) => v.name === _vName);
+        const _declaredFields: string[] =
+          (_vDef && _vDef.payload && typeof (_vDef.payload as any).keys === "function")
+            ? Array.from((_vDef.payload as Map<string, unknown>).keys())
+            : [];
+        const _bindings = parseArmBindings(_arm.payloadBindingsRaw);
+        for (let _bi = 0; _bi < _bindings.length; _bi++) {
+          const _b = _bindings[_bi];
+          if (_b.discard || !_b.local) continue;
+          const _field = _b.field ?? _declaredFields[_bi];
+          if (!_field) continue;
+          lines.push(`      const ${_b.local} = _scrml_decoded.data[${JSON.stringify(_field)}];`);
+        }
+        for (const _l of emitEndpointArmEnvelope(_arm)) lines.push(`      ${_l}`);
+        lines.push(`    }`);
+      }
+
+      // default: — the wildcard `<_>` arm if present, else a defensive 400
+      // (exhaustiveness is compile-enforced §61.4 and parseVariant already
+      // filtered unknown tags §61.3, so a non-wildcard endpoint never reaches a
+      // real default — the arm is kept for runtime totality).
+      lines.push(`    default: {`);
+      if (_wildcardArm) {
+        for (const _l of emitEndpointArmEnvelope(_wildcardArm)) lines.push(`      ${_l}`);
+      } else {
+        lines.push(`      return new Response(JSON.stringify({ error: { kind: "UnknownVariant", message: "endpoint received an unhandled variant '" + _scrml_tag + "'" } }), {`);
+        lines.push(`        status: 400,`);
+        lines.push(`        headers: { "Content-Type": "application/json" },`);
+        lines.push(`      });`);
+      }
+      lines.push(`    }`);
+      lines.push(`  }`);
+      lines.push(`}`);
+      lines.push("");
+
+      // §61.6 / §61.7 — register the server route-handler at the author-stable
+      // `path=` for `method=` (verbatim — never a compiler-internal hash). The
+      // record SHAPE matches the route-collection regex (~`routeNameRe` below)
+      // so the WinterCG `routes` / `fetch` aggregate auto-collects it.
+      lines.push(`export const ${_epRoute} = {`);
+      lines.push(`  path: ${JSON.stringify(_epPath)},`);
+      lines.push(`  method: ${JSON.stringify(_epMethod)},`);
+      lines.push(`  handler: ${_epHandler},`);
+      lines.push(`};`);
+      lines.push("");
+    }
   }
 
   // ---- Issue #1 (parent scrmlTS): emit in-process peer callables ----

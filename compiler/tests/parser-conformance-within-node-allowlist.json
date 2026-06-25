@@ -625,6 +625,14 @@
     "COUNT-LENGTH": 1,
     "SPAN-COORD": 57
   },
+  "examples/33-endpoint.scrml": {
+    "KIND-NAME": 1,
+    "FIELD-SHAPE": 1,
+    "MISSING-FIELD": 28,
+    "EXTRA-FIELD": 11,
+    "COUNT-LENGTH": 1,
+    "SPAN-COORD": 33
+  },
   "samples/admin-panel.scrml": {
     "COUNT-LENGTH": 6,
     "EXTRA-FIELD": 103,
