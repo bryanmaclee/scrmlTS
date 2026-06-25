@@ -18,7 +18,7 @@
 | HIGH | 6 |
 | MED | 21 |
 | LOW | 15 |
-| Nominal (spec-ahead-of-impl) | 8 |
+| Nominal (spec-ahead-of-impl) | 7 |
 <!-- @generated:gap-counts END -->
 
 > The four data rows above are a GENERATED artifact derived from the `<!-- @gap … -->` tokens — run `bun scripts/state.ts --write` to refresh (and `--check` to gate). For WHAT closed each arc, see [`docs/changelog.md`](changelog.md); the old per-severity "Closed-this-arc" narrative cells were retired (DD3 Fork 2B, `dd3-state-self-evidence-2026-06-07`).
@@ -2032,7 +2032,7 @@ These are SPEC-only surfaces — designed, normatively documented, NOT yet imple
 
 <!-- §0-only Nominal entries (no `### ` header; tracked in the §0 Nominal Closed-this-arc cell) -->
 <!-- @gap id=nominal-8-gating-runtime sev=NOMINAL status=nominal -->  <!-- §40.9.5 per-role server-render-time gating runtime (S146 GITI-027B D) -->
-<!-- @gap id=nominal-9-engine-opener-effect sev=NOMINAL status=nominal -->  <!-- §51.0.H-C1 effect=-on-engine-opener (S144 Insight 33) -->
+<!-- @gap id=nominal-9-engine-opener-effect sev=NOMINAL status=resolved -->  <!-- §51.0.H-C1 effect=-on-engine-opener (S144 Insight 33) -->
 
 
 ### Nominal-1 — Build Story §58 — `nominal`
