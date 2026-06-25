@@ -1,9 +1,9 @@
-<!-- @digest head=46bd6021 delta-seq=64 -->
+<!-- @digest head=9713d703 delta-seq=68 -->
 # scrml — session-start digest (@generated — do NOT hand-edit)
 
 > ⚠ **FRESHNESS GUARD (PA — read this first).** This digest is a mechanical projection reflecting
-> **HEAD `46bd6021`** + delta-log **[64]**. To check freshness, run `bun scripts/state.ts` and read
-> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `46bd6021`
+> **HEAD `9713d703`** + delta-log **[68]**. To check freshness, run `bun scripts/state.ts` and read
+> its `digest:` line — it is SOURCE-based (the digest is current unless a commit since stamp `9713d703`
 > touched a source it projects from — known-gaps · delta-log · maps · version; the digest's own
 > commit does NOT stale it). **If it reports STALE, DISTRUST this digest** and fall back to the
 > authoritative reads (master-list §0 + hand-off.md + delta-log tail). Every line below is
@@ -13,23 +13,23 @@
 > It thins the VOLATILE re-derivation only (board · rulings · activity); the expert reads
 > (PRIMER · SPEC-INDEX · pa.md Rules) are UNAFFECTED — always cold.
 
-## Board — from `@gap` tokens @ `46bd6021`
-- **HIGH 0** · MED 15 · LOW 15 · Nominal 8
+## Board — from `@gap` tokens @ `9713d703`
+- **HIGH 0** · MED 16 · LOW 15 · Nominal 8
 - Named open HIGHs: _none_
 
-## Recent rulings — last 0 `rule` (delta-log S218 — 2026-06-24)
-- _(none in the latest session)_
+## Recent rulings — last 1 `rule` (delta-log S218 — 2026-06-24)
+- `[67]` rule · **B2 disposition = diagnose-and-reject** (option 1) — the legacy whole-body arrow form on `<engine>` is rejected loudly (canonical = state-child `rule=`), NOT t… → fix dispatch
 
 ## Recent activity — last 6 `disp`/`land`/`find`/`state`
-- `[59]` state · **`~/.claude/CLAUDE.md` TRIMMED 86→16 lines + PA methodology relocated → `~/.claude/pa-global.md` (user "pa-global.md" — option A).** That file auto-loads into… → ~/.claude/{CLAUDE.md,pa-global.md} + pa-scrml.md
-- `[60]` disp · **6nz Bug AI (MED) DISPATCHED — `<each>`/`<empty>` fallback not torn down on empty→non-empty.** PA R26-reverse CONFIRMED structurally @HEAD 82f76085 (6nz hypoth… → BRIEF.md + agent aeff05bd
-- `[61]` disp · **`_{}` INLINE-CODEGEN BUILD DISPATCHED (dpa-003, ratified S215 Approach B + S216 OUT-typing hybrid).** User decisions FINAL (AskUserQuestion): **`in:{}` header… → BRIEF.md + agent ad25a4d3
 - `[62]` land · **6nz Bug AI FIXED + LANDED (PA file-delta, agent aeff05bd @696b16c4 → PA commit next).** Root = PA direction exactly: `_scrml_reconcile_list` (runtime-template… → PA commit + known-gaps@wrap
 - `[63]` land · **`_{}` INLINE-CODEGEN BUILT + LANDED (dpa-003; PA file-delta, agent ad25a4d3 @c816c0c7 → PA commit next).** The inline value-returning `const x = _={ in:{…} …… → PA commit + known-gaps@wrap
 - `[64]` state · **S218 WRAP.** Full suite **25050/0/213**. **6 commits this session** (d34e473a boot-gate+bookkeeping · e493bace GITI-032 · e64c4095 6nz · 85e0d687 `_{}` · 82f7… → S218 close
+- `[65]` state · **S219 BOOT (Profile A FULL).** digest `current`; deputy-maint FF'd (ticks 259/260 = S218-wrap maps-batch + digest lag-fix) → main; S218-residue (dpa-queue dPA… → c59c9811
+- `[66]` find · **6nz S16 inbox triaged (B1/B2/B3) via background diagnostic.** B2 GENUINE HIGH (silent empty render); B1 + B3 BY-DESIGN. B3's "ternary-specific" framing FALSE… → 6nz reply owed
+- `[68]` land · **6nz B2(HIGH)+B1 FIXED+LANDED `d71a6dcc`.** Agent `ab69a222` (iso:worktree) STALLED on the stream watchdog right before its full-suite gate (>600s no-output ki… → PA commit + push pending
 
 ## State
-- Version: 0.7.0 · maps: 1 commits behind HEAD (watermark 162564f3, HEAD 46bd6021)
+- Version: 0.7.0 · maps: 8 commits behind HEAD (watermark 162564f3, HEAD 9713d703)
 - Recent wraps:
   - 162564f3 chore(s218): wrap-finalize — digest regen at settled HEAD (post deputy-maint merge, delta-seq 64)
   - 489951aa chore(s217): wrap-finalize — digest regen at settled HEAD + 3 intakes carried
