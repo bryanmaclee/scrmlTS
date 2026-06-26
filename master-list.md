@@ -87,6 +87,7 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 > `bun scripts/state.ts --write` regenerates it; `--check` gates it.
 
 <!-- @generated:recent-sessions START (do not edit — `bun scripts/state.ts --write`) -->
+- `f1607b97` — chore(s221): wrap — hand-off CLOSE + changelog S221 + delta-log [108] + 24 worktrees pruned — **pushed**
 - `cf9f1109` — chore(s220): wrap 6c — maps refresh to HEAD 852d6aa7 (full S220 surface) — **pushed**
 - `26ffea4e` — chore(s219): WRAP — vPA deputy ELIMINATED + flogence digest-boot wired + close bookkeeping — **pushed**
 - `162564f3` — chore(s218): wrap-finalize — digest regen at settled HEAD (post deputy-maint merge, delta-seq 64) — **pushed**
@@ -94,7 +95,6 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 - `6c5c0d58` — chore(s216): wrap — close + bookkeeping (hand-off close, changelog S216, master-list §0 [HIGH 1->0], known-gaps HIGH-flip + §0 regen, delta-log [39-40], dpa-queue+artifact ratification flips, 3 inbox->read) — **pushed**
 - `a2137214` — chore(s215): wrap-finalize — recent-sessions + digest regen at settled HEAD 27900a6c — **pushed**
 - `cab2cca0` — wrap(s214): integrate sPA ss15 + close — render-collection cluster + reconciliation — **pushed**
-- `d4d489bf` — chore(s213): wrap bookkeeping — hand-off close + delta-log + gaps + §0/digest + BRIEFs — **pushed**
 <!-- @generated:recent-sessions END -->
 
 ## A. Compiler core
