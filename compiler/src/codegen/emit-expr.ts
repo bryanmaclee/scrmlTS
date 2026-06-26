@@ -44,6 +44,7 @@ import { emitParseVariantCall, isParseVariantCall } from "./emit-parse-variant.t
 import { emitMatchExpr as emitStructuredMatchExpr } from "./emit-control-flow.ts";
 import { SYNTH_PROPERTY_NAMES } from "../symbol-table.ts";
 import { srcmapMark } from "./srcmap-provenance.ts";
+import { parseExprToNode } from "../expression-parser.ts";
 import { resolveLogLoc } from "./log-loc.ts";
 // markup-value-in-expression-2026-06-17 (a)+(b) — DOM-node lowering for
 // markup-as-value in expression position (shared with form (c) `return <markup>`).
@@ -399,7 +400,7 @@ function extractAdvanceBareVariantName(arg: any): string | null {
 export function emitExpr(node: ExprNode, ctx: EmitExprContext): string {
   switch (node.kind) {
     case "ident":       return emitIdent(node, ctx);
-    case "lit":         return emitLit(node);
+    case "lit":         return emitLit(node, ctx);
     case "array":       return emitArray(node, ctx);
     case "object":      return emitObject(node, ctx);
     case "spread":      return emitSpread(node, ctx);
@@ -604,10 +605,100 @@ function emitIdent(node: IdentExpr, ctx: EmitExprContext): string {
   return name;
 }
 
-function emitLit(node: LitExpr): string {
+/**
+ * ss22 #4 (g-peer-call-in-raw-template-unawaited) — re-emit a server-mode
+ * template literal's `${...}` interpolations through the STRUCTURED expr path
+ * (`emitExpr`) so the ss19 #8 peer-await + `@cell` rewrite reach interpolation
+ * positions. `emitLit` otherwise returns `node.raw` VERBATIM, so a
+ * `` `…${peer()}…` `` left the async peer call UNAWAITED (a Promise
+ * stringified into the template) and a `${@cell}` left the bare `@cell` (invalid
+ * JS) — both bypass the statement-level #8 pass because a template literal is a
+ * single `lit` node whose interpolations are never decomposed into AST nodes.
+ *
+ * We split on top-level `${...}` (brace-depth aware, skipping braces inside
+ * nested strings / template literals), parse each interior expr, and route it
+ * through `emitExpr` with the SAME ctx (which carries `serverFnNames` +
+ * `peerAwaitable`). A peer call lowers to `await peer()` — valid inside a
+ * template `${...}` in an async server-fn body — and `@cell` lowers to
+ * `_scrml_body["cell"]` via `emitIdent`. A non-peer / non-cell interp
+ * (`${x + 1}`, `${plain}`) re-emits BYTE-IDENTICAL, so this is a no-op for
+ * everything the prior raw pass already emitted correctly. The literal text
+ * segments are preserved verbatim. CLIENT-mode templates are untouched (the
+ * client `@cell`-in-template-lit path is a separate seam, out of scope here).
+ */
+function emitServerTemplateLit(raw: string, ctx: EmitExprContext): string {
+  // raw includes the surrounding backticks: `…${…}…`
+  if (raw.length < 2 || raw[0] !== "`" || raw[raw.length - 1] !== "`") return raw;
+  const inner = raw.slice(1, -1);
+  let out = "`";
+  let i = 0;
+  while (i < inner.length) {
+    const ch = inner[i];
+    // An escaped char (`\${`, `` \` ``, `\\`) is literal — copy both bytes.
+    if (ch === "\\" && i + 1 < inner.length) {
+      out += inner[i] + inner[i + 1];
+      i += 2;
+      continue;
+    }
+    if (ch === "$" && inner[i + 1] === "{") {
+      // Scan to the matching `}`, tracking brace depth + skipping over any
+      // nested string / template literal (whose braces must NOT count).
+      let depth = 1;
+      let j = i + 2;
+      while (j < inner.length && depth > 0) {
+        const cj = inner[j];
+        if (cj === "\\") { j += 2; continue; }
+        if (cj === "{") { depth++; j++; continue; }
+        if (cj === "}") { depth--; if (depth === 0) break; j++; continue; }
+        if (cj === "'" || cj === '"' || cj === "`") {
+          // Skip a nested string / template literal verbatim.
+          const quote = cj;
+          j++;
+          while (j < inner.length) {
+            if (inner[j] === "\\") { j += 2; continue; }
+            if (inner[j] === quote) { j++; break; }
+            j++;
+          }
+          continue;
+        }
+        j++;
+      }
+      const interior = inner.slice(i + 2, j);
+      let emitted: string;
+      try {
+        const node = parseExprToNode(interior, "<server-template-interp>", 0);
+        emitted = emitExpr(node, ctx);
+      } catch {
+        // Defensive: an interior the expr-parser can't handle keeps its raw
+        // text (byte-identical to the pre-fix emission). Never crash codegen.
+        emitted = interior;
+      }
+      out += "${" + emitted + "}";
+      i = j + 1; // step past the closing `}`
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  out += "`";
+  return out;
+}
+
+function emitLit(node: LitExpr, ctx: EmitExprContext): string {
   // The `not` keyword (§42 absence value) compiles to null
   if (node.litType === "not") {
     return "null";
+  }
+  // ss22 #4 — route a SERVER-mode template literal's interpolations through the
+  // structured peer-await + cell-rewrite pass (see emitServerTemplateLit). A
+  // template with no `${...}` (or any non-template lit) keeps its raw text.
+  if (
+    node.litType === "template" &&
+    ctx.mode === "server" &&
+    typeof node.raw === "string" &&
+    node.raw.includes("${")
+  ) {
+    return emitServerTemplateLit(node.raw, ctx);
   }
   // Use raw source text to preserve exact formatting (string quotes, number format, etc.)
   return node.raw;

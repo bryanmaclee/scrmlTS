@@ -6,7 +6,7 @@ import { emitLogicNode, emitFnShortcutBody } from "./emit-logic.ts";
 import { getNodes } from "./collect.ts";
 import { collectChannelNodes, emitChannelServerJs, emitChannelWsHandlers, collectChannelFunctionMap, collectChannelCellMap, filterChannelImportSpecifiers } from "./emit-channel.ts";
 import { serverRewriteEmitted, setVariantFieldsForRewriter } from "./rewrite.js";
-import { buildVariantFieldsRegistry, emitEnumVariantObjects } from "./emit-client.js";
+import { buildVariantFieldsRegistry, emitEnumVariantObjects, emitEnumLookupTables } from "./emit-client.js";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import type { CompileContext } from "./context.ts";
 import { emitServerParamCheck, parsePredicateAnnotation } from "./emit-predicates.ts";
@@ -1541,6 +1541,29 @@ export function generateServerJs(
       // peer MUST be emitted for the bare reference to resolve.
       if (n.kind === "escape-hatch" && typeof n.raw === "string") {
         for (const c of extractCalleeNames(n.raw)) {
+          if (_serverFnPeerNames.has(c)) _calledPeerNames.add(c);
+        }
+      }
+
+      // ss22 #4 (g-peer-call-in-raw-template-unawaited) — EMISSION. A peer call
+      // inside a TEMPLATE LITERAL interpolation (`` `…${peer()}…` ``) or a SQL
+      // `?{}` param (`?{`… ${peer()} …`}`) now lowers to `await peer()`
+      // (emit-expr.ts:emitServerTemplateLit / emit-logic.ts:taggedFromParams).
+      // Those calls live only in a `lit` (litType "template") `.raw` text or a
+      // `sql` node's `.query`/`.body` raw text — neither is a structured `call`
+      // node, so the generic walk above never discovers them and the peer
+      // callable was not emitted → `await peer()` referenced an undefined symbol.
+      // Recover the callees textually (same shape as the escape-hatch scan).
+      if (n.kind === "lit" && n.litType === "template" && typeof n.raw === "string"
+          && n.raw.includes("${")) {
+        for (const c of extractCalleeNames(n.raw)) {
+          if (_serverFnPeerNames.has(c)) _calledPeerNames.add(c);
+        }
+      }
+      if (n.kind === "sql") {
+        const _sqlRaw = (typeof n.query === "string" ? n.query : "")
+          + " " + (typeof n.body === "string" ? n.body : "");
+        for (const c of extractCalleeNames(_sqlRaw)) {
           if (_serverFnPeerNames.has(c)) _calledPeerNames.add(c);
         }
       }
@@ -3182,6 +3205,93 @@ export function generateServerJs(
   // route-handler body (present before the prune either way), so it is
   // unaffected by the reordering; the consts still hoist above the route
   // handlers (header `\n\n` injection point).
+  // ss22 item 5 (g-enum-toenum-not-lowered-server-side) — TWO-PART fix.
+  //
+  // PART 1 (lower): the structured-AST emit path (`emitExpr`) emits a
+  // `<Enum>.toEnum(raw)` call VERBATIM — only the STRING-rewrite passes
+  // (`rewriteEnumToEnum`, Pass 9 client / Pass 6 server) lower it, and a
+  // `return <Enum>.toEnum(raw)` / `.map(row => ({ ... <Enum>.toEnum(x) ... }))`
+  // body reaches codegen as a structured call-expr (or an arrow nested inside
+  // one), bypassing the string pass. Left un-lowered, the server bundle throws
+  // `TypeError: <Enum>.toEnum is not a function` at runtime (a frozen enum
+  // object has no `toEnum` method) — compile exit-0, SILENT. We post-process the
+  // ASSEMBLED server body, lowering `<Enum>.toEnum(...)` / `toEnum(<Enum>, ...)`
+  // to `(<Enum>_toEnum[...] ?? null)` ONLY for statically-known enum names (so an
+  // unrelated `obj.toEnum(...)` method is never touched). Mirrors the
+  // `rewriteEnumToEnum` (rewrite.ts) regexes, name-scoped per enum so a non-enum
+  // `SomeClass.toEnum(...)` is left intact.
+  //
+  // PART 2 (tables): the `<Enum>_toEnum` / `<Enum>_variants` lookup tables are
+  // emitted into the CLIENT bundle only (§14.4.1). After Part 1 lowering, the
+  // server body references `<Enum>_toEnum[...]` (and `<Enum>_variants` for any
+  // `.variants` that lowered via the string path), so we emit those tables into
+  // the SERVER bundle too — REACHABILITY-GATED: only the table kinds an enum
+  // actually references in the assembled body are injected (mirrors the Bug-51
+  // variant-object gate below). This MUST run BEFORE the Bug-51 enum-variant-
+  // object block: Part 1 rewrites `<Enum>.toEnum(raw)` → `<Enum>_toEnum[raw]`,
+  // dropping the bare `<Enum>` reference — so an enum used server-side ONLY via
+  // `.toEnum` correctly gets its `_toEnum` table here, not a redundant frozen
+  // `const <Enum> = Object.freeze(...)` object below.
+  {
+    const _enumNames: string[] = [];
+    for (const decl of (fileAST.typeDecls ?? fileAST.ast?.typeDecls ?? [])) {
+      if (decl && decl.kind === "type-decl" && decl.typeKind === "enum" && decl.name) {
+        _enumNames.push(decl.name);
+      }
+    }
+    if (_enumNames.length > 0) {
+      // PART 1 — name-scoped toEnum lowering over the assembled body. Run the
+      // shared rewrite only on segments mentioning a known enum's `.toEnum` /
+      // `toEnum(<Enum>` so the regex never reaches an unrelated `.toEnum`.
+      const _enumNameSet = new Set(_enumNames);
+      // The `rewriteEnumToEnum` (rewrite.ts) regexes match ANY PascalCase
+      // `X.toEnum(...)`; here we re-check each match's type name against the
+      // known-enum set so a non-enum `SomeClass.toEnum(...)` is left intact.
+      const _toEnumMethodRe = /\b([A-Z][A-Za-z0-9_]*)\s*\.\s*toEnum\s*\(\s*([^)]+)\s*\)/g;
+      const _toEnumFnRe = /\btoEnum\s*\(\s*([A-Z][A-Za-z0-9_]*)\s*,\s*([^)]+)\s*\)/g;
+      finalEmitted = finalEmitted.replace(_toEnumMethodRe, (m, typeName: string, arg: string) =>
+        _enumNameSet.has(typeName) ? `(${typeName}_toEnum[${arg.trim()}] ?? null)` : m,
+      );
+      finalEmitted = finalEmitted.replace(_toEnumFnRe, (m, typeName: string, arg: string) =>
+        _enumNameSet.has(typeName) ? `(${typeName}_toEnum[${arg.trim()}] ?? null)` : m,
+      );
+
+      // PART 2 — reachability gate: which `<Enum>_toEnum` / `<Enum>_variants`
+      // identifiers now appear as standalone tokens in the assembled body.
+      const _tableKindByEnum = new Map<string, Set<"toEnum" | "variants">>();
+      for (const name of _enumNames) {
+        const kinds = new Set<"toEnum" | "variants">();
+        if (localServerImportNameUsed(finalEmitted, `${name}_toEnum`)) kinds.add("toEnum");
+        if (localServerImportNameUsed(finalEmitted, `${name}_variants`)) kinds.add("variants");
+        if (kinds.size > 0) _tableKindByEnum.set(name, kinds);
+      }
+      if (_tableKindByEnum.size > 0) {
+        const _enumTableLines = emitEnumLookupTables(fileAST, { tableKindByEnum: _tableKindByEnum })
+          // Collision guard: skip a table whose identifier is already bound at
+          // the top level of the assembled bundle (mirrors the Bug-51 E-CG-016
+          // guard; a `_toEnum` / `_variants` name collision is exceedingly rare,
+          // so fail-safe by skipping the redundant inject rather than erroring).
+          .filter((line) => {
+            const nameMatch = /^const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+=/.exec(line);
+            if (!nameMatch) return false;
+            return !topLevelBindingExists(finalEmitted, nameMatch[1]);
+          });
+        if (_enumTableLines.length > 0) {
+          const _tableBlock =
+            "\n// --- enum toEnum() lookup tables (compiler-generated, §14.4) ---\n" +
+            _enumTableLines.join("\n") +
+            "\n";
+          const _hdrIdx = finalEmitted.indexOf("\n\n");
+          if (_hdrIdx === -1) {
+            finalEmitted = _tableBlock + finalEmitted;
+          } else {
+            finalEmitted = finalEmitted.slice(0, _hdrIdx) + _tableBlock + finalEmitted.slice(_hdrIdx);
+          }
+        }
+      }
+    }
+  }
+
   const enumDefLines = emitEnumVariantObjects(fileAST);
   if (enumDefLines.length > 0) {
     // name → declaration span, for a precise E-CG-016 collision diagnostic.

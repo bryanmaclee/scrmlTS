@@ -8400,6 +8400,26 @@ function annotateNodes(
           }
         }
 
+        // §37.3 — `server function*` SSE generators: codegen SYNTHESIZES a
+        // `route` object (`{ query, lastEventId }`) into the generated SSE
+        // handler (emit-server.ts SSE branch — `const route = { query: ...,
+        // lastEventId: ... }`), so a generator body that reads `route.query` /
+        // `route.lastEventId` references an identifier the typer never saw a
+        // declaration for. Without registering it here the scope-check pass
+        // (checkLogicExprIdents) false-fires E-SCOPE-001 on the base `route`
+        // ident — independent of any author `route="/path"` annotation. Bind it
+        // as a plain local for SSE generators ONLY (server boundary + generator),
+        // mirroring the §38.6 channel-builtin auto-injection. The member set the
+        // codegen provides is `.query` / `.lastEventId`; the ident-walker keys on
+        // the base name (`route`) so a plain `variable` binding is sufficient and
+        // does NOT broaden to non-SSE server fns (which synthesize no `route`).
+        // ss22 item 1 (g-sse-route-object-typer-scope); repro:
+        // docs/changes/escalation-2-sse-author-route-app-mode-2026-06-23/repro/.
+        const _isSSEGenerator = boundary === "server" && (n as { isGenerator?: boolean }).isGenerator === true;
+        if (_isSSEGenerator) {
+          scopeChain.bind("route", { kind: "variable", resolvedType: tAsIs() });
+        }
+
         // Walk the body.
         const fnBody = n.body as ASTNodeLike[] | undefined;
         // A9-Ext-4 D3 (2026-05-08): mark body statements with the enclosing

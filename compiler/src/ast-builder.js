@@ -8096,6 +8096,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume(); // consume `:`
         let angleDepth = 0;
         let parenDepth = 0;
+        let braceDepth = 0;
         const _retToks = [];
         while (peek().kind !== "EOF") {
           const _t = peek().text;
@@ -8103,7 +8104,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           else if (_t === ")") { parenDepth--; _retToks.push(consume().text); }
           else if (_t === "<" && parenDepth === 0) { angleDepth++; _retToks.push(consume().text); }
           else if (_t === ">" && parenDepth === 0) { angleDepth--; _retToks.push(consume().text); }
-          else if (_t === "{" && angleDepth === 0 && parenDepth === 0) break;
+          else if (_t === "{" && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+            // ss25-2: an inline-struct return type — `-> { k: T, … }` — opens a
+            // `{` that is part of the TYPE, not the fn body. Disambiguate: a `{`
+            // at depth 0 opens a struct TYPE when a type atom is still expected
+            // (start of the type, or right after a type-combinator `| & , ( < [`);
+            // otherwise the type is complete and this `{` is the body brace.
+            const _prev = _retToks.length ? _retToks[_retToks.length - 1] : "";
+            const _typeExpected = _prev === "" || _prev === "|" || _prev === "&" ||
+              _prev === "," || _prev === "(" || _prev === "<" || _prev === "[";
+            if (_typeExpected) { braceDepth++; _retToks.push(consume().text); }
+            else break; // body brace
+          }
+          else if (_t === "{") { braceDepth++; _retToks.push(consume().text); }
+          else if (_t === "}" && braceDepth > 0) { braceDepth--; _retToks.push(consume().text); }
           else _retToks.push(consume().text);
         }
         returnTypeAnnotation = _retToks.join(" ").trim();
@@ -8114,6 +8128,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // Skip the type name(s) until `{`
         let angleDepth = 0;
         let parenDepth = 0;
+        let braceDepth = 0;
         const _retToks = [];
         while (peek().kind !== "EOF") {
           const _t = peek().text;
@@ -8121,7 +8136,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           else if (_t === ")") { parenDepth--; _retToks.push(consume().text); }
           else if (_t === "<" && parenDepth === 0) { angleDepth++; _retToks.push(consume().text); }
           else if (_t === ">" && parenDepth === 0) { angleDepth--; _retToks.push(consume().text); }
-          else if (_t === "{" && angleDepth === 0 && parenDepth === 0) break;
+          else if (_t === "{" && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+            // ss25-2: an inline-struct return type — `-> { k: T, … }` — opens a
+            // `{` that is part of the TYPE, not the fn body. Disambiguate: a `{`
+            // at depth 0 opens a struct TYPE when a type atom is still expected
+            // (start of the type, or right after a type-combinator `| & , ( < [`);
+            // otherwise the type is complete and this `{` is the body brace.
+            const _prev = _retToks.length ? _retToks[_retToks.length - 1] : "";
+            const _typeExpected = _prev === "" || _prev === "|" || _prev === "&" ||
+              _prev === "," || _prev === "(" || _prev === "<" || _prev === "[";
+            if (_typeExpected) { braceDepth++; _retToks.push(consume().text); }
+            else break; // body brace
+          }
+          else if (_t === "{") { braceDepth++; _retToks.push(consume().text); }
+          else if (_t === "}" && braceDepth > 0) { braceDepth--; _retToks.push(consume().text); }
           else _retToks.push(consume().text);
         }
         returnTypeAnnotation = _retToks.join(" ").trim();
@@ -8341,6 +8369,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume(); // consume `:`
         let angleDepth = 0;
         let parenDepth = 0;
+        let braceDepth = 0;
         const _retToks = [];
         while (peek().kind !== "EOF") {
           const _t = peek().text;
@@ -8348,7 +8377,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           else if (_t === ")") { parenDepth--; _retToks.push(consume().text); }
           else if (_t === "<" && parenDepth === 0) { angleDepth++; _retToks.push(consume().text); }
           else if (_t === ">" && parenDepth === 0) { angleDepth--; _retToks.push(consume().text); }
-          else if (_t === "{" && angleDepth === 0 && parenDepth === 0) break;
+          else if (_t === "{" && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+            // ss25-2: an inline-struct return type — `-> { k: T, … }` — opens a
+            // `{` that is part of the TYPE, not the fn body. Disambiguate: a `{`
+            // at depth 0 opens a struct TYPE when a type atom is still expected
+            // (start of the type, or right after a type-combinator `| & , ( < [`);
+            // otherwise the type is complete and this `{` is the body brace.
+            const _prev = _retToks.length ? _retToks[_retToks.length - 1] : "";
+            const _typeExpected = _prev === "" || _prev === "|" || _prev === "&" ||
+              _prev === "," || _prev === "(" || _prev === "<" || _prev === "[";
+            if (_typeExpected) { braceDepth++; _retToks.push(consume().text); }
+            else break; // body brace
+          }
+          else if (_t === "{") { braceDepth++; _retToks.push(consume().text); }
+          else if (_t === "}" && braceDepth > 0) { braceDepth--; _retToks.push(consume().text); }
           else _retToks.push(consume().text);
         }
         returnTypeAnnotation = _retToks.join(" ").trim();
@@ -8358,6 +8400,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume(); // consume `>`
         let angleDepth = 0;
         let parenDepth = 0;
+        let braceDepth = 0;
         const _retToks = [];
         while (peek().kind !== "EOF") {
           const _t = peek().text;
@@ -8365,7 +8408,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           else if (_t === ")") { parenDepth--; _retToks.push(consume().text); }
           else if (_t === "<" && parenDepth === 0) { angleDepth++; _retToks.push(consume().text); }
           else if (_t === ">" && parenDepth === 0) { angleDepth--; _retToks.push(consume().text); }
-          else if (_t === "{" && angleDepth === 0 && parenDepth === 0) break;
+          else if (_t === "{" && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+            // ss25-2: an inline-struct return type — `-> { k: T, … }` — opens a
+            // `{` that is part of the TYPE, not the fn body. Disambiguate: a `{`
+            // at depth 0 opens a struct TYPE when a type atom is still expected
+            // (start of the type, or right after a type-combinator `| & , ( < [`);
+            // otherwise the type is complete and this `{` is the body brace.
+            const _prev = _retToks.length ? _retToks[_retToks.length - 1] : "";
+            const _typeExpected = _prev === "" || _prev === "|" || _prev === "&" ||
+              _prev === "," || _prev === "(" || _prev === "<" || _prev === "[";
+            if (_typeExpected) { braceDepth++; _retToks.push(consume().text); }
+            else break; // body brace
+          }
+          else if (_t === "{") { braceDepth++; _retToks.push(consume().text); }
+          else if (_t === "}" && braceDepth > 0) { braceDepth--; _retToks.push(consume().text); }
           else _retToks.push(consume().text);
         }
         returnTypeAnnotation = _retToks.join(" ").trim();
@@ -11017,6 +11073,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume(); // consume `:`
         let angleDepth = 0;
         let parenDepth = 0;
+        let braceDepth = 0;
         const _retToks = [];
         while (peek().kind !== "EOF") {
           const _t = peek().text;
@@ -11024,7 +11081,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           else if (_t === ")") { parenDepth--; _retToks.push(consume().text); }
           else if (_t === "<" && parenDepth === 0) { angleDepth++; _retToks.push(consume().text); }
           else if (_t === ">" && parenDepth === 0) { angleDepth--; _retToks.push(consume().text); }
-          else if (_t === "{" && angleDepth === 0 && parenDepth === 0) break;
+          else if (_t === "{" && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+            // ss25-2: an inline-struct return type — `-> { k: T, … }` — opens a
+            // `{` that is part of the TYPE, not the fn body. Disambiguate: a `{`
+            // at depth 0 opens a struct TYPE when a type atom is still expected
+            // (start of the type, or right after a type-combinator `| & , ( < [`);
+            // otherwise the type is complete and this `{` is the body brace.
+            const _prev = _retToks.length ? _retToks[_retToks.length - 1] : "";
+            const _typeExpected = _prev === "" || _prev === "|" || _prev === "&" ||
+              _prev === "," || _prev === "(" || _prev === "<" || _prev === "[";
+            if (_typeExpected) { braceDepth++; _retToks.push(consume().text); }
+            else break; // body brace
+          }
+          else if (_t === "{") { braceDepth++; _retToks.push(consume().text); }
+          else if (_t === "}" && braceDepth > 0) { braceDepth--; _retToks.push(consume().text); }
           else _retToks.push(consume().text);
         }
         returnTypeAnnotation = _retToks.join(" ").trim();
@@ -11035,6 +11105,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume(); // consume `>`
         let angleDepth = 0;
         let parenDepth = 0;
+        let braceDepth = 0;
         const _retToks = [];
         while (peek().kind !== "EOF") {
           const _t = peek().text;
@@ -11042,7 +11113,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           else if (_t === ")") { parenDepth--; _retToks.push(consume().text); }
           else if (_t === "<" && parenDepth === 0) { angleDepth++; _retToks.push(consume().text); }
           else if (_t === ">" && parenDepth === 0) { angleDepth--; _retToks.push(consume().text); }
-          else if (_t === "{" && angleDepth === 0 && parenDepth === 0) break;
+          else if (_t === "{" && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+            // ss25-2: an inline-struct return type — `-> { k: T, … }` — opens a
+            // `{` that is part of the TYPE, not the fn body. Disambiguate: a `{`
+            // at depth 0 opens a struct TYPE when a type atom is still expected
+            // (start of the type, or right after a type-combinator `| & , ( < [`);
+            // otherwise the type is complete and this `{` is the body brace.
+            const _prev = _retToks.length ? _retToks[_retToks.length - 1] : "";
+            const _typeExpected = _prev === "" || _prev === "|" || _prev === "&" ||
+              _prev === "," || _prev === "(" || _prev === "<" || _prev === "[";
+            if (_typeExpected) { braceDepth++; _retToks.push(consume().text); }
+            else break; // body brace
+          }
+          else if (_t === "{") { braceDepth++; _retToks.push(consume().text); }
+          else if (_t === "}" && braceDepth > 0) { braceDepth--; _retToks.push(consume().text); }
           else _retToks.push(consume().text);
         }
         returnTypeAnnotation = _retToks.join(" ").trim();
@@ -11274,6 +11358,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume(); // consume `:`
         let angleDepth = 0;
         let parenDepth = 0;
+        let braceDepth = 0;
         const _retToks = [];
         while (peek().kind !== "EOF") {
           const _t = peek().text;
@@ -11281,7 +11366,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           else if (_t === ")") { parenDepth--; _retToks.push(consume().text); }
           else if (_t === "<" && parenDepth === 0) { angleDepth++; _retToks.push(consume().text); }
           else if (_t === ">" && parenDepth === 0) { angleDepth--; _retToks.push(consume().text); }
-          else if (_t === "{" && angleDepth === 0 && parenDepth === 0) break;
+          else if (_t === "{" && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+            // ss25-2: an inline-struct return type — `-> { k: T, … }` — opens a
+            // `{` that is part of the TYPE, not the fn body. Disambiguate: a `{`
+            // at depth 0 opens a struct TYPE when a type atom is still expected
+            // (start of the type, or right after a type-combinator `| & , ( < [`);
+            // otherwise the type is complete and this `{` is the body brace.
+            const _prev = _retToks.length ? _retToks[_retToks.length - 1] : "";
+            const _typeExpected = _prev === "" || _prev === "|" || _prev === "&" ||
+              _prev === "," || _prev === "(" || _prev === "<" || _prev === "[";
+            if (_typeExpected) { braceDepth++; _retToks.push(consume().text); }
+            else break; // body brace
+          }
+          else if (_t === "{") { braceDepth++; _retToks.push(consume().text); }
+          else if (_t === "}" && braceDepth > 0) { braceDepth--; _retToks.push(consume().text); }
           else _retToks.push(consume().text);
         }
         returnTypeAnnotation = _retToks.join(" ").trim();
@@ -11292,6 +11390,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume(); // consume `>`
         let angleDepth = 0;
         let parenDepth = 0;
+        let braceDepth = 0;
         const _retToks = [];
         while (peek().kind !== "EOF") {
           const _t = peek().text;
@@ -11299,7 +11398,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           else if (_t === ")") { parenDepth--; _retToks.push(consume().text); }
           else if (_t === "<" && parenDepth === 0) { angleDepth++; _retToks.push(consume().text); }
           else if (_t === ">" && parenDepth === 0) { angleDepth--; _retToks.push(consume().text); }
-          else if (_t === "{" && angleDepth === 0 && parenDepth === 0) break;
+          else if (_t === "{" && angleDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+            // ss25-2: an inline-struct return type — `-> { k: T, … }` — opens a
+            // `{` that is part of the TYPE, not the fn body. Disambiguate: a `{`
+            // at depth 0 opens a struct TYPE when a type atom is still expected
+            // (start of the type, or right after a type-combinator `| & , ( < [`);
+            // otherwise the type is complete and this `{` is the body brace.
+            const _prev = _retToks.length ? _retToks[_retToks.length - 1] : "";
+            const _typeExpected = _prev === "" || _prev === "|" || _prev === "&" ||
+              _prev === "," || _prev === "(" || _prev === "<" || _prev === "[";
+            if (_typeExpected) { braceDepth++; _retToks.push(consume().text); }
+            else break; // body brace
+          }
+          else if (_t === "{") { braceDepth++; _retToks.push(consume().text); }
+          else if (_t === "}" && braceDepth > 0) { braceDepth--; _retToks.push(consume().text); }
           else _retToks.push(consume().text);
         }
         returnTypeAnnotation = _retToks.join(" ").trim();

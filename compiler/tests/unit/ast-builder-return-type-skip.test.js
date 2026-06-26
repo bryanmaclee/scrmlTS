@@ -25,6 +25,12 @@
  *   §9  return type with dotted path — Result.Ok — body non-empty
  *   §10 fn shorthand with `-> Type` arrow return — body non-empty (Bug G)
  *   §11 fn shorthand with `-> Type | not` union return — body non-empty (Bug G)
+ *   §12 INLINE-STRUCT return type `-> { k: T, … }` — body parses, not the struct (ss25-2)
+ *   §13 fn shorthand inline-struct return — body parses (ss25-2)
+ *   §14 nested inline-struct return `-> { a: { b: T } }` — body parses (ss25-2)
+ *   §15 union with inline-struct member `-> int | { e: T }` — body parses (ss25-2)
+ *   §16 array-of-inline-struct return `-> { id: T }[]` — body parses (ss25-2)
+ *   §17 inline-struct return + multi-statement body — all statements parse (ss25-2)
  */
 
 import { describe, test, expect } from "bun:test";
@@ -163,5 +169,89 @@ describe("ast-builder return type skip", () => {
     expect(fn).toBeDefined();
     expect(fn.fnKind).toBe("fn");
     expect(fn.body.length).toBeGreaterThan(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // ss25-2: INLINE-STRUCT return type disambiguation.
+  //
+  // Before the fix, the return-type-token loop broke at the FIRST `{` at
+  // depth 0 — but an inline-struct return type `-> { k: T, … }` opens a `{`
+  // that is part of the TYPE, not the fn body. The splitter mistook the
+  // struct opener for the body, so the REAL body `{ return … }` became a
+  // dangling block and `return active;`-style statements emitted standalone
+  // → E-SCOPE-001 on the first field. The fix brace-balances the inline
+  // struct and only treats the brace AFTER the completed return type as the
+  // body. Mirror: a NAMED return type already worked (the §1-§11 cases).
+  // -------------------------------------------------------------------------
+
+  // §12: inline-struct return type — the BODY must be the real body, and the
+  // returnTypeAnnotation must capture the inline struct (not be empty).
+  test("§12 inline-struct return type -> { k: T } — body parses, not the struct (ss25-2)", () => {
+    const fn = parseFunctionDecl(
+      'function f() -> { active: int, name: string } { return { active: 1, name: "x" } }');
+    expect(fn).toBeDefined();
+    expect(fn.hasReturnType).toBe(true);
+    // The inline struct is the RETURN TYPE, not the body.
+    expect(fn.returnTypeAnnotation).toContain("active");
+    expect(fn.returnTypeAnnotation).toContain("name");
+    // The body is the REAL body: a single return-stmt — NOT the struct fields
+    // misparsed as bare statements.
+    expect(fn.body.length).toBe(1);
+    expect(fn.body[0].kind).toBe("return-stmt");
+  });
+
+  // §13: fn shorthand with inline-struct return type (Site 3 / 4).
+  test("§13 fn shorthand inline-struct return — body parses (ss25-2)", () => {
+    const fn = parseFnDecl(
+      'fn f() -> { active: int, name: string } { return { active: 1, name: "x" } }');
+    expect(fn).toBeDefined();
+    expect(fn.fnKind).toBe("fn");
+    expect(fn.returnTypeAnnotation).toContain("active");
+    expect(fn.body.length).toBe(1);
+    expect(fn.body[0].kind).toBe("return-stmt");
+  });
+
+  // §14: nested inline-struct return type — `-> { a: { b: int } }`.
+  test("§14 nested inline-struct return -> { a: { b: T } } — body parses (ss25-2)", () => {
+    const fn = parseFunctionDecl(
+      "function f() -> { a: { b: int } } { return { a: { b: 1 } } }");
+    expect(fn).toBeDefined();
+    expect(fn.returnTypeAnnotation).toContain("a");
+    expect(fn.returnTypeAnnotation).toContain("b");
+    expect(fn.body.length).toBe(1);
+    expect(fn.body[0].kind).toBe("return-stmt");
+  });
+
+  // §15: union return type with an inline-struct member — `-> int | { e: T }`.
+  // The `{` after `|` is a type-struct opener, not the body.
+  test("§15 union with inline-struct member -> int | { e: T } — body parses (ss25-2)", () => {
+    const fn = parseFunctionDecl(
+      'function f(x: int) -> int | { e: string } { if x > 0 { return 1 } return { e: "bad" } }');
+    expect(fn).toBeDefined();
+    expect(fn.returnTypeAnnotation).toContain("e");
+    // Body holds both the if-stmt and the trailing return-stmt.
+    expect(fn.body.length).toBe(2);
+    expect(fn.body.map(s => s.kind)).toEqual(["if-stmt", "return-stmt"]);
+  });
+
+  // §16: array-of-inline-struct return type — `-> { id: T }[]`.
+  test("§16 array-of-inline-struct return -> { id: T }[] — body parses (ss25-2)", () => {
+    const fn = parseFunctionDecl(
+      "function f() -> { id: int }[] { return [{ id: 1 }] }");
+    expect(fn).toBeDefined();
+    expect(fn.returnTypeAnnotation).toContain("id");
+    expect(fn.body.length).toBe(1);
+    expect(fn.body[0].kind).toBe("return-stmt");
+  });
+
+  // §17: inline-struct return type + multi-statement body — every statement
+  // must land in the body, none leaked from the struct.
+  test("§17 inline-struct return + multi-statement body — all statements parse (ss25-2)", () => {
+    const fn = parseFunctionDecl(
+      'function f() -> { active: int, name: string } { let t = 1 let u = "y" return { active: t, name: u } }');
+    expect(fn).toBeDefined();
+    expect(fn.returnTypeAnnotation).toContain("active");
+    expect(fn.body.length).toBe(3);
+    expect(fn.body.map(s => s.kind)).toEqual(["let-decl", "let-decl", "return-stmt"]);
   });
 });

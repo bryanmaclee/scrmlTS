@@ -460,6 +460,108 @@ describe("§6: Protected fields absent from client JS", () => {
     expect(cgErrors.length).toBeGreaterThanOrEqual(1);
     expect(cgErrors[0].message).toContain("ssn");
   });
+
+  // ss22 (2026-06-25) — E-CG-001 over-fire fix.
+  // The protected-field scan is a CODE-POSITION invariant: a leak is a member
+  // access of the protected column in shipped client code. The field NAME
+  // appearing inside a STRING LITERAL (a user-authored display label, not a
+  // member access of the DB column) is NOT a leak and must NOT fire E-CG-001.
+  // Previously the raw `\.field\b` regex over the whole bundle matched the
+  // `.ssn` inside the string and false-fired (CHECK-POSITION false-positive).
+  test("protected field name inside a client STRING LITERAL does NOT fire E-CG-001 (over-fire fix)", () => {
+    const fnNode = makeFunctionDecl("renderLabel", [
+      // `.ssn` appears only inside a quoted display string — display text, not a
+      // member access of the protected DB column. No genuine leak.
+      makeBareExpr('let label = "Please enter your row.ssn below"', span(110)),
+    ], [], { span: span(100) });
+
+    const ast = makeFileAST("/test/app.scrml", [
+      makeLogicBlock([fnNode], span(90))
+    ]);
+
+    const routeMap = makeRouteMap([{
+      functionNodeId: "/test/app.scrml::100",
+      boundary: "client",
+      escalationReasons: [],
+      generatedRouteName: null,
+      serverEntrySpan: null,
+    }]);
+
+    const views = new Map();
+    views.set("db::1", {
+      stateBlockId: "db::1",
+      dbPath: "/test/db.sqlite",
+      tables: new Map([
+        ["users", {
+          tableName: "users",
+          fullSchema: [],
+          clientSchema: [],
+          protectedFields: new Set(["ssn"]),
+        }],
+      ]),
+    });
+
+    const result = runCG({
+      files: [ast],
+      routeMap,
+      depGraph: makeDepGraph(),
+      protectAnalysis: makeProtectAnalysis(views),
+    });
+
+    const out = result.outputs.get("/test/app.scrml");
+    // The field name is present in the client bundle, but ONLY inside the string
+    // literal — confirming this is the over-fire shape, not a missing emission.
+    expect(out.clientJs).toContain(".ssn");
+    // ...and the scan must NOT fire, because it is not a code-position leak.
+    const cgErrors = result.errors.filter(e => e.code === "E-CG-001");
+    expect(cgErrors.length).toBe(0);
+  });
+
+  // Safety regression: a GENUINE leak — the protected field interpolated into
+  // client markup via a `${row.ssn}` template literal — is a real member access
+  // in CODE position (template `${...}` interiors are code) and MUST still fire.
+  test("protected field interpolated into client markup (template ${...}) STILL fires E-CG-001", () => {
+    const fnNode = makeFunctionDecl("renderRow", [
+      makeBareExpr("el.textContent = `SSN: ${row.ssn}`", span(110)),
+    ], [], { span: span(100) });
+
+    const ast = makeFileAST("/test/app.scrml", [
+      makeLogicBlock([fnNode], span(90))
+    ]);
+
+    const routeMap = makeRouteMap([{
+      functionNodeId: "/test/app.scrml::100",
+      boundary: "client",
+      escalationReasons: [],
+      generatedRouteName: null,
+      serverEntrySpan: null,
+    }]);
+
+    const views = new Map();
+    views.set("db::1", {
+      stateBlockId: "db::1",
+      dbPath: "/test/db.sqlite",
+      tables: new Map([
+        ["users", {
+          tableName: "users",
+          fullSchema: [],
+          clientSchema: [],
+          protectedFields: new Set(["ssn"]),
+        }],
+      ]),
+    });
+
+    const result = runCG({
+      files: [ast],
+      routeMap,
+      depGraph: makeDepGraph(),
+      protectAnalysis: makeProtectAnalysis(views),
+    });
+
+    const cgErrors = result.errors.filter(e => e.code === "E-CG-001");
+    expect(cgErrors.length).toBeGreaterThanOrEqual(1);
+    expect(cgErrors[0].message).toContain("ssn");
+  });
 });
 
 // ---------------------------------------------------------------------------

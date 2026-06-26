@@ -2839,9 +2839,40 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       const db = opts.dbVar ?? "_scrml_sql";
 
       const taggedFromParams = (): string => {
-        const renderedParams = params.map(
-          (p: string) => emitExprField(null, p, _makeExprCtx(opts)),
-        );
+        const _sqlExprCtx = _makeExprCtx(opts);
+        const renderedParams = params.map((p: string) => {
+          // ss22 #4 (g-peer-call-in-raw-template-unawaited) — a SQL `?{}` param
+          // `${...}` that calls a sibling server fn must lower to `await <peer>()`
+          // (the peer is async). The default param path (`emitExprField(null, …)`)
+          // takes the TEXTUAL `rewriteServerExpr` rewriter, which has no notion of
+          // the ss19 #8 peer-await lowering, so a peer call left the param an
+          // UNAWAITED Promise interpolated into the SQL. When the param references
+          // a sibling server fn, route it through the STRUCTURED `emitExpr` path
+          // (same machinery as the statement-level #8 pass) so the peer is awaited.
+          // Params with no peer call keep the text path verbatim (byte-identical),
+          // so this is a no-op for every existing SQL-param shape (@cell rewriting
+          // already runs in the text path's server reactive-ref pass).
+          if (_sqlExprCtx.serverFnNames && _sqlExprCtx.serverFnNames.size > 0) {
+            let _refsPeer = false;
+            for (const _fn of _sqlExprCtx.serverFnNames) {
+              if (new RegExp("\\b" + _fn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\(").test(p)) {
+                _refsPeer = true;
+                break;
+              }
+            }
+            if (_refsPeer) {
+              try {
+                const _node = parseExprToNode(p, "<sql-param-peer>", 0);
+                return emitExpr(_node, _sqlExprCtx);
+              } catch {
+                // Defensive: an unparseable param falls back to the text path
+                // (the pre-fix emission) rather than crashing codegen.
+                return emitExprField(null, p, _sqlExprCtx);
+              }
+            }
+          }
+          return emitExprField(null, p, _sqlExprCtx);
+        });
         return buildTaggedTemplate(db, segments, renderedParams);
       };
 

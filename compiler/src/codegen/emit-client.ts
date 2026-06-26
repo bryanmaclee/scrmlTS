@@ -2298,9 +2298,33 @@ export function generateClientJs(ctx: CompileContext): string {
     return result;
   })(clientCode));
   clientStage(ctx, "post-protected-field-scan", () => {
+  // ss22 (2026-06-25): the E-CG-001 invariant ("a protected DB field must not
+  // reach the client bundle") is a CODE-POSITION property — a genuine leak is a
+  // member access (`row.ssn`) of the protected field in shipped client code.
+  // The raw `\.field\b` regex over the whole final bundle ALSO matched the
+  // field name where it appears inside a STRING LITERAL or COMMENT (e.g. a
+  // user-authored label `"Enter your row.ssn"` or a `// row.ssn` note) — those
+  // are display text / comments, NOT a member access of the protected column,
+  // so the fire was spurious (CHECK-POSITION false-positive, not a real leak).
+  //
+  // Build a code-only view of the FINAL (post-transform) bundle via the shared
+  // code-segment fence (rewriteCodeSegments — the same splitter used by the
+  // fn-name mangle). rewriteCodeSegments passes ONLY code segments to its
+  // callback (string-literal / comment / regex content is emitted verbatim and
+  // never handed to the callback), so collecting those callback segments yields
+  // a code-position-only view. Join with "\n" — a non-`.`, non-word separator —
+  // so a `.field` match can never be fabricated across the gap left by an
+  // elided string/comment span. Then run the member-access regex against that
+  // view: a genuine `.ssn` member access in CODE position still fires (safety
+  // invariant preserved); a `.ssn` inside a string/comment no longer does.
+  // `${...}` template interpolations are CODE (the fence descends into them), so
+  // a real leak interpolated into client markup still fires.
+  const codeParts: string[] = [];
+  rewriteCodeSegments(clientCode, seg => { codeParts.push(seg); return seg; });
+  const codeOnlyClient = codeParts.join("\n");
   for (const field of protectedFields) {
     const fieldRegex = new RegExp(`\\.${escapeRegex(field)}\\b`);
-    if (fieldRegex.test(clientCode)) {
+    if (fieldRegex.test(codeOnlyClient)) {
       errors.push(new CGError(
         "E-CG-001",
         `E-CG-001: Protected field \`${field}\` found in client JS output. ` +
@@ -2387,23 +2411,42 @@ export function buildVariantFieldsRegistry(fileAST: any): {
 /**
  * Generate enum toEnum() lookup table declarations for all enum type
  * declarations in a FileAST.
+ *
+ * `opts.tableKindByEnum` — ss22 server-side reachability gate. When supplied,
+ * it maps an enum NAME to the lookup-table kinds (`"toEnum"` / `"variants"`)
+ * actually referenced in the assembled SERVER body, and ONLY those tables are
+ * emitted (an enum not present in the map gets no table at all). The client
+ * caller omits `opts` and gets the legacy behavior: every enum's `_toEnum` +
+ * `_variants` tables (the client bundle holds the full set per §14.4.1). This
+ * keeps the server bundle minimal — only the `_toEnum` / `_variants` tables an
+ * enum reachable from server code actually uses are injected.
  */
-export function emitEnumLookupTables(fileAST: any): string[] {
+export function emitEnumLookupTables(
+  fileAST: any,
+  opts?: { tableKindByEnum?: Map<string, Set<"toEnum" | "variants">> },
+): string[] {
   const lines: string[] = [];
   const typeDecls: TypeDecl[] = fileAST.typeDecls ?? fileAST.ast?.typeDecls ?? [];
+  const filter = opts?.tableKindByEnum ?? null;
 
   for (const decl of typeDecls) {
     if (decl.kind !== "type-decl" || decl.typeKind !== "enum") continue;
 
+    // Reachability gate (server callers only): skip an enum whose tables are
+    // never referenced in the assembled server body; otherwise emit just the
+    // kinds requested for this enum.
+    const wanted = filter ? filter.get(decl.name) : null;
+    if (filter && !wanted) continue;
+
     const unitVariants = getUnitVariantNames(decl);
-    if (unitVariants.length > 0) {
+    if (unitVariants.length > 0 && (!wanted || wanted.has("toEnum"))) {
       const entries = unitVariants.map((name: string) => `"${name}": "${name}"`).join(", ");
       lines.push(`const ${decl.name}_toEnum = { ${entries} };`);
     }
 
     // §14.4.2 — variants array (all variant names in declaration order)
     const allVariants = getAllVariantNames(decl);
-    if (allVariants.length > 0) {
+    if (allVariants.length > 0 && (!wanted || wanted.has("variants"))) {
       const variantsArray = allVariants.map((name: string) => `"${name}"`).join(", ");
       lines.push(`const ${decl.name}_variants = [${variantsArray}];`);
     }
