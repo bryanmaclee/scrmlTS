@@ -15,3 +15,9 @@
    - Semantics: value type (structural `==`, value-acyclic per §59.5 like the rest of scrml's value model); fixed arity; positional.
    - **Why now:** the narrow-Road-B mechanics need clean multi-return (the DG slice's `DfsResult` wrap); serves the whole language regardless. Co-location note to weigh: tuples are anonymous-positional — propose guidance on tuple-vs-named-struct (tuples for ephemeral local multi-return; named structs when the shape is a domain concept).
    - Footprint: parser (literal/type/pattern) → ast-builder → type-system (product type + destructure binding) → codegen (emit + destructure lowering, likely to JS array or object). Park the syntax forks; build the core.
+
+---
+
+## REVERSAL (S222) — NO-TUPLE ruled · ss36 KILLED
+
+The `to-tuple-or-not-2026-06-26.md` DD landed NO-TUPLE; user ruled **"no-tuple, reverse it."** Tuples REJECTED — records + named/array destructure suffice (the multi-return motivation is already served in the live self-host; `return { graph, errors }` + destructure). The 3 normative "scrml has no tuple type" statements (§59.7 / §14.11 / S169) stand confirmed-correct; the §14.11 dangling "§14.X tuples" forward-ref cleared. **This lane is DEAD — do NOT fire.** SURVEY.md retained as the historical record of the forks + value-add analysis. Limit-primitives held twice this session (Set-B2 + no-tuple).

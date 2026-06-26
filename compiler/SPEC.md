@@ -8181,7 +8181,7 @@ The positional initialiser `("alice", 30, true)` binds positionally to the struc
 
 **Normative statements:**
 
-- Positional binding is legal ONLY when the LHS has a predefined struct type annotation (a `type ... :struct = {...}` declared shape). Without the annotation, the RHS is parsed as a tuple value (cross-ref §14.X tuples) — the compiler does NOT auto-infer a struct from a positional literal.
+- Positional binding is legal ONLY when the LHS has a predefined struct type annotation (a `type ... :struct = {...}` declared shape). Without the annotation, the RHS is rejected — scrml has NO tuple type (§59.7: the struct is the language's product type; NO-TUPLE ruled S222), and the compiler does NOT auto-infer a struct from a positional literal; the struct annotation is required.
 - The positional initialiser SHALL provide values in the field-declaration order. Field count mismatch is `E-TYPE-001` (positional-arity error). Per-position type mismatch is `E-TYPE-001` (positional-type error).
 - The named-initialiser form remains canonical for ad-hoc compound state (Variant C, §6.3). Positional binding is the SUGAR for predefined-shape (Tier 3 in the compound-state ladder).
 - Positional binding does NOT extend to nested structs. A struct field whose type is itself a struct must be initialised by name (or by a positional sub-tuple, which the compiler will treat as ambiguous).
