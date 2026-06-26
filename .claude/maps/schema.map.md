@@ -1,6 +1,6 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-06-25  commit: 852d6aa7
+# updated: 2026-06-26  commit: 12600217
 
 Authoritative AST type source: `compiler/src/types/ast.ts` (~2054L, TypeScript).
 IR types: `compiler/src/codegen/ir.ts` (253 lines).
@@ -249,8 +249,9 @@ ResolvedType (union): PrimitiveType | StructType | EnumType | ArrayType | UnionT
 > (`inferReturnTypeFromBody` :5917); these inferred types are EXEMPT from the SQL-row contract reject.
 
 ### MapType  [compiler/src/type-system.ts:227]
-kind: "map"; key: ResolvedType; value: ResolvedType; ordered: boolean
+kind: "map"; key: ResolvedType; value: ResolvedType; ordered: boolean; set?: boolean
 **S169 (§59 value-native maps):** built by `tMap(key, value, ordered)` [type-system.ts:622]; recognized from a `[K: V]` annotation by `resolveTypeExpr` via `findMapEntryColon` [type-system.ts:2129] + the `@ordered` postfix affix. Key §45-comparability enforced by `classifyMapKey`/`checkMapKeyComparability` (→ `E-MAP-KEY-NOT-COMPARABLE`/`E-MAP-KEY-IS-MAP`/`E-EQ-003`). `@m[k] = v` bracket-write gated by `E-MAP-BRACKET-WRITE`.
+**S222 (§59.12 value-native Set):** the `set?: boolean` flag marks a `set[K]` — a THIN DESUGAR over the map `[K: bool]` built by `tSet(key)` [type-system.ts] (`{kind:"map", value:boolean, ordered:false, set:true}`). `resolveTypeExpr` recognizes `set[…]` (leading `set` token, not `[`); the flag drives (a) the `set[K]` diagnostic render (not `[K:bool]`) and (b) the codegen set-vocabulary lowering. A set IS a map — inherits key-comparability, the bracket-write gate, order-independent `==`, the §57 codec, all UNCHANGED. Codegen collectors: `collectSetVarNames`/`isSetTypeAnnotation`/`fileHasSetAlgebraUsage` [reactive-deps.ts].
 
 ### PredicatedType  [compiler/src/type-system.ts:332]
 kind: "predicated"; baseType: string; predicate: PredicateExpr
@@ -324,7 +325,7 @@ Whitespace-tolerant parser for `"EnumName oneOf([.A,.B])"` / `"notIn([.C])"` ann
 ---
 
 ## Tags
-#scrmlts #map #schema #s220 #endpoint-decl #live-pipeline-only-shape #api-decl-precedent #endpoint-arm-binding #if-display-guard #check-endpoint-declarations #emit-server-endpoint #codegen-internal-types #s220-zero-ast-shapes #ast #types #compiler #ir #protect-analyzer #match-arm #enum-subset #message-dispatch #predicated-type #each-reconcile-ctx #each-engine-ctx #s154 #s155 #s156 #s157 #s158 #s159 #s169 #s170 #value-native-maps #map-type #map-lit #bug64 #bug71 #bug73 #r28-1c #s172 #s173 #s174 #log-loc #logloc-span #no-any-hard-line #no-anytype #export-decl #s175 #function-type #fn-return-sentinel #e-struct-function-field #typed-sql-row #sql-projection #projected-column #select-projection #f-schema-001 #column-def #width-subtyping #s177 #arm-body-children #match-arm-body-form #g-formfor #walkable-arm-body #s218 #dpa-003 #foreignblock #foreign-node #foreign-code #inline-foreign #blockref-types-foreign #_-opaque-brace #e-foreign-003 #e-foreign-004 #e-foreign-005 #check-foreign-blocks #foreign-server-escalation
+#scrmlts #map #schema #s222 #s220 #maptype-set-flag #tset #set-bracket-k #section-59-12 #value-native-set #set-map-alias #endpoint-decl #live-pipeline-only-shape #api-decl-precedent #endpoint-arm-binding #if-display-guard #check-endpoint-declarations #emit-server-endpoint #codegen-internal-types #s220-zero-ast-shapes #ast #types #compiler #ir #protect-analyzer #match-arm #enum-subset #message-dispatch #predicated-type #each-reconcile-ctx #each-engine-ctx #s154 #s155 #s156 #s157 #s158 #s159 #s169 #s170 #value-native-maps #map-type #map-lit #bug64 #bug71 #bug73 #r28-1c #s172 #s173 #s174 #log-loc #logloc-span #no-any-hard-line #no-anytype #export-decl #s175 #function-type #fn-return-sentinel #e-struct-function-field #typed-sql-row #sql-projection #projected-column #select-projection #f-schema-001 #column-def #width-subtyping #s177 #arm-body-children #match-arm-body-form #g-formfor #walkable-arm-body #s218 #dpa-003 #foreignblock #foreign-node #foreign-code #inline-foreign #blockref-types-foreign #_-opaque-brace #e-foreign-003 #e-foreign-004 #e-foreign-005 #check-foreign-blocks #foreign-server-escalation
 
 ## Links
 - [primary.map.md](./primary.map.md)
