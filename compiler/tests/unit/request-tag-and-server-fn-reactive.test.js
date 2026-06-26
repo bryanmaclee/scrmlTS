@@ -38,6 +38,7 @@
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { compileScrml } from "../../src/api.js";
+import { RUNTIME_CHUNKS, assembleRuntime } from "../../src/codegen/runtime-chunks.ts";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -50,7 +51,7 @@ function fix(name, src) {
   return path;
 }
 
-let gitiFx, urlFx, plainFx, exprCtxFx;
+let gitiFx, urlFx, plainFx, exprCtxFx, errArmHandlerFx;
 
 beforeAll(() => {
   mkdirSync(FIXTURE_DIR, { recursive: true });
@@ -140,6 +141,32 @@ beforeAll(() => {
 
 </program>
 `);
+
+  // ss32-item-1 fixture: a `!{}`-carrying reactive server assignment.
+  // `@data = serverFn() !{ ... }` emits the auto-await IIFE PLUS a sibling
+  // `let _scrml__scrml_result_N = ...; if (_scrml__scrml_result_N.__scrml_error) {...}`
+  // dispatch. The IIFE must still carry the ss32-item-1 `.catch` error arm
+  // (the safety net) regardless of the (separately-broken) `!{}` dispatch.
+  errArmHandlerFx = fix("err-arm-handler.scrml", `<program>
+
+\${
+  server function loadData() {
+    lift { value: 42 }
+  }
+}
+
+\${
+  @data = loadData() !{
+    | ::NetworkError e -> { @data = { value: 0 } }
+  }
+}
+
+<div>
+  <p>\${@data}</p>
+</div>
+
+</program>
+`);
 });
 
 afterAll(() => {
@@ -160,13 +187,17 @@ describe("§1: GITI-001 — `@data = serverFn()` awaited before reactive set", (
     expect(result.errors).toEqual([]);
   });
 
-  test("reactive-set of a server-fn call is wrapped in async IIFE with await", () => {
+  test("reactive-set of a server-fn call is wrapped in async IIFE with await + error arm", () => {
     const result = compile(gitiFx);
     const js = result.outputs.get(gitiFx).clientJs;
-    // The new wrapped form
-    expect(js).toMatch(/\(async\s*\(\s*\)\s*=>\s*_scrml_reactive_set\("data",\s*await\s+_scrml_fetch_loadValue_\d+\(\)\s*\)\)\(\s*\);/);
+    // The wrapped form — now carries the ss32-item-1 `.catch` error arm so a
+    // rejected fetch/CPS stub surfaces via the scrml uncaught surface instead of
+    // a browser-level unhandledrejection (catch-less silent drop).
+    expect(js).toMatch(/\(async\s*\(\s*\)\s*=>\s*_scrml_reactive_set\("data",\s*await\s+_scrml_fetch_loadValue_\d+\(\)\s*\)\)\(\s*\)\.catch\(_scrml_async_err\s*=>\s*_scrml_error_boundary_log\("data",\s*_scrml_async_err\)\)\s*;/);
     // Must NOT be the unawaited form
     expect(js).not.toMatch(/_scrml_reactive_set\("data",\s*_scrml_fetch_loadValue_\d+\(\s*\)\s*\);/);
+    // Must NOT be the catch-less floating IIFE (the pre-ss32 bug shape).
+    expect(js).not.toMatch(/\)\)\(\s*\);/);
   });
 });
 
@@ -268,8 +299,9 @@ describe("§6: GITI-001 wrap is context-aware (S84 fix-lift-async-iife-paren)", 
     const result = compile(exprCtxFx);
     const js = result.outputs.get(exprCtxFx).clientJs;
     // CORRECT: the on-mount `@data = loadValue()` is the GITI-001 STATEMENT-context
-    // wrap at module init (well-formed, ends with `();`).
-    expect(js).toMatch(/\(async\s*\(\s*\)\s*=>\s*_scrml_reactive_set\("data",\s*await\s+_scrml_fetch_loadValue_\d+\(\s*\)\s*\)\)\(\s*\);/);
+    // wrap at module init (well-formed, ends with `().catch(...);` — ss32-item-1
+    // error arm).
+    expect(js).toMatch(/\(async\s*\(\s*\)\s*=>\s*_scrml_reactive_set\("data",\s*await\s+_scrml_fetch_loadValue_\d+\(\s*\)\s*\)\)\(\s*\)\.catch\(_scrml_async_err\s*=>\s*_scrml_error_boundary_log\("data",\s*_scrml_async_err\)\)\s*;/);
     // The on-mount's call must NOT be rendered into the DOM (the former bug shape).
     expect(js).not.toMatch(/el\.textContent\s*=\s*await\s*\(\(async\s*\(\s*\)\s*=>\s*_scrml_reactive_set\("data"/);
     expect(js).not.toMatch(/_scrml_render_value\(el, _scrml_fetch_loadValue_\d+\(\)\)/);
@@ -283,13 +315,78 @@ describe("§6: GITI-001 wrap is context-aware (S84 fix-lift-async-iife-paren)", 
     expect(js).toMatch(/_scrml_render_value\(el, _scrml_reactive_get\("data"\)\)/);
   });
 
-  test("statement-context wrap (top-level or in fn body) still ends with `();`", () => {
+  test("statement-context wrap (top-level or in fn body) still ends with `().catch(...);`", () => {
     // The original §1 fixture has `@data = loadValue()` inside a `<request>`
     // body, which compiles to a statement-context wrap. Verify that path
-    // still emits the trailing `;` — must not regress.
+    // still emits the trailing `;` (now after the ss32-item-1 `.catch` error
+    // arm) — must not regress.
     const result = compile(gitiFx);
     const js = result.outputs.get(gitiFx).clientJs;
-    // Match the statement-form: `(async () => _scrml_reactive_set("data", await _scrml_fetch_loadValue_N()))();`
-    expect(js).toMatch(/\(async\s*\(\s*\)\s*=>\s*_scrml_reactive_set\("data",\s*await\s+_scrml_fetch_loadValue_\d+\(\s*\)\s*\)\)\(\s*\);/);
+    // Match the statement-form: `(async () => _scrml_reactive_set("data", await _scrml_fetch_loadValue_N()))().catch(_scrml_async_err => _scrml_error_boundary_log("data", _scrml_async_err));`
+    expect(js).toMatch(/\(async\s*\(\s*\)\s*=>\s*_scrml_reactive_set\("data",\s*await\s+_scrml_fetch_loadValue_\d+\(\s*\)\s*\)\)\(\s*\)\.catch\(_scrml_async_err\s*=>\s*_scrml_error_boundary_log\("data",\s*_scrml_async_err\)\)\s*;/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §7: ss32-item-1 — the auto-await IIFE carries a `.catch` error arm
+//
+// The per-statement auto-await IIFE that wraps a reactive-server assignment
+// (`@cell = serverFn()`) used to be CATCH-LESS — a rejected fetch/CPS stub (the
+// plain `_scrml_fetch_*` stub has no try/catch; a network failure or a
+// malformed-JSON `.json()` rejects its promise) escaped to a browser-level
+// `unhandledrejection` (a silent drop with NO scrml error surface). The fix
+// attaches a `.catch` that routes the rejection through the scrml-level uncaught
+// surface (`_scrml_error_boundary_log`, the always-included 'errors' chunk
+// reporter that the errorBoundary catch also uses). The `.catch` sits on the
+// IIFE CALL so it is valid in BOTH statement and expression position (preserving
+// the S84 `;)`-hazard fix).
+// ---------------------------------------------------------------------------
+
+describe("§7: ss32-item-1 — auto-await IIFE error arm", () => {
+  test("no-`!{}` reactive server assignment: IIFE carries `.catch` -> uncaught surface", () => {
+    const result = compile(gitiFx);
+    expect(result.errors).toEqual([]);
+    const js = result.outputs.get(gitiFx).clientJs;
+    // The error arm routes through the typed uncaught surface, not a silent drop.
+    expect(js).toContain(".catch(_scrml_async_err => _scrml_error_boundary_log(");
+    // The reference target must be present in the (always-included) runtime.
+    // (the function NAME appears in the catch arm; it is provided by the 'errors'
+    // chunk which is always assembled.)
+    // The catch-less floating IIFE bug shape must be gone.
+    expect(js).not.toMatch(/\)\)\(\s*\);/);
+  });
+
+  test("`!{}`-carrying reactive server assignment: IIFE STILL carries the `.catch` safety net", () => {
+    const result = compile(errArmHandlerFx);
+    expect(result.errors).toEqual([]);
+    const js = result.outputs.get(errArmHandlerFx).clientJs;
+    // The wrap is bound to a result var (`let _scrml__scrml_result_N = (async ...)()`)
+    // and STILL carries the `.catch` arm — the safety net for the rejected-fetch
+    // path even though the `!{}` envelope dispatch is a separate (deeper) concern.
+    expect(js).toMatch(/let\s+_scrml__scrml_result_\d+\s*=\s*\(async\s*\(\s*\)\s*=>\s*_scrml_reactive_set\("data",\s*await\s+_scrml_fetch_loadData_\d+\([^)]*\)\s*\)\)\(\s*\)\.catch\(_scrml_async_err\s*=>\s*_scrml_error_boundary_log\("data",\s*_scrml_async_err\)\)/);
+    // No catch-less floating IIFE.
+    expect(js).not.toMatch(/\)\)\(\s*\);/);
+  });
+
+  test("output still parses as valid JS (no `;)` from the appended `.catch`)", () => {
+    for (const fxp of [gitiFx, errArmHandlerFx, exprCtxFx]) {
+      const result = compile(fxp);
+      const js = result.outputs.get(fxp).clientJs;
+      const stripped = js.replace(/^\s*import\s[^;]*;/gm, "");
+      expect(() => new Function(stripped)).not.toThrow();
+      // The malformed `;)` / `();)` token sequence must never appear.
+      expect(js).not.toMatch(/\)\(\);\s*\)/);
+    }
+  });
+
+  test("`_scrml_error_boundary_log` (the catch target) lives in the always-included 'errors' chunk", () => {
+    // The catch arm references _scrml_error_boundary_log. It must be in a chunk
+    // that is ALWAYS assembled, else the client reference dangles in a build that
+    // has no errorBoundary. 'errors' is pre-populated in usedRuntimeChunks
+    // (context.ts / index.ts: new Set(['core','scope','errors','transitions'])).
+    expect(RUNTIME_CHUNKS.errors).toContain("function _scrml_error_boundary_log");
+    // And the minimal always-on set assembles a runtime that defines it.
+    const minimalRuntime = assembleRuntime(new Set(["core", "scope", "errors", "transitions"]));
+    expect(minimalRuntime).toContain("function _scrml_error_boundary_log");
   });
 });

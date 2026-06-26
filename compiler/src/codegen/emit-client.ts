@@ -2061,7 +2061,34 @@ export function generateClientJs(ctx: CompileContext): string {
         if (hadTrailingSemi) stmtEnd++;
         const args = clientCode.slice(valStart + callPrefix.length, k);
         parts.push(clientCode.slice(i, setIdx));
-        parts.push(`(async () => _scrml_reactive_set(${nameArg}, await ${mangledName}(${args})))()${hadTrailingSemi ? ";" : ""}`);
+        // ss32-item-1 (flogence S15 residual) — error arm for the auto-await IIFE.
+        // The bare floating IIFE `(async () => ...)()` is catch-less: a rejected
+        // fetch/CPS stub (the plain `_scrml_fetch_*` stub has NO try/catch — a
+        // network failure or a malformed-JSON `.json()` rejects its promise)
+        // escaped to a browser-level `unhandledrejection` (a SILENT drop with no
+        // scrml error surface). Attach a `.catch` that routes the rejection through
+        // the scrml-level uncaught surface (`_scrml_error_boundary_log`, the same
+        // loud non-swallowing typed reporter the errorBoundary catch uses at
+        // emit-event-wiring.ts:1320 — it accepts a raw host throw OR a typed
+        // `{ __scrml_error, ... }` envelope, so no separate normalization is
+        // needed). `_scrml_error_boundary_log` lives in the always-included
+        // 'errors' runtime chunk, so the reference never dangles.
+        //
+        // The `.catch(...)` sits on the IIFE CALL — valid in BOTH statement
+        // position (`(...)().catch(...);`) and expression position (preserving the
+        // S84 `;)`-hazard fix: `await ((...)().catch(...))`). The happy path is
+        // byte-identical except the appended `.catch`.
+        //
+        // KNOWN RESIDUAL (separate, deeper bug — NOT fixed here, see report): a
+        // `@cell = serverFn() !{...}` reactive-server assignment emits a sibling
+        // `let _scrml__scrml_result_N = (async () => ...)(); if (_scrml__scrml_result_N
+        // && _scrml__scrml_result_N.__scrml_error) {...}` — the result var captures
+        // the IIFE's PROMISE (not the resolved envelope), so the `!{}` dispatch is
+        // DEAD CODE. Routing the rejection through `!{}` requires moving the
+        // dispatch INSIDE the IIFE (after the await), a structural change beyond
+        // this string-rewrite stage. This `.catch` is the safety net for both
+        // cases until that fix lands.
+        parts.push(`(async () => _scrml_reactive_set(${nameArg}, await ${mangledName}(${args})))().catch(_scrml_async_err => _scrml_error_boundary_log(${nameArg}, _scrml_async_err))${hadTrailingSemi ? ";" : ""}`);
         i = stmtEnd;
       }
       clientCode = parts.join("");
