@@ -204,6 +204,12 @@ describe("§2 @row children-bearing slot form", () => {
 `);
     expect(realErrors(result)).toEqual([]);
     const js = getClientJs(result);
+    // ss21 g-tablefor-column-slot-literal-interp — the column slot's ${@row.name}
+    // must be LOWERED to a reactive loop-local read, NOT shipped as the literal
+    // interpolation string. The prior lone `toContain("row.name")` MASKED the bug:
+    // "row.name" is a substring of the un-lowered literal "${@row.name}", so it
+    // passed on the bug. Assert the literal interpolation does NOT survive.
+    expect(js).not.toContain("${@row.name}");
     expect(js).toContain("row.name");
     expect(js).not.toContain('_scrml_reactive_get("row")');
   });

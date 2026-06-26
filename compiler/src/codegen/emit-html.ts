@@ -717,6 +717,15 @@ export function generateHtml(
     refs?: string[];
     varName?: string;
     dotPath?: string;
+    // ss21 item-3 (g-if-chain-branch-display-null-interp) — set instead of the
+    // single-`if=` fields when the walker enters an if-CHAIN branch (if=/else-
+    // if=/else, whose if= attr is stripped before the generic markup walk, so
+    // the single-`if=` push above never fires). `own` = the branch's own
+    // condition (undefined for the else); `priors` = every prior positive
+    // branch condition. emit-event-wiring lowers these to the branch's `_next
+    // === branchId` visibility (priors-false AND own-true; else = all-priors-
+    // false), lockstep with the chain controller.
+    chainGuard?: { own?: any; priors?: any[] };
   }
   const ifGuardStack: IfDisplayGuard[] = [];
 
@@ -832,6 +841,17 @@ export function generateHtml(
       const chainId = genVar("if_chain");
       parts.push(`<div data-scrml-if-chain="${chainId}">`);
 
+      // ss21 item-3 (g-if-chain-branch-display-null-interp) — positive branch
+      // conditions in source order. A chain branch's descendant `${...}`
+      // interpolation effects are gated on the branch's VISIBILITY (a separate
+      // node kind from the single-`if=` ss20 path): all PRIOR positive
+      // conditions false AND (own condition true, or it is the else). Pushing
+      // `chainGuard` onto ifGuardStack around each DIRTY (display-mode) branch's
+      // children walk stamps it onto the descendant interpolation LogicBindings;
+      // clean (mount-mode) branches carry no reactive interp (they would not be
+      // clean otherwise), so they need no push.
+      const _chainPositiveConds: any[] = (node.branches ?? []).map((b: any) => b.condition);
+
       for (let bIdx = 0; bIdx < (node.branches?.length ?? 0); bIdx++) {
         const branch = node.branches[bIdx];
         const branchId = `${chainId}_b${bIdx}`;
@@ -862,7 +882,12 @@ export function generateHtml(
         } else {
           // Dirty branch: per-branch wrapper retained, display-toggle.
           parts.push(`<div data-scrml-chain-branch="${branchId}" style="display:none">`);
+          // ss21 item-3 — gate descendant interpolation effects on this branch's
+          // visibility (all PRIOR positive conditions false AND own condition
+          // true). Lockstep with the chain controller's `_next === branchId`.
+          ifGuardStack.push({ chainGuard: { own: branch.condition, priors: _chainPositiveConds.slice(0, bIdx) } });
           emitNode(stripped);
+          ifGuardStack.pop();
           parts.push(`</div>`);
           if (registry) {
             registry.addLogicBinding({
@@ -902,7 +927,13 @@ export function generateHtml(
           }
         } else {
           parts.push(`<div data-scrml-chain-branch="${elseId}" style="display:none">`);
+          // ss21 item-3 — the else is visible iff NO positive branch matched.
+          // Gate its descendant interpolation effects on all positive conditions
+          // false (own undefined). Lockstep with the chain controller's
+          // `_next === elseId` fall-through.
+          ifGuardStack.push({ chainGuard: { priors: _chainPositiveConds } });
           emitNode(stripped);
+          ifGuardStack.pop();
           parts.push(`</div>`);
           if (registry) {
             registry.addLogicBinding({

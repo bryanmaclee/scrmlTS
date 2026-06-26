@@ -361,6 +361,84 @@ function rewriteAtDotInExprText(text: string, rowVar: string): string {
 }
 
 /**
+ * Split a markup-text string into alternating literal / `${expr}` parts.
+ * Brace-depth aware so a nested `${ cond ? {a:1} : {b:2} }` interpolation stays
+ * one expr segment. Mirror of emit-each.ts `splitMarkupTextInterp` (the each-side
+ * prior art) so the tableFor column slot and `<each>` body split identically.
+ */
+function splitTableForTextInterp(value: string): Array<{ type: "text" | "expr"; v: string }> {
+  const parts: Array<{ type: "text" | "expr"; v: string }> = [];
+  let i = 0;
+  const n = value.length;
+  let buf = "";
+  while (i < n) {
+    if (value[i] === "$" && i + 1 < n && value[i + 1] === "{") {
+      if (buf) { parts.push({ type: "text", v: buf }); buf = ""; }
+      let depth = 1;
+      let j = i + 2;
+      while (j < n && depth > 0) {
+        const c = value[j];
+        if (c === "{") depth++;
+        else if (c === "}") depth--;
+        if (depth === 0) break;
+        j++;
+      }
+      parts.push({ type: "expr", v: value.slice(i + 2, j) });
+      i = j + 1;
+    } else {
+      buf += value[i];
+      i++;
+    }
+  }
+  if (buf) parts.push({ type: "text", v: buf });
+  return parts;
+}
+
+/**
+ * Expand a single slot-body node into zero-or-more rewritten nodes.
+ *
+ * g-tablefor-column-slot-literal-interp (ss21): a markup TEXT child carrying a
+ * `${...}` interpolation (the column slot delivers its interp as a RAW text
+ * child, unlike inline `<code>${u.x}</code>` markup which the parser splits into
+ * a `<logic><bare-expr>` child). emit-lift renders a raw text child's `${...}`
+ * LITERALLY inside a reconcile factory — shipping `${@row.name}` to the DOM. We
+ * SPLIT such text children into alternating literal text + `<logic><bare-expr>`
+ * nodes here (the §17.X each-side prior art `splitEachMarkupTextChildren` applied
+ * to the tableFor column slot), iter-scope-lowering each interpolation interior
+ * via rewriteAtDotInExprText so `@row.field` / `@.field` resolve to the loop-
+ * local row binding. emit-lift's logic-block branch then renders each as a
+ * LIVE-KEYED reactive text node (matching the working inline `${for...lift}`
+ * markup-interp path), re-rendering on a keyed reconcile.
+ *
+ * Every other node kind (and a `${`-free static text node) is rewritten 1:1 via
+ * rewriteAtDotInNode.
+ */
+function rewriteAtDotInNodeExpand(node: unknown, rowVar: string): unknown[] {
+  if (node && typeof node === "object") {
+    const n = node as Record<string, unknown>;
+    if (n.kind === "text" && typeof n.value === "string" && n.value.includes("${")) {
+      const span = n.span;
+      const out: unknown[] = [];
+      for (const p of splitTableForTextInterp(n.value)) {
+        if (p.type === "text") {
+          if (p.v) out.push(textNode(p.v, span));
+        } else {
+          // Empty / whitespace-only interior (`${}` / `${  }`) has no expression
+          // to render — drop it rather than synthesize an invalid bare-expr.
+          if (p.v.trim() === "") continue;
+          const lowered = rewriteAtDotInExprText(p.v, rowVar);
+          out.push(bareExprNode(lowered, [rowVar], span));
+        }
+      }
+      // All segments empty (e.g. text was only `${}`) — keep the original node
+      // so nothing is silently dropped.
+      return out.length > 0 ? out : [node];
+    }
+  }
+  return [rewriteAtDotInNode(node, rowVar)];
+}
+
+/**
  * Walk a column slot body's children recursively and rewrite all `@.`
  * occurrences in bare-expr nodes (the `${@.field}` interpolation shape),
  * attribute string-literal values (interpolated text), attribute `expr`
@@ -377,7 +455,7 @@ function rewriteAtDotInSlotBody(
   rowVar: string,
 ): unknown[] {
   if (!Array.isArray(children) || children.length === 0) return children;
-  return children.map(child => rewriteAtDotInNode(child, rowVar));
+  return children.flatMap(child => rewriteAtDotInNodeExpand(child, rowVar));
 }
 
 function rewriteAtDotInNode(node: unknown, rowVar: string): unknown {
@@ -413,7 +491,7 @@ function rewriteAtDotInNode(node: unknown, rowVar: string): unknown {
     const attrs = Array.isArray(n.attrs) ? (n.attrs as unknown[]) : (Array.isArray(n.attributes) ? (n.attributes as unknown[]) : []);
     const rewrittenAttrs = attrs.map(a => rewriteAtDotInAttr(a, rowVar));
     const kids = Array.isArray(n.children) ? (n.children as unknown[]) : [];
-    const rewrittenKids = kids.map(c => rewriteAtDotInNode(c, rowVar));
+    const rewrittenKids = kids.flatMap(c => rewriteAtDotInNodeExpand(c, rowVar));
     return { ...n, attrs: rewrittenAttrs, attributes: rewrittenAttrs, children: rewrittenKids };
   }
 
@@ -422,7 +500,7 @@ function rewriteAtDotInNode(node: unknown, rowVar: string): unknown {
   // Recurse into known child-bearing shapes defensively.
   if (Array.isArray(n.children)) {
     const kids = n.children as unknown[];
-    return { ...n, children: kids.map(c => rewriteAtDotInNode(c, rowVar)) };
+    return { ...n, children: kids.flatMap(c => rewriteAtDotInNodeExpand(c, rowVar)) };
   }
   if (Array.isArray(n.body)) {
     const body = n.body as unknown[];

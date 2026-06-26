@@ -413,6 +413,18 @@ export interface LogicBinding {
     refs?: string[];
     varName?: string;
     dotPath?: string;
+    /**
+     * ss21 item-3 (g-if-chain-branch-display-null-interp) — set instead of the
+     * single-`if=` fields when this `${...}` interpolation sits inside an
+     * if-CHAIN branch (if=/else-if=/else). `own` is the branch's own condition
+     * (undefined for the else); `priors` is every prior positive branch
+     * condition. emit-event-wiring lowers these to the branch's `_next ===
+     * branchId` visibility predicate (priors-false AND own-true; else =
+     * all-priors-false), byte-identical to the chain controller — so the inner
+     * effect short-circuits while the branch is HIDDEN, preventing a
+     * `null.field` crash on mount when the guarded cell starts absent.
+     */
+    chainGuard?: { own?: any; priors?: any[] };
   };
 }
 

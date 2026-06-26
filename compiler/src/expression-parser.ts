@@ -2592,7 +2592,22 @@ export function emitStringFromTree(node: ExprNode): string {
         const cp = exprPrec(child);
         return (cp < parentPrec || (tieNeedsParen && cp === parentPrec)) ? `(${s})` : s;
       };
-      const left = wrap(node.left, rightAssoc);
+      // g-unary-left-of-exponent-no-paren (ss21) — round-trip twin of
+      // emit-expr.ts binaryOperandNeedsParens. JS grammar forbids an
+      // un-parenthesized UnaryExpression as the LEFT operand of `**`
+      // (`-@a ** 2` is a SyntaxError), so it MUST round-trip as `(-@a) ** 2`.
+      // `exprPrec` lumps `unary` with the atomics (99), so the generic `wrap`
+      // never parens it; force the wrap here. UPDATE operators (`++`/`--`,
+      // prefix or postfix) are UpdateExpressions — valid `**` bases — so they
+      // are excluded. Only the LEFT operand is affected (`@a ** -@b` is legal).
+      const leftIsUnaryExpExponentBase =
+        node.op === "**" &&
+        node.left.kind === "unary" &&
+        (node.left as UnaryExpr).op !== "++" &&
+        (node.left as UnaryExpr).op !== "--";
+      const left = leftIsUnaryExpExponentBase
+        ? `(${emitStringFromTree(node.left)})`
+        : wrap(node.left, rightAssoc);
       switch (node.op) {
         case "is": return `${left} is ${emitStringFromTree(node.right)}`;
         case "is-not": return `${left} is not`;

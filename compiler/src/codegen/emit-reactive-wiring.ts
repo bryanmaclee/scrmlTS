@@ -556,6 +556,23 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
       if (stmtContainsLift(stmt)) groupHasLift = true;
       // Check for reactive deps in the emitted code (after @var rewriting)
       if (code && code.includes("_scrml_reactive_get(")) groupHasReactiveDeps = true;
+      // ss21 item 1 (g-request-lift-bare-if-condition) — a `<#id>` request ref in
+      // a `${ if (...) { lift } }` CONDITION lowers (Seam 2) to a deep-reactive
+      // `_scrml_request_<id>` member read, NOT `_scrml_reactive_get(...)`, so the
+      // detector above missed it and the lift group fell into the non-reactive
+      // `else` branch below: the `if` ran ONCE at module-init and never
+      // re-evaluated on fetch-resolve (loading->data) — the gated lift was frozen.
+      // Treat such a read as a reactive dep so the group is `_scrml_effect`-wrapped
+      // (the wrap re-runs the if on resolve and toggles the gated content, matching
+      // the ${@cell}-gated lift path). Whole-token boundary guard keeps the match
+      // off the `_scrml_request_<id>_fetch`/`_seq`/`_mounted` sidecars (which never
+      // appear in a logic-group body anyway).
+      if (code && !groupHasReactiveDeps && requestIds && requestIds.size > 0 && code.includes("_scrml_request_")) {
+        for (const _rqId of requestIds) {
+          const _re = new RegExp("_scrml_request_" + _rqId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?![A-Za-z0-9_$])");
+          if (_re.test(code)) { groupHasReactiveDeps = true; break; }
+        }
+      }
     }
 
     if (codes.length === 0) continue;

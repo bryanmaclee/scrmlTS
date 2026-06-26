@@ -161,6 +161,19 @@ interface LogicBinding {
     refs?: string[];
     varName?: string;
     dotPath?: string;
+    /**
+     * ss21 item-3 (g-if-chain-branch-display-null-interp) — set instead of the
+     * single-`if=` fields when this interpolation sits inside an if-CHAIN branch
+     * (if=/else-if=/else, a separate node kind whose if= attr is stripped before
+     * the generic walk, so the ss20 single-`if=` push never fires). `own` is the
+     * branch's own condition (undefined for the else); `priors` is every PRIOR
+     * positive branch condition in source order. emit-event-wiring lowers them
+     * via the SAME computeChainBranchCondition helper the chain controller uses,
+     * so the gate is byte-identical to the branch's `_next === branchId`
+     * visibility (priors-false AND own-true; else = all-priors-false) — lockstep
+     * with the per-branch display toggle.
+     */
+    chainGuard?: { own?: any; priors?: any[] };
   };
 }
 
@@ -390,6 +403,68 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
     }
     return null;
   }
+
+  // ss21 item-3 (g-if-chain-branch-display-null-interp) — lower a SINGLE
+  // if-chain branch condition to its JS condCode string. Extracted verbatim
+  // from the §17.1.1 chain cascade below so the cascade's `_next` selection AND
+  // the inner-effect visibility gate (binding.ifGuard.chainGuard) share ONE
+  // lowering — byte-identical, lockstep with the per-branch display toggle. The
+  // `.Variant`/`==`-aware emitExprField path matches the cascade exactly;
+  // call-ref (`if=isHigh()`) is CALLED not read as a cell (g-attr-if-fn-chain-
+  // head-call-misroute, S191). Returns null for the else (no condition) or an
+  // unshaped condition — the caller substitutes "true" (cascade fall-through).
+  function computeChainBranchCondition(condition: any): string | null {
+    if (!condition) return null;
+    if (condition.kind === "call-ref") {
+      const condRaw = `${condition.name}(${(condition.args ?? []).join(", ")})`;
+      let condNode: ExprNode | null = null;
+      try {
+        condNode = parseExprToNode(condRaw, "<if-chain-call-ref>", 0) as ExprNode | null;
+      } catch {
+        condNode = null;
+      }
+      return emitExprField(condNode, condRaw, {
+        mode: "client",
+        derivedNames: ctx.derivedNames,
+        synthCellKeys: ctx.synthCellKeys,
+      });
+    } else if (condition.raw) {
+      let condNode = (condition.exprNode ?? null) as ExprNode | null;
+      if (!condNode) {
+        try {
+          condNode = parseExprToNode(condition.raw, "<if-chain-branch>", 0) as ExprNode | null;
+        } catch {
+          condNode = null;
+        }
+      }
+      return emitExprField(condNode, condition.raw, {
+        mode: "client",
+        derivedNames: ctx.derivedNames,
+        synthCellKeys: ctx.synthCellKeys,
+      });
+    } else if (condition.name) {
+      const varName = condition.name.replace(/^@/, "");
+      return `_scrml_reactive_get(${JSON.stringify(varName)})`;
+    }
+    return null;
+  }
+
+  // ss21 item-3 — lower an if-chain branch's VISIBILITY predicate (the gate for
+  // its descendant `${...}` interpolation effects). A branch is visible iff all
+  // PRIOR positive conditions are false AND (its own condition is true, or it is
+  // the else). Byte-identical to the chain controller's `_next === branchId`
+  // selection (same condCodes via computeChainBranchCondition). Returns null
+  // when there is nothing to gate on (no priors + no own condition).
+  function computeChainGuardCondition(cg: { own?: any; priors?: any[] }): string | null {
+    const parts: string[] = (cg.priors ?? []).map(
+      (c: any) => `!(${computeChainBranchCondition(c) ?? "true"})`,
+    );
+    if (cg.own !== undefined && cg.own !== null) {
+      parts.push(`(${computeChainBranchCondition(cg.own) ?? "true"})`);
+    }
+    return parts.length > 0 ? parts.join(" && ") : null;
+  }
+
   const serverFnNames = buildServerFnNames(fnNameMap);
   const lines: string[] = [];
 
@@ -931,12 +1006,19 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
           }
         }
         lines.push(`      };`);
-        // Initial render + reactive subscription. Subscribe to the SOURCE
-        // errors cell (which is itself a derived cell from C7/C8). When the
-        // upstream changes, _scrml_reactive_set re-fires subscribers; we
-        // pull the latest derived value and re-render.
-        lines.push(`      render_${suffix}();`);
-        lines.push(`      _scrml_reactive_subscribe(${JSON.stringify(encodedSourceKey)}, function() { render_${suffix}(); });`);
+        // ss21 item-5 fix — drive the render from `_scrml_effect`, NOT a
+        // `_scrml_reactive_subscribe` on the SOURCE errors cell. That cell is a
+        // DERIVED cell (`<field>.errors`) and is never the target of a DIRECT
+        // `_scrml_reactive_set` — `_scrml_reactive_set` fans dirtied derived
+        // cells out only via `_scrml_trigger` (effects), never the legacy
+        // `_scrml_subscribers` list, so a subscribe on it never fired and the
+        // anchor DOM stayed stale after the field went valid. `_scrml_effect`
+        // auto-tracks the `_scrml_derived_get` read (the derived name is tracked
+        // even when the cell is clean, per the runtime's Bug 1 fix-D), so the
+        // render re-runs when `_scrml_propagate_dirty` + `_scrml_trigger` wake it
+        // on recompute — matching the render-element / disabled-gate /
+        // reactive-textContent paths. The effect's initial run IS the first render.
+        lines.push(`      _scrml_effect(function() { render_${suffix}(); });`);
         lines.push(`    }`);
         lines.push(`  }`);
         continue;
@@ -1323,8 +1405,21 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
         // effect, so a false→true flip re-runs the effect (deps are re-tracked
         // each run) and renders the real values. `show=` is never stamped, so it
         // keeps running its inner effects.
-        const _ifgCond = binding.ifGuard ? computeDisplayToggleCondition(binding.ifGuard) : null;
-        const _guardCond = _ifgCond ? _ifgCond.conditionCode : null;
+        // ss21 item-3 — if-chain branches (if=/else-if=/else, the separate node
+        // kind whose if= attr is stripped before this generic interpolation
+        // walk) carry `ifGuard.chainGuard` instead of the single-`if=` fields.
+        // Their gate is the branch's VISIBILITY predicate, byte-identical to the
+        // chain controller's `_next === branchId` (priors-false AND own-true;
+        // else = all-priors-false) — lockstep with the per-branch display
+        // toggle. Single-`if=` (ss20) keeps the computeDisplayToggleCondition
+        // path; `show=` is never stamped, so it stays ungated.
+        let _guardCond: string | null = null;
+        if (binding.ifGuard?.chainGuard) {
+          _guardCond = computeChainGuardCondition(binding.ifGuard.chainGuard);
+        } else if (binding.ifGuard) {
+          const _ifgCond = computeDisplayToggleCondition(binding.ifGuard);
+          _guardCond = _ifgCond ? _ifgCond.conditionCode : null;
+        }
         lines.push(`  {`);
         lines.push(`    const el = document.querySelector('[data-scrml-logic="${placeholderId}"]');`);
         lines.push(`    if (el) {`);
@@ -1468,48 +1563,11 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       // mount-toggle path at line ~804 above. Parse failures fall back to the
       // prior raw-string rewrite (regression-preserving).
       for (const branch of condBranches) {
-        let condCode: string;
-        if (branch.condition?.kind === "call-ref") {
-          // g-attr-if-fn-chain-head-call-misroute (S191): a bare-CALL chain-head /
-          // else-if condition (`if=isHigh()`) must be CALLED, not read as a cell.
-          // The call-ref value carries `.name`/`.args` but no `.raw`, so it would
-          // otherwise fall to the `?.name` variable-ref path → `_scrml_reactive_get("isHigh")`
-          // (reads the fn name as a nonexistent cell → branch never activates).
-          // Build the call string + route through emitExprField (same as the `?.raw`
-          // path): `@`-args rewrite to reactive_get, the fn name is mangled by the
-          // whole-buffer post-pass, and the wrapping `_scrml_effect` dynamic-tracks.
-          const condRaw = `${branch.condition.name}(${(branch.condition.args ?? []).join(", ")})`;
-          let condNode: ExprNode | null = null;
-          try {
-            condNode = parseExprToNode(condRaw, "<if-chain-call-ref>", 0) as ExprNode | null;
-          } catch {
-            condNode = null;
-          }
-          condCode = emitExprField(condNode, condRaw, {
-            mode: "client",
-            derivedNames: ctx.derivedNames,
-            synthCellKeys: ctx.synthCellKeys,
-          });
-        } else if (branch.condition?.raw) {
-          let condNode = (branch.condition.exprNode ?? null) as ExprNode | null;
-          if (!condNode) {
-            try {
-              condNode = parseExprToNode(branch.condition.raw, "<if-chain-branch>", 0) as ExprNode | null;
-            } catch {
-              condNode = null;
-            }
-          }
-          condCode = emitExprField(condNode, branch.condition.raw, {
-            mode: "client",
-            derivedNames: ctx.derivedNames,
-            synthCellKeys: ctx.synthCellKeys,
-          });
-        } else if (branch.condition?.name) {
-          const varName = branch.condition.name.replace(/^@/, "");
-          condCode = `_scrml_reactive_get(${JSON.stringify(varName)})`;
-        } else {
-          condCode = "true";
-        }
+        // ss21 item-3 — lowered via the shared computeChainBranchCondition
+        // helper (extracted above). Identical `.Variant`/`==`/call-ref handling
+        // as before; sharing the helper keeps this `_next` cascade byte-
+        // identical to the descendant-effect visibility gate (lockstep).
+        const condCode = computeChainBranchCondition(branch.condition) ?? "true";
         lines.push(`      if (_next === null && (${condCode})) _next = "${branch.branchId}";`);
       }
       if (elseBranch) {

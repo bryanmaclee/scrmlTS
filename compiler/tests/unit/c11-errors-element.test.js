@@ -437,19 +437,27 @@ describe("C11 §C11.9 — Required `of=` attribute", () => {
 // ---------------------------------------------------------------------------
 
 describe("C11 §C11.10 — Reactive subscription", () => {
-  test("emits _scrml_reactive_subscribe on the source errors key", () => {
+  // ss21 item-5 — the errors anchor drives its render from `_scrml_effect`, NOT
+  // a `_scrml_reactive_subscribe` on the source `.errors` key. The source is a
+  // DERIVED cell; a subscribe on a derived never fires (`_scrml_reactive_set`
+  // fans dirtied derived cells via `_scrml_trigger`/effects only), so the anchor
+  // would never reactively clear. `_scrml_effect` auto-tracks the
+  // `_scrml_derived_get` read and re-runs on recompute.
+  test("drives the render via _scrml_effect (NOT a subscribe on the derived errors key)", () => {
     const node = errorsNode({ ofPath: "signup.name" });
     const { registry } = runEmit([node]);
     const wiring = runEventWiring(registry);
-    expect(wiring).toMatch(/_scrml_reactive_subscribe\("signup\.name\.errors"/);
+    expect(wiring).toMatch(/_scrml_effect\(function\(\) \{ render_[a-zA-Z0-9_]+\(\); \}\)/);
+    // Regression guard: must NOT subscribe to the derived errors cell (the bug).
+    expect(wiring).not.toMatch(/_scrml_reactive_subscribe\("signup\.name\.errors"/);
   });
 
-  test("initial render is invoked once at wiring time", () => {
+  test("initial render is invoked by the effect's initial run", () => {
     const node = errorsNode({ ofPath: "signup.name" });
     const { registry } = runEmit([node]);
     const wiring = runEventWiring(registry);
-    // `render_<suffix>();` is invoked once before the subscribe call.
-    expect(wiring).toMatch(/render_[a-zA-Z0-9_]+\(\);[\s\S]*_scrml_reactive_subscribe/);
+    // The effect's initial run IS the first render (no separate pre-call).
+    expect(wiring).toMatch(/_scrml_effect\(function\(\) \{ render_[a-zA-Z0-9_]+\(\); \}\)/);
   });
 
   test("reads source via _scrml_derived_get (lazy pull from C8 derived)", () => {

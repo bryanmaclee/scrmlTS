@@ -1089,14 +1089,38 @@ function binaryOperandNeedsParens(
   // green compile, `node --check` clean, wrong runtime value). The
   // binary-OPERAND-position sibling of receiverNeedsParens (S210) and
   // emitStringFromTree's exprPrec wrap (S205); both already treat these three
-  // kinds as loose. (`unary` is NOT here: a prefix unary binds TIGHTER than the
-  // flat binary ops, so `@a + -@b` needs no wrap; the lone `-x ** 2` edge is a
-  // separate, LOUD E-CODEGEN-INVALID-JS, not a silent drop.)
+  // kinds as loose. (`unary` is NOT in THIS switch: a prefix unary binds TIGHTER
+  // than the flat binary ops, so `@a + -@b` needs no wrap. The lone `-x ** 2`
+  // edge — a unary LEFT operand of `**` — is a separate, LOUD
+  // E-CODEGEN-INVALID-JS (not a silent drop) and is handled by the
+  // g-unary-left-of-exponent-no-paren guard below.)
   switch (child.kind) {
     case "ternary":
     case "assign":
     case "lambda":
       return true;
+  }
+
+  // g-unary-left-of-exponent-no-paren (ss21) — JS grammar forbids an
+  // un-parenthesized UnaryExpression as the LEFT operand of `**`:
+  //   ExponentiationExpression :
+  //       UnaryExpression
+  //     | UpdateExpression ** ExponentiationExpression
+  // So `-@a ** 2` MUST serialize as `(-…) ** 2`; the flat `-… ** 2` is a
+  // SyntaxError that `node --check` rejects (E-CODEGEN-INVALID-JS) — a LOUD
+  // invalid-JS edge, distinct from the SILENT g-paren-ternary drop above.
+  // The UPDATE operators (`++` / `--`, prefix or postfix) parse as an
+  // UpdateExpression, which IS a valid `**` base, so they are excluded.
+  // The RIGHT operand is always legal (`2 ** -@a`), hence the `!isRightChild`
+  // guard — wrap ONLY a unary LEFT operand of `**`.
+  if (
+    parentOp === "**" &&
+    !isRightChild &&
+    child.kind === "unary" &&
+    (child as UnaryExpr).op !== "++" &&
+    (child as UnaryExpr).op !== "--"
+  ) {
+    return true;
   }
 
   if (child.kind !== "binary") return false;
