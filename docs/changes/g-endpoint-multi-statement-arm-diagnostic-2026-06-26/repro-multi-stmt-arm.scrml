@@ -1,0 +1,41 @@
+// Reproducer — §61 <endpoint> multi-statement bare-body arm (E-ENDPOINT-MULTI-STATEMENT-ARM).
+//
+// The `<DeltaSince>` arm below is a BARE body (`<Variant>...</>`) with TWO
+// statements: a bare value-expression `seq` followed by the JSON-RPC result
+// object. Per SPEC §61.2 / §61.10 a multi-statement bare body is NOT yet lowered
+// (a future wave); an arm body is a single value-expression the compiler
+// envelopes as the JSON response (§61.5). This file parses + types clean (W2/W3
+// green) and fails ONLY at codegen with E-ENDPOINT-MULTI-STATEMENT-ARM.
+//
+// BEFORE this fix (spa/ss34 base): the malformed `await (seq { ... })` tripped
+// the generic `E-CODEGEN-INVALID-JS` emit gate ("compiler defect" — not
+// adopter-actionable). AFTER: the clean named `E-ENDPOINT-MULTI-STATEMENT-ARM`
+// fires at the arm, naming the variant + the workaround.
+//
+// The other three arms are the SUPPORTED forms (must stay green):
+//   FleetStatus  — `:`-shorthand single-expression arm (§4.14)
+//   Dispatch     — `:`-shorthand single-expression arm with payload binding
+//   Halt         — single-expression BARE body (`<Variant>expr</>`)
+
+<program>
+
+type FspMethod:enum = {
+  FleetStatus
+  Dispatch(prompt: string, project: string)
+  DeltaSince(seq: int)
+  Halt
+}
+
+<endpoint path="/fsp" method="POST" accepts=FspMethod>
+  <FleetStatus : { jsonrpc: "2.0", result: { active: 3, idle: 1 } }>
+  <Dispatch(prompt, project) : { jsonrpc: "2.0", result: { accepted: true, project: project } }>
+  <DeltaSince(seq)>
+    seq
+    { jsonrpc: "2.0", result: { since: seq, count: 0 } }
+  </>
+  <Halt>
+    { jsonrpc: "2.0", error: { code: -32000, message: "service halted" } }
+  </>
+</endpoint>
+
+</program>

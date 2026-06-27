@@ -1,5 +1,9 @@
 # ss34 — endpoint + SSR / server-render (SURVEY-FIRST)
 
+**Currency:** prepped S223 (PA) @ HEAD `5fb41cb9` / 2026-06-26 — post-ss38 (HAMT map swap, unrelated surface). **FIREABLE.**
+
+**Parallel-safety:** ss34 touches **emit-SERVER** (`emit-server.ts` / endpoint / SSR / render-authority). The in-flight **ss32** (auto-await) + **ss33** (runtime-minimality) touch **emit-CLIENT** → disjoint, parallel-safe to fire alongside them. The one shared-risk seam is the render-authority path (item 2's SSR), but item 2 is SURVEY-FIRST (scopes, doesn't build blind), so no codegen collision before the survey lands. If item 2's survey turns up a shared emit-client touch, sequence after ss32/ss33 re-integrate.
+
 **Fill-note:** the emit-server / endpoint / SSR cluster — the old ss24/ss26 surface. **HOLD lifted S222** (it was held while W3/splitter ran; W3-codegen is now verified-built). **SURVEY-FIRST** — the SSR items (§52.8 read-authority residual) are a bigger design surface; scope before building. Item 4 is design-laden (Bucket-B flag, not buildable here).
 
 **Shared ingestion:** `emit-server.ts` + endpoint codegen + the §52 SSR/render-authority path + rendermap server-classification. These share the server-emit + render-authority surface → SEQUENTIAL.
@@ -10,17 +14,21 @@
 
 ## Items
 
-1. **g-endpoint-multi-statement-arm-invalid-js** (MED) `[status=open]`
+1. **g-endpoint-multi-statement-arm-invalid-js** (MED) `[status=landed-on-branch SHA=964d1fc5]`
    - Symptom: a multi-statement bare-body `<endpoint>` arm emits invalid JS, caught only by the generic `E-CODEGEN-INVALID-JS` (no clean endpoint diagnostic). ss18-W4 build-surfaced.
    - Footprint: endpoint arm codegen — lower multi-statement bodies correctly (mirror the §18.0.1 / §51.0.B.1 arm-body lowering) + add a clean `E-ENDPOINT-*` diagnostic.
+   - **SCOPED-DOWN (sPA, Rule 4):** SPEC §61.10 explicitly defers multi-statement arm-body LOWERING to a future wave ("Multi-statement handler bodies are a future wave") — building it would god-ify the primitive against §60.7 LIMIT. So the footprint's first option was NOT built; the diagnostic-only half was: new `E-ENDPOINT-MULTI-STATEMENT-ARM` (Error) fires the clean named diagnostic at the arm span instead of the cryptic generic gate. emit-server.ts `emitEndpointArmEnvelope` + new `isSingleJsExpression` (validate-emit.ts, reuses §2.2.1 gate acorn) + SPEC §34/§61.9/§61.10 catalog (5→6 codes) + 10-case regression test + reproducer. Full suite 18071/0/68. example-33 byte-identical; all adversarial edges correct. **PA note:** new E-ENDPOINT-* code + SPEC delta want PA ratification at re-integration. **Follow-up surfaced:** a `@`-led bare-body arm is lossily collapsed by `rewriteServerExpr` (trailing value-expr silently dropped) BEFORE detection → separate latent lowering drop-bug (out of scope).
 
-2. **g-tier1-ssr-prerender** (MED, **survey-first**) `[status=open]`
-   - Symptom: Tier-1 `authority="server"` instances load client-side on mount, not SSR pre-rendered (§52.8). The read-authority SSR residual.
-   - **STOP-first:** read SPEC §52.8 in full + scope the SSR prerender path before building. This may be a larger wave than a single fix.
+2. **g-tier1-ssr-prerender** (MED, **survey-first**) `[status=surveyed-BANK-AS-ARC]`
+   - **SURVEY VERDICT (sPA):** spec-ahead gap → **MULTI-WAVE SSR/hydration arc; do NOT build in ss34, bank as own arc.** Load-bearing finding: scrml has NO server-side HTML render path today (compile-time static HTML + empty reactive mount slots for ALL reactive content + RPC-only `.server.js` returning `null` on the page path). Can't inject prerendered state into HTML that isn't server-rendered. NOT coupled to W4 chunk delivery (orthogonal). Decomposition: W1 server-HTML-render → W2 hydration boundary/client-takeover → W3 §52.8 server-authority injection (the literal residual) → W4 reconcile client-mount load. Spec tension flagged: §52.6.1 (placeholder-while-fetch = built) vs §52.8 (no-placeholder-first-paint = unbuilt/spec-ahead). Full survey: `docs/changes/g-tier1-ssr-prerender-survey-2026-06-26/SURVEY.md`. **PA action:** bank the SSR arc; §52.8/§52.5-table are spec-ahead-of-impl.
+   - Symptom: Tier-1 `authority="server"` instances load client-side on mount, not SSR pre-rendered (§52.8). The read-authority SSR residual (S196 read-authority core landed `state-decl-shape-disambiguation-2026-06-14`; the prerender leg is the residual).
+   - **STOP-first survey (report before building):** read SPEC §52.8 in full (Rule 4). Answer: (a) where in `emit-server.ts` does the server-authority instance currently emit its client-mount-on-load path, and what would the prerender-into-HTML-body path emit instead? (b) is this a single-fix (emit the resolved value into the initial HTML response) or a multi-wave SSR program (hydration boundary, the §52 sync handshake, re-render-on-update)? (c) does it couple to the W4 chunk model? — **expected NO** (W4 is chunk DELIVERY, gated on Component-3; SSR prerender is render-AUTHORITY content in the first response — orthogonal). Produce a scope verdict + recommended decomposition; do NOT build the SSR wave inside this list if the survey says it's multi-wave — bank it as its own arc.
 
-3. **g-rendermap-needs-server-classification** (LOW) `[status=open]`
+3. **g-rendermap-needs-server-classification** (LOW) `[status=ALREADY-SHIPPED (S203/spa-ss10, 2026-06-20)]`
+   - **VERIFIED-SHIPPED (sPA):** the "rendermap" is the e2e test HARNESS, NOT a compiler-internal classifier (zero `rendermap` in `compiler/src/`). The `needs-server` cell-state is already live: `compiler/tests/e2e-render-map/e2e-render-map.test.js:44` (GREEN_STATES includes `needs-server`), `render-harness.js:103-130` (serverDependent = serverJs emitted OR `?{` SQL in source → classifies data-source-null at no-server mount as `needs-server`), baseline.json has 9 `needs-server` cells. Landed by spa-ss10 (`handOffs/incoming/read/2026-06-20-0959-spa-ss10-to-pa-list-complete.md`), 6 days before this list was prepped (S223). **Footprint was STALE + partly misframed:** S203 (user ruling b+c) reclassified `g-fullstack-empty-mount-throws` as a non-gap — the compiler is NOT wrong to emit the server-binding; there is NO compiler-side "empty-mount → loading state degradation" to build (that framing in the footprint was a list-prep misread). No sPA work. **PA: close this item.**
    - Symptom: full-stack apps throw at the no-data / empty client mount instead of degrading to a loading/empty state (G-FULLSTACK-EMPTY-MOUNT-THROWS); the rendermap needs server-classification to know an instance is server-authoritative.
-   - Footprint: rendermap server-classification (couples to item 2's render-authority work — sequence after).
+   - Footprint: rendermap server-classification (couples to item 2's render-authority work — sequence after item 2's survey). **NOT the W4 chunk model** — this is render-authority degradation (empty-mount → loading state), independent of the ratified W4 load-plan (dpa-014, S223).
 
-4. **g-sse-server-keyword** (LOW, **design-laden → Bucket-B flag**) `[status=open]`
+4. **g-sse-server-keyword** (LOW, **design-laden → Bucket-B flag**) `[status=PARKED-by-design (route to DD)]`
+   - **PARKED (sPA):** design-laden, user-ruled DEFERRED to its own DD. NOT buildable by an sPA (no design ruling per scope boundary). Stays a Bucket-B flag; PA routes to a DD if/when fired. No sPA work.
    - Should the deprecated `server` keyword drop from SSE `server function*` too? DEFERRED to its own DD (user-ruled). NOT buildable here — listed so it's not lost; route to a DD if fired.

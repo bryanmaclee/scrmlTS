@@ -17,6 +17,7 @@ import { dirname as _pathDirname, resolve as _pathResolve, relative as _pathRela
 import { parseExprToNode } from "../expression-parser.ts";
 import { extractCalleeNames } from "./scheduling.ts";
 import { emitParseVariantDecodeIIFE, type ParseVariantEnumLike } from "./emit-parse-variant.ts";
+import { isSingleJsExpression } from "./validate-emit.ts";
 
 // g-pure-module-server-emit (S207): sentinel line marking where deferred
 // local-`.scrml` server imports are re-injected after usage-pruning. Pruned by
@@ -2381,7 +2382,7 @@ export function generateServerJs(
     // the exact wire by returning the exact shape (JSON-RPC is a convention via
     // the return value, NOT a baked-in mode). A self-closing `<Variant/>` arm is
     // a no-op handler → default-success with no body (204 No Content).
-    const emitEndpointArmEnvelope = (arm: any): string[] => {
+    const emitEndpointArmEnvelope = (arm: any, epDecl: any): string[] => {
       const out: string[] = [];
       const bodyRaw = typeof arm?.bodyRaw === "string" ? arm.bodyRaw.trim() : "";
       if (arm?.bodyForm === "self-closing" || bodyRaw === "") {
@@ -2393,6 +2394,38 @@ export function generateServerJs(
         serverFnNames: _serverFnPeerNames,
         syncPeerCalls: _syncPeerCalls,
       } as unknown as EmitExprContext);
+      // §61.10 — a multi-statement bare body is NOT yet lowered (a future wave).
+      // The three SUPPORTED forms (the `:`-shorthand single-expression arm, the
+      // single-expression bare body, and the self-closing 204 arm handled above)
+      // each lower to ONE value-expression the compiler envelopes as the JSON
+      // response (§61.5). A 2+-statement bare body cannot be a single expression,
+      // so the lowered `expr` is not parsable as `await (<expr>)` — which, left
+      // unchecked, trips the generic `E-CODEGEN-INVALID-JS` emit gate with a
+      // cryptic "compiler defect" message the adopter cannot act on. Detect the
+      // multi-statement case HERE (the lowered expr does not parse as a single
+      // JS expression consuming the whole string — reusing the emit gate's acorn)
+      // and fire the clean, adopter-actionable named diagnostic instead. A single
+      // value-expression that legitimately spans multiple source lines parses as
+      // one expression and is unaffected.
+      if (!isSingleJsExpression(expr)) {
+        const _vLabel = arm?.isWildcard ? "_" : (typeof arm?.variantName === "string" ? arm.variantName : "?");
+        const _epPath = typeof epDecl?.path === "string" ? epDecl.path : "?";
+        const _epMethod = typeof epDecl?.method === "string" ? epDecl.method : "?";
+        errors.push(new CGError(
+          "E-ENDPOINT-MULTI-STATEMENT-ARM",
+          `E-ENDPOINT-MULTI-STATEMENT-ARM: the <${_vLabel}> arm of <endpoint path="${_epPath}" method="${_epMethod}"> ` +
+          `has a multi-statement body. <endpoint> arm bodies are currently a single value-expression (the value the ` +
+          `compiler envelopes as the JSON response, §61.5); multi-statement handler bodies are a future wave (SPEC §61 ` +
+          `limits). Resolution: reduce the arm to a single expression, or extract the logic into a server function and ` +
+          `call it from the arm (e.g. \`<${_vLabel} : computeResult(...)>\`).`,
+          (arm?.span ?? epDecl?.span ?? {}),
+          "error",
+        ));
+        // Emit a parseable, inert placeholder so this arm does NOT additionally
+        // trip the generic E-CODEGEN-INVALID-JS gate (the compile aborts on the
+        // named error above; no artifact is written).
+        return [`// §61.10 multi-statement bare body not lowered — see E-ENDPOINT-MULTI-STATEMENT-ARM.`];
+      }
       out.push(`const _scrml_result = await (${expr});`);
       out.push(`return new Response(JSON.stringify(_scrml_result), {`);
       out.push(`  status: 200,`);
@@ -2490,7 +2523,7 @@ export function generateServerJs(
           if (!_field) continue;
           lines.push(`      const ${_b.local} = _scrml_decoded.data[${JSON.stringify(_field)}];`);
         }
-        for (const _l of emitEndpointArmEnvelope(_arm)) lines.push(`      ${_l}`);
+        for (const _l of emitEndpointArmEnvelope(_arm, _epDecl)) lines.push(`      ${_l}`);
         lines.push(`    }`);
       }
 
@@ -2500,7 +2533,7 @@ export function generateServerJs(
       // real default — the arm is kept for runtime totality).
       lines.push(`    default: {`);
       if (_wildcardArm) {
-        for (const _l of emitEndpointArmEnvelope(_wildcardArm)) lines.push(`      ${_l}`);
+        for (const _l of emitEndpointArmEnvelope(_wildcardArm, _epDecl)) lines.push(`      ${_l}`);
       } else {
         lines.push(`      return new Response(JSON.stringify({ error: { kind: "UnknownVariant", message: "endpoint received an unhandled variant '" + _scrml_tag + "'" } }), {`);
         lines.push(`        status: 400,`);

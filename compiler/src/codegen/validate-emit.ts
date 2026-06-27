@@ -115,6 +115,44 @@ export function validateEmittedArtifacts(artifacts: EmitArtifact[]): CGError[] {
 }
 
 /**
+ * Is `src` exactly ONE JavaScript expression (consuming the whole string)?
+ *
+ * Uses the same in-process Acorn the emit gate uses, via `parseExpressionAt`:
+ * parse a single expression starting at offset 0, then require it to consume
+ * the entire (trimmed) input — any trailing non-whitespace means a SECOND
+ * statement follows, so the input was multi-statement (not a lone expression).
+ * A parse failure (a leading non-expression statement such as a `let`/`const`
+ * declaration) is likewise NOT a single expression.
+ *
+ * Used by the §61 `<endpoint>` codegen (`emit-server.ts`) to detect a
+ * multi-statement bare-body arm BEFORE wrapping it as `await (<expr>)`: a
+ * multi-statement body cannot be a single value-expression, so the compiler
+ * fires the clean named `E-ENDPOINT-MULTI-STATEMENT-ARM` (a SPEC §61.10
+ * future-wave gap) instead of letting the malformed `await (…)` trip the
+ * generic `E-CODEGEN-INVALID-JS` gate above. This correctly admits the
+ * SUPPORTED forms — a single value-expression that legitimately spans multiple
+ * source lines (a call split across lines, a multi-line object literal) parses
+ * as one expression and consumes the whole string; only a genuine 2+-statement
+ * body leaves a trailing statement.
+ *
+ * An empty string returns `true` (the caller handles the self-closing / empty
+ * arm via its own 204 short-circuit before reaching this check).
+ */
+export function isSingleJsExpression(src: string): boolean {
+  const t = (src ?? "").trim();
+  if (t === "") return true;
+  try {
+    // parseExpressionAt parses ONE expression and stops; `.end` is the offset
+    // just past it. ecmaVersion 2022 matches the emit gate's PARSE_OPTIONS.
+    const node = acorn.parseExpressionAt(t, 0, { ecmaVersion: 2022 }) as { end?: number };
+    const end = typeof node?.end === "number" ? node.end : 0;
+    return t.slice(end).trim().length === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Extract a single-line, ~60-char window centered on `pos` for the diagnostic.
  * Collapses interior whitespace so a multi-line / heavily-indented emit reads
  * cleanly on one line, and marks the truncation with ellipses.
