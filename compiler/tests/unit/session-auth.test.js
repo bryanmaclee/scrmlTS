@@ -36,6 +36,7 @@ import { splitBlocks } from "../../src/block-splitter.js";
 import { runRI } from "../../src/route-inference.js";
 import { runCG } from "../../src/code-generator.js";
 import { computeProgramConfig } from "../../src/compute-program-config.ts";
+import * as acorn from "acorn";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -670,6 +671,78 @@ describe("S16: CG client JS omits @session when no auth", () => {
     if (output.clientJs) {
       expect(output.clientJs).not.toContain("_scrml_session_init");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S14b: Issue #15 (rjantz3, v0.7.0) — the @session reactive projection must not
+// collide across the app-shell client and an auth-gated page client.
+//
+// In a shell/layout app, `app.client.js` is loaded as a classic <script> on
+// EVERY composed page (codegen/index.ts shell-composition); an auth-gated page
+// ALSO loads its own `*.client.js`. Two classic scripts share one global
+// lexical environment, so the former top-level `let _scrml_session` /
+// `const session` declarations collided ("Identifier '_scrml_session' has
+// already been declared") and the page never hydrated. The projection is now a
+// window-anchored idempotent singleton (`var session` — redeclarable across
+// classic scripts — plus a `window._scrml_session_projection` guard), so the
+// two scripts coexist and the projection initializes exactly once.
+// ---------------------------------------------------------------------------
+
+describe("S14b: Issue #15 @session projection idempotent across two clients", () => {
+  function clientWithAuth(filePath) {
+    const file = makeFileAST(filePath, [makeMarkupNode("program", [], [])]);
+    const routeMap = {
+      functions: new Map(),
+      authMiddleware: new Map([
+        [filePath, {
+          filePath,
+          auth: "required",
+          loginRedirect: "/login",
+          csrf: "off",
+          sessionExpiry: "1h",
+        }],
+      ]),
+    };
+    const result = runCG({ files: [file], routeMap, depGraph: null, protectAnalysis: null });
+    return result.outputs.get(filePath).clientJs;
+  }
+
+  test("projection is a window-anchored singleton, not a bare top-level let/const", () => {
+    const js = clientWithAuth("/test/app.scrml");
+    expect(js).not.toBeNull();
+    // The top-level binding is `var session` (redeclarable), guarded by the
+    // window-anchored singleton — the bare `let`/`const` forms are gone.
+    expect(js).toContain("var session = ");
+    expect(js).toContain("window._scrml_session_projection");
+    expect(js).not.toContain("\nlet _scrml_session = null;");
+    expect(js).not.toContain("\nconst session = {");
+    // The reactive wiring is unchanged inside the IIFE.
+    expect(js).toContain("_scrml_session_init();");
+    expect(js).toContain("/_scrml/session");
+  });
+
+  test("app-shell client + auth-gated page client coexist in one global scope", () => {
+    // Two classic <script>s share one global lexical environment. Concatenating
+    // the two emitted clients and parsing in "script" mode reproduces exactly
+    // that — it MUST NOT throw "Identifier '_scrml_session' has already been
+    // declared".
+    const appJs = clientWithAuth("/test/app.scrml");
+    const pageJs = clientWithAuth("/test/pages/dash.scrml");
+    const combined = appJs + "\n" + pageJs;
+    expect(() =>
+      acorn.parse(combined, { ecmaVersion: "latest", sourceType: "script" }),
+    ).not.toThrow();
+  });
+
+  test("control — the pre-fix bare-`let` shape DOES collide (guards the test)", () => {
+    // Sanity: prove the script-mode parse actually detects the collision the
+    // fix removes, so the test above cannot pass vacuously.
+    const preFix =
+      "let _scrml_session = null;\nlet _scrml_session = null;\n";
+    expect(() =>
+      acorn.parse(preFix, { ecmaVersion: "latest", sourceType: "script" }),
+    ).toThrow();
   });
 });
 

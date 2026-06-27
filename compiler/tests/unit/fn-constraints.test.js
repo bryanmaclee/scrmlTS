@@ -406,6 +406,120 @@ describe("§4: E-FN-004 — non-deterministic calls inside fn", () => {
 });
 
 // ---------------------------------------------------------------------------
+// §4b  E-FN-004 — mutable browser/global-state READS inside fn body
+//      (GitHub #17 — rjantz3 v0.7.0). A `fn` reading window.location /
+//      document.cookie / navigator.* / window.innerWidth etc. is
+//      non-deterministic and must fire E-FN-004; a string-arg parse, a
+//      shadowed root, and the scrml:math surface must STAY pure.
+// ---------------------------------------------------------------------------
+
+describe("§4b: E-FN-004 — mutable browser/global-state reads inside fn", () => {
+  test("window.location.search read triggers E-FN-004 (the issue's repro)", () => {
+    const expr = {
+      id: 101,
+      kind: "expression",
+      value: 'const v = parseInt(new URLSearchParams(window.location.search).get("n"), 10)',
+      span: mkSpan(30),
+    };
+    const fnDecl = makeFnDecl("getN", [expr]);
+    const errors = getFnErrors([fnDecl]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(true);
+    const err = errors.find(e => e.code === "E-FN-004");
+    expect(err.message).toContain("window.location");
+    expect(err.message).toContain("mutable browser/global state");
+  });
+
+  test("document.cookie read triggers E-FN-004", () => {
+    const expr = { id: 101, kind: "expression", value: "const c = document.cookie", span: mkSpan(30) };
+    const errors = getFnErrors([makeFnDecl("readCookie", [expr])]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(true);
+    expect(errors.find(e => e.code === "E-FN-004").message).toContain("document.cookie");
+  });
+
+  test("navigator.userAgent read triggers E-FN-004", () => {
+    const expr = { id: 101, kind: "expression", value: "const a = navigator.userAgent", span: mkSpan(30) };
+    const errors = getFnErrors([makeFnDecl("ua", [expr])]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(true);
+  });
+
+  test("window.innerWidth read triggers E-FN-004", () => {
+    const expr = { id: 101, kind: "expression", value: "const w = window.innerWidth", span: mkSpan(30) };
+    const errors = getFnErrors([makeFnDecl("vw", [expr])]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(true);
+  });
+
+  test("bare location.search read (window-aliased global) triggers E-FN-004", () => {
+    const expr = { id: 101, kind: "expression", value: "const s = location.search", span: mkSpan(30) };
+    const errors = getFnErrors([makeFnDecl("qs", [expr])]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(true);
+  });
+
+  test("localStorage read triggers E-FN-004", () => {
+    const expr = { id: 101, kind: "expression", value: 'const t = localStorage.getItem("k")', span: mkSpan(30) };
+    const errors = getFnErrors([makeFnDecl("readLS", [expr])]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(true);
+  });
+
+  // --- MUST-NOT-FIRE (adversarial; over-firing on pure code is the danger) ---
+
+  test("the same window.location read in a `function` (not fn) does NOT fire E-FN-004", () => {
+    const expr = { id: 201, kind: "expression", value: "const s = window.location.search", span: mkSpan(30) };
+    const errors = getFnErrors([makeFunctionDecl("getN", [expr])]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(false);
+  });
+
+  test("a user-shadowed `location` parameter does NOT fire (binding-aware)", () => {
+    const expr = { id: 101, kind: "expression", value: "const x = location.value", span: mkSpan(30) };
+    const fnDecl = makeFnDecl("pick", [expr], { params: [{ name: "location" }] });
+    const errors = getFnErrors([fnDecl]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(false);
+  });
+
+  test("a user-shadowed local `location` const does NOT fire (binding-aware)", () => {
+    const decl = { id: 101, kind: "const-decl", name: "location", value: "s", span: mkSpan(30) };
+    const expr = { id: 102, kind: "expression", value: "const x = location.value", span: mkSpan(40) };
+    const fnDecl = makeFnDecl("pick2", [decl, expr], { params: [{ name: "s" }] });
+    const errors = getFnErrors([fnDecl]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(false);
+  });
+
+  test("URLSearchParams over a STRING ARGUMENT stays pure (no E-FN-004)", () => {
+    const expr = { id: 101, kind: "expression", value: 'const v = new URLSearchParams(s).get("n")', span: mkSpan(30) };
+    const fnDecl = makeFnDecl("parseN", [expr], { params: [{ name: "s" }] });
+    const errors = getFnErrors([fnDecl]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(false);
+  });
+
+  test("member access of something else (`foo.window`) does NOT fire", () => {
+    const expr = { id: 101, kind: "expression", value: "const x = foo.window", span: mkSpan(30) };
+    const fnDecl = makeFnDecl("g", [expr], { params: [{ name: "foo" }] });
+    const errors = getFnErrors([fnDecl]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(false);
+  });
+
+  test("identifier with a global substring (`myLocation.x`) does NOT fire (word boundary)", () => {
+    const expr = { id: 101, kind: "expression", value: "const x = myLocation.x", span: mkSpan(30) };
+    const fnDecl = makeFnDecl("g2", [expr], { params: [{ name: "myLocation" }] });
+    const errors = getFnErrors([fnDecl]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(false);
+  });
+
+  test("document DOM-node op (`document.querySelector`) is E-FN-002 only — no double E-FN-004", () => {
+    const expr = { id: 101, kind: "expression", value: 'const el = document.querySelector("div")', span: mkSpan(30) };
+    const errors = getFnErrors([makeFnDecl("q", [expr])]);
+    expect(errors.some(e => e.code === "E-FN-002")).toBe(true);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(false);
+  });
+
+  test("Math.max (scrml:math pure surface) does NOT fire E-FN-004", () => {
+    const expr = { id: 101, kind: "expression", value: "const m = Math.max(a, b)", span: mkSpan(30) };
+    const fnDecl = makeFnDecl("biggest", [expr], { params: [{ name: "a" }, { name: "b" }] });
+    const errors = getFnErrors([fnDecl]);
+    expect(errors.some(e => e.code === "E-FN-004")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // §5  E-FN-005 — async/await inside fn body
 // ---------------------------------------------------------------------------
 

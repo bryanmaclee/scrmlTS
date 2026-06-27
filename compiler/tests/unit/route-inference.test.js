@@ -2249,6 +2249,132 @@ describe("buildPageRouteTree", () => {
     expect(routeMap.pages.size).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// GH issue #16 (rjantz3, v0.7.0, Windows) — route inference must be path-
+// separator agnostic. `buildPageRouteTree` detected page files by searching
+// the absolute path for the literal "/routes/" / "/pages/" substrings (forward
+// slashes) and split relative paths on "/". On Windows the paths use "\" —
+// `...\pages\login.scrml` — so the prefix match returned null and EVERY page
+// fell through to the single-page-app "/" fallback (no page got a route; all
+// collide at "/"; multi-page apps unroutable; first surfaced as the auth lints
+// I-AUTH-REDIRECT-UNRESOLVED + W-AUTH-LOGIN-MISSING when loginRedirect="/login"
+// no longer resolved). Fix: normalize "\" -> "/" at the route-inference ingest
+// boundary. The map key / stored .filePath keep the ORIGINAL separator (codegen
+// keys pages by the un-normalized fileAST.filePath / entry-point id).
+// ---------------------------------------------------------------------------
+
+describe("buildPageRouteTree — Windows path separators (GH#16)", () => {
+  test("backslash pages\\login.scrml infers /login (matches forward-slash)", () => {
+    const files = [makeFileAST("C:\\Users\\Ryan\\app\\pages\\login.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    const page = pages.get("C:\\Users\\Ryan\\app\\pages\\login.scrml");
+    expect(page).toBeDefined();
+    expect(page.urlPattern).toBe("/login");
+    expect(page.params).toEqual([]);
+    expect(page.isCatchAll).toBe(false);
+  });
+
+  test("backslash pages\\batches.scrml infers /batches", () => {
+    const files = [makeFileAST("C:\\Users\\Ryan\\app\\pages\\batches.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    expect(pages.get("C:\\Users\\Ryan\\app\\pages\\batches.scrml").urlPattern).toBe("/batches");
+  });
+
+  test("backslash pages\\users\\[id].scrml infers /users/:id with param", () => {
+    const files = [makeFileAST("C:\\Users\\Ryan\\app\\pages\\users\\[id].scrml", [])];
+    const pages = buildPageRouteTree(files);
+    const page = pages.get("C:\\Users\\Ryan\\app\\pages\\users\\[id].scrml");
+    expect(page.urlPattern).toBe("/users/:id");
+    expect(page.params).toEqual(["id"]);
+    expect(page.isCatchAll).toBe(false);
+  });
+
+  test("backslash pages\\index.scrml infers / (root)", () => {
+    const files = [makeFileAST("C:\\Users\\Ryan\\app\\pages\\index.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    expect(pages.get("C:\\Users\\Ryan\\app\\pages\\index.scrml").urlPattern).toBe("/");
+  });
+
+  test("backslash pages\\posts\\[...slug].scrml infers /posts/*slug catch-all", () => {
+    const files = [makeFileAST("C:\\Users\\Ryan\\app\\pages\\posts\\[...slug].scrml", [])];
+    const pages = buildPageRouteTree(files);
+    const page = pages.get("C:\\Users\\Ryan\\app\\pages\\posts\\[...slug].scrml");
+    expect(page.urlPattern).toBe("/posts/*slug");
+    expect(page.params).toEqual(["slug"]);
+    expect(page.isCatchAll).toBe(true);
+  });
+
+  test("legacy routes\\ backslash prefix is also recognized", () => {
+    const files = [makeFileAST("C:\\proj\\routes\\users\\[id].scrml", [])];
+    const pages = buildPageRouteTree(files);
+    expect(pages.get("C:\\proj\\routes\\users\\[id].scrml").urlPattern).toBe("/users/:id");
+  });
+
+  test("mixed separators (app/pages\\login.scrml) still infer /login", () => {
+    const files = [makeFileAST("C:\\Users\\Ryan\\app/pages\\login.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    expect(pages.get("C:\\Users\\Ryan\\app/pages\\login.scrml").urlPattern).toBe("/login");
+  });
+
+  test("mixed separators (app\\pages/users\\[id].scrml) infer /users/:id", () => {
+    const files = [makeFileAST("C:/Users/Ryan/app\\pages/users\\[id].scrml", [])];
+    const pages = buildPageRouteTree(files);
+    expect(pages.get("C:/Users/Ryan/app\\pages/users\\[id].scrml").urlPattern).toBe("/users/:id");
+  });
+
+  test("UNC path \\\\server\\share\\app\\pages\\login.scrml infers /login", () => {
+    const files = [makeFileAST("\\\\server\\share\\app\\pages\\login.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    expect(pages.get("\\\\server\\share\\app\\pages\\login.scrml").urlPattern).toBe("/login");
+  });
+
+  test("backslash _layout.scrml is still excluded; sibling page still routes", () => {
+    const files = [
+      makeFileAST("C:\\app\\pages\\_layout.scrml", []),
+      makeFileAST("C:\\app\\pages\\index.scrml", []),
+    ];
+    const pages = buildPageRouteTree(files);
+    expect(pages.has("C:\\app\\pages\\_layout.scrml")).toBe(false);
+    expect(pages.has("C:\\app\\pages\\index.scrml")).toBe(true);
+    expect(pages.get("C:\\app\\pages\\index.scrml").urlPattern).toBe("/");
+  });
+
+  test("map key preserves the ORIGINAL backslash separator (codegen keys by it)", () => {
+    // Regression guard: the fix must NOT normalize the pages map key — codegen
+    // (codegen/index.ts pagesByFile.get(filePart)) looks up by the un-normalized
+    // fileAST.filePath / entry-point id, so the key must keep its separator form.
+    const files = [makeFileAST("C:\\app\\pages\\login.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    expect(pages.has("C:\\app\\pages\\login.scrml")).toBe(true);
+    expect(pages.has("C:/app/pages/login.scrml")).toBe(false);
+    expect(pages.get("C:\\app\\pages\\login.scrml").filePath).toBe("C:\\app\\pages\\login.scrml");
+  });
+
+  test("backslash inference is IDENTICAL to the forward-slash result (parity)", () => {
+    // Drives the acceptance criterion: the SAME logical layout authored with
+    // backslashes must produce the same urlPattern set as forward slashes.
+    const rel = [
+      "index.scrml",
+      "login.scrml",
+      "batches.scrml",
+      "users/[id].scrml",
+      "users/index.scrml",
+      "posts/[...slug].scrml",
+      "auth/login.scrml",
+    ];
+    const posix = buildPageRouteTree(rel.map((r) => makeFileAST("/home/u/app/pages/" + r, [])));
+    const win = buildPageRouteTree(
+      rel.map((r) => makeFileAST("C:\\u\\app\\pages\\" + r.replace(/\//g, "\\"), [])),
+    );
+    const posixPatterns = [...posix.values()].map((p) => p.urlPattern).sort();
+    const winPatterns = [...win.values()].map((p) => p.urlPattern).sort();
+    expect(winPatterns).toEqual(posixPatterns);
+    expect(winPatterns).toEqual(
+      ["/", "/auth/login", "/batches", "/login", "/posts/*slug", "/users", "/users/:id"].sort(),
+    );
+  });
+});
 // ---------------------------------------------------------------------------
 // §21 — scrml: module imports recognized as server triggers for CPS
 // (Regression test for BUG-R15-003)

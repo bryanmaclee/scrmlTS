@@ -196,6 +196,54 @@ describe("§6 I-FN-PROMOTABLE — diagnostic shape", () => {
 });
 
 // ---------------------------------------------------------------------------
+// §6b Negative — body reads mutable browser/global state (GitHub #17)
+//      The lint shares `checkFnBodyProhibitions` as its eligibility probe, so a
+//      `function` that reads window.location / document.cookie / navigator.* is
+//      NOT fn-eligible and must NOT be suggested for promotion. A genuinely-pure
+//      sibling (string-arg parse) must STILL be suggested.
+// ---------------------------------------------------------------------------
+
+describe("§6b I-FN-PROMOTABLE — negative: mutable global-state read", () => {
+  test("function reading window.location.search does NOT fire I-FN-PROMOTABLE", () => {
+    const src = `\${
+  function getN() {
+    const v = parseInt(new URLSearchParams(window.location.search).get("n"), 10)
+    return isNaN(v) ? 0 : v
+  }
+}
+<div>Hi</>`;
+    const result = compileSource(src);
+    expect(getFnPromotableDiags(result).length).toBe(0);
+  });
+
+  test("function reading document.cookie does NOT fire I-FN-PROMOTABLE", () => {
+    const src = `\${
+  function readCookie() {
+    const c = document.cookie
+    return c
+  }
+}
+<div>Hi</>`;
+    const result = compileSource(src);
+    expect(getFnPromotableDiags(result).length).toBe(0);
+  });
+
+  test("a genuinely-pure sibling (string-arg parse) STILL fires I-FN-PROMOTABLE", () => {
+    const src = `\${
+  function numOrAbsent(s: string) {
+    const v = parseInt(new URLSearchParams(s).get("n"), 10)
+    return isNaN(v) ? 0 : v
+  }
+}
+<div>Hi</>`;
+    const result = compileSource(src);
+    const diags = getFnPromotableDiags(result);
+    expect(diags.length).toBe(1);
+    expect(diags[0].message).toContain("numOrAbsent");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // §7 Lint never blocks compile
 // ---------------------------------------------------------------------------
 

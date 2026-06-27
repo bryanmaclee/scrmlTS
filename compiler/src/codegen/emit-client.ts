@@ -1601,35 +1601,51 @@ export function generateClientJs(ctx: CompileContext): string {
   if (authMiddlewareEntry) {
     const { loginRedirect } = authMiddlewareEntry;
 
+    // Issue #15 (rjantz3 v0.7.0): in a shell/layout app the entry's
+    // `app.client.js` is loaded as a classic <script> on EVERY composed page
+    // (codegen/index.ts shell-composition). When a page is ITSELF auth-gated
+    // its own `*.client.js` is ALSO a classic <script> on that page. Two
+    // classic scripts share one global lexical environment, so two top-level
+    // `let _scrml_session` / `const session` declarations collided
+    // ("Identifier '_scrml_session' has already been declared") and the page
+    // never hydrated. Fix: a window-anchored idempotent singleton — the FIRST
+    // script to load builds the projection (one `_scrml_session_init()` fetch,
+    // one source of truth) and stashes it on `window._scrml_session_projection`;
+    // a later script references it instead of re-declaring + re-initializing.
+    // `var session` is redeclarable across classic scripts (unlike `let`/`const`)
+    // and is the only top-level name the lowered `@session` body reads.
     lines.push("// --- @session reactive projection (compiler-generated) ---");
-    lines.push("let _scrml_session = null;");
-    lines.push("");
-    lines.push("async function _scrml_session_init() {");
-    lines.push("  try {");
-    lines.push("    const resp = await fetch('/_scrml/session', { credentials: 'include' });");
-    lines.push("    if (resp.ok) {");
-    lines.push("      _scrml_session = await resp.json();");
-    lines.push("    } else {");
-    lines.push("      _scrml_session = null;");
+    lines.push("var session = (typeof window !== 'undefined' && window._scrml_session_projection)");
+    lines.push("  ? window._scrml_session_projection");
+    lines.push("  : (function () {");
+    lines.push("    let _scrml_session = null;");
+    lines.push("    async function _scrml_session_init() {");
+    lines.push("      try {");
+    lines.push("        const resp = await fetch('/_scrml/session', { credentials: 'include' });");
+    lines.push("        if (resp.ok) {");
+    lines.push("          _scrml_session = await resp.json();");
+    lines.push("        } else {");
+    lines.push("          _scrml_session = null;");
+    lines.push("        }");
+    lines.push("      } catch {");
+    lines.push("        _scrml_session = null;");
+    lines.push("      }");
     lines.push("    }");
-    lines.push("  } catch {");
-    lines.push("    _scrml_session = null;");
-    lines.push("  }");
-    lines.push("}");
-    lines.push("");
-    lines.push("const session = {");
-    lines.push("  get current() { return _scrml_session; },");
-    lines.push("  async destroy() {");
-    lines.push("    await fetch('/_scrml/session/destroy', {");
-    lines.push("      method: 'POST',");
-    lines.push("      credentials: 'include',");
-    lines.push("    });");
-    lines.push("    _scrml_session = null;");
-    lines.push(`    window.location.href = ${JSON.stringify(loginRedirect)};`);
-    lines.push("  },");
-    lines.push("};");
-    lines.push("");
-    lines.push("_scrml_session_init();");
+    lines.push("    const session = {");
+    lines.push("      get current() { return _scrml_session; },");
+    lines.push("      async destroy() {");
+    lines.push("        await fetch('/_scrml/session/destroy', {");
+    lines.push("          method: 'POST',");
+    lines.push("          credentials: 'include',");
+    lines.push("        });");
+    lines.push("        _scrml_session = null;");
+    lines.push(`        window.location.href = ${JSON.stringify(loginRedirect)};`);
+    lines.push("      },");
+    lines.push("    };");
+    lines.push("    _scrml_session_init();");
+    lines.push("    if (typeof window !== 'undefined') window._scrml_session_projection = session;");
+    lines.push("    return session;");
+    lines.push("  })();");
     lines.push("");
   }
 

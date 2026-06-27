@@ -20165,6 +20165,19 @@ function checkFnBodyProhibitions(
     ".removeAttribute",
   ];
 
+  // §48.3.4 (extension, GitHub #17) — `document` members already covered by
+  // E-FN-002 (DOM-node operations). Listed here so the non-deterministic
+  // global-READ check below does NOT double-fire E-FN-004 on top of E-FN-002 for
+  // the same access. Mutable-state READS off `document` that are NOT DOM-node
+  // ops (`document.cookie`, `.referrer`, `.title`, `.location`, …) are NOT in
+  // this set and DO fire E-FN-004.
+  const DOM_NODE_DOCUMENT_MEMBERS = new Set([
+    "createElement", "createTextNode", "createDocumentFragment", "createComment",
+    "getElementById", "getElementsByClassName", "getElementsByTagName", "getElementsByName",
+    "querySelector", "querySelectorAll", "body", "head", "documentElement",
+    "write", "writeln", "open", "close",
+  ]);
+
   /**
    * Extract the text representation of an AST node for heuristic string matching.
    * BPP may have parsed raw expression text into `value`, `expr`, `text`, or `raw` fields.
@@ -20600,6 +20613,54 @@ function checkFnBodyProhibitions(
               stmtSpan,
             ));
             break; // one error per statement for non-det
+          }
+        }
+
+        // E-FN-004 (extension, GitHub #17 — rjantz3 v0.7.0): a non-deterministic
+        // READ of mutable BROWSER/GLOBAL state — `window.location`,
+        // `window.innerWidth`, `document.cookie`, `navigator.userAgent`, etc.
+        // (§48.3.4). These are property READS (not the call-shaped NON_DET_CALLS
+        // above), so they get their own member-prefix matcher keyed on the global
+        // root. Reading them inside a pure `fn`/`pure` body is non-deterministic
+        // for the SAME reason `Date.now()`/`Math.random()` are: a zero-arg `fn`
+        // returns different values across calls (after navigation / resize /
+        // cookie or storage change), breaking referential transparency.
+        //
+        // Binding-aware: a user-shadowed root (a local `location`/`window`/…
+        // param or decl, so in `localNames`) is the adopter's OWN value, not the
+        // host global, and is never gated — mirrors the §41.19/§41.20 import-
+        // binding precedent. A bare `URLSearchParams(s)` over a STRING ARGUMENT
+        // stays pure (no global root); only `URLSearchParams(window.location.…)`
+        // — the global-state READ — disqualifies.
+        {
+          // Roots: window · document · navigator · location · screen · history ·
+          // localStorage · sessionStorage (the mutable host-global surface).
+          const GLOBAL_READ_RE =
+            /\b(window|document|navigator|location|screen|history|localStorage|sessionStorage)\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)/g;
+          let gm: RegExpExecArray | null;
+          while ((gm = GLOBAL_READ_RE.exec(txt)) !== null) {
+            // Skip a member access of something else (`foo.window`) or a
+            // `$`-prefixed identifier (`$window`) — only the bare global root is
+            // the host global. (`\b` already rejects `myLocation` / word-char
+            // prefixes; this guards the `.`/`$` cases — mirrors the NONDET_CALL_RE
+            // guard above.)
+            if (gm.index > 0) {
+              const prev = txt[gm.index - 1];
+              if (prev === "." || prev === "$") continue;
+            }
+            const root = gm[1];
+            const member = gm[2];
+            // Binding-aware: a user-shadowed root is NOT the host global.
+            if (localNames.has(root)) continue;
+            // DOM-node `document.*` ops are E-FN-002 territory — don't double-fire.
+            if (root === "document" && DOM_NODE_DOCUMENT_MEMBERS.has(member)) continue;
+            errors.push(new TSError(
+              "E-FN-004",
+              `E-FN-004: \`fn ${fnName}\` body reads \`${root}.${member}\`, which is mutable browser/global state and is non-deterministic \u2014 it can return different values across calls (e.g. after navigation, a resize, or a cookie/storage change). ` +
+              `\`fn\` must be a pure function of its inputs. Read \`${root}.${member}\` in a \`function\` (the server/effect boundary is inferred per \u00a712.2) and pass the value into \`fn ${fnName}\` as a parameter.`,
+              stmtSpan,
+            ));
+            break; // one E-FN-004 per statement for global-state reads
           }
         }
 

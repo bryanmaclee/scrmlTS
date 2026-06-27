@@ -30,6 +30,7 @@ import { resolve, dirname, join } from "path";
 import { writeFileSync, rmSync, existsSync, mkdirSync } from "fs";
 import { Database } from "bun:sqlite";
 import { compileScrml } from "../../src/api.js";
+import { conciseArrowBodyHasSql } from "../../src/codegen/detect-sql-in-arrow.ts";
 
 const testDir = dirname(new URL(import.meta.url).pathname);
 const TMP_ROOT = resolve(testDir, "_tmp_sql_in_arrow");
@@ -110,6 +111,84 @@ describe("ss19 #12 — SQL inside an arrow body diagnoses precisely (not a compi
       return { ids: ids }
     }`),
       "sql-free-arrow",
+    );
+    expect(codes).not.toContain("E-SQL-009");
+    expect(codes.filter((c) => !c?.startsWith("W-"))).toEqual([]);
+  });
+});
+
+/**
+ * Issue #12 blast radius (S215-class adversarial completion). The S220 emit-server
+ * detection caught BLOCK-body arrows only; the live Acorn parser mangles a
+ * CONCISE / curried arrow body that contains a `?{}` (the SQL is orphaned as a
+ * sibling `sql` node, or the inner body is dropped) so the `?{`...`}` escape-hatch
+ * `.raw` signature is absent — these leaked as E-CODEGEN-INVALID-JS (and, when the
+ * fn does not escalate to server, into the CLIENT bundle). The post-AST
+ * detectSqlInConciseArrowBody pass (wired at TAB, api.js) closes the gap.
+ */
+describe("ss19 #12 blast radius — CONCISE / curried arrow bodies diagnose precisely", () => {
+  const cases = [
+    ["concise-direct",       `    function doit() {\n      const ins = (x) => ?{\`INSERT INTO items (id) VALUES (\${x})\`}.run()\n      ins(1)\n    }`],
+    ["concise-return",       `    function makeIns() {\n      return (x) => ?{\`INSERT INTO items (id) VALUES (\${x})\`}.run()\n    }\n    function doit() { makeIns()(1) }`],
+    ["curried-nested",       `    function doit() {\n      const f = (a) => (b) => { ?{\`INSERT INTO items (id) VALUES (\${b})\`}.run() }\n      f(1)(2)\n    }`],
+    ["curried-multistmt",    `    function doit() {\n      const f = (a) => (b) => { log(a); ?{\`INSERT INTO items (id) VALUES (\${b})\`}.run() }\n      f(1)(2)\n    }`],
+    ["concise-in-map",       `    function doit() {\n      [1,2,3].map(x => ?{\`INSERT INTO items (id) VALUES (\${x})\`}.run())\n    }`],
+  ];
+  for (const [tag, body] of cases) {
+    test(`${tag}: ?{} in a concise arrow body → E-SQL-009, NOT E-CODEGEN-INVALID-JS`, () => {
+      const { codes, errors } = compileSrc(WRAP(body), tag);
+      expect(codes).toContain("E-SQL-009");
+      expect(codes).not.toContain("E-CODEGEN-INVALID-JS");
+      // Exactly ONE E-SQL-009 (the concise pass + emit-server site stay disjoint).
+      expect(codes.filter((c) => c === "E-SQL-009").length).toBe(1);
+      const msg = errors.find((e) => e.code === "E-SQL-009")?.message ?? "";
+      expect(msg).toContain("server function");
+    });
+  }
+
+  test("no false positive: a SQL-free curried arrow compiles clean", () => {
+    const { codes } = compileSrc(
+      WRAP(`    function doit() {
+      const add = (a) => (b) => a + b
+      return { n: add(1)(2) }
+    }`),
+      "sql-free-curried",
+    );
+    expect(codes).not.toContain("E-SQL-009");
+    expect(codes.filter((c) => !c?.startsWith("W-"))).toEqual([]);
+  });
+
+  // Unit-level guard on the body-extent scanner (the anchored SQL-opener check).
+  describe("conciseArrowBodyHasSql — body-extent + anchored opener", () => {
+    test("concise SQL body → true", () => {
+      expect(conciseArrowBodyHasSql("( x ) => ?{`SELECT`}.all()")).toBe(true);
+    });
+    test("braced body (emit-server owns it) → false", () => {
+      expect(conciseArrowBodyHasSql("( x ) => { ?{`SELECT`} }")).toBe(false);
+    });
+    test("SQL-free concise arrow → false", () => {
+      expect(conciseArrowBodyHasSql("( x ) => x + 1")).toBe(false);
+    });
+    test("anchored: a non-opener `?{` in the body must NOT match a real opener PAST the body extent", () => {
+      // A bare `.test(text.slice(k))` would over-reach the `;`-bounded body and
+      // match the trailing opener → false E-SQL-009. The anchored check returns false.
+      expect(conciseArrowBodyHasSql("( x ) => g(x?{a:1}:0) ; const q = ?{`SELECT`}")).toBe(false);
+    });
+    test("a real opener genuinely INSIDE the body (after a non-opener `?{`) → true", () => {
+      expect(conciseArrowBodyHasSql("( x ) => ( x?{a:1}:?{`SELECT`}.all() )")).toBe(true);
+    });
+  });
+
+  test("no false positive: a SQL-free concise arrow ADJACENT to a valid statement-level ?{}", () => {
+    // The dangling-`=>` Case-A signal must NOT mistake a SQL-free concise arrow
+    // followed by a legitimate statement-level `?{}` for the orphaned-body shape.
+    const { codes } = compileSrc(
+      WRAP(`    function doit() {
+      const inc = (x) => x + 1
+      ?{\`INSERT INTO items (id) VALUES (1)\`}.run()
+      return { n: inc(1) }
+    }`),
+      "concise-arrow-adjacent-sql",
     );
     expect(codes).not.toContain("E-SQL-009");
     expect(codes.filter((c) => !c?.startsWith("W-"))).toEqual([]);

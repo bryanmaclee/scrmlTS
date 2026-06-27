@@ -4218,7 +4218,17 @@ export function buildPageRouteTree(files: FileAST[]): Map<string, PageRoute> {
   for (const fileAST of files) {
     const filePath = fileAST.filePath;
 
-    const match = findRoutePrefix(filePath);
+    // Normalize OS path separators (Windows `\\` → `/`) for separator-agnostic
+    // route inference (GH#16). The ORIGINAL `filePath` stays the `pages` map key
+    // and the stored `.filePath` field — downstream consumers key by the
+    // un-normalized `fileAST.filePath` / entry-point id (codegen/index.ts
+    // `pagesByFile.get(filePart)`), so the key MUST match that separator form.
+    // Only the prefix-detection + segment arithmetic below operates on the
+    // normalized copy. On POSIX `replace` is a no-op (no backslashes) — the
+    // forward-slash corpus is byte-identical.
+    const normalizedPath = filePath.replace(/\\/g, "/");
+
+    const match = findRoutePrefix(normalizedPath);
     if (match == null) {
       // Not under a recognized route directory — single-page app, mount at /
       pages.set(filePath, {
@@ -4233,8 +4243,9 @@ export function buildPageRouteTree(files: FileAST[]): Map<string, PageRoute> {
 
     const { idx: routesIdx, prefix } = match;
 
-    // Extract the relative path after the matched prefix
-    const relativePath = filePath.slice(routesIdx + prefix.length);
+    // Extract the relative path after the matched prefix (normalized copy —
+    // `routesIdx` is valid for both since the replace is length-preserving).
+    const relativePath = normalizedPath.slice(routesIdx + prefix.length);
 
     // Skip _layout.scrml files — they are layout wrappers, not pages
     const fileName = relativePath.split("/").pop();
@@ -4244,7 +4255,7 @@ export function buildPageRouteTree(files: FileAST[]): Map<string, PageRoute> {
     const { urlPattern, params, isCatchAll } = filePathToUrlPattern(relativePath);
 
     // Look for a _layout.scrml in the same directory or ancestor directories
-    const layoutFilePath = findLayoutFile(filePath, routesIdx, prefix);
+    const layoutFilePath = findLayoutFile(normalizedPath, routesIdx, prefix);
 
     pages.set(filePath, {
       filePath,

@@ -39,6 +39,7 @@ import { buildMcpDescriptors } from "./codegen/mcp-descriptors.ts";
 import { runCG } from "./code-generator.js";
 import { generateValueOnlyServerJs } from "./codegen/emit-server.ts";
 import { validateEmittedArtifacts } from "./codegen/validate-emit.ts";
+import { detectSqlInConciseArrowBody } from "./codegen/detect-sql-in-arrow.ts";
 import { runMetaEval } from "./meta-eval.ts";
 import { resolveModules, resolveModulePath } from "./module-resolver.js";
 import { runNRBatch } from "./name-resolver.ts";
@@ -1083,6 +1084,13 @@ export function compileScrml(options = {}) {
     const bsResult = bsResults[i];
     const result = stage("TAB", () => _buildAST(bsResult));
     collectErrors("TAB", result.errors, result.filePath || bsResult.filePath);
+    // issue #12 blast radius — a `?{}` SQL block inside a CONCISE / curried arrow
+    // body (`(x) => ?{...}`, `(a)=>(b)=>{?{...}}`, `.map(x => ?{...})`) leaks as the
+    // generic E-CODEGEN-INVALID-JS (and, when the fn does not escalate to server,
+    // into the CLIENT bundle — emit-server.ts never runs). Diagnose precisely here,
+    // parser-agnostic + escalation-independent. BRACED-body arrows stay with the
+    // emit-server.ts E-SQL-009 site (the concise gate keeps the two disjoint).
+    collectErrors("CG", detectSqlInConciseArrowBody(result.ast, result.filePath || bsResult.filePath), result.filePath || bsResult.filePath);
     // Attach source text for library-mode codegen (export-decl span extraction)
     if (result.filePath && sourceByFile.has(result.filePath)) {
       result._sourceText = sourceByFile.get(result.filePath);
