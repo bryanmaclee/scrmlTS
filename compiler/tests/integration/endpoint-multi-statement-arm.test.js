@@ -164,6 +164,73 @@ describe("<endpoint> multi-statement bare-body arm (§61.10)", () => {
     expect(errCodes(r)).not.toContain("E-CODEGEN-INVALID-JS");
   });
 
+  // ---- @-led multi-statement bare body (g-endpoint-at-led-arm-trailing-expr-dropped, ss49)
+  //
+  // An @-led bare body (`@x = …` / `@x` followed by the intended return value)
+  // previously ESCAPED this guard: rewriteServerExpr's AST path consumed only the
+  // first expression and SILENTLY DROPPED the trailing value-expr, so the lowered
+  // expr parsed as a single expression and no diagnostic fired — the arm's
+  // response value was lost (silent-wrong). The fix preserves the multi-statement
+  // shape so an @-led multi-statement body fires E-ENDPOINT-MULTI-STATEMENT-ARM
+  // identically to the non-@ case (multi-statement lowering stays a §61.10
+  // future-wave gap — the §60.7 LIMIT-PRIMITIVES boundary). ------------------
+
+  test("@-led multi-statement bare body fires E-ENDPOINT-MULTI-STATEMENT-ARM (no silent drop)", () => {
+    const r = compile(
+      ep(
+        FS + DI +
+        `  <DeltaSince(seq)>\n` +
+        `    @cursor = seq + 1\n` +
+        `    { jsonrpc: "2.0", result: { since: cursor, count: 0 } }\n` +
+        `  </>\n`,
+      ),
+    );
+    expect(errCodes(r)).toContain("E-ENDPOINT-MULTI-STATEMENT-ARM");
+    // The whole point: the value-expr is no longer silently dropped to a clean compile.
+    expect(errCodes(r)).not.toContain("E-CODEGEN-INVALID-JS");
+    expect(multiStmtErr(r).message).toContain("<DeltaSince> arm");
+  });
+
+  test("@-led bare-ref + trailing value-expr fires E-ENDPOINT-MULTI-STATEMENT-ARM", () => {
+    const r = compile(
+      ep(
+        FS + DI +
+        `  <DeltaSince(seq)>\n` +
+        `    @seq\n` +
+        `    { jsonrpc: "2.0", result: { since: seq } }\n` +
+        `  </>\n`,
+      ),
+    );
+    expect(errCodes(r)).toContain("E-ENDPOINT-MULTI-STATEMENT-ARM");
+    expect(errCodes(r)).not.toContain("E-CODEGEN-INVALID-JS");
+  });
+
+  test("@-led multi-statement WILDCARD arm fires identically, naming <_>", () => {
+    const r = compile(
+      `<program>\n` + ENUM +
+      `<endpoint path="/fsp" method="POST" accepts=FspMethod>\n` +
+      FS + DI +
+      `  <_>\n    @x = 1\n    { jsonrpc: "2.0", result: {} }\n  </>\n` +
+      `</endpoint>\n</program>\n`,
+    );
+    const e = multiStmtErr(r);
+    expect(e).toBeTruthy();
+    expect(e.message).toContain("<_> arm");
+    expect(errCodes(r)).not.toContain("E-CODEGEN-INVALID-JS");
+  });
+
+  test("supported: a single-expression @-bearing bare body does NOT fire (no over-fire)", () => {
+    // A LEGITIMATE single-expression arm body that reads a request-body field via
+    // `@field` must remain green — the fix must not over-fire on single exprs.
+    // (The @seq value lowering to _scrml_body["seq"] in the envelope is asserted
+    // by the R26 CLI repro in the dispatch evidence.)
+    const r = compile(
+      ep(FS + DI + `  <DeltaSince(seq)>\n    { jsonrpc: "2.0", result: { since: @seq, count: 0 } }\n  </>\n`),
+    );
+    expect(errCodes(r)).not.toContain("E-ENDPOINT-MULTI-STATEMENT-ARM");
+    expect(errCodes(r).filter((c) => c.startsWith("E-"))).toEqual([]);
+  });
+
   // ---- regression / no-op proof on the canonical example -----------------
 
   test("example 33 (all single-expression arms) fires no endpoint codegen diagnostic", () => {

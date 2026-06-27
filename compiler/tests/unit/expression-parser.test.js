@@ -30,6 +30,7 @@ import {
   walk,
   extractIdentifiersFromAST,
   extractReactiveDepsFromAST,
+  rewriteServerReactiveRefsAST,
 } from "../../src/expression-parser.ts";
 
 describe("parseExpression", () => {
@@ -174,5 +175,55 @@ describe("extractReactiveDepsFromAST", () => {
     const deps = extractReactiveDepsFromAST("@count + @unknown", known);
     expect(deps.has("count")).toBe(true);
     expect(deps.has("unknown")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rewriteServerReactiveRefsAST — multi-statement trailing-content guard
+// (g-endpoint-at-led-arm-trailing-expr-dropped, ss49)
+//
+// parseExpression (parseExpressionAt) consumes only the FIRST expression of a
+// multi-statement input. The AST rewriter previously re-emitted just that first
+// expression, SILENTLY DROPPING every trailing statement (e.g. an `@`-led
+// `<endpoint>` arm body's intended JSON return value). It now bails to the
+// caller's regex fallback (`ok: false`) when parseExpression reports trailing
+// content, so no statement is lost and the multi-statement shape stays visible
+// to the §61 E-ENDPOINT-MULTI-STATEMENT-ARM guard.
+// ---------------------------------------------------------------------------
+
+describe("rewriteServerReactiveRefsAST trailing-content guard (ss49)", () => {
+  test("a single @-bearing expression is rewritten via the AST path", () => {
+    const r = rewriteServerReactiveRefsAST("@count + 1");
+    expect(r.ok).toBe(true);
+    expect(r.result).toContain('_scrml_body["count"]');
+  });
+
+  test("a multi-statement @-led body bails (ok:false) — does NOT collapse to the first statement", () => {
+    const raw = '@cursor = seq + 1\n{ jsonrpc: "2.0", result: { since: cursor } }';
+    const r = rewriteServerReactiveRefsAST(raw);
+    // Bail → the caller's regex fallback preserves the whole text. Critically,
+    // the result must NOT be the lone first statement (the silent-drop bug).
+    expect(r.ok).toBe(false);
+    expect(r.result).toBe(raw);
+  });
+
+  test("a multi-statement @-led bare-ref body bails (ok:false)", () => {
+    const raw = '@snapshot\n{ jsonrpc: "2.0", result: { snap: snapshot } }';
+    const r = rewriteServerReactiveRefsAST(raw);
+    expect(r.ok).toBe(false);
+    expect(r.result).toBe(raw);
+  });
+
+  test("a single multi-line @-bearing expression is NOT a false-positive (AST path)", () => {
+    const r = rewriteServerReactiveRefsAST("deltaWindow(\n  @seq,\n  0\n)");
+    expect(r.ok).toBe(true);
+    expect(r.result).toContain('_scrml_body["seq"]');
+  });
+
+  test("a body with no @ is a no-op pass-through (ok:true)", () => {
+    const raw = 'seq\n{ jsonrpc: "2.0" }';
+    const r = rewriteServerReactiveRefsAST(raw);
+    expect(r.ok).toBe(true);
+    expect(r.result).toBe(raw);
   });
 });

@@ -738,7 +738,20 @@ export function rewriteServerReactiveRefsAST(expr: string): RewriteResult {
   if (!expr.includes("@")) return { result: expr, ok: true };
   if (/::|\?\{/.test(expr)) return { result: expr, ok: false };
 
-  let { ast } = parseExpression(expr);
+  const parsed = parseExpression(expr);
+  let ast = parsed.ast;
+  // g-endpoint-at-led-arm-trailing-expr-dropped (ss49): parseExpression
+  // (parseExpressionAt) consumes only the FIRST expression of a multi-statement
+  // input and reports the remainder as `trailingContent`. Re-emitting just that
+  // first expression would silently DROP every trailing statement — e.g. an
+  // `@`-led `<endpoint>` arm body (`@cursor = seq + 1` followed by the intended
+  // JSON return value) collapsed to the bare assignment, hiding the
+  // multi-statement shape from the §61 `E-ENDPOINT-MULTI-STATEMENT-ARM` guard so
+  // the arm's response value was lost with no diagnostic. Bail to the caller's
+  // regex fallback, which rewrites `@`-refs across the WHOLE text and preserves
+  // every statement, so the multi-statement body survives intact and is detected
+  // — matching the non-`@` multi-statement bare-body behavior.
+  if (ast && parsed.trailingContent) return { result: expr, ok: false };
   if (!ast) {
     const stmts = parseStatements(expr);
     if (!stmts.ast) return { result: expr, ok: false };
