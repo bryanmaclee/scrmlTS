@@ -860,23 +860,24 @@ function emitUnary(node: UnaryExpr, ctx: EmitExprContext): string {
   }
   let arg = emitExpr(node.argument, ctx);
   if (node.prefix) {
-    // g-unary-of-exponent-arg-no-paren (ss50) — JS grammar forbids an
-    // un-parenthesized UnaryExpression as the base of `**`:
-    //   ExponentiationExpression : UnaryExpression
-    //                            | UpdateExpression ** ExponentiationExpression
-    // A prefix unary APPLIED TO a `**` expression — `Unary(-, Binary(**, 2, 3))`
-    // for source `-(2 ** 3)` — would serialize flat as `-2 ** 3`, which is a
-    // SyntaxError that `node --check` rejects (E-CODEGEN-INVALID-JS). Wrap the
-    // `**` argument so the unary parenthesizes its exponent: `-(2 ** 3)`. This
-    // is the OPERAND-side sibling of the ss21 left-operand guard in
-    // binaryOperandNeedsParens (which wraps a unary LEFT operand of `**` — the
-    // inverse `(-2) ** 3` direction). The restriction holds for EVERY prefix
-    // unary operator (`-2 ** 3`, `~2 ** 3`, `!2 ** 3`, `typeof 2 ** 3`,
-    // `void 2 ** 3`, … are ALL SyntaxErrors), so the wrap is unconditional on
-    // the operator. It also keeps the B3 double-sign guard below from mis-firing
-    // (a wrapped arg starts with `(`, never a `-`/`+` sign char). AST-precedence
-    // check (argument is a `**` binary), not string-sniffing.
-    if (node.argument.kind === "binary" && (node.argument as BinaryExpr).op === "**") {
+    // g-unary-of-additive-arg (HIGH) — a prefix unary applied to a LOOSER-binding
+    // argument must re-wrap it in grouping parens. Acorn discards the source
+    // ParenthesizedExpression (no `preserveParens`), so `-(2 + 3)` parsed to
+    // `Unary(-, Binary(+, 2, 3))` and the flat printer re-serialized it as
+    // `-2 + 3` = `(-2) + 3` = 1 — a SILENT wrong-value miscompile (should be -5;
+    // green compile, `node --check` clean — the worst class). `-(2 - 3)` →
+    // `-2 - 3` = -5 (should be 1) is the same bug. The prefix unary binds TIGHTER
+    // than EVERY binary operator (additive, multiplicative, relational, shift,
+    // bitwise, logical, `**`) and the loose `?:` / assign / arrow forms, so the
+    // mis-association hits ALL prefix unaries — `!(a * b)`, `~(a + b)`,
+    // `typeof (a || b)`, `-(a ? b : c)`, … all mis-print without the wrap.
+    // GENERALIZES the ss50 `**`-only special case (`-(2 ** 3)` stayed a LOUD
+    // E-CODEGEN-INVALID-JS, the rest were silent) via unaryArgNeedsParens. It is
+    // the OPERAND-side sibling of the ss21 binaryOperandNeedsParens left-operand
+    // guard (`(-2) ** 3`), which it leaves intact. AST-precedence driven, not
+    // string-sniffing; a wrapped arg starts with `(`, so the B3 double-sign guard
+    // below never mis-fires on it.
+    if (unaryArgNeedsParens(node.argument)) {
       arg = `(${arg})`;
     }
     // typeof, void, delete, await need a space before the operand
@@ -1201,6 +1202,15 @@ const BINARY_PRECEDENCE: Record<BinaryExpr["op"], number> = {
 // `**` is the only right-associative binary operator in JS.
 const RIGHT_ASSOCIATIVE: ReadonlySet<BinaryExpr["op"]> = new Set(["**"]);
 
+// Prefix unary operators (`-`, `+`, `~`, `!`, `typeof`, `void`, `delete`,
+// `await`) bind TIGHTER than every binary operator in the table above —
+// INCLUDING `**` (14) — and far tighter than the loose compound forms
+// (`?:` / assignment / arrow). On this internal precedence scale that places
+// the prefix unary one tier above `**`, so EVERY binary (and every loose
+// compound) is a looser-binding argument that needs a paren wrap. Used by
+// unaryArgNeedsParens / emitUnary.
+const UNARY_PRECEDENCE = 15;
+
 /**
  * A binary CHILD operand emits its own outer brackets when its operator is one
  * of the special-cased forms in emitBinary (equality → `(a === b)` /
@@ -1320,6 +1330,54 @@ function binaryOperandNeedsParens(
   // Left-associative: natural grouping is on the left, so a same-precedence
   // RIGHT child needs explicit parens.
   return isRightChild;
+}
+
+/**
+ * Decide whether the ARGUMENT of a prefix unary operator must be wrapped in
+ * grouping parens on emission. Acorn discards the source's
+ * ParenthesizedExpression node (no `preserveParens`), so `-(2 + 3)` parses to
+ * `Unary(-, Binary(+, 2, 3))` and the un-guarded flat printer re-serialized it
+ * as `-2 + 3` = `(-2) + 3` = 1 — a SILENT wrong-value miscompile (should be -5;
+ * green compile, `node --check` clean). The prefix unary binds TIGHTER than the
+ * argument's top operator whenever that operator is looser than UNARY_PRECEDENCE
+ * — i.e. any flat binary (additive, multiplicative, relational, shift, bitwise,
+ * logical, `**`) or any loose compound (`?:` / assignment / arrow). Wrap iff the
+ * argument's top-node precedence is LOOSER than the prefix unary.
+ *
+ * The mis-association hits ALL prefix unaries, not just `-`: `!(a * b)` →
+ * `!a * b` = `(!a) * b`, `~(a + b)` → `~a + b`, `typeof (a || b)` →
+ * `typeof a || b` are all WRONG. (For `-` over a multiplicative arg the value is
+ * coincidentally right because negation distributes — `-(a * b)` ≡ `(-a) * b` —
+ * but the wrap is still correct and harmless.) AST-precedence driven, never
+ * string-sniffing. This is the OPERAND-side sibling of binaryOperandNeedsParens'
+ * ss21 left-operand guard (`(-2) ** 3`); it leaves that direction untouched.
+ */
+function unaryArgNeedsParens(arg: ExprNode): boolean {
+  switch (arg.kind) {
+    // Loose compound forms bind looser than EVERY binary operator, hence looser
+    // than the prefix unary: `-(a ? b : c)`, `-(x = y)`, `-(() => z)` all
+    // mis-serialize flat without the wrap. (Mirrors binaryOperandNeedsParens'
+    // loose-kind switch + receiverNeedsParens.)
+    case "ternary":
+    case "assign":
+    case "lambda":
+      return true;
+    case "binary": {
+      const op = (arg as BinaryExpr).op;
+      // Self-bracketed equality / is-* binaries already emit their own grouping
+      // (`(a === b)` / `_scrml_structural_eq(...)` / is-IIFE), so an outer wrap
+      // would be a redundant `((...))`. Only the flat-emitting binaries can
+      // mis-associate against the tighter-binding prefix unary.
+      if (!binaryOpEmitsFlat(op)) return false;
+      return BINARY_PRECEDENCE[op] < UNARY_PRECEDENCE;
+    }
+    default:
+      // Primaries (lit, ident, member, index, call, new, …) bind tighter and a
+      // NESTED unary sits at the same tier (right-associative — `-(-a)` ≡
+      // `- -a`), so neither needs a wrap. The B3 double-sign space-guard in
+      // emitUnary handles the nested `-`/`+` adjacency.
+      return false;
+  }
 }
 
 function emitBinary(node: BinaryExpr, ctx: EmitExprContext): string {

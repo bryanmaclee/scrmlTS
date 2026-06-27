@@ -87,6 +87,7 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 > `bun scripts/state.ts --write` regenerates it; `--check` gates it.
 
 <!-- @generated:recent-sessions START (do not edit — `bun scripts/state.ts --write`) -->
+- `cf1471dd` — chore(s226): WRAP — PA-continuity inversion ratified+operationalized · ss50 landed · landing-concurrency amendment — **pushed**
 - `352d90f6` — chore(s225): WRAP — ss43+ss49+ss52 landed · FBIP inc-2 ruled-(b) · dPA queue (7) drained+ratified — **pushed**
 - `6ead4d7a` — chore(s224): wrap — Q-MATCH+Q-FIP ratified · 3-lane + Ryan adopter batches landed — **pushed**
 - `7d8b527a` — chore(s223): wrap 6c — maps refresh to HEAD 6988c426 (S223 source changes: HAMT/auto-await/parse/endpoint/@apply) — **pushed**
@@ -94,7 +95,6 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 - `f1607b97` — chore(s221): wrap — hand-off CLOSE + changelog S221 + delta-log [108] + 24 worktrees pruned — **pushed**
 - `cf9f1109` — chore(s220): wrap 6c — maps refresh to HEAD 852d6aa7 (full S220 surface) — **pushed**
 - `26ffea4e` — chore(s219): WRAP — vPA deputy ELIMINATED + flogence digest-boot wired + close bookkeeping — **pushed**
-- `162564f3` — chore(s218): wrap-finalize — digest regen at settled HEAD (post deputy-maint merge, delta-seq 64) — **pushed**
 <!-- @generated:recent-sessions END -->
 
 ## A. Compiler core

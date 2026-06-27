@@ -170,10 +170,14 @@ describe("g-unary-of-exp §3: sibling / inverse shapes are NOT over-parenthesize
     expect(emit(un("-", id("a")))).toBe("-a");
   });
 
-  test("unary of `*` argument NOT wrapped (pre-existing, multiplicative negation distributes): -2 * 3", () => {
-    // `*` argument is a separate, pre-existing shape; the ss50 fix targets ONLY
-    // `**`. (Negation distributes over `*`, so `-2 * 3 === -(2 * 3)` regardless.)
-    expect(emit(un("-", bin("*", num("2"), num("3"))))).toBe("-2 * 3");
+  test("unary of `*` argument now wrapped under the generalized fix (g-unary-of-additive-arg): -(2 * 3)", () => {
+    // The ss50 `**`-only special case was GENERALIZED (g-unary-of-additive-arg)
+    // to wrap ANY argument binding looser than the prefix unary — `*` included.
+    // `Unary(-, Binary(*, 2, 3))` now emits `-(2 * 3)`. For `-` this is
+    // value-identical to the old `-2 * 3` (negation distributes), but the wrap is
+    // REQUIRED for the non-distributing prefix unaries — `!(a*b)`, `~(a+b)`,
+    // `typeof (a||b)` all mis-associate flat — so it is applied uniformly.
+    expect(emit(un("-", bin("*", num("2"), num("3"))))).toBe("-(2 * 3)");
   });
 
   test("right unary operand of `**` stays bare: a ** -b → a ** -b (JS allows `2 ** -1`)", () => {

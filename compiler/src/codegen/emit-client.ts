@@ -687,10 +687,27 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
     return { foundEquality, foundReset };
   }
 
-  // Walk the full AST tree recursively
+  // Walk the full AST tree recursively.
+  //
+  // g-mount-hang-rails-dev (S226): a per-walk `visited` set guards BOTH
+  // walkNodes and walkBody so every AST node is processed at most once. Without
+  // it the walk was EXPONENTIAL on deeply-nested markup. `detectFromNode`'s
+  // `case "markup"` (and the for-stmt / logic / function-decl cases) re-descends
+  // into `node.children` / `node.body`, which the outer walkNodes/walkBody ALSO
+  // descend — so every nesting level DOUBLED the visit count (2^depth). On the
+  // rails-dev `reflect()` + `emit()` CRUD sample the emitted `/`-shorthand
+  // markup is unterminated and the recovery AST is ~15 levels deep, so the
+  // doubling hung the compile at 100% CPU (never terminating). The visited guard
+  // makes the walk strictly linear and guarantees termination on ANY AST shape
+  // (tree, DAG, or — defensively — a cyclic graph). The chunk-set output is
+  // unchanged: `chunks` is a Set and detectFromNode's `.add` calls are
+  // idempotent, so visiting each node exactly once yields the identical set.
+  const visitedChunkNodes = new Set<any>();
   function walkNodes(nodes: any[]): void {
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
+      if (visitedChunkNodes.has(node)) continue;
+      visitedChunkNodes.add(node);
       detectFromNode(node);
       if (Array.isArray(node.children)) walkNodes(node.children);
       if (Array.isArray(node.body)) walkBody(node.body);
@@ -701,6 +718,8 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
     if (!Array.isArray(body)) return;
     for (const stmt of body) {
       if (!stmt || typeof stmt !== "object") continue;
+      if (visitedChunkNodes.has(stmt)) continue;
+      visitedChunkNodes.add(stmt);
       detectFromNode(stmt);
       if (Array.isArray(stmt.body)) walkBody(stmt.body);
       if (Array.isArray(stmt.consequent)) walkBody(stmt.consequent);
