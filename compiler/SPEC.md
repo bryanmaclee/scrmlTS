@@ -11366,6 +11366,13 @@ Note: `variant-pattern` accepts both `.` (canonical) and `::` (alias) notation (
 separator is `:>` (canonical); `=>` and `->` are deprecated aliases accepted during the
 deprecation window (surfacing `W-MATCH-ARROW-LEGACY`, §34). `is-pattern` defined in §18.17.
 
+**Multi-scrutinee head (§18.19, S224).** The `match` head MAY be a parenthesized comma-list of
+scrutinees — `match (e1, …, eN) { (p1, …, pN) :> body }` — dispatching on the JOINT case of N
+values (the standalone, value-return sibling of the engine `(state × message)` arm form,
+§51.0.S). A `,` at paren-depth 1 in the head selects this form; `match (e)` (no comma) is the
+ordinary single-scrutinee parenthesized expression. The parens are grammar delimiters, NOT a
+tuple value (no-tuple, §59.7 / §14.11). Full grammar + product-exhaustiveness + scope at §18.19.
+
 **Normative statements:**
 
 - A match arm separator SHALL be `:>` (canonical). `=>` and `->` are deprecated aliases:
@@ -12525,6 +12532,128 @@ Compiles. The function handles only the variants it cares about.
   `partial match` arm is potentially-unconsumed (the unhandled variants do not consume it).
   The compiler SHALL emit E-LIN-003 if a `lin` variable in scope at the `partial match`
   boundary is not provably consumed on all calling paths before the `partial match`.
+
+---
+
+### 18.19 Multi-Scrutinee Match — `match (e1, …, eN) { (p1, …, pN) :> body }`
+
+> **Status — Nominal / spec-ahead-of-implementation (S224, 2026-06-27).** This subsection is
+> W1 of the multi-scrutinee-match arc; the parser / typer / codegen build is a separate wave.
+> The new `E-MATCH-SCRUTINEE-ARITY` §34 catalog row + the exhaustiveness-product extension land
+> WITH that implementation per Rule 4 (the §60 `<api>` / §61 `<endpoint>` / §26.8 `@apply`
+> precedent — codes are NAMED here, catalogued at impl). Ratified S224 (the compiler-reimagining
+> Road-B program — every build wave's dispatch core is a `match`-fold over the joint case).
+
+**Purpose.** Dispatch on the JOINT case of several scrutinees at once. This is the standalone,
+value-return sibling of the engine-bound `(state × message)` arm form (§51.0.S): it lifts that
+product-dispatch OUT of `<engine accepts=>` into a pure `match` over an explicit scrutinee list.
+It is the canonical shape for a state-machine *fold* — the per-step transition table written as
+one exhaustive `match` over `(currentState, event)`:
+
+```scrml
+fn step(st: LexState): LexState {
+    return match (st.mode, classify(st.cur, lastKind(st))) {
+        (.InCode, .SawQuote(q))             :> scanString(st, q)      // q binds the event payload
+        (.InCode, .SawBacktick)             :> enterTemplate(st)
+        (.InCode, .SawLineComment)          :> scanLineComment(st)
+        (.InTemplateBody, .SawInterpClose)  :> closeInterp(st)
+        (_, .SawEof)                        :> emitEof(st)
+        | _                                 :> advanceOne(st)
+    }
+}
+```
+
+#### Grammar (extends §18.2)
+
+```
+match-head        ::= expression                              // single-scrutinee (§18.2, unchanged)
+                    | '(' expression (',' expression)+ ')'    // multi-scrutinee head (NEW)
+product-pattern   ::= '(' arm-pattern (',' arm-pattern)+ ')'  // one §18.2 arm-pattern per position
+                    | wildcard-arm                            // '_' / 'else' — covers the whole product
+multi-match-arm   ::= product-pattern (':>' | '=>' | '->') arm-body
+```
+
+Each per-position `arm-pattern` is the ordinary §18.2 `arm-pattern` (`variant-pattern` |
+`wildcard-arm` | `is-pattern`). The multi-scrutinee head is recognized by a `,` at paren-depth 1
+immediately inside the `match ( … )` head; `match (e)` with no comma is the ordinary
+single-scrutinee parenthesized form (§18.2). A `product-pattern`'s pattern count MUST equal the
+head's scrutinee count — otherwise **E-MATCH-SCRUTINEE-ARITY** (§34; row lands with impl).
+
+#### No-tuple invariant (the parens are grammar, not a value)
+
+The parens + commas in the head and in each `product-pattern` are **bounded grammar** — they
+carry NO tuple semantics. There is no tuple VALUE, no `.0` / `.1` accessor, no value of tuple
+type flowing anywhere: `(st.mode, ev)` is a scrutinee LIST, not a constructed pair. `let t =
+(a, b)` remains not-a-tuple, and `fn f() -> (A, B)` remains illegal, exactly as the no-tuple
+ratification (S222; §59.7 / §14.11) requires. Multi-scrutinee `match` is a **control-flow form,
+not a value form**. (Rust's `match (a, b)` constructs and matches a tuple *value*; scrml's is
+parallel discrimination over a scrutinee list — the surface coincides, the semantics do not. The
+form is *consistent* with no-tuple, not a reversal of it.)
+
+#### Bindings (§18.7)
+
+Payload bindings in ANY position bind plain identifiers (§18.7 positional binding), in scope
+across the WHOLE arm body — `q` above is bound from position 2's `.SawQuote(q)` and is live in
+`scanString(st, q)`. Per §18.12, matching `(a, b)` is a consumption event for each `lin`
+scrutinee, and a destructured `lin` payload binding inherits `lin` status per position.
+
+#### Not nested patterns — breadth, not depth (§18.11 preserved)
+
+Multi-scrutinee widens the match over **scrutinees** (breadth), NOT over **pattern depth**. Each
+position stays a SINGLE-LEVEL pattern, so the §18.11 nested-pattern exclusion (DC-018) is intact:
+
+- `(.A, .B(x))` — LEGAL: two scrutinees, each one level (`.B(x)` binds the plain identifier `x`).
+- `(.A(.B(x)), c)` — ILLEGAL: a variant pattern in a binding position of scrutinee 1 is a nested
+  pattern → **E-SYNTAX-012** (§18.11 / DC-018), unchanged. Decompose with an inner `match`.
+
+Guard clauses remain excluded (§18.10, E-SYNTAX-011): product exhaustiveness is the cross-product
+of per-position variant-set coverage — deterministic and guard-free, preserving §18.10's
+TS-C-tractability rationale.
+
+#### Exhaustiveness — product totality (extends §18.8)
+
+The arms must cover the CROSS-PRODUCT of the per-scrutinee variant sets, OR provide coverage via
+`_` — a whole-product `| _ :>` wildcard arm, and/or a per-position `_` inside a `product-pattern`
+(`(_, .SawEof)` covers every mode paired with `SawEof`). The check is the cross-product of the
+§18.8.1 variant-set coverage, computed at Stage 6 (TS-C). A missing combination is non-exhaustive:
+**E-TYPE-020** (the canonical non-exhaustive-enum-match code, §18.8.1) — extended so the message
+names the uncovered `(V1 × … × VN)` cell(s); **E-TYPE-006** when a scrutinee position is a union
+type (§18.8.2). `partial match ( … )` opts out of the product check exactly as for the
+single-scrutinee form (§18.18). When a position's scrutinee carries an enum-subset refinement
+(§53.15), that position's variant set narrows to the subset identically (a dead variant in that
+position is **E-MATCH-SUBSET-DEAD-ARM**). The result-type rule (§18.4) is unchanged — all arm
+bodies produce a common result type.
+
+#### Scope (v1)
+
+- **JS-style value-return form ONLY** (§18.1+). The block-form markup multi-scrutinee
+  (`<match for=(A, B)>`) is NOT introduced: there is no markup use case the engine-bound
+  `(state × message)` form (§51.0.S) does not already serve for the reactive / 2D-UI case.
+- **N-ary** (N ≥ 2). Pairs are the common case; the grammar generalizes to any arity.
+- **Codegen (Nominal):** lowers to nested single-scrutinee dispatch — `(.A, .B) :> body`
+  desugars to `match s1 { .A :> match s2 { .B :> body … } … }` — observationally identical to a
+  hand-written nested match. No new runtime.
+
+#### New / reused diagnostics
+
+| Code | Severity | Fires when |
+|---|---|---|
+| `E-MATCH-SCRUTINEE-ARITY` | Error | a `product-pattern`'s pattern count ≠ the multi-scrutinee head's scrutinee count (NAMED S224; §34 row lands with impl) |
+
+**Reused (no new code):** `E-TYPE-020` / `E-TYPE-006` (non-exhaustive enum / union, extended to
+the product, §18.8); `E-SYNTAX-012` (a nested pattern in a position, §18.11); `E-SYNTAX-011`
+(guard clause, §18.10); `E-MATCH-SUBSET-DEAD-ARM` (a dead variant in a subset-refined position,
+§18.8.1 / §53.15); `E-MATCH-ARM-SEPARATOR` (a stray `,` after an arm body, §18.2).
+
+#### Cross-references
+
+§18.2 (single-scrutinee grammar this extends); §18.4 (result type); §18.7 (payload binding);
+§18.8 (exhaustiveness this products); §18.10 / §18.11 (guard / nested exclusions preserved);
+§18.18 (`partial match` opt-out); §51.0.S (the engine-bound `(state × message)` sibling — same
+product-dispatch, reactive-runtime vehicle); §59.7 / §14.11 (no-tuple — the parens are grammar);
+`docs/changes/compiler-reimagining-derisk-2026-06-26/RULING.md` (the Road-B program this serves).
+
+---
 
 ## 19. Error Handling (Revised)
 
