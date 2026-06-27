@@ -3696,6 +3696,21 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // arm's close set markupRootClosed → the break fired at the `:` → the
     // alternate arm was DROPPED → `() => ... > 0 ?)` → E-CODEGEN-INVALID-JS.
     let sawTernaryAtRoot = false;
+    // g-ternary-arrow-sql-e-error-003 (2026-06-27) — the ternary-body SIBLING of
+    // the ss50 `=>`-direct concise-arrow SQL-capture below. A concise arrow whose
+    // body is a TERNARY with a `?{}` SQL block in an arm (`(x) => cond ? ?{`…`} : alt`)
+    // hits the depth-0 BLOCK_REF break with `lastTok` = the ternary `?` (PUNCT),
+    // NOT `=>`, so the ss50 `_lastIsArrowGlyph` guard does not apply. Pre-fix the
+    // break orphaned the SQL as a sibling node and left `( x ) => cond ?` — a text
+    // ending in `?` that the const/let-decl `?`-propagate hook then mis-read as a
+    // `propagate-expr`, surfacing the WRONG diagnostic (E-ERROR-003 "`?` in non-!
+    // fn") instead of the canonical E-SQL-009 (SQL-in-arrow forbidden, issue #12
+    // Option-B). `sawArrowGlyphAtDepth0` latches true once a top-level `=>` is
+    // collected (the break only fires at depth 0, where a concise-arrow RHS's `=>`
+    // sits), so the break-suppression below stays scoped to arrow bodies — a
+    // statement-level propagation-then-SQL (`foo()? ` then a separate `?{}` stmt)
+    // has no depth-0 `=>` and keeps its statement boundary.
+    let sawArrowGlyphAtDepth0 = false;
 
     const STMT_KEYWORDS = new Set(["lift", "function", "fn", "const", "let", "import", "export", "use", "type", "server", "for", "while", "do", "if", "return", "match", "partial", "switch", "try", "fail", "transaction", "throw", "continue", "break", "when", "given"]);
     const DECL_KEYWORDS = new Set(["const", "let", "type", "function", "fn"]);
@@ -3743,7 +3758,22 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       // so the SQL node survives to codegen structurally (where emit-server's
       // E-SQL-009 owns the SQL-in-arrow diagnostic). Block-body stays byte-identical.
       const _lastIsArrowGlyph = lastTok && lastTok.kind === "OPERATOR" && lastTok.text === "=>";
-      if (tok.kind === "BLOCK_REF" && depth === 0 && parts.length > 0 && (tok.block?.tagNesting ?? 0) === 0 && !_lastIsArrowGlyph) break;
+      // g-ternary-arrow-sql-e-error-003: a `?{}` SQL block in a TERNARY ARM of a
+      // concise arrow body (`(x) => cond ? ?{`…`} : alt`) — `lastTok` is the
+      // ternary `?` (PUNCT) and we are inside an arrow body (sawArrowGlyphAtDepth0).
+      // Suppress the statement-boundary break so the full arrow text (incl. the
+      // `?{`…`}`) is captured into the SAME escape-hatch the `=>`-direct and
+      // block-body forms produce, where E-SQL-009 (SQL-in-arrow forbidden) owns the
+      // diagnostic. Without this the SQL is orphaned and `…=> cond ?` mis-parses as
+      // a propagate-expr → spurious E-ERROR-003. The arrow-context gate keeps a
+      // statement-level `foo()?` + separate `?{}` statement (no depth-0 `=>`) intact.
+      // (S227 PA completion) BOTH ternary arms — `lastTok` is the consequent `?`
+      // OR the alternate `:`: `(x) => cond ? ?{…} : alt` AND `(x) => cond ? a : ?{…}`.
+      // The agent's original `?`-only form missed the alternate-arm case (its own
+      // test caught it); a `?{}` SQL block in EITHER arm of an arrow-body ternary
+      // must capture into the arrow escape-hatch → E-SQL-009, never break.
+      const _lastIsTernaryPunctInArrow = lastTok && lastTok.kind === "PUNCT" && (lastTok.text === "?" || lastTok.text === ":") && sawArrowGlyphAtDepth0;
+      if (tok.kind === "BLOCK_REF" && depth === 0 && parts.length > 0 && (tok.block?.tagNesting ?? 0) === 0 && !_lastIsArrowGlyph && !_lastIsTernaryPunctInArrow) break;
       // S89 §13.2 Sub-Phase B — `async function` / `async fn` decl-shape boundary.
       // When collectExpr sees `async` immediately followed by `function`/`fn` at
       // depth 0 (with optional `server` between), this is the start of an
@@ -4211,6 +4241,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         if (tok.text === "?") { ternaryDepth++; sawTernaryAtRoot = true; }
         else if (tok.text === ":" && ternaryDepth > 0) ternaryDepth--;
       }
+      // g-ternary-arrow-sql-e-error-003: latch that this expression's top-level
+      // body is a concise arrow (a depth-0 `=>`). Used by the BLOCK_REF
+      // break-suppression above so a `?{}` SQL block in a ternary ARM of an arrow
+      // body is captured into the arrow escape-hatch (→ E-SQL-009), while a
+      // statement-level propagation-then-SQL keeps its boundary.
+      if (depth === 0 && tok.kind === "OPERATOR" && tok.text === "=>") sawArrowGlyphAtDepth0 = true;
       // Track angle-bracket depth as ELEMENT NESTING (not delimiter nesting).
       // Open: `<` IDENT/KEYWORD increments — opens an element.
       // Close: `< /` decrements — start of a `</tag>` close-tag.
