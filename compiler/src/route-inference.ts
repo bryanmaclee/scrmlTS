@@ -1311,9 +1311,48 @@ export function walkBodyForTriggers(
       // (e.g. lift markup with bare-expr children) still gets walked.
     }
 
-    // For nested function-decl: do NOT recurse into their bodies
-    // here — they are separate function nodes with their own analysis entries.
+    // Nested function-decl.
+    //
+    // g-sql-in-nested-function-client-leak (S225): a nested function that uses
+    // a server-only resource (a `?{}` SQL block, an inline `_={ … }=` foreign
+    // block, a server-only import-namespace member access, or a protected-field
+    // read) must escalate its ENCLOSING function to server. Codegen emits a
+    // nested `function-decl` INLINE inside its parent's body — collect.ts
+    // `collectFunctions` does NOT recurse into nested bodies, so a nested
+    // declaration never becomes its own server route. The ONLY way to keep a
+    // nested `?{}` off the client (no `_scrml_sql` leak, no E-CG-006, no silent
+    // `return null` SQL stub) is to server-place the parent; once the parent is
+    // server-bound the nested body is emitted server-side intact.
+    //
+    // The recursive `walkBodyForTriggers` re-runs the SAME server-trigger
+    // detection over the nested body (and, transitively, fn-in-fn-in-fn — its
+    // own function-decl case recurses again), so the OUTERMOST enclosing
+    // function that lexically contains a server-only resource escalates. We
+    // merge ONLY the server-escalation triggers (`server-only-resource` /
+    // `protected-field-access`) — the nested fn's callees and E-ROUTE-001
+    // warnings belong to its OWN analysis entry (every nested fn is collected
+    // by `collectFileFunctions`), so re-collecting them here would double-count.
+    //
+    // S215 partition: a nested function that touches NO server-only resource
+    // yields NO trigger, so a genuinely-client nested helper never drags its
+    // parent server-side (the partition holds).
     if (node.kind === "function-decl") {
+      const nestedBody = Array.isArray((node as any).body) ? (node as any).body : [];
+      if (nestedBody.length > 0) {
+        const nested = walkBodyForTriggers(
+          nestedBody,
+          protectedFields,
+          stateBlockIdByField,
+          filePath,
+          isWorkerBody,
+          importedServerNamespaces,
+        );
+        for (const t of nested.triggers) {
+          if (t.kind === "server-only-resource" || t.kind === "protected-field-access") {
+            triggers.push(t);
+          }
+        }
+      }
       return;
     }
 

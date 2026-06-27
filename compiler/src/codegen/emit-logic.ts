@@ -3640,9 +3640,6 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       const paramSigs: string[] = params.map((p, i) => paramSignature(p, i));
       const generatorStar: string = node.isGenerator ? "*" : "";
 
-      const fnLines: string[] = [];
-      fnLines.push(`function${generatorStar} ${fnName}(${paramSigs.join(", ")}) {`);
-
       // Function body has its own scope for declared names. C5: set
       // `insideFunctionBody` so init-thunk sidecar is suppressed for any
       // `@x = expr` reassignments (which are AST-shaped as state-decls but
@@ -3651,11 +3648,33 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       const body: any[] = node.body ?? [];
 
       const bodyCodes = emitFnShortcutBody(body, fnOpts, node.fnKind, node.hasReturnType);
+      const fnBodyLines: string[] = [];
       for (const code of bodyCodes) {
         for (const line of code.split("\n")) {
-          fnLines.push(`  ${line}`);
+          fnBodyLines.push(`  ${line}`);
         }
       }
+
+      // g-sql-in-nested-function-client-leak (S225): when a nested function is
+      // emitted inside a SERVER-placed parent (its enclosing fn escalated to
+      // server because this nested body uses a `?{}` SQL block / other
+      // server-only resource — see route-inference.ts walkBodyForTriggers), its
+      // server-only resources lower to `await _scrml_sql\`…\`` etc. A bare
+      // `function` wrapper would make that `await` a SyntaxError
+      // ("await outside async" → E-CODEGEN-INVALID-JS). Mirror the meta-effect
+      // wrapper (case "meta" above): emit `async function` whenever the emitted
+      // body contains a top-level `await`. On the CLIENT path the same nested
+      // body stubs its SQL to `return null` (no await), so the function stays
+      // synchronous and this is a no-op. A generator (`function*`) is never
+      // marked async (async generators are a distinct, unused form here).
+      const _nestedHasAwait = !node.isGenerator && fnBodyLines.some(
+        (l) => /(^|[^.\w$])await\s/.test(l),
+      );
+      const _asyncKw = _nestedHasAwait ? "async " : "";
+
+      const fnLines: string[] = [];
+      fnLines.push(`${_asyncKw}function${generatorStar} ${fnName}(${paramSigs.join(", ")}) {`);
+      for (const line of fnBodyLines) fnLines.push(line);
 
       fnLines.push(`}`);
       return fnLines.join("\n");
