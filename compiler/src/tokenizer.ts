@@ -1250,31 +1250,99 @@ export function tokenizeLogic(content: string, baseOffset: number, baseLine: num
     tokens.push(makeToken("STRING", str, start, absOff(), l, c));
   }
 
-  function readBacktickString() {
-    const start = absOff();
-    const l = line, c = col;
-    advance(); // consume `
-    let str = "";
-    let depth = 1;
+  // ss39 #2 (g-nested-template-raw-mangle) — scan a `${...}` interpolation body
+  // after its opening `${` has been consumed. Returns the body text INCLUDING
+  // the matching closing `}`, balancing braces and stepping over nested strings
+  // and nested template literals so a `${`, `}`, or backtick that lives inside
+  // an inner template/string does NOT prematurely close the interpolation.
+  // Mutually recursive with `scanTemplateBody` (a nested `` ` `` re-enters
+  // template-string scanning, whose own `${...}` re-enters this helper).
+  function scanInterpBody(): string {
+    let out = "";
+    let depth = 1; // the opening `${` has already been consumed
     while (pos < content.length && depth > 0) {
+      const cc = content[pos];
+      // Backslash escape — copy both chars verbatim.
+      if (cc === "\\" && pos + 1 < content.length) {
+        out += content[pos] + content[pos + 1];
+        advance(2);
+        continue;
+      }
+      if (cc === "{") { depth++; out += cc; advance(); continue; }
+      if (cc === "}") { depth--; out += cc; advance(); continue; }
+      // Nested string — copy verbatim up to + including the matching quote.
+      if (cc === '"' || cc === "'") {
+        const q = cc;
+        out += cc;
+        advance();
+        while (pos < content.length && content[pos] !== q) {
+          if (content[pos] === "\\" && pos + 1 < content.length) {
+            out += content[pos] + content[pos + 1];
+            advance(2);
+            continue;
+          }
+          out += content[pos];
+          advance();
+        }
+        if (pos < content.length) { out += content[pos]; advance(); } // closing quote
+        continue;
+      }
+      // Nested template literal — recurse so its own `${...}` / backticks are
+      // preserved verbatim and don't leak brace-depth into this interpolation.
+      if (cc === "`") {
+        out += "`";
+        advance();
+        out += scanTemplateBody();
+        out += "`";
+        continue;
+      }
+      out += cc;
+      advance();
+    }
+    return out;
+  }
+
+  // ss39 #2 — scan a template-literal body after its opening backtick has been
+  // consumed. Returns the inner text (WITHOUT the surrounding backticks),
+  // consuming the matching closing backtick. Preserves every `${...}`
+  // interpolation verbatim (via `scanInterpBody`), including nested templates.
+  function scanTemplateBody(): string {
+    let out = "";
+    while (pos < content.length) {
+      const cc = content[pos];
       // Backslash escape: `\\`` (escaped backtick), `\\$` (escaped
       // interpolation), `\\n` etc. — copy BOTH chars verbatim and skip past
       // them so an escaped backtick does NOT close the template. Without this
       // the tokenizer treated `\\`` as a closing backtick and truncated the
       // template literal mid-string (e.g. `\\`${name}\\`` lost everything
       // after the first escaped backtick, emitting invalid JS).
-      if (content[pos] === "\\" && pos + 1 < content.length) {
-        str += content[pos] + content[pos + 1];
+      if (cc === "\\" && pos + 1 < content.length) {
+        out += content[pos] + content[pos + 1];
         advance(2);
         continue;
       }
-      if (content[pos] === "`") {
-        depth--;
-        if (depth === 0) { advance(); break; }
+      // Closing backtick (template-string level).
+      if (cc === "`") { advance(); break; }
+      // Interpolation opener — hand off to the brace-balanced scanner so a
+      // nested template's backtick / `${` is not mistaken for this template's
+      // close (the ss39 #2 nested-template-raw-mangle root cause).
+      if (cc === "$" && content[pos + 1] === "{") {
+        out += "${";
+        advance(2);
+        out += scanInterpBody();
+        continue;
       }
-      str += content[pos];
+      out += cc;
       advance();
     }
+    return out;
+  }
+
+  function readBacktickString() {
+    const start = absOff();
+    const l = line, c = col;
+    advance(); // consume opening `
+    const str = scanTemplateBody();
     const tok = makeToken("STRING", str, start, absOff(), l, c);
     // A4: mark backtick-derived STRING tokens so collectExpr can re-emit
     // them with backticks (preserving `${...}` interpolations) instead of

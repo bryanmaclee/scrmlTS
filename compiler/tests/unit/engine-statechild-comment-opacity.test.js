@@ -15,9 +15,15 @@
  *
  * Empirically confirmed at the e2e layer too: the block-splitter already
  * captures the engine body + children intact (its `skipHtmlComment` is correct)
- * — the defect was solely in the engine-statechild-parser walker. The sibling
- * `<match>` arm scanner is NOT affected (its raw body + arm-closer scan handle
- * comments correctly at every position).
+ * — the defect was solely in the engine-statechild-parser walker.
+ *
+ * CORRECTION (ss39 item 1, g-markup-comment-angle-bracket-parsed-as-tag): the
+ * original header claimed the sibling `<match>` arm scanner was "NOT affected".
+ * That was wrong — the match scanner had NO comment handling at all, so an
+ * angle-bracket fragment inside an arm-body comment was consumed as a tag,
+ * mis-firing E-MATCH-PARSE-001. Fixed by adding `skipMatchComment` to
+ * match-statechild-parser.ts; covered by
+ * match-arm-comment-angle-bracket-opacity.test.js.
  */
 
 import { describe, expect, test } from "bun:test";

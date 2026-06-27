@@ -233,17 +233,18 @@ describe("ss22 #4 — peer call / @cell inside a ${} interpolation", () => {
     expect(js).toContain("`x ${await pa()} y ${await pb()} z`");
     // Peer + plain mixed — peer awaited, plain unchanged.
     expect(js).toContain("`${await pa()} and ${42 + n}`");
-    // Nested template — the OUTER interpolation's peer is awaited. (At the
-    // emit-expr level emitServerTemplateLit handles nested templates correctly —
-    // `emitExpr(parse("`inner ${pb()}`"))` => "`inner ${await pb()}`" — but the
-    // FULL-PROGRAM AST builder pre-mangles a NESTED template literal's `.raw`
-    // (`${`inner ${pb()}`}` arrives as `${` inner $ { pb ( ) } `}` BEFORE codegen
-    // runs), an UPSTREAM issue independent of this peer-await fix and present on
-    // the base — see NOTES. We assert the guaranteed-correct outer-level await.)
-    expect(js).toContain("`outer ${await pa()} ${");
+    // Nested template — BOTH the outer interpolation's peer AND the inner
+    // nested template's peer are awaited. (ss22 #4's emit-expr fix —
+    // emitServerTemplateLit — handled nested templates correctly, but the
+    // UPSTREAM legacy tokenizer pre-mangled a nested template's raw:
+    // `${`inner ${pb()}`}` arrived as `${` inner $ { pb ( ) } `}` BEFORE codegen.
+    // That upstream half was fixed in ss39 #2 (tokenizer.ts:readBacktickString —
+    // see nested-template-raw-mangle.test.js), so the inner template now survives
+    // verbatim and its peer is awaited too.)
+    expect(js).toContain("`outer ${await pa()} ${`inner ${await pb()}`}`");
 
     // Both peer callables emitted (the _calledPeerNames walk recovers `pa`/`pb`
-    // from the template + SQL raw text — even the mangled inner still names `pb`).
+    // from the template + SQL raw text).
     expect(js).toMatch(/async function pa\(\) \{/);
     expect(js).toMatch(/async function pb\(\) \{/);
 

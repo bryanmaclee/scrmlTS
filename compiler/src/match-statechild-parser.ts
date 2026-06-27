@@ -66,6 +66,66 @@ const VOID_ELEMENTS = new Set([
   "link", "meta", "source", "track", "wbr",
 ]);
 
+// g-markup-comment-angle-bracket-parsed-as-tag (ss39 item 1) — comment trivia
+// inside a match-arm body. BS captures the `<match>` body as a single raw text
+// run (STRUCTURAL_RAW_BODY_ELEMENTS), so any comment inside it survives verbatim
+// into `armsRaw`. The arm scanners below (`findArmCloser`, `findNextArmOpener`,
+// and the main loop's stray-content advance) interpret `<` as a structural
+// tag opener/closer — but an angle-bracket FRAGMENT inside a comment is inert
+// trivia (SPEC §27.1 — `//` universal; §27.2 — `<!-- -->` markup-native), NOT a
+// tag. Without this skip, `// NOT a <form> — use the <each> helper` had its
+// `<form>` / `<each>` consumed as openers → the close-finder's nesting depth
+// never unwound → a misleading E-MATCH-PARSE-001 ("arm has no matching closer")
+// + E-MATCH-NOT-EXHAUSTIVE on an otherwise well-formed arm/match.
+//
+// The three forms mirror BS's `findStructuralBodyEnd` (block-splitter.js) EXACTLY
+// — that helper already skips `//` (skipLineComment), `/* */` (skipBlockComment),
+// and `<!-- -->` (skipHtmlComment) when locating the body END, so the arm-split
+// here MUST classify the same byte ranges as inert or the two scanners disagree
+// on the body span. (`/* */` is not a §27.2 markup-native comment, but the BS
+// raw-body scan treats it as one; consistency with the body-end scan is the
+// governing constraint inside the captured raw body.)
+//
+// String literals / backticks are deliberately NOT skipped: per the
+// g-match-arm-apostrophe ruling (S195/S196) a `'` / `"` at the arm-body markup-
+// text level is PROSE, not a string delimiter. A `//` inside an ATTRIBUTE value
+// (e.g. `<a href="//cdn.x">`) never reaches here — the opener's inner quote-aware
+// `q`-loop in `findArmCloser` consumes it before the outer loop sees it.
+//
+// Returns the index immediately past the comment when one starts at `i`, else
+// `i` unchanged. `//` returns the index of the terminating newline (left for the
+// caller, matching skipLineComment); `/* */` and `<!-- -->` return past their
+// closer (or EOF for an unterminated comment — best-effort recovery, parity with BS).
+function skipMatchComment(s: string, i: number): number {
+  const c = s[i];
+  const c2 = s[i + 1];
+  // `//` line comment (SPEC §27.1 — universal).
+  if (c === "/" && c2 === "/") {
+    let j = i + 2;
+    while (j < s.length && s[j] !== "\n") j++;
+    return j;
+  }
+  // `/* */` block comment.
+  if (c === "/" && c2 === "*") {
+    let j = i + 2;
+    while (j < s.length) {
+      if (s[j] === "*" && s[j + 1] === "/") return j + 2;
+      j++;
+    }
+    return s.length; // unterminated — consume to EOF
+  }
+  // `<!-- -->` HTML markup comment (SPEC §27.2 — markup-native).
+  if (c === "<" && c2 === "!" && s[i + 2] === "-" && s[i + 3] === "-") {
+    let j = i + 4;
+    while (j < s.length) {
+      if (s[j] === "-" && s[j + 1] === "-" && s[j + 2] === ">") return j + 3;
+      j++;
+    }
+    return s.length; // unterminated — consume to EOF
+  }
+  return i;
+}
+
 export interface MatchArmAttr {
   name: string;     // attribute name (e.g. "rule", "effect")
   valueRaw: string; // raw attribute value (or empty for bareword attrs)
@@ -328,6 +388,11 @@ export function parseMatchArms(armsRaw: string): MatchParseResult {
       // delimiter, so it must not be tracked here (it would otherwise swallow the
       // next `<Variant>` arm-opener). `${...}` logic-context strings are guarded by
       // the braceDepth counter below (a `<` arm-opener only counts at braceDepth 0).
+      // Comment trivia is inert — a PascalCase `<Loading>` mention inside a
+      // `//` / `/* */` / `<!-- -->` comment must not be read as an arm-opener
+      // (g-markup-comment-angle-bracket-parsed-as-tag, ss39 item 1).
+      const afterComment = skipMatchComment(armsRaw, p);
+      if (afterComment !== p) { p = afterComment; continue; }
       if (c === "{") { braceDepth++; p++; continue; }
       if (c === "}") { if (braceDepth > 0) braceDepth--; p++; continue; }
       if (braceDepth === 0 && isArmOpener(p)) return p;
@@ -355,6 +420,16 @@ export function parseMatchArms(armsRaw: string): MatchParseResult {
       // strings (attribute values, `:`-shorthand display-text literals) are still
       // tracked by the inner `q`-loop's qDQ/qSQ state below; `${...}` logic blocks
       // are opaque there too.
+      //
+      // Comment trivia (`//` / `/* */` / `<!-- -->`) is inert — an angle-bracket
+      // fragment inside a comment is NOT a structural opener/closer and must not
+      // move the nesting `depth` (g-markup-comment-angle-bracket-parsed-as-tag,
+      // ss39 item 1). Checked before the `<` branch so `<!--` is skipped as a
+      // comment rather than mis-read as a malformed opener. Mirrors BS's
+      // findStructuralBodyEnd, which skips the same ranges when locating the
+      // body END — the two scanners must agree on the body span.
+      const afterComment = skipMatchComment(armsRaw, p);
+      if (afterComment !== p) { p = afterComment; continue; }
       if (c === "<") {
         // Closer forms
         if (armsRaw.slice(p, p + 3) === "</>") {
@@ -457,9 +532,14 @@ export function parseMatchArms(armsRaw: string): MatchParseResult {
     if (pos >= len) break;
     if (!isArmOpener(pos)) {
       // Skip stray content between arms (whitespace, comments — Phase 2
-      // doesn't lint these; Phase 4 may add). Advance past one char to make
-      // progress, since stray text is unusual but shouldn't infinite-loop.
-      pos++;
+      // doesn't lint these; Phase 4 may add). Comment trivia is skipped as a
+      // unit so a PascalCase `<Loading>` mention inside a between-arms comment
+      // isn't mis-read as an arm-opener on a later iteration
+      // (g-markup-comment-angle-bracket-parsed-as-tag, ss39 item 1). Otherwise
+      // advance one char to make progress (stray text is unusual but must not
+      // infinite-loop).
+      const afterComment = skipMatchComment(armsRaw, pos);
+      pos = afterComment !== pos ? afterComment : pos + 1;
       continue;
     }
     const armOpenerStart = pos;
