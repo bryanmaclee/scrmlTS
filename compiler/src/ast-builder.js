@@ -3730,7 +3730,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       // (sql, error-effect, meta) should be its own AST node, not part of a bare-expr.
       // Exception: when the BLOCK_REF is inside a tag body (tagNesting > 0), the
       // block is part of the enclosing component expression, not a separate statement.
-      if (tok.kind === "BLOCK_REF" && depth === 0 && parts.length > 0 && (tok.block?.tagNesting ?? 0) === 0) break;
+      //
+      // g-arrow-expr-body-sql-parser-truncate (ss50): a CONCISE-body arrow whose
+      // body IS a BLOCK_REF (`(x) => ?{`…`}.all()`) must NOT break here — the
+      // `?{}` is the arrow's body, not a sibling statement. Pre-fix, the break
+      // truncated the arrow at `( x ) =>` (a dangling ParseError escape-hatch)
+      // and ORPHANED the `?{}` as a sibling `sql` node, which then surfaced only
+      // via the text-based detect-sql-in-arrow band-aid (Case A). When the last
+      // collected token is the arrow operator `=>`, the BLOCK_REF concise body is
+      // captured into the same escape-hatch the BLOCK-body form `(x) => { … }`
+      // produces (the `{` raises `depth` so the brace path never reaches here),
+      // so the SQL node survives to codegen structurally (where emit-server's
+      // E-SQL-009 owns the SQL-in-arrow diagnostic). Block-body stays byte-identical.
+      const _lastIsArrowGlyph = lastTok && lastTok.kind === "OPERATOR" && lastTok.text === "=>";
+      if (tok.kind === "BLOCK_REF" && depth === 0 && parts.length > 0 && (tok.block?.tagNesting ?? 0) === 0 && !_lastIsArrowGlyph) break;
       // S89 §13.2 Sub-Phase B — `async function` / `async fn` decl-shape boundary.
       // When collectExpr sees `async` immediately followed by `function`/`fn` at
       // depth 0 (with optional `server` between), this is the start of an

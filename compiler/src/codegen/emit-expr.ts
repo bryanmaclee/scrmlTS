@@ -858,8 +858,27 @@ function emitUnary(node: UnaryExpr, ctx: EmitExprContext): string {
       return `${_m}_scrml_reactive_set("${bare}", ${getter} ${sign} 1)`;
     }
   }
-  const arg = emitExpr(node.argument, ctx);
+  let arg = emitExpr(node.argument, ctx);
   if (node.prefix) {
+    // g-unary-of-exponent-arg-no-paren (ss50) — JS grammar forbids an
+    // un-parenthesized UnaryExpression as the base of `**`:
+    //   ExponentiationExpression : UnaryExpression
+    //                            | UpdateExpression ** ExponentiationExpression
+    // A prefix unary APPLIED TO a `**` expression — `Unary(-, Binary(**, 2, 3))`
+    // for source `-(2 ** 3)` — would serialize flat as `-2 ** 3`, which is a
+    // SyntaxError that `node --check` rejects (E-CODEGEN-INVALID-JS). Wrap the
+    // `**` argument so the unary parenthesizes its exponent: `-(2 ** 3)`. This
+    // is the OPERAND-side sibling of the ss21 left-operand guard in
+    // binaryOperandNeedsParens (which wraps a unary LEFT operand of `**` — the
+    // inverse `(-2) ** 3` direction). The restriction holds for EVERY prefix
+    // unary operator (`-2 ** 3`, `~2 ** 3`, `!2 ** 3`, `typeof 2 ** 3`,
+    // `void 2 ** 3`, … are ALL SyntaxErrors), so the wrap is unconditional on
+    // the operator. It also keeps the B3 double-sign guard below from mis-firing
+    // (a wrapped arg starts with `(`, never a `-`/`+` sign char). AST-precedence
+    // check (argument is a `**` binary), not string-sniffing.
+    if (node.argument.kind === "binary" && (node.argument as BinaryExpr).op === "**") {
+      arg = `(${arg})`;
+    }
     // typeof, void, delete, await need a space before the operand
     const needsSpace = node.op === "typeof" || node.op === "void" ||
                        node.op === "delete" || node.op === "await";

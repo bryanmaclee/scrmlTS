@@ -10,12 +10,12 @@
 
 ## Items
 
-1. **g-arrow-expr-body-sql-parser-truncate** (MED) `[status=open]` **VERIFY-FIRST · gates #12**
+1. **g-arrow-expr-body-sql-parser-truncate** (MED) `[status=landed-on-branch spa/ss50 @ 2fca8075]` **VERIFY-FIRST · gates #12**
    - An expression-body arrow `(x) => ?{…}` truncates the `?{}` at the PARSER (the SQL is destroyed pre-codegen) → #12's full fix is gated on this. Distinct from ss47's codegen half (E-CODEGEN-INVALID-JS): this is the parse-stage twin.
    - Fix = the expression-body arrow parse must capture the full `?{}` form (don't truncate at the arrow boundary). Adversarial: block-body vs expr-body arrow; `?{}` with/without `.run()`/`.all()`; nested.
    - Footprint: expression-parser `?{}`-capture in arrow-expr-body position. Surfaced ss19 (#12-adjacent).
 
-2. **g-unary-of-exponent-arg-no-paren** (MED) `[status=open]` **VERIFY-FIRST**
+2. **g-unary-of-exponent-arg-no-paren** (MED) `[status=landed-on-branch spa/ss50 @ 4490b96a]` **VERIFY-FIRST**
    - `emitUnary` drops the parens needed around a `**` ARGUMENT (e.g. `-(2 ** 3)` / `(-2) ** 3` precedence) → emitted JS is wrong/`SyntaxError`. Surfaced ss31 (out-of-scope discovery).
    - Fix = `emitUnary` must emit precedence-preserving parens around an exponent operand (JS `**` has special precedence-with-unary rules — `-2 ** 3` is a SyntaxError in JS, so the paren placement is load-bearing). Adversarial: unary-of-exponent, exponent-of-unary, chained, mixed precedence.
    - Footprint: `emit-expr.ts` `emitUnary` / the `**` precedence handling.
