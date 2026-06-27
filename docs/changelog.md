@@ -2,6 +2,16 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
+### 2026-06-27 (S226 — the PA-continuity INVERSION designed→ratified→operationalized [foundational PA-system re-architecture]; ss50 legacy-expr landing + 3 gaps [1 HIGH silent-miscompile])
+
+A foundational PA-system arc — the entire PA-continuity inversion ratified one-at-a-time, plus a clean compiler bug-fix landing.
+- **The PA-continuity INVERSION — DESIGN RATIFIED + OPERATIONALIZED** (`scrml-support/docs/deep-dives/pa-continuity-inversion-2026-06-27.md`). Reframe: the ~280k expert-load tax is ouroboros-irreducible (you can't digest the SPEC), so the inversion **AMORTIZES** it (not kills it) by keeping CHURN off the warm expert's context. Capability-map (415 delta-log moments): ~85% churn / ~15% judgment → gate passed; two compounding levers (boot-amortize + churn-offload-extends-warm-life). RATIFIED: **Option A** (expert = the warm main-loop the user talks to directly; churn → sub-agents/scripts/queries; NOT expert-as-background) + the 4-role topology + the **single-AUTHORIZER landing seam**. OPERATIONALIZED into pa-scrml.md + spa-scrml.md (no-churn-by-hand discipline · churn-front taxonomy · sPA = execution churn-front), STAGED (live-now / gated-on-dpa-015 / gated-on-flogence-index).
+- **The S226 landing-concurrency amendment** (from the DD-B OQ5 stm-concurrency-expert verdict): the "ingestion-disjoint lists" rule formalized as the named **write-skew concurrency invariant**; wholesale `git checkout -- <file>` recognized as a **lost update** → 3-way-merge for shared files; the full-suite gate named as the **semantic-write-skew backstop**. Formalizes S211/S225/file-delta-vs-cherry-pick.
+- **ss50 LANDED** (`1eb8ada5`, clean FF — the first live application of the S226 amendment's easy-case): a concise-body arrow `=>`-guard captures the full `?{}` to codegen (the ss47/#12 parse-prerequisite; Option-B SQL-in-arrow-ban intact) + `emitUnary` parenthesizes a `**`-binary argument. 2 MED gaps resolved; the ss49 salvage regression test committed (locks item-1). (+444 lines tests)
+- **3 gaps filed — 1 HIGH:** `g-unary-of-additive-arg` (HIGH — a SILENT wrong-value miscompile: `-(2+3)` emits `-2+3` = 1, should be -5) + `g-ternary-arrow-sql-e-error-003` (MED) + `g-detect-sql-in-arrow-case-a-redundant` (LOW).
+- **Build path re-scoped + the (b2) markup-anchor DD fired:** dpa-015 (markup-region `conflictsWith`) found NOT dispatch-ready — gated on the **(b2) markup-subtree anchor** (DD fired to the dPA). The inversion's real domino-1 (investigation-as-query) is mostly already-built (`scripts/dock.ts` S206 + flograph + §31 DG) → wiring, not a build.
+- **ss52 auto-fire mystery closed** — Claude prompt-line auto-suggest + the 2-key accept (not an emergent pickup; closes the S225 follow-up).
+
 ### 2026-06-27 (S225 — ss43 §18.19 multi-scrutinee match LANDED [Road-B dispatch shape]; FBIP inc-2 ruled-(b)-retired; the (c) non-reactive-local-map bug found→fixed→landed [ss52, Road-B unblock]; MED/LOW triaged→ss49-52; whole dPA queue [7] drained+ratified; agents 20→6)
 
 A very high-throughput orchestration session under the S219 primary-goal.
