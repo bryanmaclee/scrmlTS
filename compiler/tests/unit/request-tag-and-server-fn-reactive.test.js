@@ -360,10 +360,10 @@ describe("§7: ss32-item-1 — auto-await IIFE error arm", () => {
     const result = compile(errArmHandlerFx);
     expect(result.errors).toEqual([]);
     const js = result.outputs.get(errArmHandlerFx).clientJs;
-    // The wrap is bound to a result var (`let _scrml__scrml_result_N = (async ...)()`)
-    // and STILL carries the `.catch` arm — the safety net for the rejected-fetch
-    // path even though the `!{}` envelope dispatch is a separate (deeper) concern.
-    expect(js).toMatch(/let\s+_scrml__scrml_result_\d+\s*=\s*\(async\s*\(\s*\)\s*=>\s*_scrml_reactive_set\("data",\s*await\s+_scrml_fetch_loadData_\d+\([^)]*\)\s*\)\)\(\s*\)\.catch\(_scrml_async_err\s*=>\s*_scrml_error_boundary_log\("data",\s*_scrml_async_err\)\)/);
+    // ss41 (g-auto-await-error-arm-dead-promise-check): the `!{}` dispatch is now
+    // relocated INSIDE the IIFE (reading the RESOLVED envelope), and the IIFE call
+    // STILL carries ss32's `.catch` safety net for a genuine non-envelope rejection.
+    expect(js).toMatch(/\}\)\(\)\.catch\(_scrml_async_err\s*=>\s*_scrml_error_boundary_log\("data",\s*_scrml_async_err\)\)/);
     // No catch-less floating IIFE.
     expect(js).not.toMatch(/\)\)\(\s*\);/);
   });
@@ -388,5 +388,88 @@ describe("§7: ss32-item-1 — auto-await IIFE error arm", () => {
     // And the minimal always-on set assembles a runtime that defines it.
     const minimalRuntime = assembleRuntime(new Set(["core", "scope", "errors", "transitions"]));
     expect(minimalRuntime).toContain("function _scrml_error_boundary_log");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8: ss41 — g-auto-await-error-arm-dead-promise-check
+//
+// A reactive-server assignment with an inline `!{}` error arm
+// (`@cell = serverFn() !{ ::NetworkError e :> ... }`) USED to emit a DEAD
+// dispatch: emit-logic.ts §19.4.3 produced
+//     let <resultVar> = _scrml_reactive_set("cell", stub(args)); <init_set>;
+//     if (<resultVar> && <resultVar>.__scrml_error) { <arm> }
+// and the post-server-fn-iife-wrap stage lifted the `await` into an async IIFE —
+// so `<resultVar>` captured the IIFE PROMISE, `.__scrml_error` was always falsy,
+// and the user's `!{}` handler NEVER FIRED. The fix relocates the guard + arm
+// INSIDE the IIFE (after the await), reading the RESOLVED envelope, with a
+// happy-path `else` that performs the reactive set. ss32's `.catch` safety net
+// is retained for a genuine non-envelope rejection.
+// ---------------------------------------------------------------------------
+
+describe("§8: ss41 — `!{}` error arm reads the resolved envelope (not the IIFE promise)", () => {
+  test("the dead top-level `if (result && result.__scrml_error)` guard is GONE", () => {
+    const result = compile(errArmHandlerFx);
+    expect(result.errors).toEqual([]);
+    const js = result.outputs.get(errArmHandlerFx).clientJs;
+    // The OLD dead shape — `let <resultVar> = (async () => ...)().catch(...)`
+    // followed by a top-level `if (<resultVar> && <resultVar>.__scrml_error)` —
+    // must NOT appear: the result var no longer captures the IIFE promise.
+    expect(js).not.toMatch(/let\s+_scrml__scrml_result_\d+\s*=\s*\(async/);
+  });
+
+  test("the await binds a `const <resultVar>` INSIDE the IIFE", () => {
+    const result = compile(errArmHandlerFx);
+    const js = result.outputs.get(errArmHandlerFx).clientJs;
+    // `(async () => { const <resultVar> = await _scrml_fetch_loadData_N(); ... `
+    expect(js).toMatch(/\(async\s*\(\s*\)\s*=>\s*\{\s*const\s+_scrml__scrml_result_\d+\s*=\s*await\s+_scrml_fetch_loadData_\d+\([^)]*\);/);
+  });
+
+  test("the `__scrml_error` guard + arm dispatch now reads the resolved const", () => {
+    const result = compile(errArmHandlerFx);
+    const js = result.outputs.get(errArmHandlerFx).clientJs;
+    // Capture the in-IIFE const name, then assert the guard reads IT (resolved
+    // envelope), not a promise.
+    const m = js.match(/const\s+(_scrml__scrml_result_\d+)\s*=\s*await\s+_scrml_fetch_loadData_\d+/);
+    expect(m).not.toBeNull();
+    const rv = m[1];
+    expect(js).toContain(`if (${rv} && ${rv}.__scrml_error) {`);
+    expect(js).toContain(`if (${rv}.variant === "NetworkError") {`);
+    // The arm body's payload binding reads the resolved envelope.
+    expect(js).toContain(`const e = ${rv}.data;`);
+  });
+
+  test("a happy-path `else` sets the cell to the resolved value", () => {
+    const result = compile(errArmHandlerFx);
+    const js = result.outputs.get(errArmHandlerFx).clientJs;
+    const m = js.match(/const\s+(_scrml__scrml_result_\d+)\s*=\s*await\s+_scrml_fetch_loadData_\d+/);
+    const rv = m[1];
+    expect(js).toMatch(new RegExp(`\\}\\s*else\\s*\\{\\s*_scrml_reactive_set\\("data",\\s*${rv}\\);`));
+  });
+
+  test("the `.catch` safety net + the lazy `_scrml_init_set` both survive", () => {
+    const result = compile(errArmHandlerFx);
+    const js = result.outputs.get(errArmHandlerFx).clientJs;
+    expect(js).toMatch(/\}\)\(\)\.catch\(_scrml_async_err\s*=>\s*_scrml_error_boundary_log\("data",\s*_scrml_async_err\)\)/);
+    // The lazy initializer stays OUTSIDE the IIFE.
+    expect(js).toMatch(/_scrml_init_set\("data",\s*\(\)\s*=>\s*_scrml_fetch_loadData_\d+\(\)\)/);
+  });
+
+  test("output parses; no `;)` token sequence; no dead-promise guard", () => {
+    const result = compile(errArmHandlerFx);
+    const js = result.outputs.get(errArmHandlerFx).clientJs;
+    const stripped = js.replace(/^\s*import\s[^;]*;/gm, "");
+    expect(() => new Function(stripped)).not.toThrow();
+    expect(js).not.toMatch(/\)\(\);\s*\)/);
+  });
+
+  test("INVARIANCE: the no-`!{}` reactive-server form is byte-unchanged (no `let`/IIFE-block relocation)", () => {
+    const result = compile(gitiFx);
+    const js = result.outputs.get(gitiFx).clientJs;
+    // The plain `@data = loadValue()` (no `!{}`) keeps the ss32 single-line form:
+    // `(async () => _scrml_reactive_set("data", await stub()))().catch(...)`.
+    expect(js).toMatch(/\(async\s*\(\s*\)\s*=>\s*_scrml_reactive_set\("data",\s*await\s+_scrml_fetch_loadValue_\d+\(\)\s*\)\)\(\s*\)\.catch\(_scrml_async_err\s*=>\s*_scrml_error_boundary_log\("data",\s*_scrml_async_err\)\)\s*;/);
+    // And it must NOT acquire the block-form IIFE (that is error-arm-only).
+    expect(js).not.toMatch(/\(async\s*\(\s*\)\s*=>\s*\{\s*const\s+_scrml__scrml_result_\d+/);
   });
 });

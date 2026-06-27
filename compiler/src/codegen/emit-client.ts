@@ -1988,6 +1988,32 @@ export function generateClientJs(ctx: CompileContext): string {
     // awaits the fetch stub before setting the reactive. Scoped by fnNameMap
     // so only server-fn call sites (fetch stubs / CPS wrappers) are touched.
     clientStage(ctx, "post-server-fn-iife-wrap", () => {
+    // ss41 (g-auto-await-error-arm-dead-promise-check) — string-aware matching
+    // `}` finder for the error-arm relocation below. An `!{}` arm body may carry
+    // `{`/`}` inside a string literal (e.g. an error message), so a naive
+    // brace counter would mis-balance. Mirrors rewrite.ts `findMatchingBrace`:
+    // returns the index OF the matching close brace (caller slices `+ 1`).
+    const findMatchingBrace = (str: string, openPos: number): number => {
+      let depth = 1;
+      let j = openPos + 1;
+      let inStr: string | null = null;
+      while (j < str.length && depth > 0) {
+        const ch = str[j];
+        if (inStr === null) {
+          if (ch === '"' || ch === "'" || ch === "`") inStr = ch;
+          else if (ch === "{") depth++;
+          else if (ch === "}") depth--;
+        } else {
+          if (ch === "\\") {
+            j++;
+          } else if (ch === inStr) {
+            inStr = null;
+          }
+        }
+        if (depth > 0) j++;
+      }
+      return depth === 0 ? j : -1;
+    };
     for (const [, mangledName] of fnNameMap) {
       if (!/^_scrml_(fetch|cps)_/.test(mangledName)) continue;
       // Match _scrml_reactive_set("NAME", <mangledName>( ... );) at statement level.
@@ -2060,6 +2086,69 @@ export function generateClientJs(ctx: CompileContext): string {
         const hadTrailingSemi = clientCode[stmtEnd] === ";";
         if (hadTrailingSemi) stmtEnd++;
         const args = clientCode.slice(valStart + callPrefix.length, k);
+
+        // ss41 (g-auto-await-error-arm-dead-promise-check) — restore the `!{}`
+        // error arm for a reactive-server assignment. A `@cell = serverFn() !{ ... }`
+        // is emitted by emit-logic.ts §19.4.3 as the guarded-expr shape:
+        //     let <resultVar> = _scrml_reactive_set("cell", stub(args)); <init_set...>;
+        //     if (<resultVar> && <resultVar>.__scrml_error) { <arm dispatch> }
+        // The arm dispatch reads `<resultVar>.__scrml_error` / `.variant` / `.data`
+        // expecting the RESOLVED server envelope. But once this stage lifts the
+        // `await` into an async IIFE, `<resultVar>` captures the IIFE's PROMISE,
+        // not the envelope, so `.__scrml_error` is always falsy and the arm is
+        // DEAD CODE (the user's `!{}` handler never fires). Relocate the guard +
+        // arm INSIDE the IIFE, after the await, reading the resolved value, with a
+        // happy-path `else` that performs the reactive set. The `<resultVar>`
+        // genVar name is REUSED as the in-IIFE `const`, so the existing arm body
+        // (which reads `<resultVar>.variant` / `.data`) is relocated verbatim — no
+        // rewrite of the arm interior is needed. ss32's `.catch` is retained as
+        // the safety net for a genuine non-envelope rejection.
+        //
+        // Discriminator: only the error-arm shape carries the `let <resultVar> = `
+        // prefix + a trailing `if (<resultVar> && <resultVar>.__scrml_error) {`
+        // (the genVar uniquely ties the two, surviving the intervening
+        // `_scrml_init_set`). The plain no-`!{}` reactive-server assignment has
+        // NO such prefix and falls through to the ss32 form below (byte-identical),
+        // as does the expression-position wrap (no `let` prefix there either).
+        {
+          const prefixSeg = clientCode.slice(i, setIdx);
+          const letMatch = prefixSeg.match(
+            /(\blet\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?)$/,
+          );
+          if (letMatch) {
+            const resultVar = letMatch[2];
+            const letStart = setIdx - letMatch[1].length;
+            const ifNeedle = `if (${resultVar} && ${resultVar}.__scrml_error) {`;
+            const ifStart = clientCode.indexOf(ifNeedle, stmtEnd);
+            if (ifStart >= 0) {
+              const braceOpen = ifStart + ifNeedle.length - 1;
+              const closeIdx = findMatchingBrace(clientCode, braceOpen);
+              if (closeIdx >= 0) {
+                // Statements between the matched assignment and the `if` (e.g. the
+                // `_scrml_init_set(...)` lazy-initializer) stay OUTSIDE the IIFE.
+                const interveningText = clientCode.slice(stmtEnd, ifStart);
+                const ifBlock = clientCode.slice(ifStart, closeIdx + 1);
+                const indentedIf = ifBlock
+                  .split("\n")
+                  .map((l) => (l.length ? "  " + l : l))
+                  .join("\n");
+                parts.push(clientCode.slice(i, letStart));
+                parts.push(
+                  `(async () => {\n` +
+                    `  const ${resultVar} = await ${mangledName}(${args});\n` +
+                    `${indentedIf} else {\n` +
+                    `    _scrml_reactive_set(${nameArg}, ${resultVar});\n` +
+                    `  }\n` +
+                    `})().catch(_scrml_async_err => _scrml_error_boundary_log(${nameArg}, _scrml_async_err));`,
+                );
+                parts.push(interveningText);
+                i = closeIdx + 1;
+                continue;
+              }
+            }
+          }
+        }
+
         parts.push(clientCode.slice(i, setIdx));
         // ss32-item-1 (flogence S15 residual) — error arm for the auto-await IIFE.
         // The bare floating IIFE `(async () => ...)()` is catch-less: a rejected
@@ -2077,17 +2166,9 @@ export function generateClientJs(ctx: CompileContext): string {
         // The `.catch(...)` sits on the IIFE CALL — valid in BOTH statement
         // position (`(...)().catch(...);`) and expression position (preserving the
         // S84 `;)`-hazard fix: `await ((...)().catch(...))`). The happy path is
-        // byte-identical except the appended `.catch`.
-        //
-        // KNOWN RESIDUAL (separate, deeper bug — NOT fixed here, see report): a
-        // `@cell = serverFn() !{...}` reactive-server assignment emits a sibling
-        // `let _scrml__scrml_result_N = (async () => ...)(); if (_scrml__scrml_result_N
-        // && _scrml__scrml_result_N.__scrml_error) {...}` — the result var captures
-        // the IIFE's PROMISE (not the resolved envelope), so the `!{}` dispatch is
-        // DEAD CODE. Routing the rejection through `!{}` requires moving the
-        // dispatch INSIDE the IIFE (after the await), a structural change beyond
-        // this string-rewrite stage. This `.catch` is the safety net for both
-        // cases until that fix lands.
+        // byte-identical except the appended `.catch`. (The `!{}`-carrying error-arm
+        // form is handled by the ss41 relocation branch above; this is the plain
+        // no-`!{}` reactive-server assignment.)
         parts.push(`(async () => _scrml_reactive_set(${nameArg}, await ${mangledName}(${args})))().catch(_scrml_async_err => _scrml_error_boundary_log(${nameArg}, _scrml_async_err))${hadTrailingSemi ? ";" : ""}`);
         i = stmtEnd;
       }
