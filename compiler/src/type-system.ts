@@ -523,6 +523,20 @@ interface MachineType {
   // only when present, and is a no-op when null — accepts-less engines keep
   // the pre-S154 §51.0.G single-plane behavior).
   acceptsMessageType?: string | null;
+  // §51.3.3 / §51.0.B (ss42) — TRUE when the engine opener carried an explicit
+  // `name=X` attribute (a NAMED machine), FALSE when the engine auto-derived its
+  // name from `for=Type` (§51.0.C). Sourced from the parser's `engine-decl.
+  // hadNameAttr` (ast-builder.js ~15750), which exists precisely because the
+  // back-filled auto-derived `engineName` makes `name` alone unable to
+  // discriminate the two forms. Load-bearing for the machineRegistry auto-decl
+  // pre-bind (~11314): a NAMED non-derived machine does NOT source a lowercased/
+  // raw auto-read (§51.0.B: `name=` does NOT auto-var; §51.3.3: the user must
+  // declare a separate `@var: Machine = init`), so its name-derived reads must
+  // fall through to the read-side E-STATE-UNDECLARED walker rather than being
+  // silently pre-bound. A non-named engine (`<engine for=Type>` → `@type`) and a
+  // §51.9 derived/projection machine BOTH legitimately source their read and stay
+  // pre-bound.
+  hadNameAttr?: boolean;
 }
 
 // §51.3.2 (S22) — Resolved payload binding in a machine rule.
@@ -5206,6 +5220,13 @@ function buildMachineRegistry(
       typeof decl.acceptsType === "string" && (decl.acceptsType as string).length > 0
         ? (decl.acceptsType as string)
         : null;
+    // §51.3.3 / §51.0.B (ss42) — did the opener carry an explicit `name=`?
+    // Threaded onto every MachineType so the auto-decl pre-bind (~11314) can
+    // distinguish a NAMED non-derived machine (no auto-read; §51.3.3 demands a
+    // separate `@var: Machine` binding) from a non-named `<engine for=Type>`
+    // (auto-derived `@type` read, §51.0.C). The parser sets `engine-decl.
+    // hadNameAttr` (ast-builder.js ~15750) from `nameMatch !== null`.
+    const hadNameAttr = decl.hadNameAttr === true;
 
     // §51.11 (S24) — extract optional `audit @name` clause from the rules
     // body. Matches a top-level line of exactly `audit @Identifier`. Strip
@@ -5324,6 +5345,7 @@ function buildMachineRegistry(
         rules: [],
         auditTarget,
         acceptsMessageType,
+        hadNameAttr,
       });
       continue;
     }
@@ -5350,6 +5372,7 @@ function buildMachineRegistry(
           projectedVarName: engineNameToProjectedVar(name),
           auditTarget,
           acceptsMessageType,
+          hadNameAttr,
         });
         continue;
       }
@@ -5385,6 +5408,7 @@ function buildMachineRegistry(
         projectedVarName: engineNameToProjectedVar(name),
         auditTarget,
         acceptsMessageType,
+        hadNameAttr,
       });
       continue;
     }
@@ -5400,6 +5424,7 @@ function buildMachineRegistry(
         rules: [],
         auditTarget,
         acceptsMessageType,
+        hadNameAttr,
       });
       continue;
     }
@@ -5426,6 +5451,7 @@ function buildMachineRegistry(
       rules,
       auditTarget,
       acceptsMessageType,
+      hadNameAttr,
     });
   }
 
@@ -10909,6 +10935,52 @@ function annotateNodes(
       // variant's bindings (extracted from `armsRaw` via parseMatchArms — both
       // the SPACE form bareword attrs and the PAREN `payloadBindingsRaw`).
       case "match-block": {
+        // §18.0.1 / §34 (ss42 item-2) — route the markup-match `on=@cell` read
+        // through the read-side E-STATE-UNDECLARED walker. The match-block node
+        // carries its `on=` as RAW TEXT (`onExprRaw`); codegen (emit-match.ts
+        // resolveOnExpr) lowers it directly to `_scrml_reactive_get(...)` WITHOUT
+        // running the typer's read-side ident walker, so `<match for=T
+        // on=@totallyUndeclared>` (or the named-machine `on=@PM` with no
+        // `@var: PM` decl — item 1's other half) compiled silent-empty with zero
+        // diagnostic. Parse the `on=` expression and feed it through the same
+        // checker every other expression site uses, so an undeclared `@`-read in
+        // `on=` fires E-STATE-UNDECLARED like a `${@x}` interpolation does.
+        {
+          const onRawUnknown = (n as { onExprRaw?: unknown }).onExprRaw;
+          if (typeof onRawUnknown === "string" && onRawUnknown.trim().length > 0) {
+            const onTrim = onRawUnknown.trim();
+            // §17.7.3 — `@.`/`@.field` is the `<each>`-only contextual iteration
+            // sigil; it resolves to the each's iter var at codegen and is
+            // validated by the dedicated E-SYNTAX-064 path. NOT an undeclared
+            // cell read — skip (the walker also early-returns on `@.`, but the
+            // raw `@.` can confuse the expression parser, so guard up front).
+            // A bare-variant `on=.Variant` form (§18.0.3 constant dispatch) has
+            // no `@`-read to validate — skip.
+            const isAtDot = onTrim.startsWith("@.");
+            const isBareVariant = /^\.[A-Z][A-Za-z0-9_$]*$/.test(onTrim);
+            if (!isAtDot && !isBareVariant) {
+              // Strip a `${ ... }` interpolation wrapper to the inner expression
+              // (mirrors emit-match.ts resolveOnExpr); a bare `@cell` / `@cell.path`
+              // / complex-expr form passes through unchanged. Quoted string
+              // literals carry no reads — parse + check is a harmless no-op.
+              const dollarMatch = onTrim.match(/^\$\{([\s\S]*)\}$/);
+              const onInner = dollarMatch ? dollarMatch[1].trim() : onTrim;
+              if (onInner.length > 0) {
+                const onSpan = (n.span as Span | undefined)
+                  ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+                let onNode: unknown = null;
+                try {
+                  onNode = parseExprToNode(onInner, filePath, onSpan.start ?? 0);
+                } catch {
+                  onNode = null; // unparseable on= — defer to codegen's own handling
+                }
+                if (onNode) {
+                  checkLogicExprIdents(onNode, onSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
+                }
+              }
+            }
+          }
+        }
         const bindingsByVariant = extractMatchArmPayloadBindingsByVariant(
           (n as { armsRaw?: unknown }).armsRaw,
         );
@@ -11316,6 +11388,21 @@ function annotateNodes(
     if (typeof machineName !== "string" || machineName.length === 0) continue;
     const rt = machine.governedType;
     if (!rt) continue;
+    // §51.3.3 / §51.0.B (ss42 — Model 1, S223 PA ruling) — a NAMED non-derived
+    // machine (`<engine name=PM for=Phase> .Idle => .Running </>`) does NOT source
+    // an auto-read. §51.0.B: `name=` does NOT auto-declare a reactive var; §51.3.3:
+    // the user must declare a SEPARATE `@var: PM = init` and read THAT. So `@PM` /
+    // `@pm` are undeclared-cell reads and MUST fall through to the read-side
+    // E-STATE-UNDECLARED walker (~6447) rather than being silently pre-bound here
+    // (the pre-S192 pre-bind suppressed the diagnostic → silent-empty match render).
+    // Two forms KEEP the pre-bind because their lowercased read is genuinely
+    // sourced + codegen-initialized:
+    //   - §51.9 derived / projection machines (isDerived) — the projection cell
+    //     (`@ui`) is materialized by `_scrml_derived_declare/subscribe`.
+    //   - non-named `<engine for=Type>` engines — the §51.0.C auto-derived cell
+    //     (`@orderStatus` / `@phaseTag`) is materialized by `_scrml_reactive_set`.
+    // Discriminator: skip ONLY the NAMED non-derived case (`hadNameAttr && !isDerived`).
+    if (machine.hadNameAttr === true && machine.isDerived !== true) continue;
     // §51.0.C / §51.9 — the CANONICAL reactive read name of a machine is its
     // projected/auto-derived var name, NOT the raw PascalCase machine name:
     // `< machine name=UI >` is read as `${@ui}` (and codegen emits

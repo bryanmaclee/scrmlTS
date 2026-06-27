@@ -6357,7 +6357,21 @@ export function validateEngineStateChildrenAndRules(
     } else if (meta.initialCell !== null) {
       // §51.0.E runtime-cell hydration form. Validate the referenced cell.
       validateInitialCellHydration(meta, engineDecl, errors, filePath, variants);
-    } else if (meta.initialVariant === null && meta.serverSource === null) {
+    } else if (
+      meta.initialVariant === null && meta.serverSource === null
+      // §51.3.3 / §51.0.E (ss42 item-3) — W-ENGINE-INITIAL-MISSING is a §51.0
+      // STATE-engine nudge: its remedy ("the compiler will default to the first
+      // state-child's variant") presumes a state-child body. A §51.3 NAMED
+      // machine (`<engine name=PM for=Phase> .Idle => .Running </>`) and the
+      // deprecated `<machine>`-keyword form have a WHOLE-BODY arrow grammar with
+      // ZERO state-children — there is no first state-child to default to, and
+      // these machines do not carry an `initial=` at all (their start state is
+      // the SEPARATE `@var: PM = init` binding, §51.3.3). Firing here was a
+      // misfire (a no-actionable-fix warning pointing at a non-existent
+      // state-child). Suppress for both §51.3 machine surfaces.
+      && engineDecl.hadNameAttr !== true
+      && engineDecl.legacyMachineKeyword !== true
+    ) {
       // §52 (S199 E-leg) — a server-source engine does NOT need `initial=`: the
       // server source IS the start-state authority (it hydrates on resolve, and
       // the engine defaults to the first state-child as the pre-resolve

@@ -12,15 +12,18 @@
 
 ## Items
 
-1. **Corpus sweep + narrow the S192 pre-bind to derived-only** `[status=open]` **SURVEY-FIRST**
+1. **Corpus sweep + narrow the S192 pre-bind to derived-only** `[status=landed-on-branch SHA=1ab17ce3]` **SURVEY-FIRST**
    - **STOP-first:** grep the corpus (`samples/` + `examples/` + the adopter `.scrml`) for non-derived named-machine lowercased reads (`@<lowercased-machine-name>` where the machine is `<engine name=X for=T>` NON-derived, no separate `@var: X` decl). Report the count + sites — this is the blast radius of the narrow (each becomes a NEW `E-STATE-UNDECLARED` fire). If the count is large, surface before proceeding.
    - Then narrow `type-system.ts:11314-11339` so the pre-bind binds the lowercased machine-read ONLY for DERIVED/projection machines (§51.9), not non-derived named machines. Non-derived `@pm` reads then fall through to the `E-STATE-UNDECLARED` walker.
+   - **LANDED ss42** (`1ab17ce3`): SWEEP = **~0 blast radius** (compiled corpus + flogence adopter clean; the only `name=` corpus hit is in a comment; 17 test fixtures referenced but **0 newly-fired**, 0 migrations). **⚠ DISCRIMINATOR CORRECTED (cookbook-vs-empirical, S124):** the list's literal "derived-only" narrow is empirically WRONG — it would REGRESS non-named `<engine for=Type>` §51.0.C auto-cells (`@phaseTag` etc.), whose SOLE typer binding IS this pre-bind. Correct Model-1 discriminator = skip the pre-bind ONLY for **NAMED non-derived** machines (`machine.hadNameAttr === true && machine.isDerived !== true`); KEEP it for §51.9 derived AND non-named `for=Type` engines. SPEC-grounded (§51.0.B name≠auto-var vs §51.0.C for=Type auto-derives). Threaded new `MachineType.hadNameAttr` from ast-builder through buildMachineRegistry. Verified by agent's non-vacuous neutralize-and-fail proof + full suite 25519/0.
 
-2. **Route match `on=@X` through the E-STATE-UNDECLARED walker** `[status=open]`
+2. **Route match `on=@X` through the E-STATE-UNDECLARED walker** `[status=landed-on-branch SHA=061d48a7]`
    - `emit-match.ts` match `on=@X` resolution currently bypasses the read-side walker (`type-system.ts:6447`) — a GENERAL gap (`<match on=@totallyUndeclared>` compiles clean today). Route it through so an undeclared `on=` read fires `E-STATE-UNDECLARED`. Broadest corpus impact — verify against the sweep.
+   - **LANDED ss42** (`061d48a7`): routed in the typer's `match-block` case (NOT emit-match.ts — the diagnostic belongs in the typer): parse `onExprRaw` via `parseExprToNode` → `checkLogicExprIdents` (same checker all expr sites use). Guards: skip `@.`/`@.field` (E-SYNTAX-064 owns), skip bare-variant `.Variant`, strip `${...}` wrapper, parse-failure defers to codegen. `<match on=@totallyUndeclared>` now fires; declared `@var` still resolves. 0 fixtures broke.
 
-3. **Fix the `W-ENGINE-INITIAL-MISSING` misfire on arrow-body named machines** `[status=open]`
+3. **Fix the `W-ENGINE-INITIAL-MISSING` misfire on arrow-body named machines** `[status=landed-on-branch SHA=60b600fb]`
    - §51.0.E promises "default to first state-child," impossible with a zero-state-child arrow body → the warning misfires. Correct the condition.
+   - **LANDED ss42** (`60b600fb`): `symbol-table.ts` ~6360 W-condition gained `&& engineDecl.hadNameAttr !== true && engineDecl.legacyMachineKeyword !== true` (§51.3 named + `<machine>`-keyword arrow forms have zero state-children + no `initial=` concept). Not over-suppressed: a genuine non-named `<engine for=Phase>` state-child engine missing `initial=` STILL fires (regression test Case 10 asserts `=== 1`).
 
 4. **Optional unbound-named-machine lint at the decl site** `[status=deferred — needs own ruling]`
    - NOT spec-determined: cross-file binding via §51.16 means "no in-file binding" is not necessarily an error. Defer to its own ruling; do NOT build in this lane.
