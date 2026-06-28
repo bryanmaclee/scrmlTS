@@ -1,4 +1,0 @@
-${
-  import { greet } from "./present.scrml"
-}
-<p>${greet}</>

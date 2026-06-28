@@ -1,4 +1,0 @@
-${
-  import { helper } from "./does-not-exist.scrml"
-}
-<p>x</>

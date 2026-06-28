@@ -1,4 +1,0 @@
-${
-  import { utility } from "./lib.js"
-}
-<p>x</>
