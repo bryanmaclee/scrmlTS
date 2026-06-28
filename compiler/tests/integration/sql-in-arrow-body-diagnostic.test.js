@@ -119,12 +119,20 @@ describe("ss19 #12 — SQL inside an arrow body diagnoses precisely (not a compi
 
 /**
  * Issue #12 blast radius (S215-class adversarial completion). The S220 emit-server
- * detection caught BLOCK-body arrows only; the live Acorn parser mangles a
- * CONCISE / curried arrow body that contains a `?{}` (the SQL is orphaned as a
- * sibling `sql` node, or the inner body is dropped) so the `?{`...`}` escape-hatch
- * `.raw` signature is absent — these leaked as E-CODEGEN-INVALID-JS (and, when the
- * fn does not escalate to server, into the CLIENT bundle). The post-AST
- * detectSqlInConciseArrowBody pass (wired at TAB, api.js) closes the gap.
+ * detection caught BLOCK-body arrows only; a CONCISE / curried arrow body that
+ * contains a `?{}` is missed there — these otherwise leak as E-CODEGEN-INVALID-JS
+ * (and, when the fn does not escalate to server, into the CLIENT bundle). The
+ * post-AST detectSqlInConciseArrowBody pass (wired at TAB, api.js) closes the gap
+ * by text-scanning the arrow's retained `.init` / `.expr` / `.raw` source.
+ *
+ * Case-A note (g-detect-sql-case-a-prune, 2026-06-27): the concise-direct (S5) and
+ * concise-return (S11) shapes USED to be caught by a separate "Case A" sibling-pair
+ * detector, because pre-ss50 the parser orphaned the `?{}` as a sibling `sql` node
+ * (leaving the arrow's `.raw` without the SQL signature). The ss50 item-1 parser
+ * fix (commit 2fca8075) now captures the full `?{}` into the arrow escape-hatch
+ * `.raw`, so the SINGLE text-scan ("Case B") catches every shape below — including
+ * S5/S11. Case A was proven dead (0 fires across the full suite + corpus) and
+ * removed; these cases assert S5/S11 STILL error, now via the text scan.
  */
 describe("ss19 #12 blast radius — CONCISE / curried arrow bodies diagnose precisely", () => {
   const cases = [
@@ -180,8 +188,10 @@ describe("ss19 #12 blast radius — CONCISE / curried arrow bodies diagnose prec
   });
 
   test("no false positive: a SQL-free concise arrow ADJACENT to a valid statement-level ?{}", () => {
-    // The dangling-`=>` Case-A signal must NOT mistake a SQL-free concise arrow
-    // followed by a legitimate statement-level `?{}` for the orphaned-body shape.
+    // A SQL-free concise arrow immediately followed by a legitimate statement-level
+    // `?{}` must NOT fire E-SQL-009. (This was the orphaned-sibling shape the removed
+    // Case A keyed on; the surviving text scan correctly leaves it clean because the
+    // arrow's own retained text contains no `?{`…` opener.)
     const { codes } = compileSrc(
       WRAP(`    function doit() {
       const inc = (x) => x + 1

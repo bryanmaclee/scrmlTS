@@ -7,23 +7,32 @@ import { CGError } from "./errors.js";
  * The PRIMARY E-SQL-009 site (emit-server.ts ~:1599) catches a `?{}` SQL block
  * inside a BLOCK-body arrow / function-expression, which parses as a single
  * opaque escape-hatch whose `.raw` carries the `?{`...`}` text. That detection
- * MISSES the CONCISE-body arrow shapes, because the live Acorn parser mangles a
- * concise-body arrow that contains a `?{}`:
+ * MISSES the CONCISE-body arrow shapes — so this pass closes the gap for them:
  *
  *   S5  concise direct      const ins = (x) => ?{`…`}.run()
  *   S11 concise return      return (x) => ?{`…`}.run()
  *   S13 concise in callback [1,2,3].map(x => ?{`…`}.run())
- *        → `collectExpr` breaks at the SQL BLOCK_REF (ast-builder.js ~:3608),
- *          leaving a dangling `( x ) =>` ParseError escape-hatch and the `?{}`
- *          ORPHANED as a sibling `sql` node (Case A — direct decl/return forms);
- *          or, for an in-callback concise arrow, the full source survives in the
- *          statement's `.expr` text (Case B).
- *
  *   S4  curried             const f = (a) => (b) => { ?{`…`}.run() }
  *   S9  curried multi-stmt  const f = (a) => (b) => { log(a); ?{`…`}.run() }
- *        → the outer (concise-bodied) arrow parses as a structured `lambda`, the
- *          inner braced body is dropped to an empty-raw escape-hatch, but the
- *          full source survives in the decl's `.init` text (Case B).
+ *
+ * Detection (the single "Case B" text scan): the full source of the offending
+ * arrow survives verbatim on the retained `.init` / `.expr` / `.raw` text of some
+ * node, so a `?{`…` SQL opener inside a concise-body arrow region is found by
+ * scanning that text — see conciseArrowBodyHasSql.
+ *
+ * HISTORY (Case A removal — g-detect-sql-case-a-prune, 2026-06-27). The S5/S11
+ * direct-decl / return forms USED to need a second "Case A" detector: pre-ss50 the
+ * live parser's `collectExpr` broke at the SQL BLOCK_REF (ast-builder.js depth-0
+ * statement boundary), leaving a dangling `( x ) =>` ParseError escape-hatch and
+ * the `?{}` ORPHANED as a sibling `sql` node — so the `.raw` text carried no SQL
+ * signature and Case B could not see it. Case A keyed on that orphaned shape
+ * (a node whose retained text ends with `=>` immediately followed by a sibling
+ * `sql` node). The ss50 item-1 parser fix (commit 2fca8075, ast-builder.js)
+ * SUPPRESSED that break when the last collected token is the arrow glyph `=>`, so
+ * the concise `?{}` body is now captured into the SAME escape-hatch `.raw` the
+ * block-body form produces. The orphaned-sibling shape is therefore no longer
+ * produced; Case A was proven dead (0 fires across the full suite + corpus while
+ * all of S5/S11/S13/S4/S9 fire cleanly via Case B) and removed.
  *
  * All of these otherwise leak as the generic E-CODEGEN-INVALID-JS ("compiler
  * defect, please report it"). Worse, when the enclosing fn does NOT escalate to
@@ -62,10 +71,9 @@ const E_SQL_009_MESSAGE =
 const SQL_OPENER_RE = /\?\{\s*`/;
 
 /**
- * Case B — does `text` contain a CONCISE-body arrow (`=>` NOT followed by `{`)
- * whose body region (bounded by bracket depth from the `=>`) contains a `?{`…`
- * SQL opener? A braced-body arrow (`=> {`) is skipped — the emit-server site
- * owns that shape.
+ * Does `text` contain a CONCISE-body arrow (`=>` NOT followed by `{`) whose body
+ * region (bounded by bracket depth from the `=>`) contains a `?{`…` SQL opener?
+ * A braced-body arrow (`=> {`) is skipped — the emit-server site owns that shape.
  */
 export function conciseArrowBodyHasSql(text: string): boolean {
   const n = text.length;
@@ -114,11 +122,6 @@ function textOf(node: any): string {
   return "";
 }
 
-function isSqlNode(node: any): boolean {
-  return !!node && typeof node === "object"
-    && (node.kind === "sql" || (node.sqlNode && node.sqlNode.kind === "sql"));
-}
-
 /**
  * Walk a FileAST and fire E-SQL-009 for every `?{}` SQL block inside a CONCISE
  * arrow body. Runs at TAB (api.js), independent of server-escalation and of the
@@ -146,8 +149,11 @@ export function detectSqlInConciseArrowBody(fileAST: any, filePath: string): CGE
     if (!n || typeof n !== "object" || seen.has(n)) return;
     seen.add(n);
 
-    // Case B — a concise-body arrow with a `?{`…` SQL opener in its retained text
-    // (curried `(a)=>(b)=>{?{}}`, concise-in-callback `.map(x => ?{})`, etc.).
+    // A concise-body arrow with a `?{`…` SQL opener in this node's retained text
+    // — covers every shape: concise-direct (`const ins = (x) => ?{}`), concise-
+    // return (`return (x) => ?{}`), concise-in-callback (`.map(x => ?{})`), and
+    // curried (`(a) => (b) => { ?{} }`). The orphaned-sibling shape Case A used to
+    // catch no longer exists post-ss50 (commit 2fca8075); see the file header.
     const t = textOf(n);
     if (t.indexOf("=>") !== -1 && SQL_OPENER_RE.test(t) && conciseArrowBodyHasSql(t)) {
       fire(n.span);
@@ -156,16 +162,7 @@ export function detectSqlInConciseArrowBody(fileAST: any, filePath: string): CGE
     for (const k in n) {
       const v = (n as any)[k];
       if (Array.isArray(v)) {
-        for (let i = 0; i < v.length; i++) {
-          const cur = v[i];
-          // Case A — a dangling concise arrow (`… =>`) whose body the parser
-          // split off, immediately followed by the orphaned `?{}` SQL sibling
-          // (`const f = (x) => ?{`…`}` / `return (x) => ?{`…`}`).
-          if (cur && typeof cur === "object" && textOf(cur).trimEnd().endsWith("=>") && isSqlNode(v[i + 1])) {
-            fire(cur.span ?? v[i + 1]?.span);
-          }
-          walk(v[i]);
-        }
+        for (let i = 0; i < v.length; i++) walk(v[i]);
       } else if (v && typeof v === "object") {
         walk(v);
       }
