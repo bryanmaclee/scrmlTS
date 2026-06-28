@@ -32450,15 +32450,66 @@ arm.
 
 ### 56.6 `--engine` mode (Tier 1→2 sibling)
 
-Same span-rewrite shape as `--match`, different transformation. Pairs with the
-`W-MATCH-TRANSITIONS-ACCRUING` lint. Input: a `<match for=Phase on=@phase>` block whose
-state-arms accrue `rule=` attributes. Output: an `<engine for=Phase initial=.InitialVariant>`
-block where the rules become *active* (transitions can fire; `<onTransition>` becomes
-legal).
+Same span-rewrite shape as `--match` (§56.5), different transformation. The opportunity
+surface is the shipped `W-MATCH-RULE-INERT` warning (§18.0.2 / §34): a `<match for=T
+on=@cell>` block whose state-arms accrue `rule=` attributes that are *legal-but-inert*
+(match is read-only on the matched-on value, so the rule never enforces). `--engine` lifts
+that block into an `<engine for=T initial=.V0>` block where the rules become *active*
+transitions — the engine's §51.3 write-guard enforces them and fires
+`E-ENGINE-INVALID-TRANSITION` on violating writes, and `<onTransition>` / `effect=` become
+legal (§51).
 
-The Tier 1→2 lift requires the dev to specify `initial=` because match-block forms have
-no concept of an initial state. The CLI may default to the first arm's variant and emit a
-`W-ENGINE-INITIAL-MISSING` until corrected.
+No new lint pairs with `--engine`: the originally-proposed `W-MATCH-TRANSITIONS-ACCRUING`
+was **dropped as redundant** (S210 ruling B) — `W-MATCH-RULE-INERT` already fires on exactly
+the accruing-`rule=` condition that signals the promotion opportunity.
+
+#### 56.6.1 Transformation
+
+The rewrite touches ONLY the match-block's source span; all source outside it is preserved
+verbatim.
+
+1. **Opener.** `<match for=T on=@cell>` → `<engine for=T initial=.V0>`. The `on=@cell` clause
+   is DROPPED — an engine DECLARES its own §51.0.C type-derived reactive cell
+   (`autoDeriveEngineVarName(T)` — `Phase`→`@phase`), whereas a match REFERENCES an existing
+   cell. `V0` is the FIRST arm's variant tag (§56.6.3).
+2. **Arms.** The arm region between the opener's `>` and the closer is carried forward
+   VERBATIM — sliced from source, never reconstructed — so each arm's `rule=`, any
+   `internal:rule=` (§51.0.O), payload bindings (§51.0.B.1 bare or parenthesized), nested
+   state-children / composite `<engine>` bodies, and the original whitespace + indentation
+   are preserved unchanged.
+3. **Closer.** `</match>` or `</>` → `</>` (engine block-form closes with `</>`; §51.0).
+
+#### 56.6.2 Fail-closed safety gate
+
+Every rewrite is gated by a transactional re-compile (`sanityCheckParse`, the S86 standing
+rule shared with `--match` / `--each` / `migrate`): the rewritten source is staged in place,
+compiled, and reverted if it carries any blocking error. The file is NEVER left in a state
+that does not compile. Two cell-ownership cases are caught HERE rather than by a pre-check:
+
+- **Name collision.** When the dropped `on=@cell` named a SEPARATELY-declared state cell
+  whose name equals the engine's type-derived name (the idiomatic `@phase` ↔ `<engine
+  for=Phase>` pairing), the engine's auto-declaration collides with the surviving
+  declaration → `E-ENGINE-VAR-DUPLICATE` (§51.0.C) → the gate REVERTS and the site is
+  reported `failed`. The span-only rewrite intentionally does NOT delete the surviving
+  declaration; the adopter removes it (or uses `var=` on the engine) and re-runs.
+- **Non-exhaustive arms.** A `<match>` made exhaustive only by a `<_>` wildcard arm produces
+  an `<engine>` missing a state-child for each wildcard-covered variant →
+  `E-ENGINE-STATE-CHILD-MISSING` (§51.0.B / §51.0.F) → the gate REVERTS. (Engines enumerate
+  every variant; matches may wildcard.)
+
+#### 56.6.3 `initial=` default
+
+The Tier 1→2 lift must synthesize an `initial=` because match-block forms have no concept of
+an initial state. The CLI defaults to the FIRST arm's variant tag. A leading `<_>` wildcard
+arm has no variant tag and cannot seed `initial=`; such a site is skipped (reported, not
+rewritten). Because `initial=.V0` is always emitted on a clean promotion, the §51.0.E
+`W-ENGINE-INITIAL-MISSING` default-to-first-state-child surface does not fire on the output.
+
+#### 56.6.4 Idempotency
+
+Re-running `--engine` on its own output is a no-op: the detector walks for `kind:
+"match-block"` nodes only and never matches an `engine-decl`, so a file already containing
+`<engine>` reports zero promotable sites.
 
 ### 56.7 Tooling integration
 

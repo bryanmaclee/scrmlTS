@@ -2,13 +2,17 @@
  * @module commands/promote
  * scrml promote subcommand — promotion-ergonomics CLI surface.
  *
- * **Status (S66):**
- *   - `--match` SHIPPED: span-based AST→AST rewrite that lifts an if-else
+ * **Status:**
+ *   - `--match` SHIPPED (S66): span-based AST→AST rewrite that lifts an if-else
  *     chain over an enum-typed state cell into a `<match>` block. Pairs
  *     with `I-MATCH-PROMOTABLE` info-level lint (SPEC §56).
- *   - `--engine` deferred to Tier C (a follow-up dispatch). The flag is
- *     registered; running it prints "implementation pending — deferred to
- *     Tier C dispatch" and exits with code 2.
+ *   - `--each` SHIPPED (S134): lifts a `${ for (let x of @cell) { lift … } }`
+ *     Tier-0 iteration site into a `<each in=@cell as x>` block (SPEC §56.10).
+ *   - `--engine` SHIPPED (S210 ruling B): span-based rewrite that lifts a
+ *     `<match for=T on=@cell>` block whose arms accrue inert `rule=` attributes
+ *     into an `<engine for=T initial=.V0>` block — the rules become active
+ *     transitions (Tier 1→2). Pairs with the `W-MATCH-RULE-INERT` warning as
+ *     its opportunity surface (SPEC §56.6).
  *
  * Predicate matrix (S66 — full restoration after narrowing reversal):
  * `--match` rewrites both `if (@cell is .Variant)` and `if (@cell == .Variant)`
@@ -20,7 +24,8 @@
  *
  * Usage (locked surface):
  *   scrml promote --match <file>[:line]    # if-else → <match>
- *   scrml promote --engine <file>[:line]   # <match> → <engine>  (Tier C)
+ *   scrml promote --each <file>[:line]     # ${ for/lift } → <each>
+ *   scrml promote --engine <file>[:line]   # <match rule=> → <engine>
  *   scrml promote --dry-run --match <file> # preview unified diff
  *   scrml promote --match <dir>            # recurse all .scrml files
  *
@@ -39,6 +44,7 @@ import {
 import { resolve, join, relative, sep } from "path";
 import { compileScrml } from "../api.js";
 import { findPromotableChains } from "../lint-i-match-promotable.js";
+import { parseMatchArms } from "../match-statechild-parser.ts";
 
 const isTTY = process.stderr.isTTY && process.stdout.isTTY;
 
@@ -59,9 +65,9 @@ Mechanically promote scrml code up the tier ladder (primer §1).
 Modes:
   --match               Lift an if-else chain over an enum-typed state cell
                         into a \`<match>\` block (Tier 1 promotion). SHIPPED S66.
-  --engine              Lift a \`<match>\` block with rule= attributes accruing
-                        on its arms into an active \`<engine>\` (Tier 1→2).
-                        DEFERRED to Tier C — currently prints "pending".
+  --engine              Lift a \`<match>\` block whose arms accrue inert \`rule=\`
+                        attributes into an active \`<engine for=T initial=.V0>\`
+                        — the rules become enforced transitions (Tier 1→2).
   --each                Lift a \`\${ for (let x of @cell) { lift <markup/> } }\`
                         Tier-0 iteration site into a \`<each in=@cell as x>\`
                         Tier-1 structural-element block. SHIPPED S134.
@@ -86,11 +92,12 @@ Options:
 Exit codes:
   0   Promoted N sites cleanly, OR no promotable sites found (informational).
   1   File not parseable, OR I/O failure during write.
-  2   Ambiguous site needing human disambiguation, OR --engine (Tier C deferred).
+  2   Ambiguous site needing human disambiguation.
 
 Pairs with:
   - I-MATCH-PROMOTABLE info-level lint — surfaces opportunity at compile time.
   - W-EACH-PROMOTABLE info-level lint — surfaces opportunity for --each.
+  - W-MATCH-RULE-INERT warning — surfaces inert \`rule=\` arms for --engine.
   - bun scrml migrate — different verb (deprecated→current); promote is tier-up.
 
 Examples:
@@ -99,7 +106,8 @@ Examples:
   scrml promote --match src/ --dry-run            # preview all sites
   scrml promote --each src/app.scrml              # lift \${ for/lift } -> <each>
   scrml promote --each --shorthand src/           # lift + apply :-shorthand
-  scrml promote --each --dry-run src/             # preview iteration lifts
+  scrml promote --engine src/app.scrml            # lift <match rule=> -> <engine>
+  scrml promote --engine src/ --dry-run           # preview match->engine lifts
 `);
 }
 
@@ -1501,6 +1509,332 @@ export function promoteEachOnFile(filePath, targetLine, opts, cwd) {
   return { status: "promoted", count, skipped, relPath };
 }
 
+// ===========================================================================
+// `--engine` mode — Tier 1 → Tier 2 state-machine lift (SPEC §56.6)
+// ===========================================================================
+//
+// Lifts a `<match for=T on=@cell>` block-form whose arms accrue INERT `rule=`
+// attributes (exactly what W-MATCH-RULE-INERT flags — §18.0.2) into an
+// `<engine for=T initial=.FirstVariant>` block. The rules become ACTIVE
+// transitions (§51): the engine enforces them via the §51.3 write-guard and
+// fires E-ENGINE-INVALID-TRANSITION on violating writes.
+//
+// Implementation strategy (mirrors --match / --each exactly):
+//   1. Compile source (bail if it already has blocking errors).
+//   2. Capture the typed-AST via the collectTypedFiles bridge.
+//   3. Walk for `kind: "match-block"` nodes; a node is promotable when ≥1 arm
+//      carries a `rule=` attr (the W-MATCH-RULE-INERT condition).
+//   4. For each promotable site, splice the match-block's source span
+//      (`node.span.start`..`node.span.end`) with a rebuilt `<engine>` block:
+//        - opener  `<match for=T on=@cell>` → `<engine for=T initial=.V0>`
+//          (V0 = first arm's variant tag; `on=@cell` dropped — the engine
+//          DECLARES its own §51.0.C type-derived cell)
+//        - arms    carried forward VERBATIM (sliced from source, never
+//          reconstructed — preserves rule= / internal:rule= / payload
+//          bindings / nested composite <engine> bodies + original formatting)
+//        - closer  `</match>` or `</>` → `</>`
+//   5. Sites spliced DESCENDING by start offset (earlier rewrites don't shift
+//      later ones).
+//   6. sanityCheckParse() gates every rewrite — if the rewritten source fails
+//      to compile, the file is left untouched (S86 standing rule, fail-closed).
+//
+// Per §56.6, all source outside the match-block span is preserved verbatim,
+// and the rewrite is idempotent: re-running on an `<engine>` is a no-op
+// because the detector only finds `match-block` nodes, never `engine-decl`.
+//
+// CELL-OWNERSHIP NOTE (empirical, S210 build): the engine auto-declares its
+// own §51.0.C cell (`autoDeriveEngineVarName(forType)` — `Phase`→`@phase`).
+// The original match's `on=@cell` is dropped. When the dropped cell was a
+// SEPARATELY-declared state cell sharing the engine's type-derived name, the
+// engine's auto-declaration collides → E-ENGINE-VAR-DUPLICATE → the gate
+// REVERTS the rewrite (fail-closed). When the names differ, the rewrite
+// compiles (the original cell remains; engine drives its own cell). Either
+// way the gate guarantees no broken scrml is ever written.
+
+/**
+ * Walk a typed FileAST and collect `match-block` nodes (the --engine
+ * promotion candidates). Mirrors findIterationSites; returns the FULL nodes
+ * for span-based rewriting. Promotability (≥1 inert `rule=` arm) is decided
+ * per-site in rewriteOneMatchBlock, mirroring the --each skip-reason flow.
+ *
+ * @param {object} file
+ * @returns {object[]}  match-block nodes
+ */
+function findMatchBlockSites(file) {
+  const sites = [];
+  const seen = new WeakSet();
+  function walk(node) {
+    if (!node || typeof node !== "object") return;
+    if (seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) { for (const n of node) walk(n); return; }
+    if (node.kind === "match-block") sites.push(node);
+    for (const k of ["children", "body", "bodyChildren", "nodes", "arms", "templateChildren", "consequent", "alternate", "components", "defChildren"]) {
+      if (Array.isArray(node[k])) walk(node[k]);
+    }
+  }
+  walk(file.ast?.nodes ?? file.nodes ?? file);
+  if (file.ast?.components) walk(file.ast.components);
+  if (file.components) walk(file.components);
+  return sites;
+}
+
+/**
+ * Brace/paren/bracket/string-aware finder for the opener's terminating `>`.
+ * Mirror of ast-builder.js `_findMatchOpenerEnd` — a `>` inside `{...}`,
+ * `(...)`, `[...]`, or a string literal is skipped so an `on=${expr > 0}` /
+ * `on=@nums.filter(c => c > 1)` header is not truncated.
+ *
+ * @param {string} s — the match-block source slice (begins at `<match`)
+ * @returns {number} index of the opener's `>` within `s`, or -1
+ */
+function findMatchOpenerEnd(s) {
+  let depth = 0, parenDepth = 0, bracketDepth = 0;
+  let inDQ = false, inSQ = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inDQ) { if (c === '"') inDQ = false; else if (c === "\\") i++; continue; }
+    if (inSQ) { if (c === "'") inSQ = false; else if (c === "\\") i++; continue; }
+    if (c === '"') { inDQ = true; continue; }
+    if (c === "'") { inSQ = true; continue; }
+    if (c === "{") { depth++; continue; }
+    if (c === "}") { if (depth > 0) depth--; continue; }
+    if (c === "(") { parenDepth++; continue; }
+    if (c === ")") { if (parenDepth > 0) parenDepth--; continue; }
+    if (c === "[") { bracketDepth++; continue; }
+    if (c === "]") { if (bracketDepth > 0) bracketDepth--; continue; }
+    if (c === ">" && depth === 0 && parenDepth === 0 && bracketDepth === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * Rewrite a single `<match>` block-form into an `<engine>` block-form. The
+ * arms region is sliced VERBATIM from the source between the opener's `>` and
+ * the closer; only the opener and closer are rewritten.
+ *
+ * @param {string} source — full file source
+ * @param {object} matchBlock — typed match-block AST node
+ * @returns {{ ok: true, rewritten: string } | { ok: false, reason: string }}
+ */
+function rewriteOneMatchBlock(source, matchBlock) {
+  const span = matchBlock.span;
+  if (!span || typeof span.start !== "number" || typeof span.end !== "number") {
+    return { ok: false, reason: "match-block has no usable source span" };
+  }
+
+  const forType = typeof matchBlock.forType === "string" ? matchBlock.forType : "";
+  if (!forType) {
+    return { ok: false, reason: "match-block has no `for=Type` to govern an engine" };
+  }
+
+  // Parse arms to (a) confirm the W-MATCH-RULE-INERT promotion condition and
+  // (b) read the first arm's variant tag for `initial=`.
+  let arms = [];
+  try {
+    const parsed = parseMatchArms(matchBlock.armsRaw || "");
+    if (parsed.diagnostics && parsed.diagnostics.length > 0) {
+      return { ok: false, reason: "match arms could not be parsed cleanly" };
+    }
+    arms = parsed.arms || [];
+  } catch (err) {
+    return { ok: false, reason: `match-arm parse crashed: ${err.message}` };
+  }
+  if (arms.length === 0) {
+    return { ok: false, reason: "match-block has no arms" };
+  }
+
+  // Promotable iff ≥1 arm carries an inert `rule=` attribute (the exact
+  // W-MATCH-RULE-INERT fire condition — symbol-table.ts attr.name === "rule").
+  const hasInertRule = arms.some(
+    (a) => Array.isArray(a.attrs) && a.attrs.some((at) => at && at.name === "rule"),
+  );
+  if (!hasInertRule) {
+    return {
+      ok: false,
+      reason: "no arm carries an inert `rule=` attribute — nothing to activate (not a Tier 1→2 candidate)",
+    };
+  }
+
+  // `initial=` is the FIRST arm's variant tag (the list-ratified default).
+  // A leading wildcard `<_>` has no variant tag — cannot seed `initial=`; skip.
+  const firstArm = arms[0];
+  if (firstArm.isWildcard || !firstArm.variantName || firstArm.variantName === "_") {
+    return {
+      ok: false,
+      reason: "first arm is a wildcard `<_>` — cannot derive an `initial=` variant tag",
+    };
+  }
+  const firstVariant = firstArm.variantName;
+
+  // Slice the full match-block span and locate the opener `>` + trailing closer.
+  const matchSrc = source.slice(span.start, span.end);
+  const openerEnd = findMatchOpenerEnd(matchSrc);
+  if (openerEnd < 0) {
+    return { ok: false, reason: "could not locate the `<match ...>` opener's closing `>`" };
+  }
+  const closerMatch = matchSrc.match(/<\s*\/\s*(?:match)?\s*>\s*$/);
+  if (!closerMatch) {
+    return { ok: false, reason: "could not locate the match closer (`</match>` or `</>`)" };
+  }
+  const closerStart = closerMatch.index;
+  if (closerStart <= openerEnd) {
+    return { ok: false, reason: "match-block span is malformed (closer precedes opener)" };
+  }
+
+  // Arms region: VERBATIM source between the opener's `>` and the closer —
+  // preserves rule= / internal:rule= / payload bindings / nested <engine>
+  // bodies and the original whitespace + indentation.
+  const armsRegion = matchSrc.slice(openerEnd + 1, closerStart);
+
+  // Rebuild: opener + verbatim arms + `</>` engine closer.
+  const engineBlock = `<engine for=${forType} initial=.${firstVariant}>` + armsRegion + "</>";
+
+  const rewritten = source.slice(0, span.start) + engineBlock + source.slice(span.end);
+  return { ok: true, rewritten };
+}
+
+/**
+ * Apply --engine rewrites across all match-block sites in a file. Mirrors
+ * applyEachRewrite: descending offsets so earlier rewrites don't shift later
+ * ones; non-promotable sites collect skip reasons.
+ *
+ * @param {string} sourceText
+ * @param {object[]} sites — match-block nodes
+ * @param {number|null} targetLine — restrict to site at this line (±1 lenient)
+ */
+function applyEngineRewrite(sourceText, sites, targetLine) {
+  let rewritten = sourceText;
+  let count = 0;
+  const skipped = [];
+
+  let chosen = sites;
+  if (targetLine != null) {
+    chosen = sites.filter((s) => {
+      const ln = s.span?.line ?? 0;
+      return Math.abs(ln - targetLine) <= 1;
+    });
+    if (chosen.length === 0) {
+      skipped.push({ line: targetLine, reason: "no promotable match-block at this line" });
+      return { rewritten, count, skipped };
+    }
+  }
+
+  // Sort descending by start offset so we splice from end to start.
+  const sorted = chosen.slice().sort((a, b) => {
+    const aStart = a.span?.start ?? 0;
+    const bStart = b.span?.start ?? 0;
+    return bStart - aStart;
+  });
+
+  for (const site of sorted) {
+    const r = rewriteOneMatchBlock(rewritten, site);
+    if (r.ok) {
+      rewritten = r.rewritten;
+      count++;
+    } else {
+      skipped.push({ line: site.span?.line ?? 0, reason: r.reason });
+    }
+  }
+
+  return { rewritten, count, skipped };
+}
+
+/**
+ * Promote a single file via --engine. Mirrors promoteEachOnFile in shape.
+ *
+ * @param {string} filePath
+ * @param {number|null} targetLine
+ * @param {{ dryRun: boolean, check: boolean }} opts
+ * @param {string} cwd
+ */
+export function promoteEngineOnFile(filePath, targetLine, opts, cwd) {
+  const relPath = relative(cwd, filePath);
+
+  let source;
+  try {
+    source = readFileSync(filePath, "utf8");
+  } catch (err) {
+    return { status: "unreadable", reason: err.message, relPath };
+  }
+
+  let compileResult;
+  try {
+    compileResult = compileScrml({
+      inputFiles: [filePath],
+      write: false,
+      gather: false,
+      log: () => {},
+    });
+  } catch (err) {
+    return { status: "failed", reason: `compile crashed: ${err.message}`, relPath };
+  }
+
+  const blockingErrors = (compileResult.errors || []).filter(
+    (e) => !e.severity || e.severity === "error",
+  );
+  if (blockingErrors.length > 0) {
+    const msg = blockingErrors.slice(0, 2).map((e) => e.message || e.code || String(e)).join("; ");
+    return { status: "failed", reason: `source has compile errors: ${msg}`, relPath };
+  }
+
+  // Get typed-AST via the bridge.
+  const typedFiles = collectTypedFiles(filePath);
+  if (!typedFiles || typedFiles.length === 0) {
+    return { status: "failed", reason: "could not access typed-AST", relPath };
+  }
+  const fileAST = typedFiles.find((f) => f.filePath === filePath) ?? typedFiles[0];
+
+  const sites = findMatchBlockSites(fileAST);
+  if (sites.length === 0) {
+    return { status: "no-sites", relPath };
+  }
+
+  const { rewritten, count, skipped } = applyEngineRewrite(source, sites, targetLine);
+  if (count === 0) {
+    if (targetLine != null) {
+      return {
+        status: "ambiguous",
+        reason: `no promotable match-block at line ${targetLine}`,
+        relPath,
+        skipped,
+      };
+    }
+    return { status: "no-sites", relPath, skipped };
+  }
+
+  // Sanity-check the rewritten source. Fails closed (S86) — a rewrite whose
+  // output does not compile leaves the file untouched.
+  const parseResult = sanityCheckParse(rewritten, filePath);
+  if (!parseResult.ok) {
+    const messages = (parseResult.errors || []).slice(0, 2)
+      .map((e) => e.message || String(e)).join("; ");
+    return {
+      status: "failed",
+      reason: `rewritten source failed to compile — file left untouched: ${messages}`,
+      relPath,
+    };
+  }
+
+  if (rewritten === source) {
+    return { status: "no-sites", relPath };
+  }
+
+  if (opts.dryRun) {
+    const diff = simpleDiff(source, rewritten, relPath);
+    return { status: "promoted", count, skipped, diff, relPath };
+  }
+  if (opts.check) {
+    return { status: "promoted", count, skipped, relPath };
+  }
+  try {
+    writeFileSync(filePath, rewritten, "utf8");
+  } catch (err) {
+    return { status: "failed", reason: `write failed: ${err.message}`, relPath };
+  }
+  return { status: "promoted", count, skipped, relPath };
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -1532,25 +1866,7 @@ export function runPromote(args) {
     process.exit(1);
   }
 
-  // --engine: Tier C deferred — preserve stub behaviour.
-  if (mode === "engine") {
-    const heading = c.yellow(c.bold("scrml promote --engine: implementation pending (Tier C)"));
-    console.error("");
-    console.error(`  ${heading}`);
-    console.error("");
-    console.error(`  The \`<match>\` → \`<engine>\` rewrite is deferred to a Tier C dispatch.`);
-    console.error(`  It pairs with the \`W-MATCH-TRANSITIONS-ACCRUING\` lint, which has no §34`);
-    console.error(`  catalog row, no §28 suppression config, and no source impl today. Tier C`);
-    console.error(`  will land all four pieces together.`);
-    console.error("");
-    console.error(`  Targets:          ${paths.map(p => c.cyan(p)).join(", ")}`);
-    console.error(`  Design lock:      ${c.dim("docs/changes/promotion-ergonomics/SCOPE.md")}`);
-    console.error(`  See SPEC §56.6 for the Tier C work-item list.`);
-    console.error("");
-    process.exit(2);
-  }
-
-  // --match and --each: real rewrite paths sharing file-walk machinery.
+  // --match, --each, --engine: real rewrite paths sharing file-walk machinery.
   const cwd = process.cwd();
 
   // Expand path:line forms; collect files.
@@ -1594,6 +1910,8 @@ export function runPromote(args) {
     const targetLine = lineByFile.get(file) ?? null;
     const r = mode === "each"
       ? promoteEachOnFile(file, targetLine, { dryRun, check, shorthand }, cwd)
+      : mode === "engine"
+      ? promoteEngineOnFile(file, targetLine, { dryRun, check }, cwd)
       : promoteMatchOnFile(file, targetLine, { dryRun, check }, cwd);
     if (r.status === "promoted") {
       promotedCount++;
