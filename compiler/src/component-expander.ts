@@ -137,6 +137,174 @@ function makeCEError(
 }
 
 // ---------------------------------------------------------------------------
+// §15.13.5 / §51.0.K — engines are forbidden inside component bodies
+// ---------------------------------------------------------------------------
+//
+// An `<engine>` is a SINGLETON in its declaring scope (§51.0.A); a component is
+// MULTI-INSTANCE (every `<Card/>` use-site is a fresh instance). Instantiating
+// an engine inside a component body would need one engine per component
+// instance, contradicting the singleton invariant — so it is rejected with
+// `E-COMPONENT-ENGINE-SCOPE` (§34). The B17 typer walker
+// (`fireComponentEngineScope`, symbol-table.ts) already rejects an
+// `engine-decl` that reaches a `component-def.defChildren` array, but a body
+// engine authored inside the component's `raw` markup is unreachable there:
+// `parseComponentBody` re-parses that markup (so the engine becomes an AST
+// node) but historically DISCARDED the result's engine list. CE now fires the
+// same `E-COMPONENT-ENGINE-SCOPE` from the re-parsed body, closing the gap for
+// all three authoring shapes (structural / lift-value / cross-engine mount).
+
+/**
+ * Normalized descriptor for an engine found inside a re-parsed component body.
+ * Sourced from either an `engine-decl` node (structural form — carries
+ * `varName` + `governedType`) or a raw `markup` node with `tag === "engine"`
+ * (the `${ <engine/> }` lift / markup-value form — only `governedType` is
+ * recoverable, from the `for=` attribute).
+ */
+interface BodyEngine {
+  varName?: string;
+  governedType?: string;
+  span?: Span;
+}
+
+/**
+ * Build an `E-COMPONENT-ENGINE-SCOPE` CEError for an engine declared inside a
+ * component body. The message construction MIRRORS `fireComponentEngineScope`
+ * (symbol-table.ts — the §B17.1-9 synthesized-AST walker) so the diagnostic is
+ * byte-consistent across the two fire sites (SPEC §15.13.5, §51.0.K, §34).
+ */
+function makeComponentEngineScopeError(
+  engine: BodyEngine,
+  componentName: string,
+  filePath: string,
+): CEError {
+  const span: Span = engine.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+  const engineLabel: string =
+    typeof engine.varName === "string" && engine.varName.length > 0
+      ? `\`<engine for=${engine.governedType ?? "Type"} ...>\` (var \`${engine.varName}\`)`
+      : typeof engine.governedType === "string" && engine.governedType.length > 0
+        ? `\`<engine for=${engine.governedType} ...>\``
+        : "\`<engine ...>\`";
+  return makeCEError(
+    "E-COMPONENT-ENGINE-SCOPE",
+    `E-COMPONENT-ENGINE-SCOPE: ${engineLabel} appears inside the body of component ` +
+      `\`${componentName}\`. Engines are singletons; instantiating \`${componentName}\` ` +
+      `multiple times would produce multiple "singleton" engines, violating the ` +
+      `singleton invariant. ` +
+      `Either declare the engine at file scope and mount it inside the component ` +
+      `via \`<EngineName/>\` (§51.0.D), or use plain reactive cells (\`@cell\`) inside ` +
+      `the component for per-instance state. ` +
+      `(SPEC §51.0.K + §34.)`,
+    span,
+    "error",
+  );
+}
+
+/** Extract an engine's governed type from a raw `<engine for=T>` markup node's attrs. */
+function engineGovernedTypeFromAttrs(attrs: unknown): string | undefined {
+  if (!Array.isArray(attrs)) return undefined;
+  const forAttr = attrs.find(
+    (a) => a && typeof a === "object" && (a as { name?: string }).name === "for",
+  );
+  if (!forAttr) return undefined;
+  const val = (forAttr as { value?: { name?: string; text?: string } }).value;
+  if (!val || typeof val !== "object") return undefined;
+  if (typeof val.name === "string" && val.name.length > 0) return val.name;
+  if (typeof val.text === "string" && val.text.length > 0) return val.text.replace(/^\./, "");
+  return undefined;
+}
+
+/**
+ * Collect every engine declared inside a re-parsed component body, in both
+ * authoring forms:
+ *
+ *   1. Structural — `<div><engine for=T initial=.X>…</engine></div>`. The
+ *      ast-builder hoists the engine into `reparsed.ast.machineDecls` (each
+ *      carries `varName` / `governedType` / `span`).
+ *   2. Lift / markup-value — `<div>${ <engine for=T .../> }</div>`. Inside a
+ *      `${…}` logic context engine-decls are NOT recognised; the engine
+ *      survives as a raw `markup` node (`tag === "engine"`) wrapped in a
+ *      `markup-value` exprNode, so `machineDecls` is empty and we scan the tree.
+ *
+ * De-duped by span so a node reachable via two walk edges is reported once.
+ */
+function collectBodyEngines(reparsedAst: FileAST): BodyEngine[] {
+  const out: BodyEngine[] = [];
+  const seenSpanKeys = new Set<string>();
+  const push = (e: BodyEngine): void => {
+    const key = e.span ? `${e.span.start}:${e.span.end}` : `noSpan:${out.length}`;
+    if (seenSpanKeys.has(key)) return;
+    seenSpanKeys.add(key);
+    out.push(e);
+  };
+
+  // Form 1 — hoisted engine-decls (includes nested engines per collectHoisted).
+  const machineDecls =
+    ((reparsedAst as { machineDecls?: Array<Record<string, unknown>> }).machineDecls) ?? [];
+  for (const m of machineDecls) {
+    if (!m || typeof m !== "object") continue;
+    push({
+      varName: typeof m.varName === "string" ? m.varName : undefined,
+      governedType: typeof m.governedType === "string" ? m.governedType : undefined,
+      span: (m.span as Span) ?? undefined,
+    });
+  }
+
+  // Form 2 — raw `markup` engine nodes anywhere in the tree (a generic property
+  // walk reaches `exprNode.node` subtrees, e.g. inside a `markup-value`).
+  const visited = new WeakSet<object>();
+  const walk = (n: unknown): void => {
+    if (!n || typeof n !== "object" || visited.has(n)) return;
+    visited.add(n);
+    if (Array.isArray(n)) {
+      for (const c of n) walk(c);
+      return;
+    }
+    const node = n as Record<string, unknown>;
+    if (node.kind === "markup" && node.tag === "engine") {
+      push({
+        governedType: engineGovernedTypeFromAttrs(node.attrs),
+        span: (node.span as Span) ?? undefined,
+      });
+    }
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (v && typeof v === "object") walk(v);
+    }
+  };
+  walk(reparsedAst.nodes);
+
+  return out;
+}
+
+/**
+ * The same-file engine "mount names" for the file CURRENTLY being expanded by
+ * `runCEFile`. Consumed by `expandComponentNode` to divert an uppercase mount
+ * tag that names a same-file engine (`<Phase/>`) away from the misleading
+ * E-COMPONENT-020 ("component not defined") to the precise
+ * `E-COMPONENT-ENGINE-SCOPE`: same-file engines have NO mount tag (declaration
+ * IS mount, §51.0.D), and a component body SHALL NOT host an engine
+ * (§15.13.5 / §51.0.K), so the tag is doubly-illegal. component-expander
+ * processes one file at a time with no reentrancy into `runCEFile`, so this
+ * module-level value is safe; it is reset at the top of every `runCEFile` call.
+ */
+let _currentFileEngineMountNames: Set<string> = new Set();
+
+/** Collect the set of same-file engine mount names from a file's machineDecls. */
+function collectFileEngineMountNames(ast: FileAST): Set<string> {
+  const names = new Set<string>();
+  const machineDecls =
+    ((ast as { machineDecls?: Array<Record<string, unknown>> }).machineDecls) ?? [];
+  for (const m of machineDecls) {
+    if (!m || typeof m !== "object") continue;
+    for (const key of ["engineName", "governedType", "varName"]) {
+      const v = m[key];
+      if (typeof v === "string" && v.length > 0) names.add(v);
+    }
+  }
+  return names;
+}
+
+// ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
 
@@ -947,7 +1115,7 @@ function parseComponentBody(
   raw: string,
   componentName: string,
   filePath: string
-): { nodes: MarkupNode[]; errors: CEError[] } {
+): { nodes: MarkupNode[]; errors: CEError[]; bodyEngines: BodyEngine[] } {
   try {
     const normalized = normalizeTokenizedRaw(raw);
 
@@ -970,6 +1138,9 @@ function parseComponentBody(
         message: e.message,
         span: e.span,
       })),
+      // §15.13.5 / §51.0.K — engines declared inside the re-parsed body (both
+      // the structural `engine-decl` form and the `${ <engine/> }` lift form).
+      bodyEngines: collectBodyEngines(reparsed.ast),
     };
   } catch (e) {
     const err = e as Error;
@@ -980,6 +1151,7 @@ function parseComponentBody(
         message: err.message,
         span: { file: filePath, start: 0, end: 0, line: 1, col: 1 },
       }],
+      bodyEngines: [],
     };
   }
 }
@@ -996,7 +1168,17 @@ function parseComponentDef(
   const { name, raw, span, defChildren } = def;
   if (!name || !raw) return null;
 
-  const { nodes, errors: parseErrors } = parseComponentBody(raw, name, filePath);
+  const { nodes, errors: parseErrors, bodyEngines } = parseComponentBody(raw, name, filePath);
+
+  // §15.13.5 / §51.0.K — a component body SHALL NOT instantiate an engine. Fire
+  // E-COMPONENT-ENGINE-SCOPE per body engine (structural + lift forms), for both
+  // USED and UNUSED component defs (parseComponentDef runs for every def). The
+  // body engine is NOT hoisted into the file's machineDecls (it lives only in the
+  // local re-parse), so emission stays unaffected — the loud reject fails the
+  // build and emission is moot.
+  for (const engine of bodyEngines) {
+    ceErrors.push(makeComponentEngineScopeError(engine, name, filePath));
+  }
 
   if (parseErrors.length > 0) {
     const defSpan = span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
@@ -2253,6 +2435,29 @@ function expandComponentNode(
   const def = registry.get(componentName);
 
   if (!def) {
+    // §51.0.D / §15.13.5 / §51.0.K — an unresolved uppercase tag that names a
+    // same-file engine is an attempt to MOUNT the engine inside a component
+    // body. Same-file engines have NO mount tag (declaration IS mount), and a
+    // component body SHALL NOT host an engine — so the tag is doubly-illegal.
+    // Divert from the misleading "component not defined" (E-COMPONENT-020) to
+    // the precise E-COMPONENT-ENGINE-SCOPE, and DROP the node so the post-CE
+    // invariant (VP-2) does not also fire a misleading E-COMPONENT-035 on it.
+    // The `!def` gate guarantees this fires only on genuinely-unresolved tags,
+    // so a legitimate (same-file or cross-file) component reference is never
+    // diverted even if it happens to share a name with an engine.
+    if (_currentFileEngineMountNames.has(componentName)) {
+      ceErrors.push(makeCEError(
+        "E-COMPONENT-ENGINE-SCOPE",
+        `E-COMPONENT-ENGINE-SCOPE: \`<${componentName}/>\` mounts the same-file engine ` +
+        `\`${componentName}\` inside a component body. Same-file engines have no mount tag — ` +
+        `an engine renders at its declaration position (§51.0.D) — and a component body SHALL ` +
+        `NOT host an engine (engines are singletons; a component is multi-instance). Render the ` +
+        `\`<engine for=${componentName} ...>\` outside the component body, or read the engine's ` +
+        `state via \`@cell\` inside the component (§15.13.4). (SPEC §51.0.D + §51.0.K + §34.)`,
+        node.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 },
+      ));
+      return [];
+    }
     // E-COMPONENT-020: unresolved component reference
     ceErrors.push(makeCEError(
       "E-COMPONENT-020",
@@ -3512,6 +3717,11 @@ export function runCEFile(
   importGraph?: ImportGraph
 ): CEFileOutput {
   const { filePath, ast, errors: _tabErrors } = tabOutput;
+
+  // §51.0.D / §15.13.5 — record this file's engine mount names so the expander
+  // can divert an uppercase mount tag that names a same-file engine (`<Phase/>`)
+  // away from the misleading E-COMPONENT-020 to E-COMPONENT-ENGINE-SCOPE.
+  _currentFileEngineMountNames = ast ? collectFileEngineMountNames(ast) : new Set();
 
   const ceErrors: CEError[] = [];
 

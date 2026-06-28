@@ -297,48 +297,150 @@ describe("B17 — PASS 11 fires E-COMPONENT-ENGINE-SCOPE on engine-decl in compo
 });
 
 // ---------------------------------------------------------------------------
-// §B17.deferred — DEFERRED end-to-end cases (preconditions not met)
+// §B17.activated — formerly-DEFERRED end-to-end cases (component-body engine
+// reject landed S227+, change-id g-component-body-engine-reject).
 // ---------------------------------------------------------------------------
-
-describe("B17 — DEFERRED end-to-end cases (preconditions not met)", () => {
-  // -------------------------------------------------------------------------
-  // PARKED (still blocked) — engine inside a component BODY.
-  //
-  // CURRENT blocker (re-verified ss2 item 5, 2026-06-19): a `component-def`
-  // stores its markup body as `component-def.raw: string` (ast-builder.js
-  // ~line 10370 — `kind: "component-def", raw: expr`). There is no
-  // component-body markup parser: the `raw` string is NEVER re-parsed into a
-  // walkable AST. `defChildren` (ast-builder.js ~line 15007) collects only the
-  // LOGIC-body siblings that FOLLOW a component-def, never markup nested inside
-  // its body. An `<engine>` written inside a component's markup body therefore
-  // lives only as substring text in `raw` — it never becomes an `engine-decl`
-  // node, never lands in `machineDecls`, and is unreachable by any AST walker
-  // (empirically: defChildren === [], machineDecls.length === 0, engine-decl
-  // NOT reachable via body/children/defChildren/bodyChildren recursion).
-  //
-  // The §51.3 placement rule (ast-builder.js ~line 15607 — "engine-decl nodes
-  // are children of markup (program), not logic") only collects engine-decls
-  // that the block-splitter already emitted as top-level/program markup
-  // children; it does not descend into a component's `raw` body.
-  //
-  // ACTIVATING cases (1)-(3) requires a FROM-SCRATCH subsystem: a component-body
-  // markup parser pass that re-parses `component-def.raw` into walkable AST
-  // children (so a nested `<engine>` becomes a walkable `engine-decl`, and a
-  // self-closing `<EngineName/>` mount tag becomes a walkable mount node). That
-  // pass is OUT of sPA scope — escalated to PA. The PASS 11 walker
-  // (`walkRejectEnginesInComponentDefChildren`) is already correct and is
-  // exercised today via SYNTHESIZED AST (§B17.1-§B17.9 above); these three
-  // end-to-end cases activate once the parser produces the shape.
-  test.skip("[deferred — needs component-body markup parser] end-to-end: engine-decl in component-def.defChildren via parser", () => {
-    expect(true).toBe(true);
+//
+// The prior blocker comment said a `component-def`'s markup body
+// (`component-def.raw: string`) is never re-parsed, so a body `<engine>` is
+// unreachable by any AST walker. That is true of the SYM B17 walker
+// (`walkRejectEnginesInComponentDefChildren`, symbol-table.ts), which walks the
+// pre-CE AST. But component-expander's `parseComponentBody` DOES re-parse the
+// `raw` body (producing `machineDecls` + a walkable node tree) — it simply
+// discarded the engine list. CE now fires `E-COMPONENT-ENGINE-SCOPE` from the
+// re-parsed body for all three authoring shapes, so these end-to-end cases are
+// reachable. The SYM synthesized-AST walker (§B17.1-§B17.9 above) stays as the
+// defensive backstop and remains byte-consistent with the CE message.
+//
+// SPEC §15.13.5 (component body SHALL NOT instantiate an engine), §51.0.K
+// (engine-side restatement), §51.0.D (same-file engines have no mount tag).
+describe("B17 — ACTIVATED end-to-end: engine inside a component body fires E-COMPONENT-ENGINE-SCOPE", () => {
+  // Shape 1 — structural: an `<engine>` declared directly in the component body.
+  test("(1) structural `<engine>` inside a component body fires E-COMPONENT-ENGINE-SCOPE", () => {
+    const result = compileEndToEnd(`<program>
+\${ type Phase:enum = { Idle, Active } }
+\${ const Card = <div><engine for=Phase initial=.Idle>
+  <Idle rule=.Active : "idle">
+  <Active : "active">
+</engine></div> }
+<Card/>
+</program>
+`, "engine-in-component-structural.scrml");
+    const d = diagByCode(result, "E-COMPONENT-ENGINE-SCOPE");
+    expect(d).not.toBeNull();
+    expect(d.severity).toBe("error");
+    expect(d.message).toContain("Card");
+    expect(d.message).toContain("Phase");
+    // No longer a silent drop — the build fails with at least one error.
+    expect(result.errors.length).toBeGreaterThan(0);
   });
 
-  test.skip("[deferred — needs component-body markup parser] end-to-end: engine-decl inside the `raw` markup body of a component-def", () => {
-    expect(true).toBe(true);
+  // Shape 2 — lift / markup-value: `${ <engine/> }` inside the component body.
+  // Inside a `${…}` logic context the engine is not a hoisted engine-decl; it
+  // survives as a raw `markup` node (`tag === "engine"`) that CE's body scan
+  // catches.
+  test("(2) lift-value `${ <engine/> }` inside a component body fires E-COMPONENT-ENGINE-SCOPE", () => {
+    const result = compileEndToEnd(`<program>
+\${ type Phase:enum = { Idle, Active } }
+\${ const Card = <div>\${ <engine for=Phase initial=.Idle>
+  <Idle rule=.Active : "idle">
+  <Active : "active">
+</engine> }</div> }
+<Card/>
+</program>
+`, "engine-in-component-liftvalue.scrml");
+    const d = diagByCode(result, "E-COMPONENT-ENGINE-SCOPE");
+    expect(d).not.toBeNull();
+    expect(d.severity).toBe("error");
+    expect(d.message).toContain("Phase");
   });
 
-  test.skip("[deferred — needs component-body markup parser] end-to-end: engine mount tag `<EngineName/>` inside a component body", () => {
-    expect(true).toBe(true);
+  // Shape 3 — mount tag: a same-file engine mount `<Phase/>` inside the body.
+  // §51.0.D: same-file engines have NO mount tag; inside a component body it is
+  // doubly-illegal. The misleading E-COMPONENT-020 ("component not defined") +
+  // E-COMPONENT-035 (post-CE residual) are REPLACED by the precise scope error.
+  test("(3) same-file engine mount `<Phase/>` inside a component body fires E-COMPONENT-ENGINE-SCOPE (not E-COMPONENT-020/035)", () => {
+    const result = compileEndToEnd(`<program>
+\${ type Phase:enum = { Idle, Active } }
+<engine for=Phase initial=.Idle>
+  <Idle rule=.Active : "idle">
+  <Active : "active">
+</engine>
+\${ const Card = <div><Phase/></div> }
+<Card/>
+</program>
+`, "engine-mount-in-component.scrml");
+    const d = diagByCode(result, "E-COMPONENT-ENGINE-SCOPE");
+    expect(d).not.toBeNull();
+    expect(d.severity).toBe("error");
+    expect(d.message).toContain("Phase");
+    // The misleading diagnostics are REPLACED, not supplemented.
+    expect(diagByCode(result, "E-COMPONENT-020")).toBeNull();
+    expect(diagByCode(result, "E-COMPONENT-035")).toBeNull();
+  });
+
+  // Adversarial (S215): a valid component WITHOUT any engine must NOT over-fire.
+  test("(adv-a) component with no engine does NOT fire E-COMPONENT-ENGINE-SCOPE", () => {
+    const result = compileEndToEnd(`<program>
+\${ const Card = <div class="card"><span>hi</span></div> }
+<Card/>
+</program>
+`, "no-engine-component.scrml");
+    expect(diagByCode(result, "E-COMPONENT-ENGINE-SCOPE")).toBeNull();
+  });
+
+  // Adversarial (S215): an engine nested DEEPER (inside a nested `<div>`) in the
+  // component body still fires.
+  test("(adv-b) engine nested in a deeper `<div>` in the component body fires", () => {
+    const result = compileEndToEnd(`<program>
+\${ type Phase:enum = { Idle, Active } }
+\${ const Card = <div><section><engine for=Phase initial=.Idle>
+  <Idle rule=.Active : "idle">
+  <Active : "active">
+</engine></section></div> }
+<Card/>
+</program>
+`, "engine-nested-deep.scrml");
+    const d = diagByCode(result, "E-COMPONENT-ENGINE-SCOPE");
+    expect(d).not.toBeNull();
+    expect(d.severity).toBe("error");
+  });
+
+  // Adversarial (S215): an engine in NON-component top-level markup is UNAFFECTED
+  // (still valid — engines render at their declaration position, §51.0.D).
+  test("(adv-c) top-level (non-component) engine compiles WITHOUT E-COMPONENT-ENGINE-SCOPE", () => {
+    const result = compileEndToEnd(`<program>
+\${ type Phase:enum = { Idle, Active } }
+<engine for=Phase initial=.Idle>
+  <Idle rule=.Active : "idle">
+  <Active : "active">
+</engine>
+</program>
+`, "top-level-engine-ok.scrml");
+    expect(diagByCode(result, "E-COMPONENT-ENGINE-SCOPE")).toBeNull();
+  });
+
+  // Adversarial (S215): a component body mounting a LEGITIMATE component
+  // reference (an uppercase tag that resolves to a real component, not an
+  // engine) must NOT be falsely diverted to the scope error — the `!def` gate
+  // only diverts genuinely-unresolved tags. Even with a same-file engine
+  // present, the real component reference resolves and expands normally.
+  test("(adv-d) legitimate component reference inside a component body is NOT diverted to the scope error", () => {
+    const result = compileEndToEnd(`<program>
+\${ type Phase:enum = { Idle, Active } }
+<engine for=Phase initial=.Idle>
+  <Idle rule=.Active : "idle">
+  <Active : "active">
+</engine>
+\${ const Badge = <span class="badge">ok</span> }
+\${ const Card = <div><Badge/></div> }
+<Card/>
+</program>
+`, "legit-component-in-component.scrml");
+    // The legit `<Badge/>` resolves; no engine-scope misfire and no unresolved.
+    expect(diagByCode(result, "E-COMPONENT-ENGINE-SCOPE")).toBeNull();
+    expect(diagByCode(result, "E-COMPONENT-020")).toBeNull();
+    expect(diagByCode(result, "E-COMPONENT-035")).toBeNull();
   });
 });
 
