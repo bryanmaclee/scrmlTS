@@ -2,6 +2,17 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
+### 2026-06-28 (S228 — HIGH adopter fix + 2 sPA lanes + token-set emit + E-RI-002 steering; gate-tracking currency-pass [4 layers stale]; inversion-crux pushed → flogence built back; flobase-routing directive)
+
+A board-drive + meta-system session under the S219 primary-goal.
+- **`g-component-body-markup-parser-absent` (HIGH adopter fix) LANDED `440e8e2d`** — an `<engine>` declared in a component body was silently unreachable by the (already-correct) reject-walker. A survey REFUTED the known-gaps "from-scratch parser, DESIGN-TRACK" estimate (the parser already re-parses the body; CE just discarded `machineDecls`). Design A: fire `E-COMPONENT-ENGINE-SCOPE` from CE — all 3 shapes (structural silent-drop · `${<engine>}` phantom-DOM · `<EngineName/>` misleading-cascade) now reject loudly. R26 + S215 adversarial. (+7 tests)
+- **ss53 (per-item-disjoint cleanup)** — `bug-20` `promote --engine` Tier-1→2 span-rewrite LANDED `9a7b8470` (S210 ruling B; fails-closed; boundary follow-on `g-promote-engine-same-named-cell-no-lift` filed) + `g-detect-sql-in-arrow` Case-A proven-dead + pruned `2715b2ad`.
+- **ss54 — `--emit-token-set` LANDED `f30f79da`** — the scrml side of the flogence docs↔code-drift DD: a `token-set.json` (symbols+kind · §34 codes · keywords, keyed by an fnv1a content-fingerprint) flogence consumes as a doc-currency oracle. A read-only projection (anti-ouroboros). R26-verified.
+- **E-RI-002 server-authoritative STEERING LANDED `7cc5d8b4`** — dpa-005's clean residual; the diagnostic now names the offending cell (`@phase`), and the steering body (the two blessed `<engine server=@source>` / channel+`<match>` recipes) was already-landed S199. Both steered forms compile clean (the §52 read-load landed → the old byte-leak is gone).
+- **Gate-1 RULED** — `g-markup-session-read`: markup IS a legal `@session` read locus (§51.0.A ambient-read precedent) → a design-Q flipped to a fireable build.
+- **Gate-tracking currency-pass** — "opening gates" exposed FOUR layers of stale tracking (dpa-queue status lines never back-propagated past the dPA's `complete`; INDEX Bucket B lingering already-ruled rows; dpa-005's flux-§52 framing stale; E-RI-002's body already-landed). Added an authoritative current-status anchor at the dpa-queue top reconciling all 16 dpa items. The board no longer lies: only dpa-010/011 genuinely-open; the rest is ratified-but-unbuilt.
+- **Inversion crux pushed** — tier-2 judgment-capture sharpened into 2a (re-expression, renderable) vs 2b (synthesis, irreducible); ~65-75% 2a this session. Routed to flogence, which built back the cross-PA awareness channel + a working `render commit-message` + the token-set consume within hours. The flobase-routing directive (PA-system mechanics → flobase) + the inbox-surface pre-commit hook landed alongside.
+
 ### 2026-06-27 (S227 — board sweep: HIGH cleared + 3 MEDs [4-lane dispatch]; dpa-015 markup-lease RATIFIED [Q2-collapse, cost-corrected]; inversion domino-1 WIRED [dock investigation-as-query]; transcript-validation [85/15 holds]; 2 threads to flogence)
 
 A board-sweep + inversion-build session under the S219 primary-goal.

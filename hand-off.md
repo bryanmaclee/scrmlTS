@@ -1,30 +1,41 @@
-# scrml — Session 228 (OPEN)
+# scrml — Session 228 (CLOSE)
 
-**Date:** 2026-06-27→28. **Profile:** A — FULL (booted via `/boot`). Boot complete; awaiting direction. Mechanical state → flogence digest (`bun ../flogence/scripts/digest.ts scrml --fresh`) + `handOffs/delta-log.md` [185]. Prior session S227-CLOSE rotated → `handOffs/hand-off-230.md`.
+**Date:** 2026-06-27→28. **Profile:** A — FULL (booted via `/boot`). A **board-drive + meta-system** session: landed a HIGH adopter fix + 2 sPA lanes + the token-set emit + the E-RI-002 steering, RULED gate-1, ran a **gate-tracking currency-pass** that exposed 4 layers of stale tracking, and **pushed the inversion crux** (tier-2 judgment-capture) — which flogence then built back (awareness channel + `render commit-message` + token-set consume) within hours. Mechanical stream → `handOffs/delta-log.md` [186]–[200] + flogence digest.
 
-## 🚨 NEXT-START / boot state
-Board @ open: **HIGH 0 · MED 8 · LOW 11 · Nom 7 · v0.7.0** (known-gaps §0 @generated; confirmed from source — digest in-repo is STALE/superseded, flogence is the live state). **NO design gates block the board.** Suite (last) 25680/0/214. Tree clean (S227 benign import-resolution fixtures restored at boot). origin/main 0/0 — in sync (HEAD `6ac1f635`). Maps @ dec70dce.
+## 🚨 NEXT-START
+Boot Profile A. Board @ close: **HIGH 0 · MED 7 · LOW 10 · Nom 7 · v0.7.0** (known-gaps §0). **NO design gates block the board** (the currency-pass confirmed the "gate backlog" is mostly ratified-but-unbuilt + stale tracking). Suite green via per-commit gates (E-RI-002 commit 18286/0 subset). **PUSHED** (4 commits — ss54 · checkpoint · E-RI-002 · wrap). Maps hand-updated to HEAD.
 
-**Boot notes:** `.pa-base/profile` absent (flobase not assembled this checkout) — booted via the authoritative `pa-scrml.md` path. vPA deputy ELIMINATED (S219) — no deputy branch; maintenance reverts to PA-at-wrap; digest-boot is programmatic via flogence.
+**USER-FLAGGED for next session:** **README updates/changes.** (Doc-currency, not marketing — user brought it up; legit.)
 
-## ⏸️ OPEN — S228 board (carried from S227)
-**Fireable lanes (sPA — user fires; PA slots; `dock --units <file>` to scope owned-blocks per S227 dock-wiring):**
-- **Tier-2 Round-2:** `g-component-body-markup-parser-absent` (ast-builder.js, open-ended) · `g-native-inline-struct-return-twin` (native-parser; S222-frozen, robustness-only).
-- **Tier-2 Round-3 (collision-hub / lower-value):** `g-tier1-ssr-prerender` (open-ended; type-system + emit-server) · `g-library-mode-sql-no-db-context` (multi-stage; shares emit-server) · `bug-14` (MCP runtime) · `r28-c2` (docs).
-- **Tier-3:** 11 LOWs → one `low-ingestion-cleanup` sPA (ss27 precedent). `a5` friction-GATED (defer).
-- **dpa-012 lints + §40 phase-spec** (ratified S225, queued build).
+**Other next-session priorities:**
+1. **Ratify the tier2-render capture-format schema** — flogence PROPOSED it (`handOffs/incoming/2026-06-28-1025-...-tier2-render-schema-proposal.md`, LEFT in incoming/ = action-needed). A markdown-tag extension of the delta-log: `[seq] kind · prose · → ptr · @to:<targets> · @as:<disposition> · @r:<renders> · #xref:<proj>`. flogence already built `render commit-message` (self-hosting proof). **My lean on flogence's open-Q (`@r` author-declares vs flogence-infers):** flogence INFERS `@r` from `kind`+`targets` — the inversion's whole point is keeping churn off the expert, so the PA writes only `@to`+`@as` (judgment), `@r` is mechanical/inferable. Ratify with that, then co-adopt (write enriched entries).
+2. **g-markup-session-read** — RULED markup-legal (gate-1); now a FIREABLE build (wire `@session` into markup symbol-resolution, §51.0.A ambient-read precedent).
+3. **Genuinely-open gates** (post currency-pass): dpa-010 / dpa-011 (advisory, meta/flogence — ratify-or-defer) · `g-sql-row-protect-leak` (security static-projection contract, design-first).
+4. **Fireable builds** (mislabeled as gates): `g-reactive-map-set-method-in-control-flow-raw-emit` (MED — clear fix shape) · `g-tier1-ssr-prerender` (the REAL flux residual — substantial SSR subsystem, survey-banked ss51/ss26).
 
-**Inversion build path (no design gate):**
-- **dpa-015 `conflictsWith` build** — RATIFIED-direction (Q2-collapse), STAGED: WARN-now @object-grain buildable; GATE gated on field-grain DG redesign (BREAK-1) + R/W-partition query. Deprioritized (not adopter-facing). scrml owes `conflictsWith`/`--emit-region-touch-map` (W3.5).
-- **Tier-2 judgment-capture** (the transcript-validation crux) — the ~1/3-warm-context bookkeeping-write mass; mechanism = flogence doc-maintenance/docs↔code-ID thread (kicked to flogence S227). Make-or-break for the big amortization (~1.5x vs ~5.5-8.5x).
-- **token-set emit contract** — scrml owes flogence when it fires the docs↔code-ID DD.
-- **dock polish:** bare `dock --units` (no file arg) crashes (`toRel(undefined)`) — print usage instead.
+## 🎯 Design narrative (IRREDUCIBLE)
+**1. The gate-tracking currency-pass — the session's biggest finding.** "Keep opening gates" kept discovering the gates were ALREADY ruled. FOUR layers of stale tracking: (a) dpa-queue per-item `status:` lines stop at the dPA's `complete` (RUN-not-RATIFY); PA ratification lives in the S215/S225 BLOCKS, never back-propagated → dpa-002/003/005/006/008/009/012/014/015 all READ "open" despite being ratified; (b) §36-AF ruled-by-design S210, flograph-deref ratified S209 — lingered "open" in INDEX Bucket B; (c) dpa-005's "fire §52 write-back = flux G1" was ITSELF stale (write-back RETRACTED S194; flux residual = g-tier1-ssr-prerender); (d) even the E-RI-002 steering BODY was already-landed S199 (`5e3a1dbf`). **FIX:** an authoritative CURRENT-STATUS anchor at dpa-queue top (supersedes per-item lines; §0-@generated pattern) reconciling all 16 dpa items + marked INDEX Bucket B rows. **The project doesn't have an open-design-gate backlog — it has ratified-but-unbuilt work mislabeled as gates + stale tracking.** This staleness is the doc-ouroboros the inversion/token-set/cross-PA-awareness work is built to kill — verifying-before-firing (the user's "verify the §52 state first") repeatedly paid off (stopped a build agent firing at a retracted target).
 
-## 🎯 Strategic frontier (carried)
-PA-continuity INVERSION staged-LIVE; S227 WIRED domino-1 (dock investigation-as-query) + VALIDATED 85/15 by token. Next inversion lever = tier-2 judgment-capture (above). Compiler-reimagining Road-B COMMITTED (S222); Q-MATCH §18.19 + Q-FIP both ratified; FBIP = HAMT(done) + inferred(deferred). Board remainder is fresh cold work for a clean boot.
+**2. The inversion crux PUSHED → flogence built it back, FAST.** Tier-2 (~27-33% warm ctx) sharpened into **2a RE-EXPRESSION** (commit-msg / INDEX-row / changelog / gaps-annotation / handoff-mech — a PROJECTION of the delta entry, renderable) vs **2b SYNTHESIS** (narrative / spec-text / ratification — irreducible). First-order on S228: ~65-75% 2a; ratio is SESSION-TYPE-dependent (execution-heavy → 2a-skew → high ceiling; design-heavy → 2b-skew → floor). Spec'd (`scrml-support/docs/deep-dives/tier2-judgment-capture-2a2b-2026-06-28.md`) + routed → flogence. **Within hours flogence built: the whole cross-PA awareness channel (5 phases, `render commit-message` self-hosting, the token-set consume).** The "richer capture → flogence renders" family is shipping at both ends. The scrml↔flogence loop is now TIGHT (4 coordination threads this session, 3 already built back).
+
+**3. The flobase ecosystem — ownership line crystallized.** User directive (S228): **PA-system-distillation (flobase) concerns route TO flobase, not scrml's pa-scrml/spa-scrml.** The triad: **scrml = the proven ground-post · flobase = the PA-system distillation (system-wide install) · flogence = the programmatic engine.** flobase is installed system-wide (global tier: commands + agents + CORE-merge); the per-project `.pa-base/profile` is NOT assembled for scrml (running `/flobase` would close that + the role-spa self-provision fix would reach scrml's live sPA). Memory `feedback_flobase_tooling_routing`.
+
+**4. g-component-body (HIGH adopter fix) — depth-of-survey discount, again.** known-gaps called it "from-scratch parser, DESIGN-TRACK"; a survey REFUTED it (the parser already re-parses the body; CE just discarded `machineDecls`). Design A (fire E-COMPONENT-ENGINE-SCOPE from CE) fixed all 3 shapes (silent-drop / phantom-DOM / misleading-cascade). The "from-scratch" estimate was wrong; the fix was ~4-8h wiring. (8th+ depth-of-survey occurrence.)
+
+## 🛟 Recovered anomalies / lessons
+- **E-RI-002 branch-delete-before-land (my error).** Batched `git branch -D` into the SAME command as the ff; the ff FAILED (the worktree was based on pre-checkpoint `2f8d2bd0`, diverged) and the cleanup ran UNCONDITIONALLY → branch deleted before land. Recovered via the dangling SHA + file-delta (S226-safe; route-inference unchanged on main). **LESSON: gate worktree/branch cleanup on landing SUCCESS — never batch it with the ff in one unguarded command.** (Sharpens `feedback_land_before_cleanup`.) Zero work lost.
+- **commit-timeout-but-landed (×1).** Commit B's foreground commit timed out at 5min but LANDED (S227 pattern); verified HEAD before assuming failure. (Suite runs hotter than the ~108-124s memory — machine load from parallel sessions.)
+- **ss54 self-provisioned its own worktree** (`spa-ss54`) — vs ss53's main-checkout-hijack. The role-spa self-provision fix (routed to flobase) is the durable answer; ss54 doing it right is a good sign.
+- **Parallel sPA worktree salvage** — ss53's 2 worktrees verified byte-identical to main before removal (their commits = the file-delta'd-landed work). S211 caution honored.
+
+## Board @ close
+**HIGH 0 · MED 7 · LOW 10 · Nom 7 · v0.7.0.** Landings: `02b4e71d`...→ `440e8e2d` (g-component-body) · `9a7b8470`+`2715b2ad` (ss53) · `f30f79da` (ss54 token-set) · `ceda4c2e` (checkpoint/currency-pass) · `7cc5d8b4` (E-RI-002) · wrap. Resolved: g-component-body (MED) · bug-20 · g-detect-sql (LOW). Filed: `g-promote-engine-same-named-cell-no-lift` (LOW follow-on). 0 worktrees (all cleaned). Delta-log [186]-[200].
+
+## §push / cross-repo
+**PUSHED** (user "wrap and push"): scrml main + the wrap. scrml-support: the 2 deep-dives (cross-pa-awareness · tier2-judgment-capture) + the awareness/currency docs pushed (`32af91c`/`eecf404`). **flogence inbox: 5 messages sent** this session (role-spa self-provision · inbox-hook pattern · cross-PA awareness spec · token-set FINAL contract · tier2-render routing) — flogence built back 3 (awareness channel · render · token-set consume) + proposed the tier2-render schema (action-needed, in incoming/).
 
 ## pa.md directives in force
-R1–R5 · `---` delimiter · Profile A · S219 PRIMARY-GOAL (orchestrate-don't-grind · default-GO) + flogence digest-boot (deputy ELIMINATED) · S227 dock investigation-as-query · S226 landing-concurrency (3-way-merge for shared files · ingestion-disjoint) + inversion-op · S88/S99/S126 path-discipline · S136 BRIEF archival · S138 R26 · S147 coherence · S215 adversarial-verify · wrap 8-step.
+R1–R5 · `---` delimiter · Profile A · **S228 flobase-concerns-route-to-flobase** (new) · S219 PRIMARY-GOAL + flogence digest-boot · S227 dock investigation-as-query · S226 landing-concurrency (3-way-merge · ingestion-disjoint) + inversion-op · S88/S99/S126 path-discipline · S136 BRIEF archival · S138 R26 · S147 coherence · **gate cleanup on landing-success (S228, sharpens land-before-cleanup)** · S215 adversarial-verify · wrap 8-step.
 
 ## Tags
-#session-228 #open #boot-profile-a #board-HIGH-0 #flogence-digest-boot #deputy-eliminated
+#session-228 #close #board-HIGH-0 #gate-tracking-currency-pass-4-layers-stale #inversion-crux-pushed-flogence-built-back #tier2-2a2b #flobase-routing-directive #g-component-body-HIGH-survey-refuted #ss54-token-set #e-ri-002-steering #gate-1-markup-session-ruled-legal #readme-updates-next-session #e-ri-002-recovery-lesson
