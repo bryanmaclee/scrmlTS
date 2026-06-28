@@ -3878,10 +3878,16 @@ export function runRI(input: RIInput): RIOutput {
               // and the channel-cell assignment lowers to the broadcast
               // wire (see emit-logic.ts case "bare-expr" server arm).
             } else {
+              // Name the offending cell when the LHS is a canonical `@<ident> =`
+              // write; compound (`+=`) / dotted member targets yield null, in
+              // which case we fall back to the generic phrasing.
+              const _cellPhrase = _assignedCellName != null
+                ? `the reactive cell \`@${_assignedCellName}\``
+                : "a `@` reactive variable";
               errors.push(new RIError(
                 "E-RI-002",
                 `E-RI-002: Server-escalated function \`${record.fnNode.name ?? "<anonymous>"}\` ` +
-                `assigns to a \`@\` reactive variable. Reactive state is client-side; a server ` +
+                `assigns to ${_cellPhrase}. Reactive state is client-side; a server ` +
                 `function has no client-reactive referent and cannot write it directly (§12.2). ` +
                 `For server-authoritative engine state, name a server-owned source cell the engine ` +
                 `hydrates from: \`<engine for=T server=@source ...>\` (§51.0.E — hydrates guard-free ` +

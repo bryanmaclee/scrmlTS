@@ -893,6 +893,9 @@ describe("§10 — E-RI-002: server-escalated function assigns to @reactive vari
     expect(msg).toContain("<channel>");
     expect(msg).toContain("§38.4");
     expect(msg).not.toContain("client-side callback");
+    // Names the offending cell (cheaply available from the reactive-assignment
+    // LHS) so the adopter sees exactly which cell to migrate.
+    expect(msg).toContain("reactive cell `@phase`");
   });
 
   test("E-RI-002 only fires on server-escalated functions, not client functions", () => {
