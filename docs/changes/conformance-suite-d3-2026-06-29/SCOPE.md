@@ -19,6 +19,8 @@ The conformance machinery already exists in seed; the net-new is the *agnostic e
 
 **The asymmetry that shapes the build:** the **(a) "which codes fire"** half is ~done (109 files of *source→codes* to *lift*, not author). The **(b) "runtime effect"** half — D3-ratified as equally load-bearing — is barely seeded and is the real design + authoring work.
 
+> **⚠ CORRECTED by the W2 pilot (S231 — see §6).** The "109 files of source→codes to lift" framing was optimistic by **~3–4×**. The empirical pilot found only **~29** of the 109 actually call `compileScrml` (have a real codes-contract); the other **~80 import `splitBlocks` and assert impl#1-INTERNAL parse-structure** (`blocks[0].type`, `.name`, `.closerForm`) — which is **explicit impl freedom per D3** (impl#2-native has no `splitBlocks`), so they carry NO agnostic codes-contract. They must be triaged: re-express as a (b)-runtime-DOM assertion, or EXCLUDE as impl-internal. **This SHARPENS the asymmetry, not softens it:** the (a)-codes corpus is even smaller than thought (~29), and the real conformance contract is overwhelmingly the (b)-runtime half (which lives today in the separate `compiler/tests/browser/*` twins). The pilot PROVED the format + adapter end-to-end (15/15).
+
 ## 2. W1 — the case format + adapter interface (design crux)
 
 **Runtime-effect vocabulary — RATIFIED S231 (user "Final DOM + state snapshot"):** a case asserts the **normalized final rendered DOM + final state-cell values** at the scrml-semantic level (`cell x = 5`; `#foo` text = `"hi"`), after an optional declared input-event sequence. Trace-ordering (full effect-trace) is DEFERRED to v1.next (the ordering-sensitive deepening). Pure-evaluation-only was REJECTED (too thin for a UI language).
@@ -72,8 +74,24 @@ Impl#1 (TS) implements this over `compileScrml` + happy-dom (it already has both
 - NOT the native parser build (that's W5 / Road-B, native-era — this suite is its *precondition*).
 - NOT message-text / JS-shape / AST conformance (explicit impl freedom per D3).
 
+## 6. W2 pilot — result + corrected scope + follow-on decisions (S231)
+
+**Pilot LANDED (S231).** Format + impl#1 adapter + runner built; **15/15 cases pass** against impl#1 (7 categories: input/loop×2/auth/error/block-grammar×2/codegen/form-for); existing 109 conformance files 443→0 fail (zero regression); pre-commit gate green throughout. Layout: `conformance/{cases/<cat>/<id>/{case.scrml,expected.json}, adapters/impl1-ts.ts, run.ts, conformance-corpus.test.js, README.md}`. Matching = **superset/disjoint** (`emitted ⊇ codes` AND `emitted ∩ notCodes = ∅`) — the incidental-code noise (every real compile emits `W-PROGRAM-*`/`W-WHITESPACE-001`/etc.) makes exact-set matching impossible; the adapter unions `.code` across BOTH `result.errors` and `result.warnings` (the S92/S93 two-stream partition is load-bearing).
+
+**W3 design now RATIFIED** — see `scrml-support/docs/deep-dives/conformance-runtime-layer-design-2026-06-29.md` (DD, RATIFIED-DIRECTION S231): the `run()` adapter = execute-in-DOM + serialize normalized post-run `<body>` + 7 selector-verbs + a `globalThis.__scrml_conformance` snapshot/settled hook; authoring = lift browser twins → golden-capture+mandatory-spec-review → hand-author flagship; within-node parity stays OUT of the contract; OQ1 DOM-mode default deferred to build-time.
+
+**Schema extensions the full lift needs (pilot-surfaced):**
+- `notCodePrefixes` — several conf tests assert absence of a whole family (`!e.code.startsWith("E-FORMFOR-")`); `notCodes` (exact) can't express it.
+- **per-code `severity`** — the code-set model LOSES severity sub-assertions (`conf-CG-001-warn` also asserts `severity==="warning"`). If the §34 error/warning partition is normative (it is — S92/S93), the schema needs a per-code severity field.
+- **multi-file case-dir convention** — cross-file/import fixtures (form-for imports `scrml:data`; `mkdtempSync` multi-file) don't fit the single-`case.scrml` shape.
+
+**FOLLOW-ON DECISIONS (PA/user):**
+- **D-1 — test-discovery wiring.** `bunfig.toml` `[test] root = "compiler/tests/"` EXCLUDES the top-level `conformance/`, so the corpus test does NOT run in the pre-commit gate (it runs only via explicit `bun conformance/run.ts`). For the corpus to be a real GATE: (a) add `conformance/` to a test root, (b) a thin bridge test under `compiler/tests/` that invokes the corpus runner, or (c) a separate CI step. **PA lean: (b)** — lowest-touch, no global-config change, rides the existing gate. *(Pilot landed un-gated — runs on-demand, verified 15/15; gating is the follow-on.)*
+- **D-2 — full-lift approach** given the ~29-not-109 correction: triage the ~29 codes-liftable (most assert OUTPUT-SHAPE = impl freedom, so their only codes-half is "compiles clean"; their real contract is the (b)-runtime half via the browser twins) + decide the ~80 splitBlocks tests' disposition (re-express-as-(b) vs exclude-as-impl-internal). This re-weights the build toward the (b)-runtime layer (W3) sooner than W2's "lift everything first" implied.
+
 ## Authority + cross-refs
 - Deep-dive (the reframe + D3 ratification): `scrml-support/docs/deep-dives/language-compiler-split-2026-06-29.md` §3 (D1–D5) + §10 (ledger).
+- W3 runtime-layer design (RATIFIED-DIRECTION S231): `scrml-support/docs/deep-dives/conformance-runtime-layer-design-2026-06-29.md`.
 - The v1.0 fail-closed-Nominal invariant (companion robustness rule): same deep-dive §4 criterion 3 + known-gaps `g-nominal-foreign-forms-not-failclosed`.
 - delta-log: the build-scoping entry (S231).
 - Existing substrate: `compiler/tests/conformance/**`, `compiler/tests/parser-conformance-within-node*`, `compiler/src/native-parser-canary/within-node-classifier.ts`.

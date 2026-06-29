@@ -1,0 +1,10 @@
+{
+  "id": "loop-005-break-pos",
+  "description": "Arrow with `break` inside an enclosing for-loop fires E-LOOP-005 (§49.4.3 break/continue cannot cross a function-scope boundary).",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/conf-LOOP-005.test.js",
+  "expect": {
+    "codes": ["E-LOOP-005"],
+    "notCodes": []
+  }
+}

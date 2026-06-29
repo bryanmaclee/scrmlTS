@@ -1,0 +1,10 @@
+{
+  "id": "input-001-pos",
+  "description": "<keyboard/> without an id attribute fires E-INPUT-001 (§36.2 input state must be referenceable via <#id>).",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/conf-INPUT-001.test.js",
+  "expect": {
+    "codes": ["E-INPUT-001"],
+    "notCodes": []
+  }
+}

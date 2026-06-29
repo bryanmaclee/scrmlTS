@@ -1,0 +1,10 @@
+{
+  "id": "loop-005-neg",
+  "description": "Arrow with return-only (no break/continue) outside any loop does NOT fire E-LOOP-005.",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/conf-LOOP-005.test.js",
+  "expect": {
+    "codes": [],
+    "notCodes": ["E-LOOP-005"]
+  }
+}

@@ -1,0 +1,4 @@
+${
+    type MyError : error = { reason : string , code : int }
+}
+<p>x</>

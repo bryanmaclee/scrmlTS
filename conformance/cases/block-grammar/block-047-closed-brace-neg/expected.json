@@ -1,0 +1,10 @@
+{
+  "id": "block-047-closed-brace-neg",
+  "description": "A properly closed `${ ... }` brace context does NOT fire E-CTX-003.",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/block-grammar/conf-047.test.js",
+  "expect": {
+    "codes": [],
+    "notCodes": ["E-CTX-003"]
+  }
+}

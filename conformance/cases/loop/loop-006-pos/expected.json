@@ -1,0 +1,10 @@
+{
+  "id": "loop-006-pos",
+  "description": "Two sibling for-loops sharing the label `outer:` fire E-LOOP-006 (§49.2.2 duplicate label in same function scope).",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/conf-LOOP-006.test.js",
+  "expect": {
+    "codes": ["E-LOOP-006"],
+    "notCodes": []
+  }
+}

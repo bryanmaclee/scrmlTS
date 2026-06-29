@@ -1,0 +1,4 @@
+${
+    type MyError : error = { message : string }
+}
+<p>x</>

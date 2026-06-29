@@ -1,0 +1,10 @@
+{
+  "id": "cg-001-server-block-warn-pos",
+  "description": "A top-level server-only ?{} SQL block fires W-CG-001 (warning stream — suppressed from client output). Proves the adapter unions codes across result.warnings, not just result.errors.",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/conf-CG-001-warn.test.js",
+  "expect": {
+    "codes": ["W-CG-001"],
+    "notCodes": []
+  }
+}

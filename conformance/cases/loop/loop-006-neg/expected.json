@@ -1,0 +1,10 @@
+{
+  "id": "loop-006-neg",
+  "description": "Two for-loops with DISTINCT labels (`outer:` / `inner:`) do NOT fire E-LOOP-006.",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/conf-LOOP-006.test.js",
+  "expect": {
+    "codes": [],
+    "notCodes": ["E-LOOP-006"]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "id": "auth-003-pos",
+  "description": "authority=\"server\" state type without a table= attribute fires E-AUTH-003 (§52.3.3 no DB-table mapping → no sync infra).",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/conf-AUTH-003.test.js",
+  "expect": {
+    "codes": ["E-AUTH-003"],
+    "notCodes": []
+  }
+}

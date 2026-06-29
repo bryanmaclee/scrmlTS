@@ -1,0 +1,5 @@
+<program db="postgres"></>
+${
+    ?{`SELECT 1`}
+}
+<p>x</>

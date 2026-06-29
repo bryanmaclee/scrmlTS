@@ -1,0 +1,12 @@
+{
+  "id": "formfor-validity-bug58-clean",
+  "description": "The §41.14 canonical <formFor> compiles cleanly: no E-FORMFOR-* errors and no E-DG-002/W-DG-002 per-field orphans (Bug-58 regression lock). RUNTIME-HALF-PENDING: the asserted EFFECT (validity surface wired: signup.isValid / per-field .errors / submit passes values) is the (b) final-DOM+state half, designed in W3.",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/conf-form-for-validity-surface-bug-58.test.js",
+  "runtime-half-pending": true,
+  "runtime-half-ref": "compiler/tests/browser/browser-form-for-validity-bug-58.test.js",
+  "expect": {
+    "codes": [],
+    "notCodes": ["E-DG-002", "W-DG-002"]
+  }
+}

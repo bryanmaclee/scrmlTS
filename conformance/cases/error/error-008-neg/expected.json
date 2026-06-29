@@ -1,0 +1,10 @@
+{
+  "id": "error-008-neg",
+  "description": "Error type with only non-reserved fields (reason/code) does NOT fire E-ERROR-008.",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/conf-ERROR-008.test.js",
+  "expect": {
+    "codes": [],
+    "notCodes": ["E-ERROR-008"]
+  }
+}

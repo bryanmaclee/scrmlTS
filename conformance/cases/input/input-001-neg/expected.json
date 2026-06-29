@@ -1,0 +1,10 @@
+{
+  "id": "input-001-neg",
+  "description": "<keyboard id=\"keys\"/> does NOT fire E-INPUT-001 (id present).",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/conf-INPUT-001.test.js",
+  "expect": {
+    "codes": [],
+    "notCodes": ["E-INPUT-001"]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "id": "block-015-bare-slash-pos",
+  "description": "Bare `/` is no longer a valid closer; it fires E-SYNTAX-050 (§4.4.3 Phase 3 — use </> or </tag>).",
+  "language-version": "1.0",
+  "source-test": "compiler/tests/conformance/block-grammar/conf-015.test.js",
+  "expect": {
+    "codes": ["E-SYNTAX-050"],
+    "notCodes": []
+  }
+}
