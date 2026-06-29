@@ -1,0 +1,15 @@
+{
+  "id": "forms-bind-value-input",
+  "description": "bind:value two-way sync (§5.4). Typing into the text input fires `input`, syncing @username; the #greeting interpolation re-renders. The runtime input value is a DOM property, not a serialized attribute, so the whole-tree dom shows no value= (assert via state + the interpolated display).",
+  "language-version": "1.0",
+  "spec": "§5.4",
+  "rationale": "§5.4 bind:value: a text input syncs its cell on the `input` event. The input verb sets value + fires input through the same handler both impls wire.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "input": "#username-input", "value": "Ann" }],
+    "state": { "username": "Ann" },
+    "dom": "<input id=\"username-input\" placeholder=\"Username\" type=\"text\"><p id=\"greeting\">Hello Ann</p>",
+    "domAnchored": [{ "selector": "#greeting", "text": "Hello Ann" }]
+  }
+}

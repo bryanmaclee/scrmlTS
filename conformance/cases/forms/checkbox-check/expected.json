@@ -1,0 +1,15 @@
+{
+  "id": "forms-checkbox-check",
+  "description": "bind:checked two-way sync (§5.4). The check verb sets checked + fires `change`, syncing @agreed = true; the #status interpolation reads true. checked is a DOM property (no attribute in the whole-tree dom).",
+  "language-version": "1.0",
+  "spec": "§5.4",
+  "rationale": "§5.4 bind:checked: a checkbox syncs its cell on `change`. The check verb drives it through the wired handler (NOT a direct state-set).",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "check": "#agree-checkbox" }],
+    "state": { "agreed": true },
+    "dom": "<input id=\"agree-checkbox\" type=\"checkbox\"><p id=\"status\">Agreed: true</p>",
+    "domAnchored": [{ "selector": "#status", "text": "Agreed: true" }]
+  }
+}

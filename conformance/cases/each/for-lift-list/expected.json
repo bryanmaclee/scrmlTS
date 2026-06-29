@@ -1,0 +1,18 @@
+{
+  "id": "each-for-lift-list",
+  "description": "for/lift list render (§42 / §7). Two add-clicks append two items; the list renders two .item rows and #count reads 2. Whole-tree mode captures an impl#1-private lift-target <div> wrapper (an OQ1 brittleness data point); anchored mode is wrapper-agnostic.",
+  "language-version": "1.0",
+  "spec": "§42.2",
+  "rationale": "§42 for/lift markup iteration: a reactive @items write re-renders the lifted rows. The whole-tree dom exposes impl#1's lift-container <div>; the anchored .item count is impl-neutral.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#add-btn" }, { "click": "#add-btn" }],
+    "state": { "items": [{ "id": 1, "name": "Item 1" }, { "id": 2, "name": "Item 2" }], "nextId": 3 },
+    "dom": "<button id=\"add-btn\">Add Item</button><div id=\"list\"><div><div class=\"item\">Item 1</div><div class=\"item\">Item 2</div></div></div><p id=\"count\">Count: 2</p>",
+    "domAnchored": [
+      { "selector": ".item", "count": 2 },
+      { "selector": "#count", "text": "Count: 2" }
+    ]
+  }
+}

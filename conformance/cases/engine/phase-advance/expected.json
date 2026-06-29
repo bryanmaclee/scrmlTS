@@ -1,0 +1,15 @@
+{
+  "id": "engine-phase-advance",
+  "description": "Engine rule-guarded transition (§51.0). A click assigns @phaseTag = PhaseTag.Loading; the <Idle rule=.Loading> contract admits the transition and the cell + interpolation update to Loading. Non-payload variants store as bare strings, so the snapshot reads \"Loading\" (an impl-representation note for the OQ3 contract).",
+  "language-version": "1.0",
+  "spec": "§51.0",
+  "rationale": "§51.0 engine: auto-derived @phaseTag (§51.0.C) advances through the rule= contract on a guarded write. ${@phaseTag} interpolates the variant tag (.variant yields empty for bare-string non-payload variants — a separate existing behavior).",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#start" }],
+    "state": { "phaseTag": "Loading" },
+    "dom": "<button id=\"start\">Start</button><p id=\"phase\">Phase: Loading</p>",
+    "domAnchored": [{ "selector": "#phase", "text": "Phase: Loading" }]
+  }
+}

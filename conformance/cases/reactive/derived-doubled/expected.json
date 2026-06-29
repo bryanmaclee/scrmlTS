@@ -1,0 +1,18 @@
+{
+  "id": "reactive-derived-doubled",
+  "description": "Derived cell (§6.6) recomputes on upstream write. const <doubled> = @count * 2; one increment yields count=1, doubled=2. The snapshot flush()es derived before reading.",
+  "language-version": "1.0",
+  "spec": "§6.6",
+  "rationale": "§6.6 derived cells: lazy-pull recompute on dirty upstream. The OQ3 snapshot must flush() derived first (it does) so doubled reads 2, not a stale 0.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#inc" }],
+    "state": { "count": 1, "doubled": 2 },
+    "dom": "<button id=\"inc\">+</button><p id=\"count\">Count: 1</p><p id=\"doubled\">Doubled: 2</p>",
+    "domAnchored": [
+      { "selector": "#count", "text": "Count: 1" },
+      { "selector": "#doubled", "text": "Doubled: 2" }
+    ]
+  }
+}

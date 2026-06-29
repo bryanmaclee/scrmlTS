@@ -1,0 +1,5 @@
+${
+    <username> = ""
+}
+<input type="text" id="username-input" placeholder="Username" bind:value=@username />
+<p id="greeting">Hello ${@username}</>

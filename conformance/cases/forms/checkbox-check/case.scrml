@@ -1,0 +1,5 @@
+${
+    <agreed> = false
+}
+<input type="checkbox" id="agree-checkbox" bind:checked=@agreed />
+<p id="status">Agreed: ${@agreed}</>

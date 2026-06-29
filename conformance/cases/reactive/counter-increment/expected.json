@@ -1,0 +1,15 @@
+{
+  "id": "reactive-counter-increment",
+  "description": "Reactive cell write re-renders its interpolation. Two clicks on the increment button drive @count 0 -> 2; the #display text and the state snapshot both reflect 2.",
+  "language-version": "1.0",
+  "spec": "§6.1",
+  "rationale": "§6.1 reactive cells: a write (@count = @count + 1) updates the cell AND re-renders every interpolation that reads it. The spine of every other (b) case.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#inc" }, { "click": "#inc" }],
+    "state": { "count": 2 },
+    "dom": "<button id=\"inc\">+</button><p id=\"display\">Count: 2</p>",
+    "domAnchored": [{ "selector": "#display", "text": "Count: 2" }]
+  }
+}

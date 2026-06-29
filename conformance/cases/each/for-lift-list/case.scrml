@@ -1,0 +1,17 @@
+${
+    <items> = []
+    <nextId> = 1
+    function addItem() {
+        @items = [...@items, { id: @nextId, name: "Item " + @nextId }]
+        @nextId = @nextId + 1
+    }
+}
+<button id="add-btn" onclick=addItem()>Add Item</>
+<div id="list">
+    ${
+        for (let item of @items) {
+            lift <div class="item">${item.name}</>
+        }
+    }
+</div>
+<p id="count">Count: ${@items.length}</>
