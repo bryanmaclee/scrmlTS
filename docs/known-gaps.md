@@ -2042,6 +2042,8 @@ Same-shape bug class surfaced by the R25-Bug-37 dispatch agent (`1ce963d0`). Bug
 
 These are SPEC-only surfaces — designed, normatively documented, NOT yet implemented in the compiler. The author has explicitly ratified them as "spec-ahead-of-implementation" (Nominal sections). Adopters should treat as roadmap, not present capability.
 
+> **V1-SCOPING DISPOSITIONS (S231 — see `scrml-support/docs/deep-dives/language-compiler-split-2026-06-29.md`).** Under the reframe **V1 = scrml-language-1.0** (the language split from the compiler; conformance = codes + runtime; compilers = implementations), the Nominal items map to *language-1.0 / v1.next / impl-detail*: **N8** (§40.9.5 server-render gating / SSR) → **V1-REQUIRED** (the claim requires true SSR). **N1** Build-Story Merkle → **DEFER** (native-era), BUT the `_{}` **capability-declaration vocabulary → V1** (closing window). **N2** `import:host` → **DEFER**. **N3** quoted-text **parser → DEFER**, **discipline (E-UNQUOTED-DISPLAY-TEXT + corpus-migration) → V1**. **N4/N5/N6** → OPEN (expected defer). Two V1 criteria: *claim-requires-it* + *discipline-forward/mechanism-deferred* (pending breaking change → bring the source discipline to V1, defer the mechanism).
+
 <!-- §0-only Nominal entries (no `### ` header; tracked in the §0 Nominal Closed-this-arc cell) -->
 <!-- @gap id=nominal-8-gating-runtime sev=NOMINAL status=nominal -->  <!-- §40.9.5 per-role server-render-time gating runtime (S146 GITI-027B D) -->
 <!-- @gap id=nominal-9-engine-opener-effect sev=NOMINAL status=resolved -->  <!-- §51.0.H-C1 effect=-on-engine-opener (S144 Insight 33) -->
@@ -2064,7 +2066,7 @@ S114 ratified `import:host` declaration form as the manifest-gated self-host boo
 ### Nominal-3 — Quoted-text model §4.18 compiler fire — `nominal`
 <!-- @gap id=nominal-3 sev=NOMINAL status=nominal -->
 
-SPEC §4.18 landed Wave 1 S111 — the code-default body mode + `"..."` display-text literal + `E-UNQUOTED-DISPLAY-TEXT` error code. The compiler fire is spec-ahead-of-implementation; Waves 2+ ship with the native parser (v0.4.x → v0.5).
+SPEC §4.18 landed Wave 1 S111 — the code-default body mode + `"..."` display-text literal + `E-UNQUOTED-DISPLAY-TEXT` error code. **S231 currency correction:** the "spec-ahead-of-implementation" framing was STALE — the **native parser HAS the full body-mode impl** (`native-parser/body-mode.scrml`, `display-text-literal.{js,scrml}`, emits `E-UNQUOTED-DISPLAY-TEXT`), AND the **current default pipeline already classifies the code-default-body loci** (it fires the over-quote mirror `W-DISPLAY-TEXT-OVERQUOTE` from `type-system.ts`). What the current default does NOT do is fire `E-UNQUOTED-DISPLAY-TEXT` on bare prose — it accepts it; the native parser errors. **V1-SCOPING (S231):** the full body-mode **parser → DEFER** (native-parser/Road-B; building on the current Acorn/BS = the S111-cancelled retrofit = waste); the **`E-UNQUOTED-DISPLAY-TEXT` discipline + corpus-migration → V1** (so the native cutover is non-breaking — a bounded extension since the loci are already classified). See `scrml-support/docs/deep-dives/language-compiler-split-2026-06-29.md` §5.
 
 - **Status:** Nominal until native parser default-flip + quoted-text BS-retrofit / native-implementation lands. The examples in dev.to articles + samples that show bare display prose inside engine/match arm bodies are NOT wrong against today's compiler.
 
