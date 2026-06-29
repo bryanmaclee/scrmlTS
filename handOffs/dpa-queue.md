@@ -32,9 +32,9 @@ Item format + drain protocol: `scrml-support/dpa-scrml.md` + the design DD
 | dpa-014 | **RATIFIED** S223 — W4 chunk model = ship B-conditional | "ratify W4" |
 | dpa-015 | **RATIFIED** S227 — markup-lease Q2-collapse; CONDITIONAL on 2 §40.9 facts (PA-to-verify); BUILD = `conflictsWith` query | "1, ratify it" |
 | dpa-016 | **DEFERRED** S225 — maps-vs-flogence; gate not met | S225 drain |
-| dpa-017 | **BANKED** S229 — protected-column return-boundary contract debate (A static-prove-and-error vs B structural-redaction-floor); 3 experts pre-staged in `flogence/.claude/agents/`; awaiting dPA drain | banked |
+| dpa-017 | **RATIFIED S230 2026-06-28** (user "go with your recos") — HYBRID: **B (origin-keyed structural redaction at the compiler-emitted egress sink) = load-bearing FLOOR** · A (same provenance map, static-prove) = demoted DX LAYER, **DEFERRED** · field-level **`reveal("col")`** = sole declassification · dynamic-SQL strip-all+lint · raw/FFI egress fail-closed. PA-verified the stale-cite flag, then authored **SPEC §14.8.9** (Nominal/spec-ahead) + fixed §14.8.7's stale `E-ROUTE-003` cite + minted **E-PROTECT-004 + I-PROTECT-STRIP-001** (§34, land-with-impl) + landed the insight + SPEC-INDEX regen. **Residual = the FLOOR BUILD** → `docs/changes/g-sql-row-protect-leak-2026-06-28/RULING.md` (sPA-slot-able; OQ-1 descriptor-lifetime first). | **RATIFIED** (build pending) |
 
-**Genuinely-open (PA action needed):** dpa-010 · dpa-011 (advisory, meta/flogence-domain — ratify-or-defer). **dpa-017 BANKED for the next dPA drain** (g-sql-row-protect-leak security contract; experts staged S229). **Everything else is ratified / routed / deferred → the residual is BUILDS, not gates.** Highest-leverage residual build = **`g-tier1-ssr-prerender`** (the real flux-G1 residual — survey-scoped S229, ruling-gated; the §52 write-back was RETRACTED S194, NOT the residual).
+**Genuinely-open (PA action needed):** dpa-010 · dpa-011 (advisory, meta/flogence-domain — ratify-or-defer). **dpa-017 RATIFIED S230** (HYBRID B-floor; SPEC §14.8.9 + codes + insight landed) → residual is the **FLOOR BUILD** (slot to an sPA). **Everything else is ratified / routed / deferred → the residual is BUILDS, not gates.** Highest-leverage residual builds = **the protect-leak floor** (`docs/changes/g-sql-row-protect-leak-2026-06-28/RULING.md`) + **`g-tier1-ssr-prerender`** (its SSR boundary MUST apply the same §14.8.9 egress filter — they compose; survey-scoped S229, ruling-gated; the §52 write-back was RETRACTED S194, NOT the residual).
 
 ---
 
@@ -513,7 +513,7 @@ scope: a disposition question — once flogence's flograph + compiler-emitted bl
 ---
 
 ## [dpa-017] debate — protected-column return-boundary contract: static-prove-and-error (A) vs structural-redaction-floor (B)
-status: banked     # banked → running → complete → ratified(by PA)
+status: complete     # banked → running → complete → ratified(by PA)  ·  COMPLETE dPA 2026-06-28 (ADVISORY) → artifact written, staged insight CANDIDATE, NOT ratified. Verdict below.
 banked: S229 2026-06-28
 output-path: scrml-support/docs/debates/sql-row-protect-leak-contract-2026-06-28.md
 gap: g-sql-row-protect-leak (LOW; NEW S175; deferred T1/T2/T3; design-track — "deliberate the contract shape before any implementation dispatch")
@@ -548,3 +548,11 @@ gap: g-sql-row-protect-leak (LOW; NEW S175; deferred T1/T2/T3; design-track — 
 - Pipeline: `debate-curator` + `debate-judge` (existing global).
 
 **Deliverable:** scorecard + a design-insight CANDIDATE (authority: dPA-produced, awaiting PA+user ratification) → `output-path`. Feeds a SPEC §14.8.7 amendment the PA ratifies + a build decomposition.
+
+### Verdict (dPA, 2026-06-28 — ADVISORY, NOT ratified)
+**Artifact:** `scrml-support/docs/debates/sql-row-protect-leak-contract-2026-06-28.md`
+**One-line:** Ship a **HYBRID with floor/layer fixed by SOUNDNESS, not preference**: **B (structural strip-by-COLUMN-ORIGIN at the single compiler-emitted egress sink) is the load-bearing FLOOR** — sound by construction, alias-safe, propagates a query-lowering provenance descriptor through every compiler-emitted construction step (so NO value-flow-completeness obligation), and covers the SSR `/__serverLoad` boundary with the same filter. **A (provenance-typed return error) is the demoted DX LAYER** reading the **SAME** column-origin map (early teaching/minimal-wire, NOT trusted for the guarantee; A is UNSOUND-as-implemented — `inferReturnTypeFromBody` is object-literal-only → bare `return u`/spreads/helpers leak unless A flips to fail-closed reject). **`reveal` = the sole sink-checked declassification.** **Scope the claim honestly:** explicit-column flows of statically-resolvable SQL only — derived/implicit flows (`{ hasPw: row.passwordHash != "" }`) + covert channels are OUT (A4 defeats BOTH poles) and MUST be written into §14.8.7 so the prose doesn't over-claim.
+**Scorecard (neutral debate-judge):** **B 50.0 / A 35.5.** Decided on Soundness (B9/A5, ±4.0) + Idiomaticity/co-location (B9/A6, ±3.0) — both flag the SAME direction.
+**Pipeline:** 3 experts (2 poles + the `information-flow-security-expert` soundness adjudicator) + neutral debate-judge. ⚠ INVOCATION: fired `/dpa 017` from a **scrml-rooted** session, so the flogence-staged expert types were absent from the live roster — ran a **REAL poll via injected verbatim personas** into `general-purpose` agents (NOT degraded to synthesis); flagged in-artifact. (To get the true typed poll on a re-run: boot the dPA rooted in flogence, or copy the 3 experts to `~/.claude/agents/`.)
+**KEY VERIFIED FACT (load-bearing, PA must act):** `E-ROUTE-003`/`E-ROUTE-004` are **ALREADY TAKEN + ENFORCED (S179)** — the wire-**serializability** gate (`type-system.ts:3791`), NOT a protect-column gate. So **§14.8.7's own cite "return-boundary / E-ROUTE-003 follow-on" (`SPEC.md:8030`) is a STALE MIS-REFERENCE** — the confidentiality gate needs a NEW code (`E-PROTECT-004` + floor lint `I-PROTECT-STRIP-001` proposed). Upside: the gate is the confidentiality SIBLING of that existing boundary gate → the A-layer rides existing infra (lower build cost).
+**Open questions:** 5 (OQ-1 descriptor lifetime through codegen + raw-egress `_{}`/`asIs`/`handle()` gating · OQ-2 `reveal` surface/grain · OQ-3 dynamic-SQL fail-closed policy + `W-SQL-ROW-UNTYPED` interaction · OQ-4 is the A-layer worth building now · OQ-5 code naming + §14.8.7 wording). Staged design-insight CANDIDATE in artifact. **PA action requested (5)** in the artifact footer. RUN-not-RATIFY honored.

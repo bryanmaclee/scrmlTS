@@ -8026,8 +8026,11 @@ view selection):**
   the server/client boundary is RI-inferred, and every `?{}`-bearing function auto-escalates
   to server (§12.2 Trigger 1), so a "client-boundary `?{}`" context does not exist. The
   protected-column-projection leak (does a server-fn RETURN a row carrying a protected column
-  to the client?) is a data-flow / server-fn-return concern for a follow-on (return-boundary /
-  `E-ROUTE-003`), not a read-site projection check.
+  to the client?) is a data-flow / server-fn-return concern, **not** a read-site projection
+  check. It is governed by the return-boundary **confidentiality contract of §14.8.9**
+  (origin-keyed structural redaction at the compiler-emitted egress sink; ratified S230,
+  dpa-017). Prior revisions mis-cited this as `E-ROUTE-003`; that code is the §12.5 wire
+  **serializability** gate (non-JSON-shaped return types), a *different* property — see §14.8.9.
 - **Multiple `<db>` blocks (§11.7):** Each `<db>` block has its own independent generated
   types. Two `<db>` blocks that both list `users` in `tables=` produce two independent
   `Users` types with nominal distinctness. They are not the same type even if the underlying
@@ -8102,6 +8105,104 @@ generated type — §14.8.4/§14.8.7 are unchanged for the *generated* types. It
 direction *projection-row → developer-declared `:struct`*. The `:struct` contract is an
 ordinary user type (§14.3) that crosses files like any other (import/export). See §14.3 and
 §15.11 for the consumer-side prop declaration.
+
+#### 14.8.9 Server→client confidentiality — protected-column egress redaction
+
+**Added:** 2026-06-28 (S230) — ratifies the `g-sql-row-protect-leak` return-boundary contract
+(dPA dpa-017, HYBRID verdict; design-insight landed). This subsection is **Nominal /
+spec-ahead**: the contract is normative; the floor build (the descriptor + the egress strip)
+flips this banner when it lands.
+
+§11.3 (`protect=`) and §14.8.4 (full/client view selection) keep a protected column off the
+*client-visible generated type*. They do **not** govern what a **server function RETURNS across
+the wire**: a server function may `?{ SELECT * FROM users }` (a server context receives the full
+type, §11.3.3) and `return` the row to the client, shipping `passwordHash`. §14.8.7 deferred
+this as a return-boundary follow-on. This subsection closes that deferral.
+
+**The contract — structural redaction by column-origin, at one compiler-owned egress sink.** The
+compiler-emitted serializer that writes a server-function response — and the SSR `/__serverLoad`
+prerender payload — SHALL **strip, by construction, every column whose provenance origin is a
+`protect=` field**, before the value crosses to the client. The strip keys on the column's
+resolved source **`(table, column)` origin, never its surface name** — so `SELECT passwordHash
+AS h` is redacted identically to `SELECT passwordHash`. The redaction is the **load-bearing
+guarantee**: it is sound *by construction*, not by proving any return clean.
+
+**The provenance map (shared primitive — a reuse).** At `?{}` query-lowering, every output column
+is resolved to its source `(table, column)` through the FROM/JOIN alias map — the same map
+§14.8.7 already builds for read-site row typing (`c.name AS customer_name`). The resolved origin
+(carrying the `protected` bit) is attached as a runtime descriptor on the row and **propagates
+through every compiler-emitted construction step** — `{...row}` spread, helper return,
+`.map` / iteration, JOIN row assembly, struct construction. Because redaction reads this
+descriptor at the single sink, the compiler is under **no value-flow-completeness obligation**: it
+never *proves* a return clean; it propagates a tag and reads it at egress. (This is what defeats
+Pole-A-as-floor and is mooted here — the object-literal-only return inference of
+`inferReturnTypeFromBody` is irrelevant to a tag-at-the-sink mechanism.)
+
+**Soundness scope (normative bound — the prose SHALL NOT over-claim).** The guarantee is
+**complete for explicit-column flows of statically-resolvable SQL, by origin.** It does **NOT**
+cover:
+- **Derived / implicit flows** — a value computed *from* a protected column but of independent
+  identity (`{ hasPw: row.passwordHash != "" }`, `row.passwordHash.length`). The output carries no
+  protected-origin column; closing this would require full expression-label information-flow
+  analysis, out of scope at this revision.
+- **Covert channels** (timing, error-shape, row presence/absence).
+- **Unresolvable dynamic SQL** — a fully string-built `?{}` whose column origins cannot be
+  statically resolved. Per the fail-closed policy below such a row is **stripped wholesale** at
+  egress (every column dropped) with an `I-PROTECT-STRIP-001` lint; it is never accept-unknown.
+
+**Declassification — `reveal` (the sole admit path).** A protected-origin column reaches the
+client **iff** it is explicitly declassified via the field-level `reveal` construct at the value:
+```scrml
+return u.reveal("passwordHash")   // admits the passwordHash column past the egress sink — here only
+```
+`reveal("col")` stamps the named column's provenance descriptor as declassified-at-this-value; the
+serializer admits a protected-origin column **only** when its descriptor bears a `reveal` stamp at
+the sink. It is greppable in source **and** in the emitted handler. `reveal` is the **only** path
+that re-admits a protected-origin column — a non-checked annotation would be insufficient, because
+the floor must *check* the stamp, not trust it. It composes with `pick` / `omit` and the §14.8.8
+width-contract (it operates on the value before serialization; it does not widen a declared
+`:struct` prop contract).
+
+**Closed-world precondition (raw / foreign egress).** Soundness rests on every construction being
+compiler-emitted and descriptor-preserving. An egress path the compiler cannot analyze — a `_{}`
+foreign-code block (§23), a manual `Response` / `handle()` body (§40), or an `asIs`-typed value
+(§14.1.1) — that carries a protected-origin column SHALL **fail closed**: `E-PROTECT-004` (the row
+cannot be proven redacted at an un-analyzable egress; declassify explicitly with `reveal` or
+project the column out). The compiler never silently ships a protected-origin column through a path
+it cannot redact.
+
+**Diagnostics** (named now; emitted when the floor build lands, per the §60 / §61 / §26.8
+named-codes-land-with-impl precedent — Rule 4):
+- **`I-PROTECT-STRIP-001`** (Info) — names each column the egress sink stripped (the redaction is
+  never silent — the dev sees what the floor removed). Also fires on the wholesale strip of an
+  unresolvable-dynamic-SQL row.
+- **`E-PROTECT-004`** (Error) — a protected-origin column reaches a compiler-unanalyzable egress
+  (raw `_{}` / manual `Response` / `asIs`) where strip-by-origin cannot be guaranteed, and it is
+  not `reveal`-declassified. The confidentiality sibling of `E-PROTECT-001` (read-site) in the
+  return-boundary direction.
+
+**The DX layer (deferred — incremental, not load-bearing).** An *early authoring-time* static
+error reading the **same** provenance map — flagging a protected-origin return at compile time
+before the floor strips it — is a **deferred incremental DX addition**. It would ride the existing
+server-function-return boundary gate at `type-system.ts` (where `E-ROUTE-003` / `E-ROUTE-004`
+already run) and buy authoring-time teaching plus a minimal-wire SELECT-projection optimization. The
+security property **never depends on it firing or being complete.** It is NOT built at this
+revision; the structural-redaction floor is the guarantee.
+
+**Composition.**
+- **SSR** — the `g-tier1-ssr-prerender` boundary (when built) SHALL apply this same egress filter
+  to `/__serverLoad`; it MUST NOT ship its prerender without it (first-paint leak; tracked
+  `W-AUTH-002`).
+- **`E-ROUTE-003` / `-004` (§12.5)** — those are the **serializability** gate (non-JSON-shaped
+  return / parameter *types*); the protected-column gate is a **different property** (confidentiality
+  of a serializable value). The §14.8.7 prior cite of "`E-ROUTE-003`" for this gate was a
+  mis-reference, corrected at §14.8.7.
+
+**Anti-pattern (named).** Inverting the layers — static-prove as the floor, redaction as a backstop
+— makes every `inferReturnTypeFromBody` gap a live leak and converts a natural `return u` into
+ceremony. It loses on soundness **and** idiomaticity at once. For a confidentiality boundary in a
+compiler-owns-the-wiring language, soundness-by-construction and provability-from-the-natural-shape
+are the **same** axis, not a trade-off — both pull to one structural sink.
 
 ### 14.9 The `snippet` Type Kind
 
@@ -17273,6 +17374,8 @@ Rationale: the unified purity contract preserves the `<machine>` subsystem's rep
 | W-SQL-ROW-UNTYPED | §14.8.7 | A `?{ ... }` SQL query result (or one of its projection columns) could not be typed from the §14.8 generated table types and falls back to `asIs`. Info-level. Fires for the deferred v1 SQL surface long tail: a computed / expression / function-call projection column (that ONE field is `asIs`; the rest of the row stays typed), `SELECT *` over a JOIN, a CTE / `WITH`, a `UNION`, a subquery-in-FROM, or a query whose FROM table has no generated type in scope (no enclosing `<db>` block). NEVER fatal — the build always completes; the row's untyped fields are simply not statically checked. Single-table SELECTs and qualified-column JOINs with an explicit projection list (incl. `AS` aliases) DO get a typed projection row and fire no lint. (Catalog addition: typed-sql-row Tranche 1; emitted at `compiler/src/type-system.ts` `resolveSqlRowType`.) | Info |
 | E-SQL-ROW-CONTRACT-MISMATCH | §14.8.8 | A SQL-projection-row value (a Tranche-1 typed `?{ SELECT ... }` row, or its per-item element) is passed to a component prop whose declared type is a developer-authored `:struct` contract, and the row does NOT structurally width-subtype into that contract: either (a) the contract requires a field the row does not project (`missing`), or (b) the row projects the field but its type is not assignable to the contract's declared type (`incompatible`). One diagnostic fires PER unsatisfied field, naming the field + the contract type. BOUNDED: this is the ONLY structural-subtyping path — it applies solely when the SOURCE is a SQL-projection row (`<sql-row>` provenance) and the TARGET is a declared `:struct` prop contract. General struct-to-struct assignment stays NOMINAL (§14.8.1) and never triggers this code. EXTRA columns in the row are allowed (width-subtyping). (Catalog addition: typed-sql-row Tranche 2 — Shape C, ratified S175; emitted at `compiler/src/type-system.ts` `checkPropContract` via `checkSqlRowWidthSubtype`; the call-site descriptor is recorded by `compiler/src/component-expander.ts` as `__propContractChecks`.) | Error |
 | E-PROTECT-002 | §11.3.3 | Code accessing protected field may run client-side | Error |
+| E-PROTECT-004 | §14.8.9 | A protected-origin column (a `protect=` field, resolved BY ORIGIN through the SQL FROM/JOIN alias map — so alias-safe; `passwordHash AS h` is still caught) reaches a compiler-unanalyzable egress path — a `_{}` foreign-code block (§23), a manual `Response` / `handle()` body (§40), or an `asIs`-typed value — at a server-function return or SSR `/__serverLoad` boundary, where origin-keyed structural redaction (§14.8.9) cannot be guaranteed, and the column is not `reveal`-declassified. Fail-closed: the compiler will not ship a protected column through a path it cannot redact. Resolution: declassify explicitly with `value.reveal("col")`, or project the column out. The confidentiality sibling of `E-PROTECT-001` (read-site) in the return-boundary direction. (Catalog addition S230 dpa-017; named now, fires when the §14.8.9 floor build lands per Rule 4 / §60/§61/§26.8 precedent.) | Error |
+| I-PROTECT-STRIP-001 | §14.8.9 | The compiler-emitted egress serializer stripped one or more protected-origin columns from a server-function return / SSR `/__serverLoad` payload before it crossed to the client (the §14.8.9 structural-redaction floor). Names each stripped column so the redaction is never silent. Also fires on the wholesale strip of a row whose dynamic SQL could not be statically origin-resolved (fail-closed strip-all). Info-level — never fatal. (Catalog addition S230 dpa-017; emitted when the §14.8.9 floor build lands.) | Info |
 | E-ROUTE-001 | §12.4 | Unresolvable callee or computed member access in route analysis | Warning |
 | ~~E-RI-001~~ | — | **Retired 2026-04-21 (S37)**; `server pure` is now valid (§33.3, §48.10). | — |
 | E-RI-002 | §12 | Server-escalated function mutates `@` reactive variable | Error |
