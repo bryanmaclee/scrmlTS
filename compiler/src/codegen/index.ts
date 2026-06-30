@@ -633,6 +633,23 @@ export function runCG(input: CgInput): CgOutput {
               workerName = (nameVal.name ?? "").replace(/^@/, "");
             }
             if (workerName) {
+              // §23.4 — a nested <program> declaring a `port=` (and not
+              // `mode="wasm"`) is a SIDECAR process, NOT a §4.12.4 web worker.
+              // The sidecar runtime is Nominal/spec-ahead (the `use foreign:`
+              // import already failed closed with E-FOREIGN-SIDECAR-NOMINAL);
+              // compiling it as a `new Worker("<name>.worker.js")` referencing a
+              // never-emitted bundle is the misleading client stub the fail-closed
+              // build must NOT produce. Splice it out WITHOUT registering a worker
+              // (no `new Worker`, no main-scope export hoist of `predict`).
+              const hasPort = attrs.some((a: any) => a.name === "port");
+              const modeAttr = attrs.find((a: any) => a.name === "mode");
+              const modeVal = modeAttr?.value?.kind === "string-literal"
+                ? modeAttr.value.value
+                : (typeof modeAttr?.value === "string" ? modeAttr.value : null);
+              if (hasPort && modeVal !== "wasm") {
+                parentChildren.splice(i, 1);
+                continue;
+              }
               const children: any[] = node.children ?? [];
               let whenMessage: any | null = null;
               for (const child of children) {

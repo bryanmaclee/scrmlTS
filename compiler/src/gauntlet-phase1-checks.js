@@ -312,7 +312,15 @@ function checkAstMisplacedDecls(ast, filePath, errors) {
 
       // E-USE-001 — `use` inside `${ }` logic (the only way a use-decl node
       // enters the AST is via parseLogicBody).
-      if (node.kind === "use-decl") {
+      //
+      // §23.4 exemption: a `use foreign:name { … }` sidecar declaration is
+      // top-level-valid (SPEC §23.4) but arrives as a bare text block in v0.3
+      // default-logic mode, so the lift pass wraps it in a synthetic `${...}` to
+      // route it to parseLogicBody's `use` handler — which has already failed it
+      // closed with the honest E-FOREIGN-SIDECAR-NOMINAL. Don't pile on the
+      // misleading "move it out of the logic block" E-USE-001 (the lift is an
+      // internal mechanism, not author placement).
+      if (node.kind === "use-decl" && !node._foreignSidecarNominal) {
         errors.push(new GauntletError(
           "E-USE-001",
           `E-USE-001: \`use ${node.source ?? "..."}\` appears inside a \`\${ }\` logic block. ` +

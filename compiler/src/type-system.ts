@@ -8921,7 +8921,10 @@ function annotateNodes(
         {
           const letSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
           const initExprForScope = (n as any).initExpr;
-          if (initExprForScope) {
+          // §23.3 — a `const x = r{ … }` WASM call-char sigil RHS fails closed with
+          // E-WASM-NOMINAL; skip the RHS validation (avoids the misleading
+          // E-SCOPE-001 on the call char `r`).
+          if (initExprForScope && !tryFireWasmCallCharNominal((n as any).init, letSpan, errors)) {
             checkLogicExprIdents(initExprForScope, letSpan, scopeChain, typeRegistry, errors, n.name as string | undefined, fnAllDeclared);
             // §54.6.3 Phase 4e: transition-call legality check
             checkTransitionCallsInExpr(initExprForScope, letSpan, scopeChain, stateTypeRegistry, errors);
@@ -9252,7 +9255,10 @@ function annotateNodes(
         {
           const reactSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
           const reactInitExprNode = (n as any).initExpr;
-          if (reactInitExprNode) {
+          // §23.3 — a `const <x> = r{ … }` WASM call-char sigil RHS fails closed
+          // with E-WASM-NOMINAL; skip the RHS validation (which would mis-flag the
+          // call char `r` as an undeclared identifier via E-SCOPE-001).
+          if (reactInitExprNode && !tryFireWasmCallCharNominal((n as any).init, reactSpan, errors)) {
             checkLogicExprIdents(reactInitExprNode, reactSpan, scopeChain, typeRegistry, errors, n.name as string | undefined, fnAllDeclared);
             // §54.6.3 Phase 4e: transition-call legality check
             checkTransitionCallsInExpr(reactInitExprNode, reactSpan, scopeChain, stateTypeRegistry, errors);
@@ -9577,7 +9583,10 @@ function annotateNodes(
         {
           const beSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
           const beExprNode = (n as Record<string, unknown>).exprNode;
-          if (beExprNode) {
+          // §23.3 — an `extern r applyFilter(...)` WASM foreign-function declaration
+          // (parsed as a bare-expr) fails closed with E-WASM-NOMINAL; skip the ident
+          // walk (which would mis-flag `extern` / the call char `r` as undeclared).
+          if (beExprNode && !tryFireWasmCallCharNominal((n as Record<string, unknown>).expr, beSpan, errors)) {
             checkLogicExprIdents(beExprNode, beSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
             // §54.6.3 Phase 4e: transition-call legality check
             checkTransitionCallsInExpr(beExprNode, beSpan, scopeChain, stateTypeRegistry, errors);
@@ -19026,6 +19035,78 @@ function resolveProgramLang(fileAST: FileAST): string | null {
     raw = (v as { value: string }).value;
   }
   return raw === null ? null : raw.replace(/^["']|["']$/g, "").trim();
+}
+
+// ---------------------------------------------------------------------------
+// §23.3 WASM call-char sigils — fail-closed Nominal recognizer (E-WASM-NOMINAL).
+//
+// SPEC §23.3 (call-char sigils `r{}`/`c{}`/`z{}` + the `extern` foreign-function
+// declaration) is Nominal/spec-ahead: the runtime WASM binding layer is NOT
+// implemented in this compiler revision (deferred to scrml-language v1.next).
+// Until then the two source forms must FAIL-CLOSED with an HONEST "not
+// implemented" diagnostic — NOT the misleading `E-SCOPE-001` ("Undeclared
+// identifier `r` … did you mean `@r`?") that the bare-identifier fall-through
+// previously produced for both `extern` and the call char.
+//
+// The default call-char registry (§23.3.1) is r/c/C/z/o/a (case-sensitive).
+// A `callchar=` declaration (§23.3.2) can extend it, but the `extern` form is
+// the REQUIRED precursor for every call-char sigil use (§23.3.3) so the
+// canonical program always fires E-WASM-NOMINAL on its `extern` line regardless
+// of char. (When the real WASM layer lands, the spec'd E-WASM-001/002/003
+// supersede this fail-closed placeholder.)
+const DEFAULT_WASM_CALL_CHARS = "rcCzoa";
+// `extern <call-char> <name>(` — the §23.3.3 foreign-function declaration. The
+// call char is a SINGLE character; `extern foo bar` (multi-char second token)
+// does NOT match, so a stray identifier named `extern` cannot false-fire.
+const WASM_EXTERN_DECL_RE = new RegExp(
+  `^\\s*extern\\s+([${DEFAULT_WASM_CALL_CHARS}A-Za-z])\\s+[A-Za-z_$][\\w$]*\\s*\\(`,
+);
+// `<call-char>{` — the §23.3 call-char sigil, anchored at the start of the
+// expression text. A bare object literal (`{ … }`) has no leading char so it
+// never matches; `identifier{` is not valid scrml so a default call char
+// immediately before `{` is an unambiguous sigil signal.
+const WASM_CALL_CHAR_SIGIL_RE = new RegExp(`^\\s*([${DEFAULT_WASM_CALL_CHARS}])\\s*\\{`);
+
+/**
+ * If `rawText` is a §23.3 WASM call-char form (an `extern` declaration or a
+ * `<char>{ … }` call-char sigil), push the honest E-WASM-NOMINAL diagnostic and
+ * return true. The caller then SKIPS the generic E-SCOPE-001 ident walk (the
+ * walk would mis-flag `extern` / the call char as an undeclared identifier).
+ */
+function tryFireWasmCallCharNominal(
+  rawText: unknown,
+  span: Span,
+  errors: TSError[],
+): boolean {
+  if (typeof rawText !== "string" || rawText.length === 0) return false;
+  const externM = rawText.match(WASM_EXTERN_DECL_RE);
+  if (externM) {
+    errors.push(new TSError(
+      "E-WASM-NOMINAL",
+      `E-WASM-NOMINAL: the \`extern ${externM[1]} <name>(...)\` WASM foreign-function ` +
+      `declaration (SPEC §23.3.3) is Nominal/spec-ahead and is not implemented in this ` +
+      `compiler revision; tracked for scrml-language v1.next. The call-char sigil ` +
+      `(\`r{}\`/\`c{}\`/\`z{}\`) and its \`extern\` declaration have no WASM binding ` +
+      `codegen yet — remove the WASM form, or compute client-side in scrml, until ` +
+      `v1.next lands the §23.3 binding layer.`,
+      span,
+    ));
+    return true;
+  }
+  const sigilM = rawText.match(WASM_CALL_CHAR_SIGIL_RE);
+  if (sigilM) {
+    errors.push(new TSError(
+      "E-WASM-NOMINAL",
+      `E-WASM-NOMINAL: the \`${sigilM[1]}{ ... }\` WASM call-char sigil (SPEC §23.3) is ` +
+      `Nominal/spec-ahead and is not implemented in this compiler revision; tracked for ` +
+      `scrml-language v1.next. Call-char sigils invoke a compiled WASM module — that ` +
+      `binding layer has no codegen yet. Remove the WASM form, or compute client-side in ` +
+      `scrml, until v1.next lands the §23.3 binding layer.`,
+      span,
+    ));
+    return true;
+  }
+  return false;
 }
 
 function checkForeignBlocks(

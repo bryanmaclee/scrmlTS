@@ -717,6 +717,19 @@ const BARE_EXPORT_AT_END_RE = /(^|\s)export\s*$/;
 const BARE_DECL_NAME_EQ_AT_END_RE =
   /^([\s\S]*?)((?:^|\s)(?:export\s+)?(?:const|let)\s+[A-Z][A-Za-z0-9_]*\s*=\s*)$/;
 
+// §23.4 — `use foreign:name { fn-list }` sidecar declaration. Per SPEC §23.4 it
+// is valid at file top level OUTSIDE any `${}` block, so in v0.3 default-logic
+// mode it arrives as a bare TEXT block. `use foreign:` is NOT in BARE_DECL_RE
+// (which lifts only declaration keywords), so without this gate the whole text
+// run — the `use foreign:` line AND any following bare `server function` — would
+// drop to markup-text mode and LEAK as literal HTML (the silent-miscompile gap
+// g-nominal-foreign-forms-not-failclosed). This RE lifts ONLY the `use foreign:`
+// form (plain `use scrml:ui` / CSS `use`/`using` are untouched) so the lifted
+// logic block reaches parseLogicBody, which fails closed with the honest
+// E-FOREIGN-SIDECAR-NOMINAL (§23.4 is Nominal/spec-ahead — no sidecar codegen
+// yet; deferred to scrml-language v1.next).
+const USE_FOREIGN_LIFT_RE = /^\s*use\s+foreign:/;
+
 // ---------------------------------------------------------------------------
 // P2 Form 1 desugaring helpers — body-root absorbs outer attrs (SPEC §21.2)
 //
@@ -1520,6 +1533,28 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aS
         i += 1; // skip the markup block we just consumed
         continue;
       }
+    }
+
+    // §23.4 — `use foreign:name { fn-list }` sidecar declaration. Lift the text
+    // block to a `${...}` logic block (mirrors the BARE_DECL_RE lift below) so it
+    // reaches parseLogicBody's `use` handler, which fails closed with the honest
+    // E-FOREIGN-SIDECAR-NOMINAL — instead of leaking the line (and any following
+    // bare `server function`) as literal HTML. ONLY the `use foreign:` form
+    // routes here; plain `use scrml:ui` / CSS `use`/`using` are untouched.
+    if (block.type === "text" && parentType !== "markup" && USE_FOREIGN_LIFT_RE.test(block.raw)) {
+      result.push({
+        type: "logic",
+        raw: "${" + block.raw + "}",
+        span: block.span,
+        depth: block.depth,
+        children: [],
+        name: null,
+        closerForm: null,
+        isComponent: false,
+        _synthetic: true,
+        _bareDeclLift: true,
+      });
+      continue;
     }
 
     // Convert text blocks that start with a bare declaration keyword.
@@ -10142,6 +10177,43 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const rawStr = "use " + expr;
 
       const useNode = { id: ++counter.next, kind: "use-decl", raw: rawStr, span, names: [], source: null };
+
+      // §23.4 — `use foreign:name { fn-list }` sidecar declaration. The sidecar
+      // runtime (out-of-process HTTP/socket client codegen) is Nominal/spec-ahead:
+      // NOT implemented in this compiler revision (deferred to scrml-language
+      // v1.next). Fail closed with the honest E-FOREIGN-SIDECAR-NOMINAL — and do
+      // NOT route it as a normal component import. A `foreign:ml` specifier is not
+      // a resolvable module, so a plain use-decl would fire a misleading
+      // E-IMPORT-005 in MOD and emit a broken `import { … } from "foreign:ml"` in
+      // the client/server bundles. Detect on the collected `expr` (the tokenizer
+      // spaces the `:` to `foreign : ml`, so `useNode.source` is unreliable here).
+      // Mark the node nominal + leave the source null so MOD / emit-client /
+      // emit-server skip resolution + import emission; KEEP `names` so the
+      // sidecar-fn names still register in scope (no secondary E-SCOPE-001 on a
+      // `predict(...)` call site). (When the real sidecar layer lands, the spec'd
+      // E-FOREIGN-010/011/012 supersede this fail-closed placeholder.)
+      const foreignSidecarMatch = expr.match(/^\s*foreign\s*:\s*([\w-]+)/);
+      if (foreignSidecarMatch) {
+        const sidecarName = foreignSidecarMatch[1];
+        const namesMatch = expr.match(/\{\s*([^}]*)\}/);
+        if (namesMatch) {
+          useNode.names = namesMatch[1].split(",").map(s => s.trim()).filter(Boolean);
+        }
+        errors.push(new TABError(
+          "E-FOREIGN-SIDECAR-NOMINAL",
+          `E-FOREIGN-SIDECAR-NOMINAL: the \`use foreign:${sidecarName} { ... }\` sidecar ` +
+          `declaration (SPEC §23.4) is Nominal/spec-ahead and is not implemented in this ` +
+          `compiler revision; tracked for scrml-language v1.next. Sidecar processes ` +
+          `(out-of-process Go/Python/… services) have no HTTP/socket client codegen yet — ` +
+          `remove the \`use foreign:\` import (and its sidecar \`<program>\`), or move the ` +
+          `logic into a server \`function\`, until v1.next lands the §23.4 sidecar layer.`,
+          span,
+        ));
+        useNode._foreignSidecarNominal = true;
+        useNode._foreignSidecarName = sidecarName;
+        nodes.push(useNode);
+        continue;
+      }
 
       // Match: source { names } — e.g., scrml:ui { Button, Card }
       const namedMatch = expr.match(/^\s*([\w:/.@-]+)\s*\{\s*([^}]*)\}/);

@@ -16024,6 +16024,17 @@ ancestor `<program>`. Add `lang="go"` (or the appropriate language) to the enclo
 
 ### 23.3 Call-Char Sigils for WASM
 
+> **Implementation status (Nominal/spec-ahead — RECOGNIZED AND FAIL-CLOSED, S231).** The runtime
+> WASM binding/marshaling layer described in this section is NOT implemented in the current compiler
+> revision (deferred to scrml-language v1.next). Per the v1.0 fail-closed-Nominal invariant, the two
+> §23.3 source forms — the `extern <call-char> name(...)` declaration (§23.3.3) and the
+> `<call-char>{ … }` sigil — are **recognized at the parse/typer layer and fail closed** with the
+> honest **`E-WASM-NOMINAL`** diagnostic ("Nominal/spec-ahead; not implemented in this compiler
+> revision; tracked for scrml-language v1.next"). They are NOT silently dropped, and they no longer
+> mis-fire the misleading `E-SCOPE-001` on `extern`/the call char. The `<program callchar=X>`
+> ATTRIBUTE (declaring a call char, §23.3.2) stays legal. The spec'd `E-WASM-001/002/003` below are the
+> SHAPE the diagnostics will take once the WASM layer lands; until then `E-WASM-NOMINAL` supersedes.
+
 Call-char sigils are single-character prefixes on a `{}` block that invoke a compiled WASM
 function. They are syntactically identical to other scrml sigils (`${}`, `?{}`, etc.) but
 their content is a function call expression targeting a foreign WASM module, not scrml code.
@@ -16177,6 +16188,19 @@ The distinction:
 | `use foreign:name { fn }` | Sidecar HTTP/socket services | Server |
 
 ### 23.4 Sidecar Process Declarations (`use foreign:`)
+
+> **Implementation status (Nominal/spec-ahead — RECOGNIZED AND FAIL-CLOSED, S231).** The out-of-process
+> HTTP/socket sidecar-client codegen described in this section is NOT implemented in the current
+> compiler revision (deferred to scrml-language v1.next). Per the v1.0 fail-closed-Nominal invariant, a
+> `use foreign:name { fn-list }` declaration is **recognized at the parse layer and fails closed** with
+> the honest **`E-FOREIGN-SIDECAR-NOMINAL`** diagnostic ("Nominal/spec-ahead; not implemented in this
+> compiler revision; tracked for scrml-language v1.next"). Pre-fix it was a SILENT MISCOMPILE — the bare
+> `use foreign:` line (and any trailing bare `server function`) leaked as literal HTML, the nested sidecar
+> `<program>` compiled to a `new Worker(...)` + a client stub, and ZERO diagnostic fired. The recognizer
+> now lifts the line into the logic stream (no HTML leak), fires the code, and excludes the nested sidecar
+> `<program port=…>` from web-worker extraction (no `new Worker` / no export client stub). The spec'd
+> `E-FOREIGN-010/011/012` below are the SHAPE the diagnostics will take once the sidecar layer lands;
+> until then `E-FOREIGN-SIDECAR-NOMINAL` supersedes.
 
 Server-side sidecar processes (Go, Python, and other languages whose `<program>` does not
 have `mode="wasm"`) are accessed via `use foreign:name { fn }` declarations, not call-char
@@ -17315,9 +17339,11 @@ Rationale: the unified purity contract preserves the `<machine>` subsystem's rep
 | E-WASM-001 | §23.3 | Call char not in default registry and no `callchar=` declaration | Error |
 | E-WASM-002 | §23.3 | Call-char function called with no corresponding `extern` declaration | Error |
 | E-WASM-003 | §23.3 | `extern` declaration references a call char with no matching `<program>` | Error |
+| E-WASM-NOMINAL | §23.3 | (S231 — g-nominal-foreign-forms-not-failclosed; the v1.0 fail-closed-Nominal invariant.) The §23.3 WASM call-char layer is **Nominal/spec-ahead** — the runtime WASM binding/marshaling codegen is NOT implemented in this compiler revision (deferred to scrml-language v1.next). To honor the fail-closed-Nominal invariant (a Nominal form must fail closed with an honest "not implemented" diagnostic, NEVER a silent miscompile or a misleading code), BOTH §23.3 source forms are **recognized and fail closed** with this code: the `extern <call-char> name(...)` foreign-function declaration (§23.3.3) AND the `<call-char>{ … }` call-char sigil (default registry r/c/C/z/o/a, §23.3.1). Pre-fix, both fell through as bare identifiers and fired a MISLEADING `E-SCOPE-001` ("Undeclared identifier `r` … did you mean `@r`?"). The `<program callchar=X>` ATTRIBUTE (declaring a call char, §23.3.2) stays legal — only the USE forms fail closed. When the real WASM layer lands, the spec'd `E-WASM-001/002/003` supersede this placeholder. Emitted at `compiler/src/type-system.ts` (`tryFireWasmCallCharNominal`, the let/const/state-decl-init + bare-expr ident-check sites). Partitions into `result.errors`. | Error |
 | E-FOREIGN-010 | §23.4 | `use foreign:name` references a name that matches no nested `<program>` | Error |
 | E-FOREIGN-011 | §23.4 | Function listed in `use foreign:` is not exported by the named sidecar | Error |
 | E-FOREIGN-012 | §23.4 | Sidecar function called from a client-side code path | Error |
+| E-FOREIGN-SIDECAR-NOMINAL | §23.4 | (S231 — g-nominal-foreign-forms-not-failclosed; the v1.0 fail-closed-Nominal invariant.) The §23.4 sidecar layer is **Nominal/spec-ahead** — the out-of-process HTTP/socket sidecar-client codegen is NOT implemented in this compiler revision (deferred to scrml-language v1.next). A `use foreign:name { fn-list }` declaration is **recognized and fails closed** with this code. Pre-fix it **silently miscompiled**: the bare `use foreign:` line (and any trailing bare `server function`) leaked as literal HTML text, the nested sidecar `<program>` compiled to a `new Worker(...)` referencing a never-emitted bundle + a client stub, and ZERO `use foreign:`-related diagnostic fired (exit 0). The recognizer lifts the bare `use foreign:` text into the logic stream (no HTML leak), fires this code, and skips the nested sidecar `<program port=…>` from worker extraction (no `new Worker` / no export client stub). Plain `use scrml:ui`/`vendor:` imports, CSS `#{}`, and `import:host` are untouched. When the real sidecar layer lands, the spec'd `E-FOREIGN-010/011/012` supersede this placeholder. Emitted at `compiler/src/ast-builder.js` (the `parseLogicBody` `use` handler, `foreign:` specifier branch). Partitions into `result.errors`. | Error |
 | W-FOREIGN-001 | §23.2 | Level-0 `_{` used; `_={}=` recommended | Warning |
 | W-PROGRAM-001 | §4.12 | Unnamed nested `<program>` with no distinguishing attributes | Warning |
 | W-TAILWIND-001 | §26.3, §26.5 | Class name in `class="..."` uses Tailwind syntax that the embedded engine does not handle (deferred prefix like `peer-hover:`, custom theme prefix, etc.). The class produces no CSS. SPEC-ISSUE-012. | Warning |
