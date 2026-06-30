@@ -1889,6 +1889,19 @@ export function generateClientJs(ctx: CompileContext): string {
     }
   }
 
+  // §52.8 — POST-EMIT `ssr` chunk gate. The B-substrate seed helpers
+  // (_scrml_ssr_seed_apply / _scrml_ssr_seeded) are referenced ONLY when a
+  // server-authority cell is present (emit-reactive-wiring emits the seed-apply
+  // call + the per-fetch seed-skip guards). Scanning the emitted body for the
+  // helper prefix is the exact signal — a non-server-authority page emits no
+  // `_scrml_ssr_` reference and ships without the chunk (minimal-runtime).
+  for (const _ln of lines) {
+    if (typeof _ln === "string" && _ln.includes("_scrml_ssr_")) {
+      ctx.usedRuntimeChunks.add("ssr");
+      break;
+    }
+  }
+
   // ss27-4 (runtime-minimality) — POST-EMIT tree-shake of client-SAFE stdlib
   // runtime chunks used ONLY in server code. A `scrml:NAME` capability lowers
   // to `const { ... } = _scrml_stdlib.NAME;` at emit-imports and lights up the

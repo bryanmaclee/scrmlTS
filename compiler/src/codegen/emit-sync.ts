@@ -107,6 +107,10 @@ export function emitServerAuthorityLoad(varName: string, table: string): string[
   return [
     `// < ${varName} > server-authority type — SELECT * FROM ${table} load on mount (§52.6.1)`,
     `(async () => {`,
+    // §52.8 (ssr-b-substrate) — skip the fetch RTT when the SSR pre-render
+    // already seeded this cell from window.__scrml_ssr_state (graceful no-op
+    // when the page was served without SSR — the fetch then runs unchanged).
+    `  if (_scrml_ssr_seeded(${varJs})) return;`,
     `  const _scrml_sa_res = await fetch(${routeJs}, {`,
     `    method: "POST",`,
     `    headers: { "Content-Type": "application/json" },`,
@@ -155,6 +159,9 @@ export function emitDeclRhsSqlLoad(varName: string): string[] {
   return [
     `// <${varName} server> = ?{…} — inline-?{} RHS load on mount (§52.6.5 Pattern C)`,
     `(async () => {`,
+    // §52.8 (ssr-b-substrate) — skip the fetch RTT when the SSR pre-render
+    // already seeded this cell from window.__scrml_ssr_state.
+    `  if (_scrml_ssr_seeded(${varJs})) return;`,
     `  const _scrml_sl_res = await fetch(${routeJs}, {`,
     `    method: "POST",`,
     `    headers: { "Content-Type": "application/json" },`,
@@ -207,6 +214,12 @@ export function emitUnifiedMountHydrate(varNames: string[]): string[] {
   const lines: string[] = [];
   lines.push(`// <var server> initial loads — coalesced via /__mountHydrate (§8.11)`);
   lines.push(`(async () => {`);
+  // §52.8 (ssr-b-substrate) — when the SSR pre-render seeded EVERY coalesced
+  // cell from window.__scrml_ssr_state, skip the whole /__mountHydrate RTT.
+  // (The compiler bakes all coalesced-callable cells into the seed, so all-
+  // seeded is the SSR case; absent SSR, the guard is false and the fetch runs.)
+  const _ssrGuard = varNames.map((n) => `_scrml_ssr_seeded(${JSON.stringify(n)})`).join(" && ");
+  lines.push(`  if (${_ssrGuard}) return;`);
   lines.push(`  const _scrml_mh_res = await fetch("/__mountHydrate", {`);
   lines.push(`    method: "POST",`);
   lines.push(`    headers: { "Content-Type": "application/json" },`);

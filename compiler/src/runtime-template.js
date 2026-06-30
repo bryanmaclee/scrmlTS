@@ -4754,6 +4754,34 @@ function _scrml_map_decode(x) {
   return m;
 }
 
+// §52.8 SSR pre-render seed (chunk: 'ssr')
+//
+// B-substrate (ssr-b-substrate). The compiler-emitted SSR HTML-composition route
+// (emit-server.ts) injects <script>window.__scrml_ssr_state={…}</script> before
+// </head>, carrying the server-authoritative cell values redacted at the §14.8.9
+// egress sink. _scrml_ssr_seed_apply() runs BEFORE the mount fetch decisions and
+// the engine hydration (emit-reactive-wiring Step 4c) so each seeded cell is
+// construction-resolved: the engine server=@cell ride reads a real value at
+// construction (no async fetch-on-mount), and the /__serverLoad fetch IIFEs skip
+// the RTT (see _scrml_ssr_seeded). When the page was served WITHOUT SSR (a static
+// host, no server in the request path), window.__scrml_ssr_state is absent and
+// both helpers are no-ops — the ordinary fetch path runs unchanged (graceful
+// degradation, never a crash).
+function _scrml_ssr_seeded(name) {
+  return typeof window !== "undefined"
+    && window.__scrml_ssr_state != null
+    && Object.prototype.hasOwnProperty.call(window.__scrml_ssr_state, name);
+}
+function _scrml_ssr_seed_apply() {
+  if (typeof window === "undefined" || window.__scrml_ssr_state == null) return;
+  var _seed = window.__scrml_ssr_state;
+  for (var _k in _seed) {
+    if (Object.prototype.hasOwnProperty.call(_seed, _k)) {
+      _scrml_reactive_set(_k, _seed[_k]);
+    }
+  }
+}
+
 // §20.6 log() location-transparent logging runtime (chunk: 'log')
 //
 // The compiler lowers a log(...args) call to _scrml_log(side, loc, ...args)

@@ -693,7 +693,25 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
   // subscriber are emitted. An assignment lands locally via the ordinary
   // reactive set (that IS the immediate-local property); errors surface at the
   // dev's awaited server-fn call site.
+  //
+  // §52.8 (ssr-b-substrate) — SSR pre-render seed application. The compiler-
+  // emitted SSR HTML-composition route (emit-server.ts) injects
+  // window.__scrml_ssr_state={…} with the server-authoritative cell values
+  // (redacted at the §14.8.9 egress sink). _scrml_ssr_seed_apply() applies them
+  // HERE — after the top-level cell-init (Step 4b, placeholders) so it OVERRIDES
+  // the placeholder, and BEFORE the fetch IIFEs below (which then skip the RTT
+  // per _scrml_ssr_seeded) AND before the engine A-leg/E-leg hydration (emitted
+  // after emitReactiveWiring) so a server=@cell engine reads a real value at
+  // construction. Gated on having ≥1 server-authority cell — a non-server-
+  // authority page emits no seed-apply (byte-identical; the 'ssr' runtime chunk
+  // tree-shakes out). Absent SSR at request time, the helper is a runtime no-op.
   const serverVarDecls = collectServerVarDecls(fileAST);
+  const serverAuthorityTypesForSeed = collectServerAuthorityTypes(fileAST);
+  if (serverVarDecls.length > 0 || serverAuthorityTypesForSeed.length > 0) {
+    lines.push("");
+    lines.push("// --- §52.8 SSR pre-render seed application (ssr-b-substrate) ---");
+    lines.push("_scrml_ssr_seed_apply();");
+  }
   if (serverVarDecls.length > 0) {
     lines.push("");
     lines.push("// --- <var server> read-authority sync (§52.6, compiler-generated) ---");

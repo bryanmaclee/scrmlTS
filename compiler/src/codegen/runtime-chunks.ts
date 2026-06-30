@@ -135,6 +135,7 @@ export const RUNTIME_CHUNK_ORDER = [
   'messages',
   'engine',
   'map',
+  'ssr',
   'log',
   // Stdlib registry chunks — inlined from compiler/runtime/stdlib/<name>.js
   // via _scrml_stdlib.<name>. Activated per-file by detectRuntimeChunks when
@@ -233,6 +234,11 @@ const CHUNK_MARKERS: Record<NonCoreChunkName, string> = {
   // actually contains a `_scrml_log(` call — so a SHADOWED `log` (no builtin
   // lowering) and a PRODUCTION-stripped build (log() -> 0 bytes) both omit
   // the chunk, keeping the prod bundle free of any _scrml_log reference.
+  // §52.8 SSR pre-render seed — gates the _scrml_ssr_seed_apply / _scrml_ssr_seeded
+  // helpers (B-substrate). Activated by a POST-EMIT scan (emit-client.ts) when the
+  // emitted client JS contains a `_scrml_ssr_` reference — a non-server-authority
+  // page emits none and ships without the chunk (minimal-runtime discipline).
+  ssr:            "§52.8 SSR pre-render seed (chunk: 'ssr')",
   log:            "§20.6 log() location-transparent logging runtime (chunk: 'log')",
 
   // Function definition markers — 'function _name' starts at a line boundary.

@@ -13,7 +13,7 @@ import { emitServerParamCheck, parsePredicateAnnotation } from "./emit-predicate
 import { resolveDbDriver } from "./db-driver.ts";
 import { returnTypeAllowsAbsence, SERVER_WIRE_ENCODER_HELPER } from "./wire-format.ts";
 import { SERVER_LOG_HELPER } from "./log-loc.ts";
-import { dirname as _pathDirname, resolve as _pathResolve, relative as _pathRelative } from "node:path";
+import { dirname as _pathDirname, resolve as _pathResolve, relative as _pathRelative, basename as _pathBasename } from "node:path";
 import { parseExprToNode } from "../expression-parser.ts";
 import { extractCalleeNames } from "./scheduling.ts";
 import { emitParseVariantDecodeIIFE, type ParseVariantEnumLike } from "./emit-parse-variant.ts";
@@ -86,6 +86,31 @@ function injectAfterHeader(emitted: string, helper: string): string {
   const headerEndIdx = emitted.indexOf("\n\n");
   if (headerEndIdx === -1) return helper + emitted;
   return emitted.slice(0, headerEndIdx) + helper + emitted.slice(headerEndIdx);
+}
+
+// §52.8 (ssr-b-substrate) — the request path the SSR HTML-composition route
+// answers for a page. Mirrors api.js `pathFor` clean-URL derivation: the dist
+// dir is `relative(outputBaseDir, source)` with a leading `pages/` stripped,
+// and `index` collapses to the directory root. `index.scrml` -> "/";
+// `app.scrml` -> "/app"; `pages/customer/loads.scrml` -> "/customer/loads";
+// `pages/customer/index.scrml` -> "/customer". With no outputBaseDir (legacy /
+// single-file callers) the served path is basename-only (no subdir) — the
+// common single-page case, where the route still matches the host`s GET.
+function computeServedPath(filePath: string, outputBaseDir: string | null | undefined): string {
+  const base = _pathBasename(filePath, ".scrml");
+  let segs: string[] = [];
+  if (outputBaseDir) {
+    let relDir = _pathDirname(_pathRelative(outputBaseDir, filePath));
+    if (relDir === "pages") relDir = ".";
+    else if (relDir.startsWith("pages/")) relDir = relDir.slice("pages/".length);
+    if (relDir !== "." && relDir !== "" && !relDir.startsWith("..")) {
+      segs = relDir.split("/").filter((x) => x.length > 0);
+    }
+  }
+  if (base === "index") {
+    return "/" + segs.join("/");
+  }
+  return "/" + [...segs, base].join("/");
 }
 
 // g-pure-module-server-emit (S207): conservative identifier-reference check.
@@ -2919,6 +2944,92 @@ export function generateServerJs(
     lines.push(`  handler: ${slHandler},`);
     lines.push(`};`);
     lines.push("");
+  }
+
+  // §52.8 (ssr-b-substrate) — SSR pre-render: inline server-authoritative
+  // state seed. A request-time HTML-composition GET route that runs the SAME
+  // server-authority queries the /__serverLoad + /__mountHydrate routes run
+  // (reusing the §14.8.9 _scrml_protect_tag → _scrml_protect_redact egress sink),
+  // reads the sibling compiled <base>.html, and injects
+  // <script>window.__scrml_ssr_state={…}</script> before </head> so the client
+  // seeds its cells BEFORE mount (kills the fetch RTT; delivers the construction-
+  // time value the engine `server=@cell` ride needs). This is the FIRST compiler-
+  // emitted route returning text/html. B-SUBSTRATE ONLY: it narrows the first-
+  // paint flash to a synchronous client render — it does NOT pre-render markup,
+  // so §52.8's "no placeholder on first paint" + W-AUTH-002 are the A-terminus,
+  // out of scope here.
+  {
+    const _ssrSeedTier1 = _serverAuthorityInstances;
+    const _ssrSeedPatternC = _patternCLoadDecls;
+    const _ssrSeedCallable = _needsMountHydrate ? _mhCallableDecls : [];
+    const _hasSsrSeed =
+      _ssrSeedTier1.length > 0 || _ssrSeedPatternC.length > 0 || _ssrSeedCallable.length > 0;
+    if (_hasSsrSeed) {
+      const _ssrHtmlBase = _pathBasename(filePath, ".scrml");
+      const _ssrServedPath = computeServedPath(filePath, (fileAST as any)._outputBaseDir);
+      lines.push(`// --- §52.8 SSR pre-render: inline server-authoritative state seed (B-substrate) ---`);
+      lines.push(`async function _scrml_ssr_compose_handler(_scrml_req) {`);
+      lines.push(`  const _scrml_ssr_state = {};`);
+      // Tier-1 instances — SELECT * FROM <table> (+ §14.8.9 tag/redact when protected).
+      for (const inst of _ssrSeedTier1) {
+        const _vn = inst.name as string;
+        const _tbl = (inst as any).serverAuthorityTable as string;
+        const _prot = _protectActive ? _protectCtx.protectedByTable.get(_tbl) : undefined;
+        if (_prot && _prot.size > 0) {
+          lines.push(`  { const _scrml_rows = _scrml_protect_tag(await _scrml_sql\`SELECT * FROM ${_tbl}\`, ${JSON.stringify([..._prot])});`);
+          lines.push(`    _scrml_ssr_state[${JSON.stringify(_vn)}] = _scrml_protect_redact(_scrml_rows); }`);
+        } else {
+          lines.push(`  _scrml_ssr_state[${JSON.stringify(_vn)}] = await _scrml_sql\`SELECT * FROM ${_tbl}\`;`);
+        }
+      }
+      // Tier-2 Pattern-C — the cell's actual inline ?{} (same §44 lowering the
+      // /__serverLoad/<var> route uses), redacted at the sink when protected.
+      for (const decl of _ssrSeedPatternC) {
+        const _vn = decl.name as string;
+        const _sqlNode = (decl as any).sqlNode;
+        const _sqlExpr = (serverRewriteEmitted(emitLogicNode(_sqlNode, { boundary: "server" })) ?? "").replace(/;\s*$/, "");
+        if (_protectActive) {
+          lines.push(`  { const _scrml_result = ${_sqlExpr};`);
+          lines.push(`    _scrml_ssr_state[${JSON.stringify(_vn)}] = _scrml_protect_redact(_scrml_result); }`);
+        } else {
+          lines.push(`  _scrml_ssr_state[${JSON.stringify(_vn)}] = ${_sqlExpr};`);
+        }
+      }
+      // Tier-2 coalesced-callable-init — run the same server-rewritten initExpr the
+      // /__mountHydrate route runs (a server fn / inline expr), redacted at the sink.
+      for (const decl of _ssrSeedCallable) {
+        const _vn = decl.name as string;
+        const _expr = emitExprField((decl as any).initExpr, (decl as any).init ?? "null", { mode: "server" });
+        if (_protectActive) {
+          lines.push(`  { const _scrml_cv = await Promise.resolve(${_expr});`);
+          lines.push(`    _scrml_ssr_state[${JSON.stringify(_vn)}] = _scrml_protect_redact(_scrml_cv); }`);
+        } else {
+          lines.push(`  _scrml_ssr_state[${JSON.stringify(_vn)}] = await Promise.resolve(${_expr});`);
+        }
+      }
+      // Read the sibling compiled <base>.html and inject the seed before </head>.
+      // String.fromCharCode(92) is a backslash: a `<` in the JSON becomes the JS
+      // escape `<` so the embedded value can never break out of the <script>
+      // (a `</script>` in protected-but-revealed string data stays inert).
+      lines.push(`  const _scrml_html = await Bun.file(new URL(${JSON.stringify("./" + _ssrHtmlBase + ".html")}, import.meta.url)).text();`);
+      lines.push(`  const _scrml_seed_json = JSON.stringify(_scrml_ssr_state).replace(/</g, String.fromCharCode(92) + "u003c");`);
+      lines.push(`  const _scrml_seed_tag = "<script>window.__scrml_ssr_state=" + _scrml_seed_json + ";</script>";`);
+      lines.push(`  const _scrml_out = _scrml_html.includes("</head>")`);
+      lines.push(`    ? _scrml_html.replace("</head>", _scrml_seed_tag + "</head>")`);
+      lines.push(`    : _scrml_seed_tag + _scrml_html;`);
+      lines.push(`  return new Response(_scrml_out, {`);
+      lines.push(`    status: 200,`);
+      lines.push(`    headers: { "Content-Type": "text/html; charset=utf-8" },`);
+      lines.push(`  });`);
+      lines.push(`}`);
+      lines.push("");
+      lines.push(`export const _scrml_route___ssr = {`);
+      lines.push(`  path: ${JSON.stringify(_ssrServedPath)},`);
+      lines.push(`  method: "GET",`);
+      lines.push(`  handler: _scrml_ssr_compose_handler,`);
+      lines.push(`};`);
+      lines.push("");
+    }
   }
 
   // Bug 2b (channel-codegen-fixes-2026-06-12): onserver:* channel attribute

@@ -237,7 +237,13 @@ describe("runtime size", () => {
     expect(minimal.length).toBeLessThan(SCRML_RUNTIME.length * 0.30);
   });
 
-  test("RUNTIME_CHUNK_ORDER has 29 chunks", () => {
+  test("RUNTIME_CHUNK_ORDER has 30 chunks", () => {
+    // 30 chunks post-§52.8 (ssr-b-substrate): 'ssr' chunk added for the SSR
+    // pre-render seed (_scrml_ssr_seed_apply + _scrml_ssr_seeded). Activated by a
+    // POST-EMIT `_scrml_ssr_` scan (emit-client.ts) when a server-authority cell
+    // is present (emit-reactive-wiring emits the seed-apply call + per-fetch
+    // seed-skip guards); a non-server-authority page emits none and omits the chunk.
+    //
     // 29 chunks post-§20.6 (S174 log-builtin): 'log' chunk added for the
     // location-transparent log() builtin runtime (_scrml_log + _scrml_log_render).
     // Activated by a POST-EMIT scan (emit-client.ts) when the emitted JS contains
@@ -281,6 +287,6 @@ describe("runtime size", () => {
     //   18 chunks post-C13: 'engine' chunk for §51.0.F + §51.0.G engine
     //   state-machine runtime hooks.
     //   17 chunks post-C10: 'messages' chunk for §55.10.
-    expect(RUNTIME_CHUNK_ORDER.length).toBe(29);
+    expect(RUNTIME_CHUNK_ORDER.length).toBe(30);
   });
 });
