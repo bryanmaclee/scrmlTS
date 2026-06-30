@@ -1,0 +1,18 @@
+{
+  "id": "server-fn-basic-load-hydrate",
+  "description": "§52 server-fn effect — call -> server route -> state hydrate. loadTasks() touches a server resource (?{SQL}) so it auto-escalates to server (§12); the client call compiles to a fetch the harness intercepts (serverStub, keyed by the impl-neutral source fn name). A #load click runs @items = loadTasks(); after settle the two rows hydrate, the <each> list renders two .row items, and #count (reading @items.length) reads 2. The spine of the W3 server-fn surface. OQ1 NOTE: whole-tree dom omitted — the async hydrate + <each> container <div> are impl-private; the anchored .row count + #count text + @items state are impl-neutral.",
+  "language-version": "1.0",
+  "spec": "§52.1",
+  "rationale": "§12 a function touching a server resource escalates to server; §52 the client call round-trips through the compiler-emitted route and the returned rows hydrate the reactive cell. A settle-drained server-fn write re-renders the <each> rows AND the @items.length interpolation.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#load" }, { "wait": "settle" }],
+    "serverStub": { "loadTasks": [{ "id": 1, "text": "alpha" }, { "id": 2, "text": "beta" }] },
+    "state": { "items": [{ "id": 1, "text": "alpha" }, { "id": 2, "text": "beta" }] },
+    "domAnchored": [
+      { "selector": ".row", "count": 2 },
+      { "selector": "#count", "text": "Count: 2" }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "server-fn-error-boundary-fallback",
+  "description": "§52 server-`!` error composes with §19.6 errorBoundary. loadName(id)! LoadError touches a server resource (escalates); the server response is the impl-neutral error directive {\"__serverError\": {type:\"LoadError\", variant:\"Timeout\"}} (the adapter translates to impl#1's wire envelope + HTTP 500 — see the §19.9.1-vs-impl#1 wire divergence flagged in the W3 report). Timeout has no `renders` clause, so the boundary `fallback=` markup shows (.eb-fallback). Siblings outside the boundary survive (§19.6.4: .eb-header + .eb-footer). The whole E-ERROR-* family stays silent — the boundary satisfies the handling requirement (§19.6.6). The server-fn twin of error-boundary/fallback (which uses a client failable fn).",
+  "language-version": "1.0",
+  "spec": "§19.6.3",
+  "rationale": "§19.9.1 a server `!` function serializes its error variant across the boundary; §19.6.3 item 2 / §19.6.5 priority #2: a failing variant WITHOUT a `renders` clause falls through to the boundary `fallback`. Timeout (no renders) -> eb-fallback. §19.6.6: a `!`-call inside a boundary does NOT fire E-ERROR-* (the boundary handles it).",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "notCodePrefixes": ["E-ERROR-"],
+    "input": [{ "wait": "settle" }],
+    "serverStub": { "loadName": { "__serverError": { "type": "LoadError", "variant": "Timeout" } } },
+    "domAnchored": [
+      { "selector": ".eb-fallback", "count": 1, "text": "Could not load profile" },
+      { "selector": ".eb-header", "text": "Profile" },
+      { "selector": ".eb-footer", "text": "End" }
+    ]
+  }
+}

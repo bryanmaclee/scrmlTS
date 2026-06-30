@@ -170,6 +170,98 @@ export interface RunResult {
   body: unknown;
 }
 
+// ---------------------------------------------------------------------------
+// Server-fn stub boundary (§52 — call → server route → state hydrate).
+// ---------------------------------------------------------------------------
+//
+// A scrml `function` that touches a server resource auto-escalates to server
+// (§12): the client call compiles to a `fetch` to a COMPILER-EMITTED server
+// route. In the conformance harness (happy-dom, no real server) there is no
+// server to answer that fetch, so `run()` installs a deterministic mock
+// `globalThis.fetch` that intercepts the server-fn route and returns a
+// CASE-DECLARED response, then `settled()` drains the pending promise so the
+// state hydrate completes before the snapshot.
+//
+// THE IMPL-NEUTRAL KEYING (D3 impl-freedom). A case's `serverStub` is keyed by
+// the **scrml-SOURCE server-fn name** (`loadTasks`), NEVER by impl#1's emitted
+// route encoding (`/_scrml/__ri_route_loadTasks_1`). Keying by the route would
+// bake impl#1 internals into the agnostic case — impl#2 may encode routes
+// differently. impl#1's route name is `__ri_route_<sourceFnName>_<counter>`
+// (route-inference.ts `generateRouteName`); the ADAPTER (impl#1-specific, free
+// to know impl#1's encoding) maps source-fn-name → route by extracting the name
+// back out of that pattern at fetch time. impl#2's adapter would map by its own
+// route convention; the case stays neutral.
+//
+// THE ERROR-DIRECTIVE (the SPEC-vs-impl wire divergence, FLAGGED in the W3
+// report). §57.2 defines a NORMATIVE absence envelope `{"__scrml_absent":true}`
+// that impl#1 matches — so a `T | not` absent response is declared DIRECTLY as
+// that envelope (impl-neutral; both impls round-trip it via §57.4). But the
+// server-`!` ERROR wire shape DIVERGES: §19.9.1 normatively specifies
+// `{__variant, __data}`, while impl#1 actually emits/detects
+// `{__scrml_error, type, variant, data}` (the runtime errorBoundary gate). To
+// keep the agnostic case off impl#1's divergent envelope, an error response is
+// declared with the IMPL-NEUTRAL directive `{ "__serverError": { type, variant,
+// data?, status? } }` (names the scrml error TYPE + VARIANT, not any wire keys);
+// the impl#1 ADAPTER translates it to impl#1's wire envelope + HTTP status.
+// impl#2's adapter translates the same directive to ITS wire shape.
+
+/** A case-declared server-fn response: a plain JSON wire value (success / the
+ *  §57.2 absence envelope), OR the impl-neutral error directive below. */
+export type ServerStub = Record<string, unknown>;
+
+interface ServerErrorDirective {
+  __serverError: { type: string; variant: string; data?: unknown; status?: number };
+}
+
+function isServerErrorDirective(v: unknown): v is ServerErrorDirective {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    Object.prototype.hasOwnProperty.call(v, "__serverError")
+  );
+}
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+/**
+ * Install a deterministic mock `globalThis.fetch` over the server-fn routes for
+ * the duration of one `run()`. Returns a restore thunk. Keyed by the impl-neutral
+ * scrml-source fn name (extracted from impl#1's `__ri_route_<name>_<counter>`
+ * route encoding — adapter-internal impl#1 knowledge); the case never names a
+ * route. An unstubbed server route resolves to a deterministic empty 200 (never
+ * a real network call — the harness is hermetic).
+ */
+function installServerStubFetch(serverStub: ServerStub): () => void {
+  const g = globalThis as any;
+  const realFetch = g.fetch;
+  const RealResponse = g.Response;
+  // impl#1 route: `/_scrml/__ri_route_<sourceFnName>_<counter>` (utils.routePath
+  // + route-inference.generateRouteName), optionally `__batch_<i>` for a CPS
+  // multi-batch split. The captured group is the scrml-source fn name.
+  const ROUTE_RE = /^\/_scrml\/__ri_route_(.+)_\d+(?:__batch_\d+)?$/;
+  g.fetch = async (input: any): Promise<any> => {
+    const url = typeof input === "string" ? input : (input && input.url) || String(input);
+    const m = String(url).match(ROUTE_RE);
+    const fnName = m ? m[1] : null;
+    let body: unknown = fnName !== null && fnName in serverStub ? serverStub[fnName] : null;
+    let status = 200;
+    if (isServerErrorDirective(body)) {
+      const e = body.__serverError;
+      // impl#1 wire error envelope — the runtime errorBoundary gate keys on
+      // `.__scrml_error` (see runtime-template.js `_scrml_error_boundary_log`).
+      body = { __scrml_error: true, type: e.type, variant: e.variant, data: e.data ?? null };
+      status = typeof e.status === "number" ? e.status : 500; // §19.9.2 default
+    }
+    return new RealResponse(JSON.stringify(body === undefined ? null : body), {
+      status,
+      headers: JSON_HEADERS,
+    });
+  };
+  return () => {
+    g.fetch = realFetch;
+  };
+}
+
 function ensureFreshDom(): void {
   // A fresh window per run isolates DOMContentLoaded listeners + state from the
   // prior run (verified: re-register drops old listeners). unregister() is async.
@@ -189,9 +281,16 @@ export async function run(
   source: string,
   input: InputStep[] = [],
   auxFiles: Record<string, string> = {},
+  serverStub: ServerStub = {},
 ): Promise<RunResult> {
   if (GlobalRegistrator.isRegistered) await GlobalRegistrator.unregister();
   GlobalRegistrator.register();
+
+  // §52 server-fn boundary: when a case declares server-fn responses, install a
+  // deterministic mock fetch over the compiler-emitted server routes for this
+  // run (restored in finally). Absent serverStub → fetch is untouched.
+  const restoreFetch =
+    Object.keys(serverStub).length > 0 ? installServerStubFetch(serverStub) : null;
 
   const dir = mkdtempSync(join(tmpdir(), "scrml-conf-run-"));
   const file = writeCaseFiles(dir, source, auxFiles);
@@ -235,6 +334,7 @@ export async function run(
   } finally {
     rmSync(dir, { recursive: true, force: true });
     delete (globalThis as any).__scrml_conformance;
+    if (restoreFetch) restoreFetch();
   }
 }
 

@@ -1,0 +1,18 @@
+{
+  "id": "server-fn-cps-call-in-if-arm",
+  "description": "§19.9.3 body-split — a server-fn call as a NON-top-level statement (inside an if arm). refresh() is a client handler; @items = loadTasks() sits inside `if (@mode == \"all\")`, so the server call cannot be a bare top-level await — it compiles to an awaited continuation INSIDE the branch. A #refresh click takes the @mode == \"all\" arm; after settle the continuation runs and the three rows hydrate (.row count 3, #count 3). Exercises the body-split + settle drain through control flow.",
+  "language-version": "1.0",
+  "spec": "§19.9.3",
+  "rationale": "§19.9.3 / §12 a server-fn call interleaved with client control flow is split across the boundary; the client continuation (the reactive @items write) runs after the server route resolves. The if-guard is preserved and the hydrate completes post-settle even though the call is non-top-level.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#refresh" }, { "wait": "settle" }],
+    "serverStub": { "loadTasks": [{ "id": 1, "text": "x" }, { "id": 2, "text": "y" }, { "id": 3, "text": "z" }] },
+    "state": { "items": [{ "id": 1, "text": "x" }, { "id": 2, "text": "y" }, { "id": 3, "text": "z" }], "mode": "all" },
+    "domAnchored": [
+      { "selector": ".row", "count": 3 },
+      { "selector": "#count", "text": "Count: 3" }
+    ]
+  }
+}

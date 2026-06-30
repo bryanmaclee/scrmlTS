@@ -70,7 +70,9 @@ exists (the browser-harness is a working prototype of two-thirds of it):
     "input":       [{ "click": "#inc" }, { "click": "#inc" }],
     "state":       { "count": 2 },           // merged {cells, derived} ⊇ this
     "dom":         "<button id=\"inc\">+</button>...",  // whole-tree normalized <body>
-    "domAnchored": [{ "selector": "#display", "text": "Count: 2" }]
+    "domAnchored": [{ "selector": "#display", "text": "Count: 2" }],
+    // (b) §52 server-fn responses — keyed by the IMPL-NEUTRAL source fn name ----
+    "serverStub":  { "loadTasks": [{ "id": 1, "text": "a" }] }
   }
 }
 ```
@@ -124,6 +126,60 @@ empirically). See the OQ1 note below for when to reach for each.
 Inputs are USER-INTENT events flowing through the handlers BOTH impls wire.
 Direct state-set is **banned** (it bypasses handlers + names impl internals).
 Real-time waits are banned (non-deterministic); only `wait: "settle"`.
+
+### Server-fn stubs (`serverStub`) — the §52 (b)-runtime center
+
+A scrml `function` that touches a server resource auto-escalates to server
+(§12): the client call compiles to a `fetch` to a **compiler-emitted server
+route**, and the server handler runs the body. The conformance harness has no
+real server (happy-dom), so a case declares the server responses in
+`serverStub`, and the adapter installs a deterministic mock `globalThis.fetch`
+over the server-fn routes for the run (restored after). `settled()` drains the
+pending server-fn promise so the state hydrate completes before the snapshot —
+**no runtime/hook change is needed**: the existing microtask→macrotask settle
+empties the whole server-fn await chain (the macrotask boundary guarantees the
+microtask queue drains first), and it drains a *multi*-server-fn sequence in one
+settle too.
+
+**IMPL-NEUTRAL KEYING (load-bearing — D3 impl-freedom).** `serverStub` is keyed
+by the **scrml-SOURCE server-fn name** (`loadTasks`), NEVER by impl#1's emitted
+route encoding (`/_scrml/__ri_route_loadTasks_1`). Keying by the route would bake
+impl#1 internals into the agnostic case (impl#2 may encode routes differently).
+impl#1's route is `__ri_route_<sourceFnName>_<counter>`; the **adapter**
+(impl#1-specific, free to know impl#1's encoding) maps source-fn-name → route by
+extracting the name back out of that pattern at fetch time. impl#2's adapter maps
+by its own convention; the case stays neutral. (v1 keys by fn name → a single
+response — a per-call `[{args, response}]` form is a later refinement; author two
+sibling cases for present-vs-absent / success-vs-error paths, as the corpus does.)
+
+**Response forms.**
+
+```jsonc
+"serverStub": {
+  // success: the plain JSON wire value the fn resolves to
+  "loadTasks": [{ "id": 1, "text": "a" }],
+  // `T | not` absence: the §57.2 NORMATIVE envelope, declared DIRECTLY (impl#1
+  // matches it; the client dual-decoder §57.4 lowers it to scrml `not`/JS null)
+  "loadUser":  { "__scrml_absent": true },
+  // server-`!` error: the IMPL-NEUTRAL directive (names the scrml error TYPE +
+  // VARIANT, not any wire keys). status defaults to 500 (§19.9.2).
+  "loadName":  { "__serverError": { "type": "LoadError", "variant": "Timeout" } }
+}
+```
+
+**Why the error directive (the SPEC-vs-impl wire divergence).** §57.2's absence
+envelope is normative AND impl#1-matched, so an absent response is declared
+directly as `{"__scrml_absent": true}` and stays impl-neutral. But the server-`!`
+ERROR wire shape **diverges**: §19.9.1 normatively specifies `{__variant,
+__data}`, while impl#1 actually emits/detects `{__scrml_error, type, variant,
+data}` (the runtime `errorBoundary` gate keys on `.__scrml_error`). Declaring
+impl#1's actual envelope in the case would bake an impl#1-divergent shape into the
+agnostic contract — so an error is declared with the impl-neutral `__serverError`
+directive, and the **impl#1 adapter translates** it to impl#1's wire envelope +
+HTTP status. impl#2's adapter translates the same directive to ITS wire shape.
+*(This §19.9.1-vs-impl#1 divergence is a standing flag — the conformance contract
+asserts the resulting DOM/state, not the wire bytes, so the case is sound today;
+the SPEC/impl reconciliation is tracked separately.)*
 
 ### The `files` multi-file convention
 

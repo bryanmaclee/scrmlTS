@@ -1,0 +1,21 @@
+${
+    type Task:struct = { id: number, text: string }
+    <items> : Task[] = []
+    <mode> : string = "all"
+    function loadTasks() : Task[] {
+        rows = ?{`SELECT id, text FROM tasks`}
+        return rows
+    }
+    function refresh() {
+        if (@mode == "all") {
+            @items = loadTasks()
+        }
+    }
+}
+<button id="refresh" onclick=refresh()>Refresh</>
+<ul id="list">
+    <each in=@items key=@.id as t>
+        <li class="row">${t.text}</li>
+    </each>
+</ul>
+<p id="count">Count: ${@items.length}</>

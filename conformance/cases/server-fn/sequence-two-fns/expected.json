@@ -1,0 +1,15 @@
+{
+  "id": "server-fn-sequence-two-fns",
+  "description": "§52 multiple independent server-fn effects drain in ONE settle. Two server fns (loadA, loadB) feed two cells (@a, @b). Two clicks fire both async server calls; a single wait:\"settle\" drains BOTH pending server-fn await chains (the macrotask boundary empties the whole microtask queue first). After settle @a has 2 rows and @b has 1, so #counts reads \"A:2 B:1\". Proves settled() cleanly drains a multi-server-fn sequence.",
+  "language-version": "1.0",
+  "spec": "§52.1",
+  "rationale": "§52 each server-fn call round-trips independently through its own compiler-emitted route; the two reactive writes (@a, @b) both complete before the snapshot because settle drains every pending continuation. The #counts interpolation reads both lengths.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#load-a" }, { "click": "#load-b" }, { "wait": "settle" }],
+    "serverStub": { "loadA": [{ "id": 1, "text": "x" }, { "id": 2, "text": "y" }], "loadB": [{ "id": 9, "text": "z" }] },
+    "state": { "a": [{ "id": 1, "text": "x" }, { "id": 2, "text": "y" }], "b": [{ "id": 9, "text": "z" }] },
+    "domAnchored": [{ "selector": "#counts", "text": "A:2 B:1" }]
+  }
+}

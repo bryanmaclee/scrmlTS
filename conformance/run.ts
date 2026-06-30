@@ -23,7 +23,7 @@ import { readdirSync, readFileSync, statSync, existsSync } from "fs";
 import { join, dirname, relative } from "path";
 import { fileURLToPath } from "url";
 import { compile } from "./adapters/impl1-ts.ts";
-import { run, runAnchored, type InputStep, type AnchoredAssertion } from "./adapters/impl1-ts.ts";
+import { run, runAnchored, type InputStep, type AnchoredAssertion, type ServerStub } from "./adapters/impl1-ts.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CASES_DIR = join(HERE, "cases");
@@ -56,6 +56,13 @@ export interface ExpectedCase {
     domAnchored?: AnchoredAssertion[];
     /** Final state-cell values — compared against merged {cells, derived}. */
     state?: Record<string, unknown>;
+    /** §52 server-fn responses — keyed by the IMPL-NEUTRAL scrml-SOURCE fn name
+     *  (never impl#1's route encoding). Each value is a plain JSON wire value
+     *  (success / the §57.2 `{"__scrml_absent":true}` absence envelope) OR the
+     *  impl-neutral error directive `{ "__serverError": { type, variant, data?,
+     *  status? } }`. The adapter mocks fetch over the compiler-emitted route and
+     *  (for errors) translates the directive to impl#1's wire envelope. */
+    serverStub?: ServerStub;
   };
 }
 
@@ -130,7 +137,8 @@ export function hasRuntimeHalf(c: LoadedCase): boolean {
     e.input !== undefined ||
     e.dom !== undefined ||
     e.domAnchored !== undefined ||
-    e.state !== undefined
+    e.state !== undefined ||
+    e.serverStub !== undefined
   );
 }
 
@@ -205,7 +213,7 @@ export async function runCaseRuntime(c: LoadedCase): Promise<string[]> {
   const e = c.expected.expect;
   const failures: string[] = [];
 
-  const r = await run(c.source, e.input ?? [], c.auxFiles);
+  const r = await run(c.source, e.input ?? [], c.auxFiles, e.serverStub ?? {});
 
   // state — merged {cells, derived}, expected is a subset.
   if (e.state) {

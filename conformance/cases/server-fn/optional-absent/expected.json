@@ -1,0 +1,15 @@
+{
+  "id": "server-fn-optional-absent",
+  "description": "§57 wire absence envelope, NOT path. loadUser() returns User | not; the absent response is the §57.2 canonical envelope {\"__scrml_absent\": true} (NORMATIVE + impl#1-matched, so declared directly — impl-neutral). The client dual-decoder (§57.4) lowers it to scrml `not` (JS null per §42.5/§42.8); @user is null, the derived userLabel falls to \"anonymous\", so #who reads \"Current: anonymous\". Twin of optional-present. The empty/fallback render.",
+  "language-version": "1.0",
+  "spec": "§57.2",
+  "rationale": "§57.2 scrml-absence is wire-encoded as {\"__scrml_absent\": true}; §57.4 the dual-decoder lowers it to scrml `not` (never the string \"undefined\"). §42.2.5 `is not` -> userLabel = the fallback. Absence snapshots as null, never undefined (§42.8).",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#load" }, { "wait": "settle" }],
+    "serverStub": { "loadUser": { "__scrml_absent": true } },
+    "state": { "user": null, "userLabel": "anonymous" },
+    "domAnchored": [{ "selector": "#who", "text": "Current: anonymous" }]
+  }
+}

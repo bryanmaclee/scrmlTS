@@ -1,0 +1,11 @@
+${
+    type User:struct = { id: number, name: string }
+    <user> : User | not = not
+    const <userLabel> = @user is some ? @user.name : "anonymous"
+    function loadUser() : User | not {
+        rows = ?{`SELECT id, name FROM users LIMIT 1`}
+        return rows[0]
+    }
+}
+<button id="load" onclick=@user = loadUser()>Load</>
+<p id="who">Current: ${@userLabel}</>

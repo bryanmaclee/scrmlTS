@@ -1,0 +1,15 @@
+{
+  "id": "server-fn-optional-present",
+  "description": "§57 wire absence envelope, PRESENT path. loadUser() returns User | not; the present response round-trips a User struct. @user hydrates to {id,name}; the derived userLabel (@user is some ? @user.name : \"anonymous\") reads the name, so #who reads \"Current: Ada\". Twin of optional-absent. OQ1 NOTE: a single #who anchor reading a derived cell sidesteps the if-guard display-toggle-vs-template asymmetry; impl-neutral.",
+  "language-version": "1.0",
+  "spec": "§57.4",
+  "rationale": "§57 a `T | not` server return round-trips through the dual-decoder; the present (T) value is emitted through the normal serializer (no envelope) and decodes to the struct. §42.2.5 `is some` discriminates presence -> userLabel = the name.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#load" }, { "wait": "settle" }],
+    "serverStub": { "loadUser": { "id": 7, "name": "Ada" } },
+    "state": { "user": { "id": 7, "name": "Ada" }, "userLabel": "Ada" },
+    "domAnchored": [{ "selector": "#who", "text": "Current: Ada" }]
+  }
+}

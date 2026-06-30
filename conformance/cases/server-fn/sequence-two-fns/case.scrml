@@ -1,0 +1,16 @@
+${
+    type Row:struct = { id: number, text: string }
+    <a> : Row[] = []
+    <b> : Row[] = []
+    function loadA() : Row[] {
+        rows = ?{`SELECT id, text FROM a`}
+        return rows
+    }
+    function loadB() : Row[] {
+        rows = ?{`SELECT id, text FROM b`}
+        return rows
+    }
+}
+<button id="load-a" onclick=@a = loadA()>A</>
+<button id="load-b" onclick=@b = loadB()>B</>
+<p id="counts">A:${@a.length} B:${@b.length}</>
