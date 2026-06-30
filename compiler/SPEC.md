@@ -725,6 +725,7 @@ The following `<program>` attributes are valid in nested positions:
 | `protect=` | YES | Declares protected field names for data isolation |
 | `callchar=` | YES | Maps a single character to this nested program for call-char sigils (§23.3) |
 | `story=`  | YES (nested only) | References a build story by name from the `scrml.toml` `[story]` table — compiles this nested `<program>` under that build story (§58). On the top-level `<program>` it emits `W-STORY-ON-TOP-LEVEL` and is ignored. |
+| `capabilities=` | YES (and top-level) | Declares the intended host-capability surface for foreign code (`_{}` / WASM sigil / `use foreign:` sidecar) in this scope — a bracketed list of capability tokens `{ network, fs-read, fs-write, spawn, env, db }` (§23.5). Closest-ancestor-`<program>`-wins (§23.5.4). Advisory in v1.0 (`W-FOREIGN-UNDECLARED-CAPABILITY`); enforcement deferred. |
 
 The top-level `<program>` MUST NOT have a `name=` attribute (it is the implicit root).
 Nested `<program>` elements SHOULD have a `name=` attribute for reference and diagnostics;
@@ -16263,6 +16264,147 @@ declaration inside the nested `<program>`).
 | E-FOREIGN-010 | `use foreign:name` references a name that matches no nested `<program>` | Error |
 | E-FOREIGN-011 | Function listed in `use foreign:` is not exported by the named sidecar | Error |
 | E-FOREIGN-012 | Sidecar function called from a client-side code path | Error |
+
+### 23.5 Capability Declaration (Nominal / spec-ahead)
+
+> **Nominal — spec-ahead-of-implementation (V1 AUTHORING half).** This section specifies the
+> capability-DECLARATION surface (the authoring habit) that ships in scrml-language v1.0. The
+> capability-ENFORCEMENT layer (a manifest-declared, kernel-enforced sandbox parameterized from the
+> declared set) is DEFERRED — gated until multi-tenant `_{}` execution is live (the "Pole-D" hybrid).
+> The declaration is non-breaking-forward by construction: code that declares its capabilities today is
+> unaffected when enforcement lands; enforcement reads the already-declared set. This is what makes
+> "secure-by-design, hardening-in-progress" an honest claim rather than a promise — the declaration
+> habit is real now; it composes with the already-real no-ambient-authority stdlib (import-only; no
+> ambient `Math`/`fetch`/`fs`). Ratified S231 (the V1 = scrml-language-1.0 scoping / language–compiler
+> split); the authoring surface (this section) S232.
+
+#### 23.5.1 Overview
+
+A `<program>` that governs foreign code (`_{}` blocks §23.2; WASM sigils §23.3; sidecars §23.4) MAY
+declare the set of host capabilities that foreign code is INTENDED to use, via a `capabilities=`
+attribute. The declaration is a co-located, author-visible contract: "this foreign-code scope is meant
+to reach the network / read these files / spawn processes / touch the database / read env — and nothing
+else."
+
+In v1.0 the declaration is **advisory** — the compiler does not (and structurally cannot, per the
+§23.2.3 opacity rule) verify that the foreign code stays within its declared set. What v1.0 DOES is nudge
+the declaration HABIT (§23.5.5) and fix the surface so that enforcement is a later, additive,
+non-breaking flip (§23.5.6).
+
+#### 23.5.2 The `capabilities=` attribute
+
+`capabilities=` is a `<program>` attribute (§4.12.2). Its value is a bracketed list of **capability
+tokens**:
+
+```
+capabilities-attr ::= 'capabilities=' '[' capability-token (',' capability-token)* ']'
+                    |  'capabilities=' '[' ']'                       // explicit empty = declare-nothing
+capability-token  ::= arg-cap '(' string-literal (',' string-literal)* ')'   // network/fs-read/fs-write/spawn/env
+                    |  arg-cap                                       // arg-cap with no args = the capability with an empty allow-list
+                    |  'db'                                          // presence-only (boolean)
+arg-cap           ::= 'network' | 'fs-read' | 'fs-write' | 'spawn' | 'env'
+```
+
+```scrml
+<program lang="go"
+         build="go build -o ./bin/svc ./cmd/svc"
+         capabilities=[network("api.example.com"), fs-read("/etc/svc/config"), spawn, db]>
+    _={
+        // Go sidecar code — its declared capability surface is network + fs-read + spawn + db
+    }=
+</>
+```
+
+- `capabilities=[]` is the explicit default (declare-nothing). An omitted `capabilities=` attribute is
+  equivalent to `capabilities=[]` (§23.5.4).
+- A capability token MAY repeat with additional args; the args UNION
+  (`capabilities=[network("a.com"), network("b.com")]` ≡ `network` allowing `{a.com, b.com}`).
+- An arg-bearing cap with no parens (`spawn`, `network`) declares the capability with an EMPTY
+  allow-list — "this scope spawns / reaches the network, hosts/paths unspecified." (v1.0 records intent;
+  the allow-list gains teeth at enforcement.)
+
+#### 23.5.3 The capability vocabulary
+
+| Capability | Arg shape | The host surface declared |
+|---|---|---|
+| `network(host…)` | host string-literals | outbound network (sidecar HTTP/socket, `fetch`-equivalent) to the named hosts |
+| `fs-read(path…)` | path string-literals | filesystem READ under the named paths |
+| `fs-write(path…)` | path string-literals | filesystem WRITE under the named paths |
+| `spawn(cmd…)` | command string-literals | subprocess spawn (the sidecar-launch surface, §23.4) of the named commands |
+| `env(name…)` | env-var-name string-literals | environment-variable READ of the named vars |
+| `db` | (none — boolean) | database access via `?{}` in this scope (§8 / §44) |
+
+The vocabulary is CLOSED in v1 (these six). Future SPEC extensions MAY add capabilities additively; an
+unrecognized capability token SHALL be a compile error (`E-FOREIGN-CAPABILITY-UNKNOWN`, §23.5.7).
+
+#### 23.5.4 Capability determination (inheritance)
+
+The declared capability set governing a `_{}` block (or WASM sigil, or sidecar) is resolved exactly as
+`lang=` is (§23.2.1): the compiler walks up the `<program>` nesting tree; the **closest ancestor
+`<program>` with a `capabilities=` attribute wins**. If no ancestor `<program>` declares
+`capabilities=`, the governing set is the **empty set** (`[]`) — declare-nothing.
+
+```scrml
+<program capabilities=[network("api.example.com")]>     <!-- app-scope: network only -->
+    <program name="svc" lang="go" capabilities=[fs-read("/etc/svc"), spawn]>
+        _={ /* governed by fs-read + spawn — the CLOSEST capabilities= wins; does NOT union the outer network */ }=
+    </>
+    <program name="probe" lang="ts">
+        _={ /* no own capabilities= → inherits the closest ancestor's: network("api.example.com") */ }=
+    </>
+</>
+```
+
+> **Normative — closest-wins, no union (mirrors §23.2.1 `lang=`).** A nested `capabilities=` REPLACES
+> the ancestor's set for its subtree; it does not union with it. This matches `lang=` determination and
+> keeps each foreign scope's declared surface explicit and local. (The DEFERRED manifest aggregate is
+> where the union-for-audit lives — §23.5.6.)
+
+#### 23.5.5 `W-FOREIGN-UNDECLARED-CAPABILITY` — the presence-nudge lint
+
+The compiler SHALL emit `W-FOREIGN-UNDECLARED-CAPABILITY` (Info-level lint, §34) when a foreign-code
+construct (`_{}` block §23.2, WASM sigil §23.3, or `use foreign:` sidecar §23.4) is governed by an
+**empty** capability set (no `capabilities=` on any ancestor `<program>`, or an explicit
+`capabilities=[]`). The lint nudges the author to declare the scope's intended capability surface.
+
+> **Opacity bound (§23.2.3) — presence, NOT accuracy.** Because the `_{}` interior is OPAQUE — the
+> compiler does not parse, tokenize, or type-check it (§23.2.3) — the lint CANNOT and DOES NOT verify
+> that the foreign code's ACTUAL host access matches its declared set. It checks DECLARATION-PRESENCE
+> only: "this foreign scope reaches the host but declares no capabilities." Access-ACCURACY (does the
+> code stay within the declared set?) is a property only the ENFORCEMENT layer can decide, and it does so
+> at the multi-tenant sandbox flip (§23.5.6) — the sandbox is parameterized FROM the declared set, so a
+> declaration that under-states real usage fails CLOSED at enforcement, not at compile. v1.0's job is to
+> make the declaration EXIST; v.next's is to make it BINDING.
+
+The lint is advisory (Info); it never blocks a build. An author who genuinely wants an undeclared
+foreign scope suppresses it per §28 (`lint.foreign-undeclared-capability = off`).
+
+#### 23.5.6 Deferred — the manifest aggregate + enforcement (NOT in v1.0)
+
+The following are SPECIFIED-AS-DEFERRED so the v1.0 surface is forward-compatible, but are NOT
+implemented or required by v1.0:
+
+- **Manifest aggregate.** A compiler-derived `[capabilities]` view in `scrml.toml` (sibling of the
+  §22.13 `[capabilities] host-import` entry and the §58.4 `[story]` table) that COLLECTS every
+  `<program>`'s declared set into one central, audit-friendly manifest. The per-`<program>` declarations
+  (§23.5.2) are the SOURCE; the manifest is the derived rollup. Rides the enforcement build.
+- **Enforcement (Pole-D hybrid).** A manifest-declared, kernel-enforced sandbox that parameterizes the
+  foreign-code execution environment FROM the declared capability set — so foreign code that exceeds its
+  declaration fails closed at runtime. GATED until multi-tenant `_{}` execution is live (the threat model
+  that motivates enforcement). The v1.0 declaration is the un-blocked precursor: enforcement reads the
+  set v1.0 already taught authors to write.
+
+#### 23.5.7 Error + lint codes
+
+| Code | Severity | Fires when |
+|---|---|---|
+| `W-FOREIGN-UNDECLARED-CAPABILITY` | Info | a foreign-code construct is governed by an empty/undeclared capability set (§23.5.5) — presence-nudge, NOT access-accuracy |
+| `E-FOREIGN-CAPABILITY-UNKNOWN` | Error | a `capabilities=[…]` list contains an unrecognized capability token; the v1 vocabulary is `{ network, fs-read, fs-write, spawn, env, db }` (§23.5.3) |
+
+Per Rule 4 (SPEC normative; codes land WITH the impl), the §34 catalog rows for both codes land in the
+change that wires the `capabilities=` attribute recognition + the lint — mirroring the §60/§61/§26.8
+named-codes-land-with-impl precedent. This Nominal section NAMES them; the impl wave catalogs + fires
+them.
 
 ---
 
