@@ -170,6 +170,54 @@ function stmtContainsLiftExpr(node: any): boolean {
   return false;
 }
 
+/**
+ * inline-value-form-interp (§18.0 / §17.6) — VALUE-FORM CONTROL-FLOW classifier.
+ *
+ * True when `node` is a value-PRODUCING control-flow statement that, as the SOLE
+ * content of a markup `${...}` interpolation, must render its selected value
+ * (and reactively update) — the inline analogue of the derived-cell twin
+ * (`const <d> = match …; ${@d}`):
+ *
+ *   - a JS-style `match expr { .A :> v … }` whose every arm is an inline VALUE
+ *     arm (`match-arm-inline`). Block-bodied arms (`.V => { … }`) don't reliably
+ *     produce a value through the value-IIFE and are left to the prior path.
+ *   - an `if cond { a } else { b }` cascade whose every branch is exactly one
+ *     value-producing `bare-expr` (`else if` chains allowed; an `else` is
+ *     required — a value-form `if` must yield a value on every path).
+ *
+ * This is a PURE shape check (no codegen): it is the HTML-pass gate that decides
+ * whether to allocate the render slot, and it is kept in lock-step with the
+ * client-JS-pass value emitters (emit-control-flow.ts: `emitMatchExpr` /
+ * `emitIfValueExpr`) which are total for exactly these shapes — so a slot is
+ * never allocated for a body the value emitter can't render.
+ */
+function isValueFormControlFlowStmt(node: any): boolean {
+  if (!node || typeof node !== "object") return false;
+  if (node.kind === "match-stmt") {
+    const arms: any[] = Array.isArray(node.body) ? node.body : [];
+    if (arms.length === 0) return false;
+    return arms.every((a) => a && a.kind === "match-arm-inline");
+  }
+  if (node.kind === "if-stmt") return isValueFormIfStmt(node);
+  return false;
+}
+
+function isValueFormIfStmt(node: any): boolean {
+  if (!node || node.kind !== "if-stmt") return false;
+  if (!isSoleBareExprBranch(node.consequent ?? node.body ?? null)) return false;
+  const alt = node.alternate;
+  if (!alt) return false; // value-form requires an else
+  const altArr: any[] = Array.isArray(alt) ? alt : [alt];
+  if (altArr.length === 1 && altArr[0] && altArr[0].kind === "if-stmt") {
+    return isValueFormIfStmt(altArr[0]); // else-if chain
+  }
+  return isSoleBareExprBranch(altArr);
+}
+
+function isSoleBareExprBranch(stmts: any): boolean {
+  return Array.isArray(stmts) && stmts.length === 1 && !!stmts[0] && stmts[0].kind === "bare-expr";
+}
+
 function isCleanIfSubtree(children: any[]): boolean {
   for (const child of children ?? []) {
     if (!isCleanIfNode(child)) return false;
@@ -2427,6 +2475,56 @@ export function generateHtml(
       // + lift wiring and falls through to the normal path below.
       const bodyHasLift = (node.body ?? []).some((child: any) => stmtContainsLiftExpr(child));
       if (inDefaultLogicMode && !bodyHasLift) return;
+
+      // inline-value-form-interp (§18.0 / §17.6) — VALUE-FORM CONTROL-FLOW AS
+      // THE SOLE INTERP CONTENT. A `${ match @x { .A :> v … } }` /
+      // `${ if c { a } else { b } }` whose only body statement is a value-
+      // producing control-flow construct is a value EXPRESSION (a match/if-as-
+      // expression, SPEC §18.0 / §17.6), not a discarded statement: it must
+      // render its selected value and reactively update on its scrutinee/
+      // condition deps — exactly like the `const <d> = match …; ${@d}` derived-
+      // cell twin, but without the intermediate named cell.
+      //
+      // Pre-fix: the match-form got NO slot (the classifier below only finds
+      // bare-expr / lift-expr, never a `match-stmt` arm) and emit-reactive-wiring
+      // emitted the match as a value-DISCARDING file-scope IIFE; the if-form got
+      // a slot but the binding loop (bare-expr-only) never wired it, so the
+      // branch values were discarded and the slot stayed empty.
+      //
+      // Fix: allocate the render slot here and register a `value-control-flow`
+      // logic-binding carrying the raw control-flow node. emit-event-wiring.ts
+      // lowers it to the value-returning form (emit-control-flow.ts:
+      // emitMatchExpr IIFE / emitIfValueExpr ternary cascade) and emits the
+      // `_scrml_render_value` + reactive `_scrml_effect` wiring.
+      //
+      // A NON-value shape (block-arm match, else-less / leading-statement if,
+      // multi-statement body) is NOT matched by isValueFormControlFlowStmt and
+      // keeps the prior behavior. Gated on `registry` (the live HTML pass): the
+      // legacy errors-only signature has no binding sink, so it falls through
+      // rather than stamping an orphan slot.
+      if (
+        registry &&
+        Array.isArray(node.body) &&
+        node.body.length === 1 &&
+        isValueFormControlFlowStmt(node.body[0])
+      ) {
+        const placeholderId = genVar("logic");
+        (node as any)._placeholderId = placeholderId;
+        // Mark the wrapper so emit-reactive-wiring's file-scope walker skips
+        // re-emitting the control-flow body as a value-DISCARDING statement
+        // (the dead `(function(){…})()` for match / `if(){…}else{…}` for if).
+        // Its value is rendered into the slot by emit-event-wiring instead.
+        // Mirrors the `_constantFolded` marker (collect.ts propagates it to the
+        // inner child stmt; emit-reactive-wiring skips on it).
+        (node as any)._valueControlFlowRendered = true;
+        parts.push(`<span data-scrml-logic="${placeholderId}"></span>`);
+        registry.addLogicBinding({
+          kind: "value-control-flow",
+          placeholderId,
+          controlFlowNode: node.body[0],
+        });
+        return;
+      }
 
       if (node.body?.length === 1 && node.body[0]?.kind === "bare-expr") {
         const bareExpr = node.body[0];

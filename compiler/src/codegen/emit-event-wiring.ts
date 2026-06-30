@@ -1,5 +1,5 @@
 import { rewriteReactiveRefs, rewriteExprArrowBody, rewriteServerExprArrowBody } from "./rewrite.js";
-import { rewriteBlockBody, type EngineRewriteCtx } from "./emit-control-flow.ts";
+import { rewriteBlockBody, emitMatchExpr, emitIfValueExpr, type EngineRewriteCtx } from "./emit-control-flow.ts";
 import { emitExprField } from "./emit-expr.ts";
 import { parseExprToNode } from "../expression-parser.ts";
 import {
@@ -923,6 +923,75 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
 
     for (const binding of logicBindings) {
       const { placeholderId, expr } = binding;
+
+      // -----------------------------------------------------------------
+      // inline-value-form-interp (§18.0 / §17.6) — VALUE-FORM CONTROL-FLOW
+      // as the SOLE content of a markup `${...}` interpolation.
+      //
+      // A `${ match @x { .A :> v … } }` / `${ if c { a } else { b } }` is a
+      // value EXPRESSION (a match/if-as-expression): render its SELECTED value
+      // into the slot and re-render on its scrutinee/condition deps. emit-html.ts
+      // allocated the slot + registered this binding carrying the raw control-
+      // flow node; we lower it to the value-returning form here (the match IIFE
+      // via emitMatchExpr / the if-cascade ternary via emitIfValueExpr) — the
+      // inline analogue of the `const <d> = match …; ${@d}` derived-cell twin
+      // (which lowers identically through emitMatchExpr), but without the
+      // intermediate named cell.
+      // -----------------------------------------------------------------
+      if (binding.kind === "value-control-flow" && binding.controlFlowNode && placeholderId) {
+        const cfNode = binding.controlFlowNode;
+        // Thread the same engine/map/set/derived/server-fn context the other
+        // interpolation lowerings use, so an arm/branch result that reads those
+        // surfaces lowers identically.
+        const cfOpts = {
+          ...engineExprCtxExtras,
+          engineBindings,
+          derivedNames: ctx.derivedNames,
+          synthCellKeys: ctx.synthCellKeys,
+          serverFnNames,
+        };
+        let valueExpr: string | null = null;
+        if (cfNode.kind === "match-stmt") {
+          valueExpr = emitMatchExpr(cfNode, cfOpts);
+        } else if (cfNode.kind === "if-stmt") {
+          valueExpr = emitIfValueExpr(cfNode, cfOpts);
+        }
+        if (valueExpr != null) {
+          // Reactive deps: scan the LOWERED value for reactive-cell reads. Inside
+          // `_scrml_effect` those reads auto-subscribe, so we only need to decide
+          // WHETHER the value is reactive at all (size > 0 → wrap in an effect).
+          const refSet = new Set<string>();
+          const reGet = /_scrml_reactive_get\("([^"]+)"\)/g;
+          let _gm: RegExpExecArray | null;
+          while ((_gm = reGet.exec(valueExpr)) !== null) refSet.add(_gm[1]);
+          // Name-encoding parity with the other interp paths.
+          if (encodingCtx && encodingCtx.enabled) {
+            for (const ref of refSet) {
+              const enc = encodingCtx.encode(ref);
+              if (enc !== ref) {
+                valueExpr = valueExpr.split(`_scrml_reactive_get("${ref}")`).join(`_scrml_reactive_get(${JSON.stringify(enc)})`);
+              }
+            }
+          }
+          const cfRenderFn = `_scrml_cf_${placeholderId.replace(/[^a-zA-Z0-9_]/g, "_")}`;
+          lines.push(`  {`);
+          lines.push(`    const el = document.querySelector('[data-scrml-logic="${placeholderId}"]');`);
+          lines.push(`    if (el) {`);
+          if (refSet.size > 0) {
+            // Reactive: define the value computation once, render it now, and
+            // re-render under an effect (the effect re-runs the reads → tracks).
+            lines.push(`      const ${cfRenderFn} = function() { return ${valueExpr}; };`);
+            lines.push(`      _scrml_render_value(el, ${cfRenderFn}());`);
+            lines.push(`      _scrml_effect(function() { _scrml_render_value(el, ${cfRenderFn}()); });`);
+          } else {
+            // Static scrutinee/condition: one-shot render.
+            lines.push(`      _scrml_render_value(el, ${valueExpr});`);
+          }
+          lines.push(`    }`);
+          lines.push(`  }`);
+        }
+        continue;
+      }
 
       // -----------------------------------------------------------------
       // A1c C11 — `<errors of=expr/>` element wiring per binding.

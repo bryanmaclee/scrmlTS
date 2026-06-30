@@ -2099,6 +2099,69 @@ export function emitMatchExpr(node: any, opts?: any): string {
   return iifeLines.join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// inline-value-form-interp (§17.6) — if-as-VALUE expression
+// ---------------------------------------------------------------------------
+
+/**
+ * §17.6 — emit an `if`-as-value expression for INTERPOLATION position
+ * (`${ if cond { a } else { b } }`) as a readable conditional-expression
+ * cascade `(cond ? a : b)`. An `else if` chain nests as a right-associated
+ * ternary `(c0 ? v0 : (c1 ? v1 : v2))`.
+ *
+ * SHAPE CONTRACT (mirrors `isValueFormControlFlowStmt` in emit-html.ts so the
+ * HTML-pass slot allocation and this client-JS-pass value emit always agree):
+ *   - each branch is EXACTLY one value-producing `bare-expr`;
+ *   - an `else` branch is required (a value-form `if` must yield a value on
+ *     every path — an else-less `if` has no false-case value);
+ *   - the only nesting allowed is an `else if` (an if-stmt sole alternate).
+ *
+ * Returns null when the node is not such a pure value-cascade; the caller then
+ * keeps the existing statement-emit behavior. This is the if-form analogue of
+ * `emitMatchExpr` (the match-form value IIFE) — together they cover the §18.0 /
+ * §17.6 "value-form control-flow as the sole content of a markup `${...}`".
+ */
+export function emitIfValueExpr(node: any, opts?: any): string | null {
+  const ctx = _ifValueExprCtx(opts);
+  return _emitIfValueExprInner(node, ctx);
+}
+
+function _ifValueExprCtx(opts: any): EmitExprContext {
+  const { boundary, ...rest } = opts ?? {};
+  // `rest` carries the optional EmitExprContext extras the caller threads
+  // (derivedNames / synthCellKeys / engine* / map*/set* / serverFnNames …);
+  // emitExprField ignores any field it does not consume.
+  return { mode: boundary === "server" ? "server" : "client", ...rest } as EmitExprContext;
+}
+
+function _emitIfValueExprInner(node: any, ctx: EmitExprContext): string | null {
+  if (!node || node.kind !== "if-stmt") return null;
+  const thenVal = _soleBareExprValue(node.consequent ?? node.body ?? null, ctx);
+  if (thenVal == null) return null;
+  const alt = node.alternate;
+  if (!alt) return null; // value-form requires an else
+  const altArr: any[] = Array.isArray(alt) ? alt : [alt];
+  let elseVal: string | null;
+  if (altArr.length === 1 && altArr[0] && altArr[0].kind === "if-stmt") {
+    elseVal = _emitIfValueExprInner(altArr[0], ctx); // else-if → nested ternary
+  } else {
+    elseVal = _soleBareExprValue(altArr, ctx);
+  }
+  if (elseVal == null) return null;
+  const cond = emitExprField(node.condExpr, node.condition ?? node.test ?? "true", ctx);
+  return `(${cond} ? ${thenVal} : ${elseVal})`;
+}
+
+/** A branch that is EXACTLY one value-producing `bare-expr` → its lowered value string; else null. */
+function _soleBareExprValue(stmts: any[] | null, ctx: EmitExprContext): string | null {
+  if (!Array.isArray(stmts) || stmts.length !== 1) return null;
+  const only = stmts[0];
+  if (!only || only.kind !== "bare-expr") return null;
+  const valStr: string = only.exprNode ? emitStringFromTree(only.exprNode) : (only.expr ?? "");
+  if (!valStr || !valStr.trim()) return null;
+  return emitExprField(only.exprNode, valStr, ctx);
+}
+
 /**
  * Build the if-condition for a variant / string / not arm, respecting whether
  * the match emitter decided to extract a normalized `.variant` tag (tagVar) or

@@ -114,7 +114,7 @@ export interface LogicBinding {
    * arrow-function expression. emit-event-wiring consumes and emits subscribe +
    * per-iteration render.
    */
-  kind?: "if-chain-branch" | "if-chain-else" | "render-by-tag" | "errors-element" | "render-element" | "class-directive" | "attr-template" | "bind-directive";
+  kind?: "if-chain-branch" | "if-chain-else" | "render-by-tag" | "errors-element" | "render-element" | "class-directive" | "attr-template" | "bind-directive" | "value-control-flow";
 
   // Conventional reactive / conditional binding fields.
   // Required for `kind === undefined` bindings (the default).
@@ -122,6 +122,23 @@ export interface LogicBinding {
   placeholderId?: string;
   expr?: string;
   reactiveRefs?: Set<string>;
+
+  /**
+   * inline-value-form-interp (§18.0 / §17.6) — set when `kind === "value-control-flow"`.
+   *
+   * A markup `${...}` interpolation whose SOLE content is a value-producing
+   * control-flow construct — a JS-style `match expr { .A :> v … }` over a
+   * scrutinee, or an `if cond { a } else { b }` cascade — is a value EXPRESSION
+   * (a match/if-as-expression), not a discarded statement. `controlFlowNode`
+   * carries the raw `match-stmt` / `if-stmt` AST node; emit-event-wiring lowers
+   * it to the value-returning form (emit-control-flow.ts: `emitMatchExpr` IIFE /
+   * `emitIfValueExpr` ternary cascade), renders the selected value into the
+   * `placeholderId` slot via `_scrml_render_value`, and (when the lowered value
+   * reads any reactive cell) wires an `_scrml_effect` so the slot re-renders on
+   * scrutinee/condition change — the inline analogue of the derived-cell twin
+   * (`const <d> = match …; ${@d}`) without the intermediate named cell.
+   */
+  controlFlowNode?: any;
   /**
    * §6.7.7 — the binding expr reads a `<#id>` ref whose id names a `<request>`
    * (reactive `_scrml_request_<id>` deep-reactive Proxy). Forces the

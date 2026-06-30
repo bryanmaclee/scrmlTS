@@ -480,6 +480,18 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
       if ((stmt as any)._constantFolded === true) {
         continue;
       }
+      // inline-value-form-interp (§18.0 / §17.6) — Skip the control-flow body of
+      // a value-form `${ match … }` / `${ if … }` interpolation. emit-html.ts
+      // allocated its render slot + registered a `value-control-flow` logic-
+      // binding; emit-event-wiring.ts renders the SELECTED VALUE into the slot
+      // (and wires the reactive re-render). Without this skip the body would ALSO
+      // emit at file scope as a value-DISCARDING statement (the dead
+      // `(function(){…})()` for match / `if(){…}else{…}` for if) — the very
+      // pre-fix bug. (Marker set on the wrapper by emit-html.ts; propagated to
+      // this inner child stmt by collect.ts, mirroring `_constantFolded`.)
+      if ((stmt as any)._valueControlFlowRendered === true) {
+        continue;
+      }
       if (isServerOnlyNode(stmt)) {
         errors.push(new CGError(
           "W-CG-001",

@@ -229,6 +229,15 @@ export function collectTopLevelLogicStatements(fileAST: FileAST): Node[] {
           if ((node as any)._constantFolded && !(child as any)._constantFolded) {
             (child as any)._constantFolded = true;
           }
+          // inline-value-form-interp (§18.0 / §17.6) — propagate the value-form
+          // control-flow marker (set by emit-html.ts when a `${ match … }` /
+          // `${ if … }` whose sole content is a value-producing control-flow
+          // construct is rendered via a `value-control-flow` logic-binding). The
+          // emit-reactive-wiring file-scope walker consumes it to skip re-emitting
+          // the control-flow body as a value-discarding file-scope statement.
+          if ((node as any)._valueControlFlowRendered && !(child as any)._valueControlFlowRendered) {
+            (child as any)._valueControlFlowRendered = true;
+          }
           result.push(child);
         }
       }
