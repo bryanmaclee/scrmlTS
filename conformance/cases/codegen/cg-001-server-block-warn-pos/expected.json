@@ -1,10 +1,20 @@
 {
   "id": "cg-001-server-block-warn-pos",
-  "description": "A top-level server-only ?{} SQL block fires W-CG-001 (warning stream — suppressed from client output). Proves the adapter unions codes across result.warnings, not just result.errors.",
+  "description": "A top-level server-only ?{} SQL block fires W-CG-001 (warning stream — suppressed from client output). Proves the adapter unions codes across result.warnings; ALSO exercises the schema's per-code `severity` (W-CG-001=warning vs W-SQL-ROW-UNTYPED=info, the §34 partition) and `notCodePrefixes` (no E-FORMFOR-*/E-TABLEFOR-* family fires).",
   "language-version": "1.0",
   "source-test": "compiler/tests/conformance/conf-CG-001-warn.test.js",
   "expect": {
-    "codes": ["W-CG-001"],
-    "notCodes": []
+    "codes": [
+      "W-CG-001"
+    ],
+    "notCodes": [],
+    "notCodePrefixes": [
+      "E-FORMFOR-",
+      "E-TABLEFOR-"
+    ],
+    "severity": {
+      "W-CG-001": "warning",
+      "W-SQL-ROW-UNTYPED": "info"
+    }
   }
 }

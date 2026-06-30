@@ -1,0 +1,18 @@
+{
+  "id": "each-empty-fallback",
+  "description": "<each> <empty> zero-state (§42). An empty @items renders the <empty> fallback body (#empty-row) and zero .row items. No input — the fallback shape itself.",
+  "language-version": "1.0",
+  "spec": "§42.2",
+  "rationale": "§42 <empty> inside <each>: when the iterable is empty the fallback body renders in place of any rows. The snapshot shows items: [] and the DOM shows the fallback, not a row.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [],
+    "state": { "items": [] },
+    "dom": "<ul id=\"list\"><div><li id=\"empty-row\">Nothing yet</li></div></ul>",
+    "domAnchored": [
+      { "selector": ".row", "count": 0 },
+      { "selector": "#empty-row", "count": 1, "text": "Nothing yet" }
+    ]
+  }
+}

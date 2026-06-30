@@ -1,0 +1,8 @@
+${
+    <items> = [{ id: 1, label: "Alpha" }, { id: 2, label: "Beta" }, { id: 3, label: "Gamma" }]
+}
+<ul id="list">
+    <each in=@items key=@.id as item>
+        <li class="row">${item.label}</li>
+    </each>
+</ul>

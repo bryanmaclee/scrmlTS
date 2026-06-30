@@ -41,6 +41,8 @@ describe("scrml conformance corpus — impl#1 (codes + runtime)", () => {
       const r = runCase(c);
       expect(r.missing).toEqual([]); // PRESENCE: every required code fired.
       expect(r.forbidden).toEqual([]); // ABSENCE: no forbidden code fired.
+      expect(r.prefixViolations).toEqual([]); // ABSENCE: no forbidden family-prefix fired.
+      expect(r.severityMismatches).toEqual([]); // §34: each asserted code's severity matches.
       // (b) runtime half (only when the case declares one).
       if (runtime) {
         const failures = await runCaseRuntime(c);

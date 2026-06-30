@@ -1,0 +1,19 @@
+{
+  "id": "each-as-alias",
+  "description": "<each ... as person> alias binding (§42). Each row reads multiple fields off the alias (person.name, person.role). Two people render two .person rows with both fields interpolated. Author-class <span>s are NOT unwrapped (only marker-only zero-attr spans are).",
+  "language-version": "1.0",
+  "spec": "§42.2",
+  "rationale": "§42 the `as` alias names the per-item value; reading two of its fields in one row body interpolates both. Confirms the normalizer keeps author <span class> elements (unwrap is bounded to marker-only spans).",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [],
+    "state": { "people": [{ "id": 1, "name": "Ada", "role": "Pioneer" }, { "id": 2, "name": "Alan", "role": "Founder" }] },
+    "dom": "<ul id=\"people\"><div><li class=\"person\"><span class=\"name\">Ada</span> - <span class=\"role\">Pioneer</span></li><li class=\"person\"><span class=\"name\">Alan</span> - <span class=\"role\">Founder</span></li></div></ul>",
+    "domAnchored": [
+      { "selector": ".person", "count": 2 },
+      { "selector": "#people li:first-child .name", "text": "Ada" },
+      { "selector": "#people li:first-child .role", "text": "Pioneer" }
+    ]
+  }
+}

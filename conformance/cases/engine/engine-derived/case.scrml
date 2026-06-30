@@ -1,0 +1,15 @@
+${
+    type Light:enum = { Red, Green }
+    const <label> = match @light {
+        .Red :> "STOP"
+        .Green :> "GO"
+    }
+}
+<engine for=Light initial=.Red>
+    <Red rule=.Green></>
+    <Green rule=.Red></>
+</>
+<program>
+<button id="go" onclick=${@light = Light.Green}>Go</>
+<p id="label">${@label}</>
+</program>

@@ -1,0 +1,8 @@
+${
+    <people> = [{ id: 1, name: "Ada", role: "Pioneer" }, { id: 2, name: "Alan", role: "Founder" }]
+}
+<ul id="people">
+    <each in=@people key=@.id as person>
+        <li class="person"><span class="name">${person.name}</span> - <span class="role">${person.role}</span></li>
+    </each>
+</ul>

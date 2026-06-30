@@ -1,0 +1,12 @@
+${
+    <count> = 0
+    function inc() {
+        @count = @count + 1
+    }
+    function reset() {
+        @count = 0
+    }
+}
+<button id="inc" onclick=inc()>+</>
+<button id="reset" onclick=reset()>Reset</>
+<p id="display">Count: ${@count}</>

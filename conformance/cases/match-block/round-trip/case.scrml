@@ -1,0 +1,18 @@
+${
+    type Phase:enum = { Idle, Loading, Ready }
+    <phase>: Phase = .Idle
+}
+<button id="to-loading" onclick=${@phase = Phase.Loading}>Load</>
+<button id="to-ready" onclick=${@phase = Phase.Ready}>Ready</>
+<button id="to-idle" onclick=${@phase = Phase.Idle}>Idle</>
+<match for=Phase on=@phase>
+    <Idle>
+        <p data-arm="idle">Idle</p>
+    </>
+    <Loading>
+        <p data-arm="loading">Loading</p>
+    </>
+    <Ready>
+        <p data-arm="ready">Ready</p>
+    </>
+</match>

@@ -1,0 +1,14 @@
+{
+  "id": "forms-validator-invalid",
+  "description": "Per-field validators — failing surface (§55). Typing \"A\" fails length(>=2); signup.name.isValid + signup.isValid go false and the <errors> anchor renders an error. OQ1 NOTE: the whole-tree dom is DELIBERATELY OMITTED here because the rendered error MESSAGE text is explicit D3 impl-freedom; the impl-neutral contract is the validity-surface STATE (isValid false) + the error TAG.",
+  "language-version": "1.0",
+  "spec": "§55",
+  "rationale": "§55 a failing validator drives isValid false and populates the errors list (semantic tag LengthFailed). The displayed message string is impl-freedom (asserted via state, never DOM text). This case is the OQ1 exhibit for 'whole-tree mode is unsuitable when an impl-freedom message is rendered'.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "input": "input", "value": "A" }],
+    "state": { "signup.name": "A", "signup.name.isValid": false, "signup.isValid": false },
+    "domAnchored": [{ "selector": "input", "count": 1 }]
+  }
+}

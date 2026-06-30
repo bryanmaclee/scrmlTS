@@ -1,0 +1,15 @@
+{
+  "id": "engine-message-dispatch",
+  "description": "Engine message dispatch (§51.0.S). A click calls @gate.advance(.Toggle); the (Closed x .Toggle) arm resolves .Open and the engine transitions. The auto-derived @gate (§51.0.C) + its interpolation read Open.",
+  "language-version": "1.0",
+  "spec": "§51.0.S",
+  "rationale": "§51.0.S events ride .advance(.Msg) (there is no .send verb). The matching (state x message) arm resolves the target; Closed + .Toggle -> Open. Driven by a markup onclick, not a runtime reach-in.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#toggle" }],
+    "state": { "gate": "Open" },
+    "dom": "<button id=\"toggle\">Toggle</button><p id=\"state\">State: Open</p>",
+    "domAnchored": [{ "selector": "#state", "text": "State: Open" }]
+  }
+}

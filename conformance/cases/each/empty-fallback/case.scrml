@@ -1,0 +1,11 @@
+${
+    <items> = []
+}
+<ul id="list">
+    <each in=@items key=@.id as item>
+        <li class="row">${item.label}</li>
+        <empty>
+            <li id="empty-row">Nothing yet</li>
+        </empty>
+    </each>
+</ul>

@@ -1,0 +1,11 @@
+${
+    <base> = 2
+    const <doubled> = @base * 2
+    const <quad> = @doubled * 2
+    function grow() {
+        @base = @base + 1
+    }
+}
+<button id="grow" onclick=grow()>Grow</>
+<p id="doubled">Doubled: ${@doubled}</>
+<p id="quad">Quad: ${@quad}</>

@@ -1,0 +1,14 @@
+${
+    type Counter:enum = { Counting }
+    type CountMsg:enum = { Inc }
+    <total> = 0
+}
+<engine for=Counter initial=.Counting accepts=CountMsg>
+    <Counting rule=.Counting>
+        | .Inc :> { @total = @total + 1; .Counting }
+    </>
+</>
+<program>
+<button id="inc" onclick=@counter.advance(.Inc)>Inc</>
+<p id="total">Total: ${@total}</>
+</program>

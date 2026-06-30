@@ -1,0 +1,7 @@
+${
+    <first> = ""
+    <last> = ""
+}
+<input type="text" id="first-input" bind:value=@first />
+<input type="text" id="last-input" bind:value=@last />
+<p id="full">${@first} / ${@last}</>

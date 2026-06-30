@@ -1,0 +1,15 @@
+{
+  "id": "forms-checkbox-uncheck",
+  "description": "bind:checked check then uncheck (§5.4). check sets checked + fires change (@subscribed true); uncheck clears it (@subscribed false). The final snapshot reads false; #status reflects it.",
+  "language-version": "1.0",
+  "spec": "§5.4",
+  "rationale": "§5.4 bind:checked syncs on change in both directions; check then uncheck round-trips the cell back to false through the wired handler.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "check": "#sub" }, { "uncheck": "#sub" }],
+    "state": { "subscribed": false },
+    "dom": "<input id=\"sub\" type=\"checkbox\"><p id=\"status\">Subscribed: false</p>",
+    "domAnchored": [{ "selector": "#status", "text": "Subscribed: false" }]
+  }
+}

@@ -1,0 +1,9 @@
+${
+    <first> = "Ada"
+    <last> = "Lovelace"
+    function rename() {
+        @last = "Byron"
+    }
+}
+<button id="rename" onclick=rename()>Rename</>
+<p id="full">${@first} / ${@last}</>

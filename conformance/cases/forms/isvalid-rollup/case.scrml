@@ -1,0 +1,9 @@
+<program>
+${
+    <signup>
+        <name req length(>=2)> = <input type="text"/>
+    </>
+}
+<signup><name/></>
+<button id="submit" type="submit" disabled=!@signup.isValid>Submit</button>
+</program>

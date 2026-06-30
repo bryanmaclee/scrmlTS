@@ -1,0 +1,15 @@
+{
+  "id": "reactive-multi-cell-interp",
+  "description": "Two reactive cells read by one interpolation (§6.1). A click rewrites @last; only that cell changes and #full re-renders with the new value. A literal separator avoids the inter-interpolation whitespace-collapse so the whole-tree dom is faithful.",
+  "language-version": "1.0",
+  "spec": "§6.1",
+  "rationale": "§6.1 reactive cells: an interpolation reading two cells re-renders when either is written. Writing @last leaves @first intact.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#rename" }],
+    "state": { "first": "Ada", "last": "Byron" },
+    "dom": "<button id=\"rename\">Rename</button><p id=\"full\">Ada / Byron</p>",
+    "domAnchored": [{ "selector": "#full", "text": "Ada / Byron" }]
+  }
+}

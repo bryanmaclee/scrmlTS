@@ -1,0 +1,19 @@
+{
+  "id": "each-per-item-reactivity",
+  "description": "Per-item field reactivity (§42; bug64 surface). Clicking the first todo's toggle calls toggle(todo.id), mapping @todos so id=1's done flips true; only that row's .status re-renders to 'true', id=2 stays false. Uses a block-body arrow (avoids the `? {` SQL-misparse).",
+  "language-version": "1.0",
+  "spec": "§42.2",
+  "rationale": "§42 a per-item handler that rewrites the backing collection re-renders the affected row's interpolations; the keyed reconciler updates id=1 in place and leaves id=2 untouched.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": ".toggle" }],
+    "state": { "todos": [{ "id": 1, "text": "Buy milk", "done": true }, { "id": 2, "text": "Walk dog", "done": false }] },
+    "dom": "<ul id=\"todos\"><div><li class=\"todo\"><span class=\"text\">Buy milk</span><span class=\"status\">true</span><button class=\"toggle\">toggle</button></li><li class=\"todo\"><span class=\"text\">Walk dog</span><span class=\"status\">false</span><button class=\"toggle\">toggle</button></li></div></ul>",
+    "domAnchored": [
+      { "selector": ".todo", "count": 2 },
+      { "selector": "#todos li:first-child .status", "text": "true" },
+      { "selector": "#todos li:nth-child(2) .status", "text": "false" }
+    ]
+  }
+}

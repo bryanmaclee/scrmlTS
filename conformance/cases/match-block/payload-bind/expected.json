@@ -1,0 +1,18 @@
+{
+  "id": "match-block-payload-bind",
+  "description": "Block-form <match> payload binding (§18.0.1 / §18.1a). A click sets @load = Load.Loaded(\"report.pdf\"); the <Loaded(name)> arm binds name and interpolates it. The snapshot stores the payload variant as { variant, data } (author-visible shape).",
+  "language-version": "1.0",
+  "spec": "§18.0.1",
+  "rationale": "§18.0.1 a payload-bearing variant arm <Loaded(name)> destructures the payload into the arm scope; ${name} reads \"report.pdf\". The cell snapshot is the canonical { variant, data } representation.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#load-btn" }],
+    "state": { "load": { "variant": "Loaded", "data": { "name": "report.pdf" } } },
+    "dom": "<button id=\"load-btn\">Load</button><div><p data-arm=\"loaded\">Loaded: report.pdf</p></div>",
+    "domAnchored": [
+      { "selector": "[data-arm=\"loaded\"]", "text": "Loaded: report.pdf" },
+      { "selector": "[data-arm=\"idle\"]", "count": 0 }
+    ]
+  }
+}

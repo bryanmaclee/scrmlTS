@@ -1,0 +1,18 @@
+{
+  "id": "match-block-inline-markup-match",
+  "description": "Inline match producing markup in an interpolation (§18 / §7; the example-21 shape). ${ match @view { .List :> { lift <p/> } .Grid :> { lift <p/> } } }. A click sets @view = Grid; the Grid arm lifts its <p data-view=\"grid\"> and the List arm's markup is gone.",
+  "language-version": "1.0",
+  "spec": "§18.0",
+  "rationale": "§18/§7 an inline match whose arms lift MARKUP swaps the lifted subtree on @view change (the supported inline-match-in-markup form). Grid -> data-view=\"grid\" present, list arm absent.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#to-grid" }],
+    "state": { "view": "Grid" },
+    "dom": "<button id=\"to-grid\">Grid</button><div id=\"mode\"><p data-view=\"grid\">Grid view</p></div>",
+    "domAnchored": [
+      { "selector": "[data-view=\"grid\"]", "text": "Grid view" },
+      { "selector": "[data-view=\"list\"]", "count": 0 }
+    ]
+  }
+}

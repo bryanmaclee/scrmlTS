@@ -1,0 +1,19 @@
+{
+  "id": "each-nested",
+  "description": "Nested <each> (§42). Outer iterates @groups; inner iterates group.items off the per-item alias. Two groups render two .group sections; the inner eaches render 2 + 1 = 3 .item rows total.",
+  "language-version": "1.0",
+  "spec": "§42.2",
+  "rationale": "§42 a nested <each in=group.items> over an outer alias field renders the inner list per outer item. Whole-tree shows two impl#1 each-container <div> layers (outer + inner); anchored counts are wrapper-agnostic.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [],
+    "state": { "groups": [{ "id": 1, "name": "Fruits", "items": [{ "id": 11, "label": "Apple" }, { "id": 12, "label": "Pear" }] }, { "id": 2, "name": "Veggies", "items": [{ "id": 21, "label": "Carrot" }] }] },
+    "dom": "<div id=\"groups\"><div><section class=\"group\"><h3 class=\"group-name\">Fruits</h3><ul><div><li class=\"item\">Apple</li><li class=\"item\">Pear</li></div></ul></section><section class=\"group\"><h3 class=\"group-name\">Veggies</h3><ul><div><li class=\"item\">Carrot</li></div></ul></section></div></div>",
+    "domAnchored": [
+      { "selector": ".group", "count": 2 },
+      { "selector": ".item", "count": 3 },
+      { "selector": "#groups section:first-child .group-name", "text": "Fruits" }
+    ]
+  }
+}

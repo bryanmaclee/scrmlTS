@@ -28,9 +28,40 @@ import { tmpdir } from "os";
 // api.js is the reference compiler's public entry (plain ESM .js).
 import { compileScrml } from "../../compiler/src/api.js";
 
+export type Severity = "error" | "warning" | "info";
+
 export interface CompileResult {
   /** Sorted, de-duplicated diagnostic codes across errors + warnings. */
   codes: string[];
+  /**
+   * Per-code severity ("error" | "warning" | "info") — the §34 normative
+   * partition. The errors stream is the fatal partition (CLI exit 1); the
+   * warnings stream carries both "warning" and "info" severities. Backs the
+   * case schema's `expect.severity` (a case may assert a code fires AS error
+   * vs warning — the cross-stream rule: a W-/I- code never lands in errors).
+   */
+  byCode: Record<string, Severity>;
+}
+
+/** The diagnostic's own severity wins; the stream is authoritative fallback. */
+function normalizeSeverity(sev: string | undefined, streamSev: "error" | "warning"): Severity {
+  if (sev === "error" || sev === "warning" || sev === "info") return sev;
+  return streamSev;
+}
+
+/**
+ * Write the entry `case.scrml` plus any aux `.scrml` fixtures (the `files`
+ * multi-file convention — sibling modules a case.scrml imports) into a temp dir.
+ * Only the entry file is passed to compileScrml; the compiler auto-gathers the
+ * imported siblings from the same dir (§21.3).
+ */
+function writeCaseFiles(dir: string, source: string, auxFiles: Record<string, string>): string {
+  const file = join(dir, "case.scrml");
+  writeFileSync(file, source);
+  for (const name of Object.keys(auxFiles)) {
+    writeFileSync(join(dir, name), auxFiles[name]);
+  }
+  return file;
 }
 
 interface Diagnostic {
@@ -44,11 +75,10 @@ interface Diagnostic {
  * Side-effect free from the caller's perspective: the temp dir is removed
  * before return (success OR throw).
  */
-export function compile(source: string): CompileResult {
+export function compile(source: string, auxFiles: Record<string, string> = {}): CompileResult {
   const dir = mkdtempSync(join(tmpdir(), "scrml-conf-impl1-"));
-  const file = join(dir, "case.scrml");
-  writeFileSync(file, source);
   try {
+    const file = writeCaseFiles(dir, source, auxFiles);
     const result = compileScrml({
       inputFiles: [file],
       write: false,
@@ -56,18 +86,19 @@ export function compile(source: string): CompileResult {
       log: () => {},
     }) as { errors?: Diagnostic[]; warnings?: Diagnostic[] };
 
-    const diags: Diagnostic[] = [
-      ...(result.errors ?? []),
-      ...(result.warnings ?? []),
-    ];
-    const codes = [
-      ...new Set(
-        diags
-          .map((d) => d?.code)
-          .filter((c): c is string => typeof c === "string" && c.length > 0),
-      ),
-    ].sort();
-    return { codes };
+    // Build the per-code severity map. The errors stream wins (the §34 fatal
+    // partition): a code present as an error is never downgraded to a warning.
+    const byCode: Record<string, Severity> = {};
+    const record = (d: Diagnostic, streamSev: "error" | "warning") => {
+      const c = d?.code;
+      if (typeof c !== "string" || c.length === 0) return;
+      if (byCode[c] === "error") return;
+      byCode[c] = normalizeSeverity(d.severity, streamSev);
+    };
+    for (const d of result.errors ?? []) record(d, "error");
+    for (const d of result.warnings ?? []) record(d, "warning");
+    const codes = Object.keys(byCode).sort();
+    return { codes, byCode };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -154,13 +185,16 @@ function ensureFreshDom(): void {
  * normalized post-run DOM + final state snapshot. HARD INVARIANT: reads the
  * POST-run LIVE DOM, never the static .html (DD OQ1 step 1).
  */
-export async function run(source: string, input: InputStep[] = []): Promise<RunResult> {
+export async function run(
+  source: string,
+  input: InputStep[] = [],
+  auxFiles: Record<string, string> = {},
+): Promise<RunResult> {
   if (GlobalRegistrator.isRegistered) await GlobalRegistrator.unregister();
   GlobalRegistrator.register();
 
   const dir = mkdtempSync(join(tmpdir(), "scrml-conf-run-"));
-  const file = join(dir, "case.scrml");
-  writeFileSync(file, source);
+  const file = writeCaseFiles(dir, source, auxFiles);
   try {
     const result = compileScrml({
       inputFiles: [file],

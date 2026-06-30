@@ -1,0 +1,19 @@
+{
+  "id": "derived-diamond",
+  "description": "Diamond derived dependency (§6.6). @sum = @plus + @times; @plus = @n+10, @times = @n*3 both depend on @n. One bump (@n 1->2) must propagate through both legs to @sum: plus 12, times 6, sum 18. The snapshot flush()es all derived before reading.",
+  "language-version": "1.0",
+  "spec": "§6.6",
+  "rationale": "§6.6 derived cells: a diamond (one upstream, two mid, one join) recomputes the join exactly once per upstream write with the fresh leg values — sum reads 18, never a stale 14 or a double-counted value.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#bump" }],
+    "state": { "n": 2, "plus": 12, "times": 6, "sum": 18 },
+    "dom": "<button id=\"bump\">Bump</button><p id=\"plus\">Plus: 12</p><p id=\"times\">Times: 6</p><p id=\"sum\">Sum: 18</p>",
+    "domAnchored": [
+      { "selector": "#plus", "text": "Plus: 12" },
+      { "selector": "#times", "text": "Times: 6" },
+      { "selector": "#sum", "text": "Sum: 18" }
+    ]
+  }
+}

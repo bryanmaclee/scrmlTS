@@ -1,0 +1,12 @@
+{
+  "id": "files-multifile-import",
+  "description": "Multi-file import fixture (§21.3; the `files` convention). The entry case.scrml imports greet() from a sibling aux helpers.scrml in the SAME case dir; with the aux file present the import resolves (no E-IMPORT-006). Codes-level: the adapter's run() executes only the entry bundle, so the RUNTIME half of cross-file imports is deferred (sibling-bundle loading — see report FRICTION).",
+  "language-version": "1.0",
+  "spec": "§21.3",
+  "rationale": "§21.3 cross-file imports auto-gather sibling .scrml modules from the entry's import graph. This proves the `files` convention loads helpers.scrml (without it E-IMPORT-006 fires); the E-IMPORT-*/E-MODULE-* families stay silent. Exercises files + notCodes + notCodePrefixes together.",
+  "expect": {
+    "codes": [],
+    "notCodes": ["E-IMPORT-006"],
+    "notCodePrefixes": ["E-IMPORT-", "E-MODULE-"]
+  }
+}

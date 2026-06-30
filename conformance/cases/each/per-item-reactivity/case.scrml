@@ -1,0 +1,16 @@
+${
+    <todos> = [{ id: 1, text: "Buy milk", done: false }, { id: 2, text: "Walk dog", done: false }]
+    function toggle(id: number) {
+        @todos = @todos.map(t => {
+            if (t.id == id) {
+                return { ...t, done: !t.done }
+            }
+            return t
+        })
+    }
+}
+<ul id="todos">
+    <each in=@todos key=@.id as todo>
+        <li class="todo"><span class="text">${todo.text}</span><span class="status">${todo.done}</span><button class="toggle" onclick=toggle(todo.id)>toggle</button></li>
+    </each>
+</ul>

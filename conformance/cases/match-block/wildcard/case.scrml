@@ -1,0 +1,20 @@
+${
+    type Status:enum = { Active, Paused, Stopped, Unknown }
+    <status>: Status = .Active
+}
+<button id="to-stopped" onclick=${@status = Status.Stopped}>Stop</>
+<button id="to-unknown" onclick=${@status = Status.Unknown}>Unknown</>
+<match for=Status on=@status>
+    <Active>
+        <p data-arm="active">Running</p>
+    </>
+    <Paused>
+        <p data-arm="paused">Paused</p>
+    </>
+    <Stopped>
+        <p data-arm="stopped">Stopped</p>
+    </>
+    <_>
+        <p data-arm="fallback">Unknown state</p>
+    </>
+</match>

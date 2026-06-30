@@ -1,0 +1,16 @@
+${
+    type Drag:enum = { Idle, Dragging(id: number) }
+    type DragMsg:enum = { Start(id: number), Drop }
+}
+<engine for=Drag initial=.Idle accepts=DragMsg>
+    <Idle rule=.Dragging>
+        | .Start(id) :> .Dragging(id)
+    </>
+    <Dragging(id) rule=.Idle>
+        | .Drop :> .Idle
+    </>
+</>
+<program>
+<button id="start" onclick=@drag.advance(.Start(7))>Start</>
+<p id="state">Dragging</p>
+</program>

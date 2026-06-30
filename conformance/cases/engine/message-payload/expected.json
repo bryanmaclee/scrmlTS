@@ -1,0 +1,15 @@
+{
+  "id": "engine-message-payload",
+  "description": "Engine message with payload (§51.0.S.6). A click calls @drag.advance(.Start(7)); the .Start(id) arm transitions Idle -> Dragging(id) carrying the id payload. The snapshot preserves it as { variant: \"Dragging\", data: { id: 7 } }.",
+  "language-version": "1.0",
+  "spec": "§51.0.S",
+  "rationale": "§51.0.S.6 a payload-bearing message (.Start(7)) flows its payload into the target state's payload slot (.Dragging(7)); the id survives the dispatch into the cell snapshot.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#start" }],
+    "state": { "drag": { "variant": "Dragging", "data": { "id": 7 } } },
+    "dom": "<button id=\"start\">Start</button><p id=\"state\">Dragging</p>",
+    "domAnchored": [{ "selector": "#state", "text": "Dragging" }]
+  }
+}

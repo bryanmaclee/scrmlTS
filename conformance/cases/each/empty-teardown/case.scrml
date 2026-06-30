@@ -1,0 +1,17 @@
+${
+    <items> = []
+    <nextId> = 1
+    function addItem() {
+        @items = [...@items, { id: @nextId, label: "Item " + @nextId }]
+        @nextId = @nextId + 1
+    }
+}
+<button id="add" onclick=addItem()>Add</>
+<ul id="list">
+    <each in=@items key=@.id as item>
+        <li class="row">${item.label}</li>
+        <empty>
+            <li id="empty-row">Nothing yet</li>
+        </empty>
+    </each>
+</ul>

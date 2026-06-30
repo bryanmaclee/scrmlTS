@@ -1,0 +1,13 @@
+${
+    <n> = 1
+    const <plus> = @n + 10
+    const <times> = @n * 3
+    const <sum> = @plus + @times
+    function bump() {
+        @n = @n + 1
+    }
+}
+<button id="bump" onclick=bump()>Bump</>
+<p id="plus">Plus: ${@plus}</>
+<p id="times">Times: ${@times}</>
+<p id="sum">Sum: ${@sum}</>

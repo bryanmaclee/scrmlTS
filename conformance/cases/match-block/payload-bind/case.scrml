@@ -1,0 +1,13 @@
+${
+    type Load:enum = { Idle, Loaded(name: string) }
+    <load>: Load = .Idle
+}
+<button id="load-btn" onclick=${@load = Load.Loaded("report.pdf")}>Load</>
+<match for=Load on=@load>
+    <Idle>
+        <p data-arm="idle">Nothing loaded</p>
+    </>
+    <Loaded(name)>
+        <p data-arm="loaded">Loaded: ${name}</p>
+    </>
+</match>

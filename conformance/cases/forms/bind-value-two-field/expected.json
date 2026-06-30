@@ -1,0 +1,15 @@
+{
+  "id": "forms-bind-value-two-field",
+  "description": "Two bind:value text inputs (§5.4). Typing into each input syncs its own cell; #full interpolates both. A literal separator keeps the whole-tree dom faithful (the inter-interpolation space otherwise collapses).",
+  "language-version": "1.0",
+  "spec": "§5.4",
+  "rationale": "§5.4 each bind:value input syncs its cell independently on input; the shared interpolation re-renders from both. Grace / Hopper.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "input": "#first-input", "value": "Grace" }, { "input": "#last-input", "value": "Hopper" }],
+    "state": { "first": "Grace", "last": "Hopper" },
+    "dom": "<input id=\"first-input\" type=\"text\"><input id=\"last-input\" type=\"text\"><p id=\"full\">Grace / Hopper</p>",
+    "domAnchored": [{ "selector": "#full", "text": "Grace / Hopper" }]
+  }
+}

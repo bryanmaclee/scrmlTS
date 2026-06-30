@@ -1,0 +1,15 @@
+{
+  "id": "match-block-value-form-derived",
+  "description": "Value-form match in a derived cell (§18 / §6.6). const <label> = match @level { ... } returns a string per arm; raising @level to High recomputes label to \"red\" and #label re-renders.",
+  "language-version": "1.0",
+  "spec": "§18.0",
+  "rationale": "§18 value-form match returns the matched arm's value; as the RHS of a §6.6 derived it recomputes on upstream change. High -> \"red\". (NOTE: the same value-form match inline in a TEXT interpolation renders empty in impl#1 — see the dispatch report's bug-or-spec-gap finding; this case asserts the WORKING derived-RHS surface.)",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#raise" }],
+    "state": { "level": "High", "label": "red" },
+    "dom": "<button id=\"raise\">Raise</button><p id=\"label\">Level: red</p>",
+    "domAnchored": [{ "selector": "#label", "text": "Level: red" }]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "reactive-reset-handler",
+  "description": "Two handlers mutating one cell (§6.1). inc() x2 then reset() drives @count 0->1->2->0; #display and the snapshot both read 0.",
+  "language-version": "1.0",
+  "spec": "§6.1",
+  "rationale": "§6.1 reactive cells: distinct handlers (inc/reset) writing the same cell each re-render its interpolation; the final write (reset to 0) wins.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#inc" }, { "click": "#inc" }, { "click": "#reset" }],
+    "state": { "count": 0 },
+    "dom": "<button id=\"inc\">+</button><button id=\"reset\">Reset</button><p id=\"display\">Count: 0</p>",
+    "domAnchored": [{ "selector": "#display", "text": "Count: 0" }]
+  }
+}

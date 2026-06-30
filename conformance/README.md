@@ -1,15 +1,16 @@
-# scrml conformance suite (D3 — codes half, pilot)
+# scrml conformance suite (D3)
 
 Impl-agnostic conformance cases for **scrml-language-1.0**. The contract a case
-asserts is the *language* contract per the language/compiler split (D3): **which
-diagnostic CODES fire** + (later) the **runtime effect**. Message text, emitted-JS
-shape, and AST are impl freedom and are NOT asserted here.
+asserts is the *language* contract per the language/compiler split (D3): the two
+normative halves are **(a) which diagnostic CODES fire** and **(b) the RUNTIME
+EFFECT** (normalized final DOM + final state-cell snapshot after an optional
+input sequence). Message text, emitted-JS shape, and AST are explicit **impl
+freedom** and are NOT asserted here.
 
-Change-id: `conformance-suite-d3-2026-06-29`. Authority: `docs/changes/conformance-suite-d3-2026-06-29/SCOPE.md`.
-
-This is the **W2 pilot** (~15 representative cases). The full lift of the 109
-`compiler/tests/conformance/**` source tests, and the (b) runtime-effect half,
-are subsequent waves.
+Change-id: `conformance-suite-d3-2026-06-29`.
+Authority: `docs/changes/conformance-suite-d3-2026-06-29/SCOPE.md` +
+`scrml-support/docs/deep-dives/conformance-runtime-layer-design-2026-06-29.md`
+(the W3 (b)-runtime layer design, RATIFIED S231).
 
 ## Layout
 
@@ -17,64 +18,181 @@ are subsequent waves.
 conformance/
   cases/<category>/<case-id>/
       case.scrml       real scrml source (opens in editor/LSP; itself dog-food)
-      expected.json    the agnostic contract (codes + provenance)
-  adapters/impl1-ts.ts compile(source) -> { codes } over the TS reference compiler
+      expected.json    the agnostic contract (codes + runtime effect + provenance)
+      *.scrml          (optional) aux import fixtures — the `files` convention
+  adapters/impl1-ts.ts compile() + run() over the TS reference compiler (impl#1)
+  driver.ts            the 7-verb selector-addressed input vocabulary (OQ2)
+  normalize.ts         the DOM normalization pipeline + anchored runner (OQ1)
   run.ts               loads + checks every case; exits non-zero on failure
   conformance-corpus.test.js   bun:test wrapper (one test() per case)
 ```
 
+The GATED entry point is `compiler/tests/conformance/corpus-bridge.test.js` — a
+thin bridge that lives UNDER bunfig's `[test] root = "compiler/tests/"` and runs
+the corpus on the existing pre-commit gate (this top-level dir is outside that
+root, so it is not auto-discovered; the bridge wires it in without touching
+`bunfig.toml`).
+
+## The adapter — `run(artifact, input[]) -> { dom, state }`
+
+impl#1 realizes the W1 adapter as three thin shims over machinery that already
+exists (the browser-harness is a working prototype of two-thirds of it):
+
+- **(OQ1) execute + serialize.** Compile the source, mount the `<body>` in
+  happy-dom, eval `runtime + client`, settle, then serialize the normalized
+  POST-run `<body>`. **HARD INVARIANT: the (b) half reads the POST-run LIVE DOM,
+  never the static `.html`** — interpolation slots are empty until hydration.
+  The conformance run EXECUTES the artifact; it never string-compares emitted
+  HTML/JS (both impl freedom).
+- **(OQ2) drive inputs.** The 7-verb selector-addressed vocabulary (below).
+- **(OQ3) read state.** A sanctioned `globalThis.__scrml_conformance` hook —
+  `snapshot(): {cells, derived}` + `settled(): Promise` — keyed by scrml-SOURCE
+  cell names, conformance-mode-gated (zero production bytes; injected inside the
+  eval'd IIFE). impl#2 implements the same signature over its own model.
+
 ## `expected.json` schema
 
-```json
+```jsonc
 {
-  "id": "input-001-pos",
+  "id": "reactive-counter-increment",
   "description": "one line",
-  "language-version": "1.0",
-  "source-test": "compiler/tests/conformance/conf-INPUT-001.test.js",
+  "language-version": "1.0",                 // "1.0" | "deprecated" | "future" (D2)
+  "source-test": "compiler/tests/...test.js",// provenance (a lifted twin)
+  "spec": "§6.1",                            // MANDATORY for (b) cases (OQ4 soundness gate)
+  "rationale": "what §6.1 says should happen",// MANDATORY for (b) cases
   "expect": {
-    "codes":    ["E-INPUT-001"],
-    "notCodes": []
+    // (a) codes half --------------------------------------------------------
+    "codes":          ["E-INPUT-001"],       // PRESENCE (superset, not line/col)
+    "notCodes":       ["E-IMPORT-006"],      // ABSENCE (exact code)
+    "notCodePrefixes":["E-FORMFOR-"],        // ABSENCE of a whole family (glob)
+    "severity":       { "W-CG-001": "warning" }, // per-code §34 partition assertion
+    // (b) runtime-effect half ----------------------------------------------
+    "input":       [{ "click": "#inc" }, { "click": "#inc" }],
+    "state":       { "count": 2 },           // merged {cells, derived} ⊇ this
+    "dom":         "<button id=\"inc\">+</button>...",  // whole-tree normalized <body>
+    "domAnchored": [{ "selector": "#display", "text": "Count: 2" }]
   }
 }
 ```
 
-- `language-version` — `"1.0" | "deprecated" | "future"` (D2 partition; the 1.0
-  subset DEFINES the surface).
-- `source-test` — provenance: the `*.test.js` this case was lifted from.
-- `expect.codes` — codes that MUST fire (**presence / superset**, not line/col;
-  SCOPE OQ3). A POS test lifts to a case with `codes`.
-- `expect.notCodes` — codes that MUST be ABSENT. A NEG test lifts to its own
-  source where the code does not fire.
-- `runtime-half-pending: true` (+ optional `runtime-half-ref`) — flags a case
-  whose original test ALSO asserts a runtime EFFECT; only its codes half is
-  lifted for now.
-- **RESERVED (not yet populated)** — `expect.input` / `expect.dom` /
-  `expect.state`: the (b) runtime-effect half (final DOM + state snapshot after
-  an optional input-event sequence), built in W3.
+### (a) Codes-half matching (load-bearing)
 
-### Matching semantics (load-bearing)
+- `codes` / `notCodes` — `emitted ⊇ codes` AND `emitted ∩ notCodes = ∅`. A
+  **superset/disjoint** check, NOT exact-equality: real compiles emit incidental
+  codes (`W-PROGRAM-*`, `W-SQL-ROW-UNTYPED`, …) the source conf tests ignore.
+- `notCodePrefixes` — family-glob ABSENCE: no emitted code may start with any
+  listed prefix (e.g. `["E-FORMFOR-"]` asserts the whole `E-FORMFOR-*` family
+  stays silent).
+- `severity` — per-code §34 SEVERITY (`"error" | "warning" | "info"`). The
+  adapter's `byCode` honors the partition: the errors stream is the fatal
+  partition (CLI exit 1); the warnings stream carries both `warning` and `info`.
+  This is the **cross-stream-honest** assertion — `severity: {"W-CG-001":"error"}`
+  FAILS (it is a warning), catching the `result.errors.filter(...)` silent-pass
+  trap. The adapter unions codes across BOTH streams (a `W-`/`I-` code lands only
+  in `result.warnings`).
 
-The check is `emitted ⊇ expect.codes` AND `emitted ∩ expect.notCodes = ∅` — a
-**superset/disjoint** check, NOT exact-equality. Real compiles emit incidental
-codes (`W-PROGRAM-*`, `W-WHITESPACE-001`, `W-SQL-ROW-UNTYPED`, …) that the source
-conf tests ignore (they assert with `.some(e => e.code === X)`). The adapter
-unions codes across BOTH `result.errors` AND `result.warnings` (a `W-`/`I-` code
-lands only in `result.warnings`).
+### (b) Runtime-half matching
+
+A case has a runtime half when `expect` carries any of `input` / `dom` /
+`domAnchored` / `state`. Then:
+
+- `state` — the merged `{cells, derived}` snapshot is a **superset** of `expect.state`
+  (assert only the cells you care about). Keyed by author-visible scrml cell
+  names (`count`, `signup.name.isValid`). Payload variants snapshot as
+  `{ variant, data }`; non-payload variants as bare strings; absence as `null`
+  (never `undefined`).
+- `dom` — whole-tree canonical normalized `<body>` (OQ1 default mode), compared
+  byte-for-byte.
+- `domAnchored` — per-selector assertions (`{selector, text?|count?|attr?}`) on
+  the live `<body>` (OQ1 brittleness escape / authoring surface).
+
+**Author BOTH `dom` and `domAnchored`** (this is how OQ1 is resolved
+empirically). See the OQ1 note below for when to reach for each.
+
+### Input vocabulary (OQ2 — 7 selector-addressed verbs)
+
+```jsonc
+{ "click":   "#inc" }                  // bubbling click
+{ "input":   "#field", "value": "ab" } // set value + fire `input`  (text/range)
+{ "change":  "#sel",   "value": "x"  } // set value + fire `change` (select)
+{ "check":   "#agree" } / { "uncheck": "#agree" } // set checked + fire `change`
+{ "submit":  "#form" }                 // bubbling `submit`
+{ "key":     "#field", "press": "Enter" } // keydown + keyup for a named key
+{ "wait":    "settle" }                // await the hook's settled() (async drain)
+```
+
+Inputs are USER-INTENT events flowing through the handlers BOTH impls wire.
+Direct state-set is **banned** (it bypasses handlers + names impl internals).
+Real-time waits are banned (non-deterministic); only `wait: "settle"`.
+
+### The `files` multi-file convention
+
+Every `*.scrml` in a case dir besides `case.scrml` is an aux import fixture: it
+is written alongside the entry at compile/run time, and the compiler auto-gathers
+it from the entry's import graph (§21.3). A case with `import { x } from
+'./helpers.scrml'` + a sibling `helpers.scrml` proves the import resolves (the
+`E-IMPORT-*` family stays silent). NOTE: the adapter's `run()` executes only the
+ENTRY bundle, so cross-file imports are gated at the CODES level today; the
+runtime half of multi-file (sibling-bundle loading) is a later wave.
+
+## OQ1 — whole-tree vs anchored (the default-mode resolution)
+
+Both modes ship behind ONE normalization pipeline (strip `data-scrml-*` markers,
+runtime `<script>`s + comment markers; unwrap marker-only zero-attr `<span>`
+binding anchors; canonicalize attr-order / booleans / void / whitespace).
+
+**RECOMMENDED DEFAULT: `domAnchored` is the primary contract; `dom` (whole-tree)
+is the supplementary total-coverage snapshot.** Empirically, across the ~28
+(b) cases authored here, the whole-tree `dom` repeatedly leaked impl#1-private
+structure that the normalizer cannot dissolve without becoming impl#1-shaped:
+
+- if-guard `<template id="_scrml_scrml_tpl_N">` anchors (a counter-id wrapper);
+- `<each>`/`<match>`/lift container `<div>` wrappers;
+- the inter-interpolation significant space collapsing (`${a} ${b}` → `ab` in the
+  whole-tree serialization, while the live textContent is correct);
+- validator/error cases render an impl-freedom MESSAGE string — the whole-tree
+  `dom` MUST be omitted there (see `forms/validator-invalid`), and the contract
+  falls entirely to `state` + `domAnchored`.
+
+The `domAnchored` mode hit NONE of these — it is impl-neutral by construction
+(it only addresses author ids/classes/tags/author-attrs, never runtime wrappers).
+Reach for whole-tree `dom` when you want total-tree coverage on a STATIC or
+value-interpolation case with no control-flow anchors and no rendered
+impl-message; reach for `domAnchored` (and lean on `state`) the moment a case
+has an `if=`/`each`/`match` anchor or a validator message.
+
+## OQ5 — within-node parity is NOT part of this contract
+
+`parser-conformance-within-node` (the live↔native AST parity canary) is an
+**impl#1-internal parser-swap regression scaffold**, NOT part of the language
+conformance contract: D3 makes AST explicit impl freedom, so two conformant
+impls are permitted to disagree on every AST class. Do not promote AST-parity
+into this suite. The only inheritance is methodological — the capture +
+human-ratified re-baseline discipline + the per-fixture JSON format.
+
+## Authoring (OQ4 — capture proposes, SPEC-review disposes)
+
+1. Lift pre-reviewed browser/`conf-*` assertions (Option D — cheapest sound).
+2. Golden-capture the mechanical expected (normalized DOM + state), then
+   **review it against the cited `spec` §** before locking. Every (b) case
+   carries `spec` + `rationale` (MANDATORY). A capture that SURPRISES you is a
+   **bug-or-spec-gap** — file it, assert the SPEC-correct value, do NOT bless
+   impl#1 (pure golden-capture is rejected — it would make impl#1 the spec).
+3. Hand-author flagship SPEC-canonical examples verbatim.
 
 ## Running
 
 ```sh
-bun conformance/run.ts                                  # standalone; exit code = pass/fail
-bun test ./conformance/conformance-corpus.test.js       # via bun:test (note the ./)
+bun conformance/run.ts                                 # standalone; exit = pass/fail
+bun test compiler/tests/conformance/corpus-bridge.test.js  # the GATED bridge
+bun test ./conformance/conformance-corpus.test.js      # top-level wrapper (note ./)
 ```
 
-> `bunfig.toml` sets `[test] root = "compiler/tests/"`, so the top-level
-> `conformance/` dir is NOT auto-discovered by the root-restricted pre-commit
-> gate; run the corpus test with an explicit `./`-prefixed path. Wiring it into
-> the gated suite is a full-W2 decision.
+The corpus is **deterministic** (settle-based; no real-time waits).
 
 ## Adding an impl#2 (native) adapter
 
-Expose the same `compile(source) -> { codes }` (and later
-`run(artifact, input[]) -> { dom, state }`). "Native is correct iff it passes
-the 1.0 suite" is the Road-B gate (W5).
+Expose the same `compile(source) -> { codes, byCode }` and
+`run(source, input[]) -> { dom, state, body }`, plus the `globalThis.__scrml_conformance`
+hook (`snapshot()` + `settled()`). "Native is correct iff it passes the 1.0
+suite" is the Road-B gate (W5).

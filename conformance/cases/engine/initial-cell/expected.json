@@ -1,0 +1,15 @@
+{
+  "id": "engine-initial-cell",
+  "description": "Engine initial=@cell hydration (§51.0, A-leg). <engine for=Phase initial=@seed> boots from the @seed cell (.Active) at construction time; @phase + its interpolation read Active. No input — the hydration shape.",
+  "language-version": "1.0",
+  "spec": "§51.0",
+  "rationale": "§51.0 initial=@cell sets the engine's construction-time start state from a cell (not a transition). @seed = .Active -> the engine boots into Active and the interpolation reflects it.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [],
+    "state": { "seed": "Active", "phase": "Active" },
+    "dom": "<p id=\"phase\">Phase: Active</p>",
+    "domAnchored": [{ "selector": "#phase", "text": "Phase: Active" }]
+  }
+}

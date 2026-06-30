@@ -41,6 +41,13 @@ export interface ExpectedCase {
   expect: {
     codes: string[];
     notCodes: string[];
+    /** Family-glob ABSENCE: no emitted code may start with any of these prefixes
+     *  (e.g. ["E-FORMFOR-"] asserts the whole E-FORMFOR-* family stays silent). */
+    notCodePrefixes?: string[];
+    /** Per-code §34 severity assertion ("error" | "warning" | "info"). A case may
+     *  assert a code fires AS error vs warning; the adapter's byCode honors the
+     *  partition (a W-/I- code never lands in the errors stream). */
+    severity?: Record<string, "error" | "warning" | "info">;
     // (b) runtime-effect half:
     input?: InputStep[];
     /** Whole-tree canonical normalized <body> (OQ1 default mode). */
@@ -57,6 +64,9 @@ export interface LoadedCase {
   relDir: string;
   source: string;
   expected: ExpectedCase;
+  /** Aux `.scrml` fixtures in the case dir (the `files` multi-file convention):
+   *  every `*.scrml` besides `case.scrml`, keyed by filename, for import graphs. */
+  auxFiles: Record<string, string>;
 }
 
 export interface CaseResult {
@@ -66,6 +76,8 @@ export interface CaseResult {
   emitted: string[];
   missing: string[]; // required codes that did NOT fire
   forbidden: string[]; // notCodes that DID fire
+  prefixViolations: string[]; // emitted codes matching a forbidden family prefix
+  severityMismatches: string[]; // codes whose §34 severity != the asserted one
   runtimeHalfPending: boolean;
   /** Runtime (b) half failures (empty when the case has no runtime half or it passed). */
   runtimeFailures: string[];
@@ -86,11 +98,20 @@ export function loadCases(casesDir: string = CASES_DIR): LoadedCase[] {
       ex.codes = ex.codes ?? [];
       ex.notCodes = ex.notCodes ?? [];
       expected.expect = ex;
+      // `files` convention: every *.scrml besides case.scrml is an aux import
+      // fixture written alongside the entry at compile/run time (§21.3).
+      const auxFiles: Record<string, string> = {};
+      for (const entry of readdirSync(dir)) {
+        if (entry !== "case.scrml" && entry.endsWith(".scrml")) {
+          auxFiles[entry] = readFileSync(join(dir, entry), "utf8");
+        }
+      }
       out.push({
         dir,
         relDir: relative(casesDir, dir),
         source: readFileSync(scrml, "utf8"),
         expected,
+        auxFiles,
       });
       continue; // a case dir is a leaf — do not descend further
     }
@@ -126,17 +147,48 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 /** Run one case's CODES (a) half through impl#1 and diff against the contract. */
 export function runCase(c: LoadedCase): CaseResult {
-  const { codes: emitted } = compile(c.source);
+  const { codes: emitted, byCode } = compile(c.source, c.auxFiles);
   const emittedSet = new Set(emitted);
-  const missing = c.expected.expect.codes.filter((code) => !emittedSet.has(code));
-  const forbidden = c.expected.expect.notCodes.filter((code) => emittedSet.has(code));
+  const ex = c.expected.expect;
+  const missing = ex.codes.filter((code) => !emittedSet.has(code));
+  const forbidden = ex.notCodes.filter((code) => emittedSet.has(code));
+
+  // notCodePrefixes — family-glob ABSENCE: no emitted code may start with a
+  // forbidden prefix.
+  const prefixViolations: string[] = [];
+  for (const prefix of ex.notCodePrefixes ?? []) {
+    for (const code of emitted) {
+      if (code.startsWith(prefix)) prefixViolations.push(code + " (matches forbidden " + prefix + "*)");
+    }
+  }
+
+  // severity — per-code §34 partition assertion (cross-stream honest).
+  const severityMismatches: string[] = [];
+  if (ex.severity) {
+    for (const code of Object.keys(ex.severity)) {
+      const want = ex.severity[code];
+      const got = byCode[code];
+      if (got === undefined) {
+        severityMismatches.push("code '" + code + "' did not fire (expected severity " + want + ")");
+      } else if (got !== want) {
+        severityMismatches.push("code '" + code + "' severity expected " + want + ", got " + got);
+      }
+    }
+  }
+
   return {
     id: c.expected.id,
     relDir: c.relDir,
-    pass: missing.length === 0 && forbidden.length === 0,
+    pass:
+      missing.length === 0 &&
+      forbidden.length === 0 &&
+      prefixViolations.length === 0 &&
+      severityMismatches.length === 0,
     emitted,
     missing,
     forbidden,
+    prefixViolations,
+    severityMismatches,
     runtimeHalfPending: c.expected["runtime-half-pending"] === true,
     runtimeFailures: [],
     hasRuntimeHalf: hasRuntimeHalf(c),
@@ -153,7 +205,7 @@ export async function runCaseRuntime(c: LoadedCase): Promise<string[]> {
   const e = c.expected.expect;
   const failures: string[] = [];
 
-  const r = await run(c.source, e.input ?? []);
+  const r = await run(c.source, e.input ?? [], c.auxFiles);
 
   // state — merged {cells, derived}, expected is a subset.
   if (e.state) {
@@ -216,8 +268,14 @@ async function main(): Promise<void> {
       if (r.forbidden.length > 0) {
         console.log(`        forbidden codes present: ${JSON.stringify(r.forbidden)}`);
       }
-      if (r.missing.length > 0 || r.forbidden.length > 0) {
+      if (r.missing.length > 0 || r.forbidden.length > 0 || r.prefixViolations.length > 0) {
         console.log(`        emitted: ${JSON.stringify(r.emitted)}`);
+      }
+      for (const f of r.prefixViolations) {
+        console.log(`        forbidden-prefix: ${f}`);
+      }
+      for (const f of r.severityMismatches) {
+        console.log(`        severity: ${f}`);
       }
       for (const f of r.runtimeFailures) {
         console.log(`        runtime: ${f}`);

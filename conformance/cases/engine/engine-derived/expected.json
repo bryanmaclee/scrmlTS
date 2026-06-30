@@ -1,0 +1,15 @@
+{
+  "id": "engine-derived",
+  "description": "Derived cell over an engine state (§51.0.J / §6.6). const <label> = match @light { ... } reads the engine-auto-declared @light; a direct guarded write @light = Light.Green recomputes label to \"GO\".",
+  "language-version": "1.0",
+  "spec": "§51.0.J",
+  "rationale": "§51.0.J/§6.6 a derived may read an engine's state cell; the value-form match recomputes on the guarded transition. Red -> Green flips label STOP -> GO.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#go" }],
+    "state": { "light": "Green", "label": "GO" },
+    "dom": "<button id=\"go\">Go</button><p id=\"label\">GO</p>",
+    "domAnchored": [{ "selector": "#label", "text": "GO" }]
+  }
+}

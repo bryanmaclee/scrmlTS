@@ -1,0 +1,18 @@
+{
+  "id": "forms-validator-valid",
+  "description": "Per-field validators — passing surface (§55). A compound <signup> cell with <name req length(>=2)>. Typing a valid \"Ada\" makes signup.name.isValid + signup.isValid true and clears the <errors of=@signup.name/> anchor (renders nothing).",
+  "language-version": "1.0",
+  "spec": "§55",
+  "rationale": "§55 validators ride as bare attributes on the field decl; a valid value (req + length>=2) yields an empty errors list, isValid true, and an empty <errors> anchor. The validity surface is author-visible (impl-neutral) state.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "input": "input", "value": "Ada" }],
+    "state": { "signup.name": "Ada", "signup.name.isValid": true, "signup.isValid": true },
+    "dom": "<input minlength=\"2\" required type=\"text\"><div id=\"err\"></div>",
+    "domAnchored": [
+      { "selector": "input", "count": 1 },
+      { "selector": "#err", "text": "" }
+    ]
+  }
+}

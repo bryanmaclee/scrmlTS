@@ -1,0 +1,15 @@
+{
+  "id": "forms-isvalid-rollup",
+  "description": "Auto-synthesized isValid rollup gating a button (§55.7). The submit button's disabled=!@signup.isValid. Initially invalid (disabled); typing a valid \"Ada\" flips signup.isValid true and the disabled attribute is removed (button enabled).",
+  "language-version": "1.0",
+  "spec": "§55",
+  "rationale": "§55.7 @signup.isValid is a read-only synthesized rollup; binding disabled=!isValid gates the submit. A valid field write removes disabled. The whole-tree dom shows the button with no disabled attr (the enable transition); no impl message text is involved so it is lockable.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "input": "input", "value": "Ada" }],
+    "state": { "signup.name": "Ada", "signup.isValid": true },
+    "dom": "<input minlength=\"2\" required type=\"text\"><button id=\"submit\" type=\"submit\">Submit</button>",
+    "domAnchored": [{ "selector": "#submit", "text": "Submit" }]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "each-count-reactive",
+  "description": "<each>-element reactive list + count (§42 / §6.1). Two add-clicks append two items; the <each> renders two .row rows and #count (reading @items.length) reads 2. The <each>-element twin of each/for-lift-list.",
+  "language-version": "1.0",
+  "spec": "§42.2",
+  "rationale": "§42 a reactive @items write re-renders the <each> rows AND any interpolation reading the collection (@items.length). Two appends -> two rows, count 2, nextId 3.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#add" }, { "click": "#add" }],
+    "state": { "items": [{ "id": 1, "label": "Item 1" }, { "id": 2, "label": "Item 2" }], "nextId": 3 },
+    "dom": "<button id=\"add\">Add</button><ul id=\"list\"><div><li class=\"row\">Item 1</li><li class=\"row\">Item 2</li></div></ul><p id=\"count\">Count: 2</p>",
+    "domAnchored": [
+      { "selector": ".row", "count": 2 },
+      { "selector": "#count", "text": "Count: 2" }
+    ]
+  }
+}

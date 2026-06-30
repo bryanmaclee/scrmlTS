@@ -1,0 +1,15 @@
+{
+  "id": "engine-message-effect",
+  "description": "Engine same-state message arm body effect (§51.0.S.3). Each .Inc dispatch runs the arm body (@total += 1) and resolves .Counting (self-target). Three clicks drive @total to 3; the engine stays Counting.",
+  "language-version": "1.0",
+  "spec": "§51.0.S",
+  "rationale": "§51.0.S.3 a same-state arm still RUNS its body effect on every dispatch even though it resolves the current state (no external transition). Three .Inc -> total 3.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#inc" }, { "click": "#inc" }, { "click": "#inc" }],
+    "state": { "counter": "Counting", "total": 3 },
+    "dom": "<button id=\"inc\">Inc</button><p id=\"total\">Total: 3</p>",
+    "domAnchored": [{ "selector": "#total", "text": "Total: 3" }]
+  }
+}

@@ -1,0 +1,18 @@
+${
+    <groups> = [
+        { id: 1, name: "Fruits", items: [{ id: 11, label: "Apple" }, { id: 12, label: "Pear" }] },
+        { id: 2, name: "Veggies", items: [{ id: 21, label: "Carrot" }] }
+    ]
+}
+<div id="groups">
+    <each in=@groups key=@.id as group>
+        <section class="group">
+            <h3 class="group-name">${group.name}</h3>
+            <ul>
+                <each in=group.items key=@.id as item>
+                    <li class="item">${item.label}</li>
+                </each>
+            </ul>
+        </section>
+    </each>
+</div>

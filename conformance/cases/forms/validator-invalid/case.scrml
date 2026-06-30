@@ -1,0 +1,9 @@
+<program>
+${
+    <signup>
+        <name req length(>=2)> = <input type="text"/>
+    </>
+}
+<signup><name/></>
+<div id="err"><errors of=@signup.name/></div>
+</program>

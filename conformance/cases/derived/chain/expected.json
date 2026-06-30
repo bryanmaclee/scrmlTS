@@ -1,0 +1,18 @@
+{
+  "id": "derived-chain",
+  "description": "Derived-of-derived chain / lazy pull (§6.6). const <quad> = @doubled * 2 reads another derived. One grow (@base 2->3) pulls doubled=6 then quad=12. Tests transitive lazy-pull through a derived chain.",
+  "language-version": "1.0",
+  "spec": "§6.6",
+  "rationale": "§6.6 derived cells: a derived that reads another derived recomputes transitively on dirty upstream — quad reads 12 (via the freshly-pulled doubled=6), not a stale 8.",
+  "expect": {
+    "codes": [],
+    "notCodes": [],
+    "input": [{ "click": "#grow" }],
+    "state": { "base": 3, "doubled": 6, "quad": 12 },
+    "dom": "<button id=\"grow\">Grow</button><p id=\"doubled\">Doubled: 6</p><p id=\"quad\">Quad: 12</p>",
+    "domAnchored": [
+      { "selector": "#doubled", "text": "Doubled: 6" },
+      { "selector": "#quad", "text": "Quad: 12" }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+${
+    type Phase:enum = { Idle, Active, Done }
+    <seed>: Phase = .Active
+}
+<engine for=Phase initial=@seed>
+    <Idle rule=.Active></>
+    <Active rule=.Done></>
+    <Done rule=.Idle></>
+</>
+<program>
+<p id="phase">Phase: ${@phase}</>
+</program>

@@ -1,0 +1,14 @@
+${
+    type View:enum = { List, Grid }
+    <view>: View = .List
+    function toGrid() {
+        @view = View.Grid
+    }
+}
+<button id="to-grid" onclick=toGrid()>Grid</>
+<div id="mode">
+    ${ match @view {
+        .List :> { lift <p data-view="list">List view</p> }
+        .Grid :> { lift <p data-view="grid">Grid view</p> }
+    } }
+</div>
