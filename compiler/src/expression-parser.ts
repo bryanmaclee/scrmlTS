@@ -819,6 +819,18 @@ export function rewriteReactiveRefsAST(expr: string, derivedNames: Set<string> |
  * Server-side counterpart to rewriteReactiveRefsAST. Replaces @var with
  * `_scrml_body["varName"]` instead of `_scrml_reactive_get("varName")`.
  */
+// §20.5 / §52 (S233) — `@currentUser` ambient-active flag for the AST server
+// rewriter. Set per-file by the codegen driver (via rewrite.ts) to mirror
+// emit-expr's `_currentUserAmbientActive`: TRUE iff no user `<currentUser>` cell
+// shadows the name. Default FALSE (conservative — a `@currentUser` falls back to
+// the request-body form unless the driver enables the ambient for this file).
+let _currentUserAmbientActive = false;
+
+/** Set the per-file `@currentUser` ambient-active flag (AST server rewriter). */
+export function setParserCurrentUserAmbientActive(on: boolean): void {
+  _currentUserAmbientActive = !!on;
+}
+
 export function rewriteServerReactiveRefsAST(expr: string): RewriteResult {
   if (!expr || typeof expr !== "string") return { result: expr, ok: false };
   if (!expr.includes("@")) return { result: expr, ok: true };
@@ -851,6 +863,18 @@ export function rewriteServerReactiveRefsAST(expr: string): RewriteResult {
     const varName = node.name.slice(1);
     if (!varName || !/^[A-Za-z_$]/.test(varName)) return;
     if (parent?.type === "MemberExpression" && (parent as { property?: ESNode; computed?: boolean }).property === node && !(parent as { computed?: boolean }).computed) return;
+
+    // §20.5 / §52 (S233) — `@currentUser` is the compiler-provided ambient
+    // identity cell, resolved server-side from the session middleware and bound
+    // as `_scrml_currentUser` at the handler's scope entry (emit-server). It is
+    // NOT a client-supplied request-body field, so it lowers to that plain
+    // identifier, never `_scrml_body["currentUser"]`.
+    if (varName === "currentUser" && _currentUserAmbientActive) {
+      node.type = "Identifier";
+      node.name = "_scrml_currentUser";
+      modified = true;
+      return;
+    }
 
     // Replace with _scrml_body["varName"] — a MemberExpression
     node.type = "MemberExpression";

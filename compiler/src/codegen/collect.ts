@@ -664,7 +664,57 @@ export function callableServerVarDecls(decls: Node[]): Node[] {
  */
 export type ServerVarLoadKind = "sql-load" | "param-bearing" | "none";
 
-export function serverVarDeclLoadKind(decl: Node): ServerVarLoadKind {
+/**
+ * §52 / §20.5 (S233) — does EVERY `${...}` interpolation in a `?{}` query
+ * reference ONLY the server-ambient `@currentUser` cell (and no client-local
+ * `@cell`)? Such a query is fully SERVER-resolvable (the client passes no
+ * params), so a `<var server> = ?{ … ${@currentUser.id} … }` row-scope load is a
+ * plain server-side `sql-load`, NOT the param-bearing (client-POST-body) form.
+ *
+ * Conservative: an interpolation with no `@cell` (a literal `${1}`) or any
+ * non-`@currentUser` `@cell` makes the whole query param-bearing. The `@`-scan
+ * is restricted to the INTERIOR of each `${...}` so a literal `@` inside SQL
+ * string data (an email) never counts.
+ */
+export function queryInterpolationsAreServerAmbientOnly(query: string): boolean {
+  if (typeof query !== "string" || !query.includes("${")) return false;
+  let i = 0;
+  let sawInterp = false;
+  while (i < query.length) {
+    if (query[i] === "$" && query[i + 1] === "{") {
+      let depth = 1;
+      let j = i + 2;
+      while (j < query.length && depth > 0) {
+        if (query[j] === "{") depth++;
+        else if (query[j] === "}") depth--;
+        if (depth > 0) j++;
+      }
+      const interior = query.slice(i + 2, j);
+      sawInterp = true;
+      const cells = interior.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g) ?? [];
+      if (cells.length === 0) return false; // non-@cell interpolation → param-bearing
+      for (const c of cells) {
+        if (c !== "@currentUser") return false; // a client-local @cell → param-bearing
+      }
+      i = j + 1;
+    } else {
+      i++;
+    }
+  }
+  return sawInterp;
+}
+
+/**
+ * @param ambientCurrentUserActive — TRUE iff the file declares no user
+ *   `<currentUser>` reactive cell, so `@currentUser` is the server-ambient
+ *   identity cell (and a `${@currentUser.id}`-only query is server-resolvable).
+ *   Default FALSE (conservative): without this flag a `${...}` query is
+ *   param-bearing, the pre-S233 behavior.
+ */
+export function serverVarDeclLoadKind(
+  decl: Node,
+  ambientCurrentUserActive = false,
+): ServerVarLoadKind {
   const sqlNode = (decl as any).sqlNode;
   if (!sqlNode || sqlNode.kind !== "sql") return "none";
   const query: string = typeof sqlNode.query === "string"
@@ -672,6 +722,17 @@ export function serverVarDeclLoadKind(decl: Node): ServerVarLoadKind {
     : (typeof sqlNode.body === "string" ? sqlNode.body : "");
   // A param-bearing SELECT interpolates a client-local cell — `${...}` in the
   // raw query text. The POST-body param-passing path is a bounded follow-on.
-  if (query.includes("${")) return "param-bearing";
+  if (query.includes("${")) {
+    // §52 (S233) Fork-3 row-scope: a query whose ONLY interpolations are the
+    // server-ambient `@currentUser` cell is fully server-resolvable (the client
+    // POSTs an empty body; the handler binds `_scrml_currentUser`), so it loads
+    // as a plain sql-load. Only when the ambient is active (no user `<currentUser>`
+    // cell shadows the name) — otherwise `@currentUser` is a client-local cell and
+    // the query is genuinely param-bearing.
+    if (ambientCurrentUserActive && queryInterpolationsAreServerAmbientOnly(query)) {
+      return "sql-load";
+    }
+    return "param-bearing";
+  }
   return "sql-load";
 }

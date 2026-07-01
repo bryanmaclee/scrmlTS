@@ -12,7 +12,7 @@ import {
   collectServerAuthorityTypes,
   serverVarDeclLoadKind,
 } from "./collect.ts";
-import { collectDerivedVarNames, buildFunctionBodyRegistry, type FunctionBodyRegistry } from "./reactive-deps.ts";
+import { collectDerivedVarNames, buildFunctionBodyRegistry, collectReactiveVarNames, type FunctionBodyRegistry } from "./reactive-deps.ts";
 import { collectChannelNodes, emitChannelClientJs, parseChannelReconnect } from "./emit-channel.ts";
 import { emitInitialLoad, emitUnifiedMountHydrate, emitServerAuthorityLoad, emitDeclRhsSqlLoad } from "./emit-sync.ts";
 import { emitParseVariantDecodeIIFE, type ParseVariantEnumLike } from "./emit-parse-variant.ts";
@@ -729,7 +729,10 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
       // PARAM-BEARING query (`?{ … ${@cell} … }`) needs POST-body param-passing
       // (bounded follow-on) — it emits NO load here; the type system surfaces
       // W-AUTH-004 so the dev sees the cell will not hydrate.
-      const loadKind = serverVarDeclLoadKind(decl);
+      // §52 (S233) — pass the ambient-active flag so a Fork-3 row-scope query
+      // (`?{ … ${@currentUser.id} … }`) classifies as sql-load (server-resolvable),
+      // not param-bearing, when no user `<currentUser>` cell shadows the name.
+      const loadKind = serverVarDeclLoadKind(decl, !collectReactiveVarNames(fileAST).has("currentUser"));
       if (loadKind === "sql-load") {
         for (const l of emitDeclRhsSqlLoad(varName)) lines.push(l);
         continue;

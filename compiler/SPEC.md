@@ -17686,6 +17686,8 @@ Rationale: the unified purity contract preserves the `<machine>` subsystem's rep
 | E-AUTH-005 | §52.11 | `<var server>` declared inside a client-only component (no server context) | Error |
 | W-AUTH-001 | §52.11 | `<var server>` has no detectable initial load pattern | Warning |
 | W-AUTH-004 | §52.6.5 | `<var server>` has a PARAM-BEARING inline `?{}` RHS (§52.6.5 Pattern C); param-passing on `/__serverLoad/<var>` is not yet shipped, so the cell will not hydrate — use a param-free query or an `on mount` block | Warning |
+| W-SERVERLOAD-UNGATED | §52.15 | A `/__serverLoad/<var>` route is emitted UNGATED (the cell's per-var `auth="none"`/`"optional"`, or no enclosing `auth="required"`) AND the compilation unit declares auth elsewhere (an auth-middleware entry exists) — the route serves server-authority data without the request-context gate the rest of the app enforces. Does NOT fire on a genuinely-public app (no auth anywhere) or an already-gated route. (S233 — server-load authority.) | Warning |
+| W-SSR-PRERENDER-UNSCOPED | §52.15, §52.8 | A server-authority cell is auth-scoped (gated, or under `auth="required"`, and NOT explicitly `auth="none"`/`"optional"`) AND its SSR pre-render is UNSCOPED (a Tier-1 `SELECT *`, or a Pattern-C query with no `${@currentUser.…}` row-scope) — the once-computed pre-render bakes all users' rows into every viewer's first-paint HTML (cross-user leak). Sibling of W-AUTH-002. Does NOT fire on a public cell or a row-scoped Pattern-C cell. (S233 — SSR sequencing gate.) | Warning |
 | W-ATTR-001 | §52.13 | Attribute name not recognized on a scrml-special element (informational; attribute is forwarded to HTML as-is) | Warning |
 | W-ATTR-002 | §52.13 | Attribute value-shape not recognized (e.g. `auth="role:X"` on `<page>`) — silently accepted but has no compile-time effect | Warning |
 | E-CONTRACT-001 | §53.11 | Inline predicate violation at compile time (statically provable) | Error |
@@ -30296,6 +30298,8 @@ The following questions are not resolved by this spec section. Each is a tracked
 
 **SPEC-ISSUE-027** (raised by this section): For Tier 1 state types, the compiler generates `SELECT *` for initial load. Does the developer have a way to constrain the initial load query (e.g., load only the first page, add a WHERE clause)? The current spec has no syntax for this; it may require an `on mount` override pattern analogous to §52.6.5 Pattern B.
 
+**RESOLVED (S233).** Per-user / row-constrained initial load is expressed by promoting the Tier-1 cell to a Tier-2 Pattern-C `?{}` query with an explicit `WHERE` — including the request-scoped form `?{ select * from t where user_id = ${@currentUser.id} }` (§52.15.3). No new `where=`/`scope=` keyword; the existing `?{}` SQL surface is the home. See §52.15 (Server-Load Request-Context Authority).
+
 ### 52.13 Recognized Attribute Values for `auth=` and `csrf=`
 
 **Added:** 2026-04-30 — UVB W1 (deep-dive `systemic-silent-failure-sweep-2026-04-30`).
@@ -30457,6 +30461,33 @@ The Tier 2 example has three independent singleton cells — the right reach whe
 
 ---
 
+
+### 52.15 Server-Load Request-Context Authority (`@currentUser`, the route gate, per-user scope)
+
+**Added S233 (2026-07-01).** The server-load path (`/__serverLoad/<var>`, §52.6) enforces the authenticated request's authority along THREE orthogonal, stacking axes — route-admission, row-selection, and column-redaction (§14.8.9) — none substitutes for another. Design authority: `docs/changes/server-load-authority-2026-06-30/` + `scrml-support/docs/deep-dives/server-load-request-context-authority-2026-06-30.md`.
+
+#### 52.15.1 `@currentUser` — the ambient request-identity cell
+`@currentUser` is a **compiler-provided ambient cell** carrying the current request's authenticated identity, resolved server-side from the session middleware (§20.5):
+- `@currentUser.id : string | not` — the authenticated user id; `not` when anonymous.
+- `@currentUser.role : string | not` — the authenticated role; `not` when anonymous/unset.
+- `@currentUser.isAuth : bool` — whether the request is authenticated.
+
+Access is V5-strict (`@currentUser`); it is exempt from `E-STATE-UNDECLARED`. **Shadow rule:** `@currentUser` is ambient only when the file declares NO user `<currentUser>` reactive cell — a user-declared cell WINS (mirrors the `@session` projection precedent, §20.5). It is **server-context this revision** (the route gate + the row-scope query); a client-side `@currentUser` for UI gating is deferred to the per-role content-gating arc (GITI-027B).
+
+#### 52.15.2 Route-admission gate
+A `/__serverLoad/<var>` handler SHALL enforce the enclosing `<page>` / `<program auth="required">` requirement, **co-located in the handler**, returning a **401 JSON** error (NOT a 302 redirect — it is a data route, not a navigation) for an unauthenticated request. Default-inherit is the floor. A per-var `auth=` on the cell refines it: `auth="required"` / `auth="role:X"` gate (a `role:X` mismatch → 403); `auth="none"` / `auth="optional"` opt out. This completes the §52.13.1 `role:X` shape (previously `W-ATTR-002`-only). An ungated route in an app that declares auth elsewhere fires `W-SERVERLOAD-UNGATED`.
+
+#### 52.15.3 Per-user row-scope (SPEC-ISSUE-027 resolution)
+A server-authority cell scopes its rows to the request by promoting to a Tier-2 Pattern-C `?{}` query that reaches `@currentUser`: `<orders server> = ?{ select * from orders where user_id = ${@currentUser.id} }.all()`. For an anonymous request `@currentUser.id is not` → SQL `NULL` → `WHERE user_id = NULL` matches **zero rows** — **fail-closed by construction**. There is no `where=`/`scope=` keyword; the existing `?{}` SQL surface is the home.
+
+#### 52.15.4 The three stacking axes
+Route-admission (§52.15.2 — whole route → 401) ⟂ row-selection (§52.15.3 — per row → `WHERE`) ⟂ column-redaction (§14.8.9 protect-floor — per column → strip protected-origin). They STACK; none substitutes: a column-redacted payload can still leak every user's rows; a row-scoped payload can still leak a protected column. The compiler applies all three at the egress; §14.8.9 is reused unchanged.
+
+#### 52.15.5 SSR sequencing (`W-SSR-PRERENDER-UNSCOPED`)
+Per §52.8, a server-authority cell's SSR pre-render runs the seed query under the request. A per-user / auth-scoped cell whose pre-render is UNSCOPED (Tier-1 `SELECT *`, or a Pattern-C query with no `${@currentUser.…}` filter) would bake one query result into every viewer's first-paint HTML — a cross-user leak — and fires `W-SSR-PRERENDER-UNSCOPED` (per-var, sibling of `W-AUTH-002`). Public cells do not fire.
+
+#### 52.15.6 Error codes
+`W-SERVERLOAD-UNGATED`, `W-SSR-PRERENDER-UNSCOPED` (§34). The route-gate reuses `_scrml_auth_check` / the session middleware; no new error codes beyond the two warnings.
 
 ## 53. Inline Type Predicates
 

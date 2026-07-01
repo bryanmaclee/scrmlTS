@@ -75,6 +75,7 @@ import { getElementShape, getAllElementNames } from "./html-elements.js";
 import { forEachIdentInExprNode, forEachCallInExprNode, classifyLiteralFromExprNode, exprNodeContainsCall, emitStringFromTree, parseExprToNode } from "./expression-parser.ts";
 import { isEventHandlerAttrName } from "./multi-statement-scan.ts";
 import { extractSelectProjection } from "./sql-projection.ts";
+import { queryInterpolationsAreServerAmbientOnly } from "./codegen/collect.ts";
 import type { SelectProjection, ProjectedColumn } from "./sql-projection.ts";
 import { parseMatchArms } from "./match-statechild-parser.ts";
 import { autoDeriveEngineVarName } from "./engine-varname.ts";
@@ -6420,6 +6421,12 @@ const RESERVED_AMBIENT_PROJECTION_NAMES: ReadonlySet<string> = new Set([
   // Distinct from the §20.5 SERVER-only bare `session` object — the client
   // projection is fed across the HTTP boundary and carries no server-only data.
   "session",
+  // §20.5 / §52 (S233) — `@currentUser` is the compiler-provided SERVER-side
+  // ambient identity cell (id : string | not, role : string | not, isAuth : bool),
+  // resolved from the session middleware. Like `@session` it is a RESERVED name,
+  // never a user-declared reactive cell, so the undeclared-cell read-walker must
+  // exempt it (a genuine `@typoCell` still fires E-STATE-UNDECLARED).
+  "currentUser",
 ]);
 
 /**
@@ -6939,6 +6946,31 @@ function hasProgramDbAttr(fileAST: FileAST): boolean {
   if (!programNode) return false;
   const attrs = (programNode as ASTNodeLike).attrs as Array<{name: string; value: unknown}> | undefined;
   return !!(attrs && attrs.some((a: {name: string; value: unknown}) => a.name === "db"));
+}
+
+/**
+ * §52 / §20.5 (S233) — does the file declare a USER reactive cell named `name`?
+ * Used to decide whether `@currentUser` is the compiler-provided ambient identity
+ * cell (no such cell) or a user-shadowed reactive cell. Mirrors codegen's
+ * `collectReactiveVarNames(fileAST).has(name)` shadow gate so the W-AUTH-004
+ * suppression for a Fork-3 row-scope query agrees with the codegen load class.
+ */
+function fileDeclaresReactiveCell(fileAST: FileAST, name: string): boolean {
+  let found = false;
+  const visit = (nodes: unknown): void => {
+    if (found || !Array.isArray(nodes)) return;
+    for (const node of nodes as ASTNodeLike[]) {
+      if (found) return;
+      if (!node || typeof node !== "object") continue;
+      if (node.kind === "state-decl" && node.name === name) { found = true; return; }
+      visit((node as ASTNodeLike).body as unknown);
+      visit((node as ASTNodeLike).children as unknown);
+    }
+  };
+  visit(((fileAST as unknown as { ast?: { nodes?: unknown } }).ast?.nodes)
+    ?? (fileAST as unknown as { nodes?: unknown }).nodes
+    ?? []);
+  return found;
 }
 
 function annotateNodes(
@@ -9483,8 +9515,18 @@ function annotateNodes(
                   ? _sqlNode!.query
                   : (typeof _sqlNode!.body === "string" ? _sqlNode!.body : ""))
               : "";
-            const _isPatternCParamFree = _hasInlineSql && !_inlineSqlQuery.includes("${");
-            const _isPatternCParamBearing = _hasInlineSql && _inlineSqlQuery.includes("${");
+            // §52 (S233) Fork-3 — a query whose ONLY `${...}` interpolations are
+            // the server-ambient `@currentUser` cell (and the ambient is active —
+            // no user `<currentUser>` cell shadows the name) is server-resolvable,
+            // so it loads like a param-free query (mirrors codegen's
+            // serverVarDeclLoadKind). W-AUTH-004 must NOT fire on it.
+            const _patternCServerAmbient = _hasInlineSql &&
+              !fileDeclaresReactiveCell(fileAST, "currentUser") &&
+              queryInterpolationsAreServerAmbientOnly(_inlineSqlQuery);
+            const _isPatternCParamFree = _hasInlineSql &&
+              (!_inlineSqlQuery.includes("${") || _patternCServerAmbient);
+            const _isPatternCParamBearing = _hasInlineSql &&
+              _inlineSqlQuery.includes("${") && !_patternCServerAmbient;
 
             if (_isPatternCParamBearing) {
               errors.push(new TSError(
@@ -9507,6 +9549,78 @@ function annotateNodes(
                 declSpan,
                 "warning",
               ));
+            }
+
+            // ----------------------------------------------------------------
+            // §52 (S233) — server-load request-context authority diagnostics.
+            // A `/__serverLoad/<var>` route is emitted for a Tier-1 server-
+            // authority instance (SELECT *) or a param-free Pattern-C cell. The
+            // route default-inherits the enclosing <page>/<program auth=>
+            // requirement (4a-floor) + honors a per-var auth= (4c). These two
+            // nudges surface the Fork-4 footgun + the Fork-3 cross-user SSR leak.
+            // ----------------------------------------------------------------
+            const _emitsServerLoadRoute = _isTier1AuthInstance || _isPatternCParamFree;
+            if (_emitsServerLoadRoute) {
+              const _perVarAuth = (n as ASTNodeLike).auth;
+              const _authMW = routeMap?.authMiddleware?.get(filePath) ?? null;
+              // The codegen gate posture (mirrors serverLoadGateMode in emit-server).
+              const _routeGated =
+                _perVarAuth === "required" ||
+                (typeof _perVarAuth === "string" && _perVarAuth.startsWith("role:"))
+                  ? true
+                  : (_perVarAuth === "none" || _perVarAuth === "optional")
+                    ? false
+                    : (!!_authMW && (_authMW as { auth?: string }).auth === "required");
+              // A Pattern-C cell whose query carries a `${@currentUser.…}` row-scope
+              // filter is per-user-scoped (so its SSR pre-render is safe). `_patternC
+              // ServerAmbient` was computed above from the inline query.
+              const _rowScoped = _patternCServerAmbient;
+              const _appKnowsAuth = !!_authMW;
+              // A cell that explicitly opts out (`auth="none"`/`"optional"`) is
+              // declared PUBLIC by the dev, so it is NOT auth-scoped (no cross-user
+              // SSR concern). Only W-SERVERLOAD-UNGATED nudges its open route.
+              const _explicitlyPublic = _perVarAuth === "none" || _perVarAuth === "optional";
+              const _authScoped = !_explicitlyPublic &&
+                (_routeGated || (!!_authMW && (_authMW as { auth?: string }).auth === "required"));
+
+              // W-SERVERLOAD-UNGATED — the app declares auth elsewhere, but THIS
+              // server-load read route opted out of the gate, so it is reachable by
+              // anonymous requests (the page redirect does NOT cover /__serverLoad).
+              // Does NOT fire on a genuinely-public app (no auth anywhere).
+              if (!_routeGated && _appKnowsAuth) {
+                errors.push(new TSError(
+                  "W-SERVERLOAD-UNGATED",
+                  `W-SERVERLOAD-UNGATED: the '/__serverLoad/${n.name as string}' read route is ` +
+                  `UNGATED, but this app declares auth elsewhere. The route is reachable by ` +
+                  `anonymous requests (the <page>/<program> auth redirect does NOT cover ` +
+                  `/__serverLoad — every data route is its own endpoint). If '@${n.name as string}' ` +
+                  `is non-public, gate it: add auth="required" (or auth="role:X") to the cell, ` +
+                  `or place it under an auth="required" scope. If it is genuinely public, this ` +
+                  `nudge is informational.`,
+                  declSpan,
+                  "warning",
+                ));
+              }
+
+              // W-SSR-PRERENDER-UNSCOPED — an auth-scoped cell whose SSR pre-render
+              // runs UNSCOPED bakes EVERY user's rows into the first paint, served
+              // identically to all viewers (a cross-user leak the client-fetch path
+              // does not have). A Tier-1 SELECT * is always unscoped; a Pattern-C
+              // cell is scoped only by a `${@currentUser.…}` WHERE. Public cells
+              // (no auth) do not fire.
+              if (_authScoped && !_rowScoped) {
+                errors.push(new TSError(
+                  "W-SSR-PRERENDER-UNSCOPED",
+                  `W-SSR-PRERENDER-UNSCOPED: server-authority cell '@${n.name as string}' is ` +
+                  `auth-scoped but its SSR pre-render runs UNSCOPED — it bakes EVERY row into ` +
+                  `the first-paint HTML, served identically to all viewers (a cross-user leak). ` +
+                  `Row-scope it to the request user: promote to a Pattern-C query with ` +
+                  `\`WHERE user_id = \${@currentUser.id}\` (§52.6.5) so each viewer's first paint ` +
+                  `contains only their rows. (Column redaction §14.8.9 does NOT scope rows.)`,
+                  declSpan,
+                  "warning",
+                ));
+              }
             }
 
             // E-AUTH-002: server @var init must not reference a client-local

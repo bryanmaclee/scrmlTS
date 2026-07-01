@@ -66,7 +66,7 @@ import { generateWorkerJs } from "./emit-worker.ts";
 import { appendSourceMappingUrl } from "./source-map.ts";
 import { buildSourceMap } from "./build-source-map.ts";
 import { registerFileSource, resetLogLoc, fileDeclaresLog, fileDeclaresRender } from "./log-loc.ts";
-import { setLogProductionStrip, setLogShadowedInFile, setRenderShadowedInFile, setSessionProjectionActive } from "./emit-expr.ts";
+import { setLogProductionStrip, setLogShadowedInFile, setRenderShadowedInFile, setSessionProjectionActive, setCurrentUserAmbientActive } from "./emit-expr.ts";
 import { EncodingContext } from "./type-encoding.ts";
 import { collectDerivedVarNames, collectReactiveVarNames, collectSynthCellKeys, stampCompoundDeepSetTargets } from "./reactive-deps.ts";
 import { collectTopLevelLogicStatements } from "./collect.ts";
@@ -606,6 +606,9 @@ export function runCG(input: CgInput): CgOutput {
     // flag OFF; worker bundles carry no auth session projection. Re-set per-file
     // in the main emit loop once auth middleware is resolved.
     setSessionProjectionActive(false);
+    // §52 (S233) — default the `@currentUser` ambient OFF in worker bundles
+    // (re-set per-file in the main emit loop). A worker carries no session.
+    setCurrentUserAmbientActive(false);
     const nodes: any[] = (fileAST as any).ast?.nodes ?? (fileAST as any).nodes ?? [];
 
     interface WorkerDef {
@@ -801,6 +804,8 @@ export function runCG(input: CgInput): CgOutput {
     // g-markup-session-read-undeclared — default OFF; re-set after auth-MW
     // resolution below (needs `authMW`, resolved later in this iteration).
     setSessionProjectionActive(false);
+    // §52 (S233) — default the `@currentUser` ambient OFF; re-set per-file below.
+    setCurrentUserAmbientActive(false);
     const analysis = fileAnalyses.get(filePath);
     const nodes: object[] = analysis ? (analysis as any).nodes : [];
 
@@ -836,6 +841,13 @@ export function runCG(input: CgInput): CgOutput {
     // projection var `session` instead of `_scrml_reactive_get("session")` (the
     // latter reads an unregistered reactive key → undefined → `.current` crash).
     setSessionProjectionActive(authMW !== null && !collectReactiveVarNames(fileAST).has("session"));
+    // §20.5 / §52 (S233) — the `@currentUser` ambient identity cell is active iff
+    // the file declares NO user reactive cell named `currentUser` (which would own
+    // the `@currentUser` read). When active, a SERVER-mode `@currentUser` read
+    // lowers to the handler-scoped `_scrml_currentUser` binding (the session-
+    // resolved identity); when a user `<currentUser>` cell shadows the name it
+    // keeps the ordinary reactive / request-body form. Mirrors the @session gate.
+    setCurrentUserAmbientActive(!collectReactiveVarNames(fileAST).has("currentUser"));
     // Resolve §39 middleware config from AST (compiler-auto tier)
     const middlewareCfg = (fileAST as any).middlewareConfig ?? null;
 

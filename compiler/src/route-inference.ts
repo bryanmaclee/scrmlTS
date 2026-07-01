@@ -458,6 +458,14 @@ const SERVER_ONLY_PATTERNS: ServerOnlyPattern[] = [
   // `(?<!public )` lookbehind on the `env()` pattern above.
   // (g-markup-session-read-undeclared, S228 ruling.)
   { pattern: /(?<!@)\bsession\b/, resourceType: "session" },
+  // NOTE: `@currentUser` (§20.5 / §52, S233 — the compiler-provided ambient
+  // identity cell) deliberately has NO escalation trigger here, mirroring the
+  // client `@session` projection precedent above. The canonical Fork-3 read is
+  // INSIDE a `?{}` (already server-escalated by the `?\{` trigger) or inside an
+  // already-server-authority cell decl, so no separate trigger is needed — and a
+  // blanket `/@currentUser\b/` would collide with a USER-declared `<currentUser>`
+  // reactive cell (the ambient is active only when no such cell exists; see
+  // `_currentUserAmbientActive`), wrongly server-escalating a client function.
 ];
 
 /**

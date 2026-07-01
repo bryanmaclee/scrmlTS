@@ -39,7 +39,7 @@ import type {
   MapLitExpr,
   MarkupValueExpr,
 } from "../types/ast.ts";
-import { rewriteExpr, rewriteServerExpr, rewriteExprArrowBody, rewriteServerExprArrowBody, rewriteExprWithDerived } from "./rewrite.js";
+import { rewriteExpr, rewriteServerExpr, rewriteExprArrowBody, rewriteServerExprArrowBody, rewriteExprWithDerived, setRewriteCurrentUserAmbientActive } from "./rewrite.js";
 import { emitParseVariantCall, isParseVariantCall } from "./emit-parse-variant.ts";
 import { emitMatchExpr as emitStructuredMatchExpr } from "./emit-control-flow.ts";
 import { SYNTH_PROPERTY_NAMES } from "../symbol-table.ts";
@@ -113,6 +113,25 @@ let _sessionProjectionActive = false;
 /** Set the per-file `@session` projection-active flag (auth on + no user cell). */
 export function setSessionProjectionActive(on: boolean): void {
   _sessionProjectionActive = !!on;
+}
+
+// §20.5 / §52 (S233) — `@currentUser` ambient-active flag (per-file). True when
+// the file declares NO user `currentUser` reactive cell, so `@currentUser` is the
+// compiler-provided ambient identity cell. False when a user `<currentUser>` cell
+// shadows the name (e.g. the trucking corpus' client-held `<currentUser> = not`),
+// in which case `@currentUser` is that ordinary reactive cell and a server read
+// lowers to `_scrml_body["currentUser"]` (the request-body value), not the
+// ambient. Mirrors the `_sessionProjectionActive` shadow-aware gate above.
+let _currentUserAmbientActive = false;
+
+/**
+ * Set the per-file `@currentUser` ambient-active flag. Forwards to the rewrite.ts
+ * regex + expression-parser AST server rewriters so all three lowering paths
+ * (structured emitIdent here, the text path, and the AST path) agree per-file.
+ */
+export function setCurrentUserAmbientActive(on: boolean): void {
+  _currentUserAmbientActive = !!on;
+  setRewriteCurrentUserAmbientActive(!!on);
 }
 
 
@@ -588,6 +607,14 @@ function emitIdent(node: IdentExpr, ctx: EmitExprContext): string {
     // B1 use-site provenance marker (no-op unless sourceMap mode).
     const _m = srcmapMark(node.span, bare);
     if (ctx.mode === "server") {
+      // §20.5 / §52 (S233) — `@currentUser` is the compiler-provided ambient
+      // identity cell (id / role / isAuth), resolved server-side from the session
+      // middleware and bound as `_scrml_currentUser` at the handler's scope entry
+      // (emit-server). It is NOT a client-supplied request-body field, so it
+      // lowers to that server-resolved binding, never `_scrml_body["currentUser"]`.
+      // Gated on `_currentUserAmbientActive` (no user `<currentUser>` cell shadows
+      // the name) so a corpus cell named `currentUser` keeps the request-body form.
+      if (bare === "currentUser" && _currentUserAmbientActive) return `${_m}_scrml_currentUser`;
       return `${_m}_scrml_body["${bare}"]`;
     }
     // g-markup-session-read-undeclared (S228 ruling) — the `@session` window-

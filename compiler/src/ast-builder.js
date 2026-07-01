@@ -5272,6 +5272,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
   // `authority="server"` — substates / §35.2 constructors / local states never
   // populate this map, so they fall through to the existing dispatch untouched.
   const _serverAuthorityTypes = new Map();
+  // §52 (S233) 4c — per-var `auth=` on a Tier-1 server-authority TYPE decl
+  // (`< Orders authority="server" table="orders" auth="required">`). Maps
+  // typeName -> the auth value string; the instance inherits it onto its state-decl
+  // so the /__serverLoad route gate can read `decl.auth` (serverLoadGateMode).
+  const _serverAuthorityAuth = new Map();
 
   // Unit CC (S123) — nested-block depth counter. Used by the V5-strict
   // `@name = expr` parse site to discriminate between:
@@ -5667,6 +5672,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           isServer: true,
           stateType: typeName,
           serverAuthorityTable: table,
+          // §52 (S233) 4c — inherit the type-decl's per-var auth= onto the instance.
+          ...(_serverAuthorityAuth.has(typeName) ? { auth: _serverAuthorityAuth.get(typeName) } : {}),
           span: spanOf(startTok, peek()),
         };
       }
@@ -5778,6 +5785,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // Record the type → table mapping so a later `< Name> @var` instance in this
     // block can resolve its SELECT * load target (§52.6.1).
     if (tableName) _serverAuthorityTypes.set(typeName, tableName);
+    // §52 (S233) 4c — capture a per-var `auth=` opener attr on the type-decl.
+    const _authAttr = openerAttrs.find((a) => a.name === "auth");
+    if (_authAttr && typeof _authAttr.value === "string") {
+      _serverAuthorityAuth.set(typeName, _authAttr.value);
+    }
 
     // Build attrs (the non-typed opener attrs — authority/table/protect) in the
     // shape the type-system state-constructor-def handler reads (n.attrs[].value
@@ -6216,6 +6228,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               : null,
             pinned: !!scan.pinned,
             ...(scan.server ? { isServer: true } : {}),
+            ...(scan.auth ? { auth: scan.auth } : {}),
             typeAnnotation,
             span: declSpan,
           };
@@ -6252,6 +6265,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             : null,
           pinned: !!scan.pinned,
           ...(scan.server ? { isServer: true } : {}),
+          ...(scan.auth ? { auth: scan.auth } : {}),
           typeAnnotation,
           // S160 Shape 4 — marker consumed by type-system's cell-value lifecycle
           // tracker: a no-RHS bare-`T` cell with no canonical empty defaulted to
@@ -6317,6 +6331,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // scope-chain entries with isServer:true and to fire E-AUTH-005 /
     // W-AUTH-001 / E-AUTH-002 (type-system.ts:4578+).
     const serverFlag = !!scan.server;
+    const authFlag = scan.auth; // §52 (S233) 4c per-var auth= raw string
 
     // S79 Phase 2 — parse debounced= / throttled= raw text via parseAfterDuration.
     // The reactivity field rides forward when at least one duration was captured;
@@ -6366,6 +6381,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           // (ast-builder.js:4079). Only emitted when the bareword `server`
           // appeared on the V5-strict structural decl.
           ...(serverFlag ? { isServer: true } : {}),
+          ...(authFlag ? { auth: authFlag } : {}),
           structuralForm: true,
           isConst: !!isConst,
           shape: "decl-with-spec",
@@ -6458,6 +6474,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           defaultExpr,
           pinned: pinnedFlag,
           ...(serverFlag ? { isServer: true } : {}),
+          ...(authFlag ? { auth: authFlag } : {}),
           ...(reactivity ? { reactivity } : {}),
           ...(typeAnnotation ? { typeAnnotation } : {}),
           span: spanOf(startTok, peek()),
@@ -6537,6 +6554,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       // appeared on the V5-strict structural decl. Type-system at line
       // 4578+ reads `isServer` to fire E-AUTH-005 / W-AUTH-001 / E-AUTH-002.
       ...(serverFlag ? { isServer: true } : {}),
+      ...(authFlag ? { auth: authFlag } : {}),
       // S79 Phase 2 — reactivity attribute (debounced= / throttled=).
       ...(reactivity ? { reactivity } : {}),
       span: spanOf(startTok, peek()),
@@ -6666,6 +6684,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // which produces a state-decl with `isServer: true`. The bareword path
     // here records the flag; the caller maps `scan.server → node.isServer`.
     let server = false;
+    // §52 (S233) 4c — per-var `auth="required"`/`"role:X"`/`"none"` route-gate
+    // attribute on a Tier-2 server-authority cell (`<orders server auth="required">
+    // = ?{…}`). Captured here as a raw string; the caller maps `scan.auth →
+    // node.auth`, which the /__serverLoad gate reads via serverLoadGateMode.
+    let authValue = null;
     // S79 Phase 2 — `debounced=DURATION` / `throttled=DURATION` raw text + span
     // per SPEC §6.13. Both attributes share the duration grammar reused from
     // `<onTimeout after=>` (parsed via parseAfterDuration in the caller).
@@ -6714,6 +6737,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               defaultExprSpan,
               pinned,
               server,
+              auth: authValue,
               debouncedRaw,
               debouncedSpan,
               throttledRaw,
@@ -6750,6 +6774,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             defaultExprSpan,
             pinned,
             server,
+            auth: authValue,
             debouncedRaw,
             debouncedSpan,
             throttledRaw,
@@ -6768,6 +6793,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           defaultExprSpan,
           pinned,
           server,
+          auth: authValue,
           debouncedRaw,
           debouncedSpan,
           throttledRaw,
@@ -6787,6 +6813,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           defaultExprSpan,
           pinned,
           server,
+          auth: authValue,
           debouncedRaw,
           debouncedSpan,
           throttledRaw,
@@ -7018,6 +7045,21 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // KEYWORD-decline path below (line ~3893) which returns null. The
         // caller restores the cursor and the existing markup-tag dispatch
         // surfaces the original text.
+      }
+
+      // §52 (S233) 4c — `auth="…"` per-var route-gate attribute. IDENT/KEYWORD
+      // `auth` followed by `=` STRING. MUST precede the generic IDENT-validator
+      // branch below (else `auth` would be captured as a validator name).
+      if ((t.kind === "IDENT" || t.kind === "KEYWORD") && t.text === "auth") {
+        const eqTok = tokens[i + scanIdx + 1];
+        const valTok = tokens[i + scanIdx + 2];
+        if (eqTok && eqTok.kind === "PUNCT" && eqTok.text === "=" && valTok && valTok.kind === "STRING") {
+          if (authValue !== null) return null; // duplicate `auth=` — decline
+          authValue = valTok.text;
+          scanIdx += 3;
+          continue;
+        }
+        // `auth` not in the `=`-STRING shape falls through to the validator path.
       }
 
       // Validator: IDENT bareword or call-form.

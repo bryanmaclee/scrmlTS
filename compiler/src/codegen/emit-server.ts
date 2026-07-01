@@ -4,6 +4,7 @@ import { routePath, paramSignature, paramName } from "./utils.ts";
 import { collectFunctions, collectServerVarDecls, callableServerVarDecls, collectServerAuthorityTypes, serverVarDeclLoadKind, isServerOnlyNode } from "./collect.ts";
 import { emitLogicNode, emitFnShortcutBody } from "./emit-logic.ts";
 import { getNodes } from "./collect.ts";
+import { collectReactiveVarNames } from "./reactive-deps.ts";
 import { collectChannelNodes, emitChannelServerJs, emitChannelWsHandlers, collectChannelFunctionMap, collectChannelCellMap, filterChannelImportSpecifiers } from "./emit-channel.ts";
 import { serverRewriteEmitted, setVariantFieldsForRewriter, setProtectContextForRewriter, drainProtectInfosFromRewriter } from "./rewrite.js";
 import { buildVariantFieldsRegistry, emitEnumVariantObjects, emitEnumLookupTables } from "./emit-client.js";
@@ -86,6 +87,29 @@ function injectAfterHeader(emitted: string, helper: string): string {
   const headerEndIdx = emitted.indexOf("\n\n");
   if (headerEndIdx === -1) return helper + emitted;
   return emitted.slice(0, headerEndIdx) + helper + emitted.slice(headerEndIdx);
+}
+
+// §52 (S233, server-load-request-context-authority) — the Fork-4 route gate for a
+// `/__serverLoad/<var>` data route. Resolves the per-var auth requirement:
+//   - per-var `auth=` on the cell (4c): "required" / "role:X" gate, "none" /
+//     "optional" explicitly do NOT gate (override the enclosing scope);
+//   - default-inherit (4a-floor): an enclosing `<page>`/`<program auth="required">`
+//     auto-gates the route (the page redirect does NOT cover /__serverLoad — the
+//     Remix "every loader is its own endpoint" lesson). A non-auth app leaves the
+//     route open (the public-data case; W-SERVERLOAD-UNGATED nudges the footgun).
+// Returns whether to gate + the required role (null = authenticated-or-not).
+type ServerLoadGate = { gate: boolean; role: string | null };
+function serverLoadGateMode(decl: unknown, authMiddlewareEntry: { auth?: string } | null): ServerLoadGate {
+  const perVar = (decl as { auth?: unknown })?.auth;
+  if (perVar === "none" || perVar === "optional") return { gate: false, role: null };
+  if (perVar === "required") return { gate: true, role: null };
+  if (typeof perVar === "string" && perVar.startsWith("role:")) {
+    return { gate: true, role: perVar.slice("role:".length) || null };
+  }
+  if (authMiddlewareEntry && authMiddlewareEntry.auth === "required") {
+    return { gate: true, role: null };
+  }
+  return { gate: false, role: null };
 }
 
 // §52.8 (ssr-b-substrate) — the request path the SSR HTML-composition route
@@ -1194,10 +1218,38 @@ export function generateServerJs(
   // (a Pattern-C-only file would otherwise early-return "" and the load route
   // would have nowhere to live — mirror of the Tier-1 _hasServerAuthorityCells
   // gate above).
+  // §52 / §20.5 (S233) — the `@currentUser` ambient is active for this file iff
+  // no user `<currentUser>` reactive cell shadows the name. When active, a
+  // Fork-3 row-scope query (`?{ … ${@currentUser.id} … }`) is server-resolvable
+  // (sql-load), not param-bearing — see serverVarDeclLoadKind.
+  const _currentUserAmbient = !collectReactiveVarNames(fileAST).has("currentUser");
   const _patternCLoadDecls = _mhAllServerVars.filter(
-    (d) => serverVarDeclLoadKind(d) === "sql-load",
+    (d) => serverVarDeclLoadKind(d, _currentUserAmbient) === "sql-load",
   );
   const _hasPatternCLoad = _patternCLoadDecls.length > 0;
+
+  // §52 (S233) Fork-4 — the route-gate posture per server-authority var (Tier-1
+  // SELECT* instances + Tier-2 Pattern-C decls), and the session-infra need.
+  // The /__serverLoad data routes default-inherit the enclosing <page>/<program
+  // auth=> requirement (4a-floor) and honor a per-var auth= (4c).
+  const _serverLoadGateForVar = new Map<string, ServerLoadGate>();
+  for (const inst of _serverAuthorityInstances) {
+    _serverLoadGateForVar.set(inst.name as string, serverLoadGateMode(inst, authMiddlewareEntry));
+  }
+  for (const decl of _patternCLoadDecls) {
+    _serverLoadGateForVar.set(decl.name as string, serverLoadGateMode(decl, authMiddlewareEntry));
+  }
+  const _anyServerLoadGates = [..._serverLoadGateForVar.values()].some((g) => g.gate);
+  // A Fork-3 row-scope Pattern-C query reads the @currentUser ambient (active).
+  const _anyCurrentUserQuery = _currentUserAmbient && _patternCLoadDecls.some((d) => {
+    const q = (d as any).sqlNode?.query ?? (d as any).sqlNode?.body ?? "";
+    return typeof q === "string" && q.includes("@currentUser");
+  });
+  // Emit the §52 request-context authority infra (session store + enriched
+  // middleware userId/role + the @currentUser resolver + the 401 serverload-auth
+  // gate) whenever the app declares auth, OR a serverLoad route gates, OR a Fork-3
+  // query reads @currentUser. A non-auth / non-server-authority page emits none.
+  const _needsSessionInfra = !!authMiddlewareEntry || _anyServerLoadGates || _anyCurrentUserQuery;
 
   // §61.6 — an `<endpoint>` emits a server route-handler directly (bypassing the
   // function-route path), so the emission gate must fire on a file that has an
@@ -1293,18 +1345,72 @@ export function generateServerJs(
   }
   lines.push("");
 
-  // Session/auth middleware (Option C hybrid)
-  if (authMiddlewareEntry) {
-    const { loginRedirect, csrf, sessionExpiry } = authMiddlewareEntry;
-
-    lines.push("// --- Session middleware (compiler-generated) ---");
-    lines.push(`const _scrml_session_expiry = ${JSON.stringify(sessionExpiry)};`);
+  // §52 (S233) — request-context authority infra (server-load-request-context-
+  // authority). Emits the server-side session store, the enriched session
+  // middleware (now resolving userId + role, §20.5 impl-gap #2), the @currentUser
+  // ambient resolver, and the Fork-4 401 serverload-auth gate. Gated on
+  // `_needsSessionInfra` so a non-auth / non-server-authority page emits none of
+  // it (byte-identical). The store is process-global (one session store shared
+  // across every emitted server route, so a login on one route is visible to a
+  // serverLoad on another).
+  if (_needsSessionInfra) {
+    lines.push("// --- §52 Session store + request-context middleware (compiler-generated) ---");
+    lines.push("const _scrml_session_store = (globalThis.__scrml_session_store ??= new Map());");
     lines.push("");
     lines.push("function _scrml_session_middleware(req) {");
     lines.push("  const cookieHeader = req.headers.get('Cookie') || '';");
     lines.push("  const sessionId = cookieHeader.match(/scrml_sid=([^;]+)/)?.[1] || null;");
-    lines.push("  return { sessionId, isAuth: !!sessionId };");
+    lines.push("  const _rec = sessionId ? (_scrml_session_store.get(sessionId) || null) : null;");
+    // userId / role resolve from the session store keyed by sessionId. Absence is
+    // `null` (scrml `not`) — anon → null → SQL NULL → row-scope fails closed.
+    lines.push("  return {");
+    lines.push("    sessionId,");
+    lines.push("    isAuth: !!sessionId,");
+    lines.push("    userId: _rec ? (_rec.userId ?? null) : null,");
+    lines.push("    role: _rec ? (_rec.role ?? null) : null,");
+    lines.push("  };");
     lines.push("}");
+    lines.push("");
+    // §20.5 / §52 — the per-request `@currentUser` ambient identity cell. Reads
+    // resolve to `_scrml_currentUser` (this object) bound at handler scope entry.
+    lines.push("// --- §20.5 @currentUser ambient identity resolver ---");
+    lines.push("function _scrml_current_user(req) {");
+    lines.push("  const _s = _scrml_session_middleware(req);");
+    lines.push("  return { id: _s.userId, role: _s.role, isAuth: _s.isAuth };");
+    lines.push("}");
+    lines.push("");
+    // Fork-4 route gate for /__serverLoad data routes — 401 JSON (NOT a 302 page
+    // redirect; the client IIFE + SSR pre-render want a status). Optionally role-
+    // gated (4c → 403). Returns a Response to short-circuit, or null to admit.
+    lines.push("// --- §52 Fork-4 serverLoad route gate (401 JSON, optional role) ---");
+    lines.push("function _scrml_serverload_auth(req, requiredRole) {");
+    lines.push("  const _cu = _scrml_current_user(req);");
+    lines.push("  if (!_cu.isAuth) {");
+    lines.push("    return new Response(JSON.stringify({ error: \"unauthenticated\" }), {");
+    lines.push("      status: 401,");
+    lines.push("      headers: { \"Content-Type\": \"application/json\" },");
+    lines.push("    });");
+    lines.push("  }");
+    lines.push("  if (requiredRole && _cu.role !== requiredRole) {");
+    lines.push("    return new Response(JSON.stringify({ error: \"forbidden\" }), {");
+    lines.push("      status: 403,");
+    lines.push("      headers: { \"Content-Type\": \"application/json\" },");
+    lines.push("    });");
+    lines.push("  }");
+    lines.push("  return null;");
+    lines.push("}");
+    lines.push("");
+  }
+
+  // Session/auth middleware (Option C hybrid) — the page-navigation 302 gate, CSRF
+  // helpers, and session.destroy() route. The session MIDDLEWARE + store now live
+  // in the §52 infra block above (emitted whenever auth is configured, so the
+  // hoisted `_scrml_session_middleware` reference here always resolves).
+  if (authMiddlewareEntry) {
+    const { loginRedirect, csrf, sessionExpiry } = authMiddlewareEntry;
+
+    lines.push("// --- Session expiry (compiler-generated) ---");
+    lines.push(`const _scrml_session_expiry = ${JSON.stringify(sessionExpiry)};`);
     lines.push("");
 
     lines.push("// --- Auth check middleware ---");
@@ -2874,6 +2980,17 @@ export function generateServerJs(
     // recogniser only accepts an opener `table=STRING`; there is no bound param.)
     lines.push(`// --- §52.6.1 server-authority load route for < ${varName} > (SELECT * FROM ${table}) ---`);
     lines.push(`async function ${slHandler}(_scrml_req) {`);
+    // §52 (S233) Fork-4 route gate — close the anonymous-POST hole. The page
+    // redirect does NOT cover /__serverLoad (a separate route), so the data
+    // route enforces the auth requirement itself (401 JSON), default-inheriting
+    // the enclosing <page>/<program auth=> + honoring a per-var auth= (4c).
+    {
+      const _slGate = _serverLoadGateForVar.get(varName);
+      if (_slGate && _slGate.gate) {
+        lines.push(`  const _scrml_authResult = _scrml_serverload_auth(_scrml_req, ${JSON.stringify(_slGate.role)});`);
+        lines.push(`  if (_scrml_authResult) return _scrml_authResult;`);
+      }
+    }
     // §14.8.9 / §52.8 — the SSR `/__serverLoad` prerender payload is a CLIENT
     // egress and SHALL apply the same protected-column redaction (else a
     // protected column ships in the first-paint payload, the W-AUTH-002 leak).
@@ -2919,8 +3036,25 @@ export function generateServerJs(
     const sqlExpr = (serverRewriteEmitted(
       emitLogicNode(sqlNode, { boundary: "server" }),
     ) ?? "").replace(/;\s*$/, "");
+    // §52 (S233) Fork-3 — the lowered query references the @currentUser ambient
+    // (`_scrml_currentUser`) iff it carries a `${@currentUser.…}` row-scope filter.
+    const _slUsesCurrentUser = sqlExpr.includes("_scrml_currentUser");
     lines.push(`// --- §52.6.5 Pattern C server-cell load route for < ${varName} > (inline ?{}) ---`);
     lines.push(`async function ${slHandler}(_scrml_req) {`);
+    // §52 (S233) Fork-4 route gate — 401 JSON, default-inherit + per-var auth=.
+    {
+      const _slGate = _serverLoadGateForVar.get(varName);
+      if (_slGate && _slGate.gate) {
+        lines.push(`  const _scrml_authResult = _scrml_serverload_auth(_scrml_req, ${JSON.stringify(_slGate.role)});`);
+        lines.push(`  if (_scrml_authResult) return _scrml_authResult;`);
+      }
+    }
+    // §52 (S233) Fork-3 row-scope — bind the per-request @currentUser identity so
+    // `WHERE user_id = ${@currentUser.id}` resolves server-side under the request.
+    // Anon → @currentUser.id is `null` → SQL NULL → zero rows (fails closed).
+    if (_slUsesCurrentUser) {
+      lines.push(`  const _scrml_currentUser = _scrml_current_user(_scrml_req);`);
+    }
     // sqlExpr already begins with `await` (the §44 lowering emits
     // `(await _scrml_sql`…`)[0] ?? null` for `.get()`, `await _scrml_sql`…`` for
     // `.all()`); do NOT double-await.
@@ -2967,9 +3101,23 @@ export function generateServerJs(
     if (_hasSsrSeed) {
       const _ssrHtmlBase = _pathBasename(filePath, ".scrml");
       const _ssrServedPath = computeServedPath(filePath, (fileAST as any)._outputBaseDir);
+      // §52 (S233) Fork-3 — a Pattern-C seed query reads @currentUser iff it
+      // carries a row-scope filter. The SSR pre-render MUST run that query UNDER
+      // the request (else an unscoped run bakes cross-user rows into the first
+      // paint — the W-SSR-PRERENDER-UNSCOPED severity, §52.8 / dive §7).
+      const _ssrUsesCurrentUser = _currentUserAmbient && _ssrSeedPatternC.some((d) => {
+        const q = (d as any).sqlNode?.query ?? (d as any).sqlNode?.body ?? "";
+        return typeof q === "string" && q.includes("@currentUser");
+      });
       lines.push(`// --- §52.8 SSR pre-render: inline server-authoritative state seed (B-substrate) ---`);
       lines.push(`async function _scrml_ssr_compose_handler(_scrml_req) {`);
       lines.push(`  const _scrml_ssr_state = {};`);
+      // §52 (S233) Fork-3 — bind the per-request @currentUser so the seed queries
+      // below run row-scoped under THIS viewer (each first paint contains only
+      // their rows). Anon → @currentUser.id is null → SQL NULL → zero rows.
+      if (_ssrUsesCurrentUser) {
+        lines.push(`  const _scrml_currentUser = _scrml_current_user(_scrml_req);`);
+      }
       // Tier-1 instances — SELECT * FROM <table> (+ §14.8.9 tag/redact when protected).
       for (const inst of _ssrSeedTier1) {
         const _vn = inst.name as string;
