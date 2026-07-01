@@ -102,6 +102,10 @@
 57. [Wire Format](#57-wire-format)
 58. [Build Story](#58-build-story)
 59. [Value-Native Maps](#59-value-native-maps)
+60. [Typed External API — `<api>`](#60-typed-external-api--api)
+61. [Typed Inbound Endpoint — `<endpoint>`](#61-typed-inbound-endpoint--endpoint)
+62. [Language Versioning](#62-language-versioning--the-scrml-language-semver-axis)
+63. [Deprecation Lifecycle](#63-deprecation-lifecycle--the-stage-machine)
 
 ---
 
@@ -372,7 +376,7 @@ The opener `<db>` resolves against the unified state-type registry at Name Resol
     <p>Content</>
 </>
 ```
-A space (or tab, or newline) between `<` and the identifier is the **deprecated** opener form: it still compiles but emits W-WHITESPACE-001 (§15.15.5) and becomes E-WHITESPACE-001 in P3. Whitespace does NOT affect classification — `db` resolves as a state type via the registry either way. Migrate to `<db>`.
+A space (or tab, or newline) between `<` and the identifier is the **deprecated** opener form: it still compiles but emits W-WHITESPACE-001 (§15.15.5) and becomes E-WHITESPACE-001 only at a future MAJOR language-version event (unscheduled per §63.7). Whitespace does NOT affect classification — `db` resolves as a state type via the registry either way. Migrate to `<db>`.
 
 **Worked example — name collision:**
 ```scrml
@@ -386,12 +390,12 @@ A space (or tab, or newline) between `<` and the identifier is the **deprecated*
 
 **Canonical form — no-space (§15.15.5 / §15.15.6):**
 
-> The canonical opener is no-space: `<identifier>` for HTML elements, component references, state-type instantiations, and scrml structural elements alike. Name Resolution (NR, Stage 3.05) resolves the kind against the unified state-type registry plus the naming convention — a lowercase name resolves to an HTML element or built-in lifecycle type, a PascalCase name to a component or a registered state type. Whitespace after `<` is the deprecated v0 form (W-WHITESPACE-001 → E-WHITESPACE-001 in P3); the block splitter records it for diagnostics, but it is NOT a classification signal.
+> The canonical opener is no-space: `<identifier>` for HTML elements, component references, state-type instantiations, and scrml structural elements alike. Name Resolution (NR, Stage 3.05) resolves the kind against the unified state-type registry plus the naming convention — a lowercase name resolves to an HTML element or built-in lifecycle type, a PascalCase name to a component or a registered state type. Whitespace after `<` is the deprecated v0 form (W-WHITESPACE-001 → E-WHITESPACE-001 only at a future MAJOR language-version event (unscheduled per §63.7)); the block splitter records it for diagnostics, but it is NOT a classification signal.
 
 **Migration path:**
 
 - P1: both forms (`<state-type>` and `< state-type>`) compile. The space-after-`<` form emits W-WHITESPACE-001 (deprecation warning).
-- P3 (planned): the space-after-`<` form is removed; uniform `<identifier>` becomes the only legal opener (E-WHITESPACE-001).
+- Removal (a future MAJOR language-version event; unscheduled per §63.7): the space-after-`<` form is removed; uniform `<identifier>` becomes the only legal opener (E-WHITESPACE-001).
 - The compiler resolves `<identifier>` against the unified state-type registry (§15.X) at NR (Stage 3.05). Casing is irrelevant to resolution; convention is PascalCase for components and lowercase for HTML elements / built-in scrml lifecycle types.
 
 This rule SHALL be applied at the block-splitting stage, before any tokenization of attributes or content. The whitespace-after-`<` annotation is preserved on each block (`Block.openerHadSpaceAfterLt: boolean`) for downstream diagnostics. NR uses registry lookup, not whitespace, to determine resolved kind.
@@ -583,7 +587,7 @@ Suppose a macro `STATE(name)` expands to `< ${name}>`. If `name` is `db`, the ex
 
 **Added:** 2026-03-25 — resolves Phase 0 Design Review Issue 1.2. **Amended (state-as-primary unification, Phase P1, 2026-04-30):** whitespace after `<` no longer classifies the opener (§4.3); a newline before the identifier is the deprecated whitespace opener form, not a state-vs-HTML signal.
 
-A newline between `<` and an identifier is whitespace per §4.3: it produces the **deprecated** opener form (W-WHITESPACE-001 → E-WHITESPACE-001 in P3), not a different block type. Name Resolution (§15.15.6) classifies the opener by the identifier (registry + naming convention), regardless of whitespace. There is still no multiline HTML-element *opening* syntax — `<` followed by a newline (or any whitespace) before the identifier is the deprecated form, to be migrated to `<identifier>`.
+A newline between `<` and an identifier is whitespace per §4.3: it produces the **deprecated** opener form (W-WHITESPACE-001 → E-WHITESPACE-001 only at a future MAJOR language-version event (unscheduled per §63.7)), not a different block type. Name Resolution (§15.15.6) classifies the opener by the identifier (registry + naming convention), regardless of whitespace. There is still no multiline HTML-element *opening* syntax — `<` followed by a newline (or any whitespace) before the identifier is the deprecated form, to be migrated to `<identifier>`.
 
 **Normative statements:**
 
@@ -8726,7 +8730,7 @@ const card = <div class="card">
 ```
 
 - Usage syntax is identical to HTML element syntax.
-- **Amended (Phase P1, 2026-04-30):** the first-character case is no longer load-bearing. The block splitter accepts both `<identifier>` and `< identifier>` openers (the latter emits W-WHITESPACE-001 in P1; planned-error in P3). Resolution against the unified state-type registry (§15.X) is performed at NR (Stage 3.05) and is what determines the `resolvedKind` (HTML built-in vs scrml lifecycle vs user state-type vs component vs unknown). Casing is advisory, not normative.
+- **Amended (Phase P1, 2026-04-30):** the first-character case is no longer load-bearing. The block splitter accepts both `<identifier>` and `< identifier>` openers (the latter emits W-WHITESPACE-001; the reserved-error E-WHITESPACE-001 is unscheduled per §63.7). Resolution against the unified state-type registry (§15.X) is performed at NR (Stage 3.05) and is what determines the `resolvedKind` (HTML built-in vs scrml lifecycle vs user state-type vs component vs unknown). Casing is advisory, not normative.
 - Caller-provided children flow to the `${...}` unnamed children spread inside the component body (Section 16.3).
 
 ### 15.9 Inline Prop Interpolation
@@ -9763,7 +9767,7 @@ W-CASE-001 does NOT fire for:
 
 The block splitter's `Block.openerHadSpaceAfterLt: boolean` annotation drives **W-WHITESPACE-001**. NR (or BS, depending on implementation) emits the warning when an opener uses any whitespace between `<` and the identifier. The diagnostic recommends migration to the no-space canonical form via `scrml-migrate` (planned tooling).
 
-Both forms compile in P1 and P2. P3 promotes the warning to **E-WHITESPACE-001** (hard error).
+Both forms compile today. The warning is reserved to promote to **E-WHITESPACE-001** (hard error) only at a future MAJOR language-version event (unscheduled per §63.7).
 
 #### 15.15.6 NameRes Authority (Post-P3-FOLLOW)
 
@@ -10483,7 +10487,7 @@ The slight verbosity of this form is accepted for clarity. Keeping iteration out
 
 is **`E-CONTROL-FLOW-IN-MARKUP`** (§34). Such a construct is not recognised as logic — the §40.8 default-logic auto-lift fires only at `<program>`/`<page>`/`<channel>` direct-child roots, never inside nested markup — so without this diagnostic it would ship as raw `for(){}` text (interpolations and all) into the DOM. The compiler rejects it and recovers by dropping the raw-text emission (it ships neither the control-flow source nor its inner `${...}` interpolations). The fix is the canonical `${ for/lift }` form above (or the Tier-1 `<each in=@items>` form, §17.7).
 
-**Promotion to Tier 1.** The mechanical promotion path is `bun scrml promote --each <file>[:line]` (§56.10, Landing 3 of the S130 HU-1 5-landing arc — PENDING). The lift rewrites `${ for (let x of @items) { lift <markup/> } }` → `<each in=@items><markup/></each>`; the per-item template carries forward verbatim; `:`-shorthand body application (§4.14) is automatic where the per-item template is single-expression-shaped (e.g. `<li>${item.name}</>` → `<li : @.name>`). Both Tier 0 and Tier 1 remain valid after promotion; the lift is additive, not deprecating. The sunset path (info → warning → error → parser-strip) mirrors the `<machine>` deprecation precedent — gradual; no hard v1.0 deadline. (Cross-ref §17.7 for the Tier-1 canonical form.)
+**Promotion to Tier 1.** The mechanical promotion path is `bun scrml promote --each <file>[:line]` (§56.10, Landing 3 of the S130 HU-1 5-landing arc — PENDING). The lift rewrites `${ for (let x of @items) { lift <markup/> } }` → `<each in=@items><markup/></each>`; the per-item template carries forward verbatim; `:`-shorthand body application (§4.14) is automatic where the per-item template is single-expression-shaped (e.g. `<li>${item.name}</>` → `<li : @.name>`). Both Tier 0 and Tier 1 remain valid after promotion; the lift is additive, not deprecating. Both tiers are PERMANENT — the Tier-0 form is never removed; `W-EACH-PROMOTABLE` is a forever-informational promotion nudge, NOT a deprecation (§63.8). No sunset, no removal deadline. (Cross-ref §17.7 for the Tier-1 canonical form.)
 
 ### 17.4a `else` Block on `for/lift` — Empty State Rendering
 
@@ -10865,7 +10869,7 @@ The iteration Tier ladder is a sibling of the §17.0 case-analysis Tier ladder. 
 | **Tier 0 — §17.4** | `${ for/lift }` logic-context iteration | Imperative; reads as JS | Stays valid; `W-EACH-PROMOTABLE` info-lint (§34) nudges promotion |
 | **Tier 1 — this section** | `<each in=@items>...</each>` (collection) and `<each of=N>...</each>` (count) | Structural; reads as markup tree | Canonical; composes with `<empty>`, `:`-shorthand body, `@.`, `as name`, inferred `key=` |
 
-**The promotion moment is the mechanical lift.** A Tier-0 `${ for (let x of @items) { lift <markup/> } }` site promotes to Tier 1 via `bun scrml promote --each <file>[:line]` (§56.10) — the per-item template carries forward, the wrapper changes from `${...lift...}` to `<each in=@items>...</each>`. Both tiers remain valid after promotion; the lift is additive, not deprecating (the corpus 113-site migration is gradual per the §17.4 `W-EACH-PROMOTABLE` sunset path).
+**The promotion moment is the mechanical lift.** A Tier-0 `${ for (let x of @items) { lift <markup/> } }` site promotes to Tier 1 via `bun scrml promote --each <file>[:line]` (§56.10) — the per-item template carries forward, the wrapper changes from `${...lift...}` to `<each in=@items>...</each>`. Both tiers remain valid after promotion; the lift is additive, not deprecating (the corpus 113-site migration is gradual; `W-EACH-PROMOTABLE` is a permanent promotion nudge, not a deprecation (§63.8)).
 
 **Pillar alignment.**
 - **Pillar 1 (markup-as-value):** iteration joins `<match>` / `<engine>` / `<channel>` / `<schema>` as a markup-tree structural element — the per-item template is itself markup, not a logic-context lift.
@@ -13287,7 +13291,7 @@ function loadProfile(id: number) {
 1. `F` is itself `!`-typed (caller propagates the failure structurally), OR
 2. `F`'s call to `G` occurs inside a `<errorBoundary>` markup region (the boundary catches the failure).
 
-If neither condition holds, the compiler emits **W-CPS-NEEDS-FAILABLE** (warning, deprecation cycle stage 1, v0.next) at the call site. The warning is informational; existing code compiles + runs unchanged. In **v0.next+1** (= v0.3.0), the warning is promoted to **E-CPS-NEEDS-FAILABLE** (error). Per S72 user-direction (`user-voice-scrml.md` 2026-05-08), the migration codemod is deferred — the two-stage cycle is sufficient given current adopter state.
+If neither condition holds, the compiler emits **W-CPS-NEEDS-FAILABLE** (warning, deprecation cycle stage 1, v0.next) at the call site. The warning is informational; existing code compiles + runs unchanged. The warning is reserved to promote to **E-CPS-NEEDS-FAILABLE** (error) only at a future MAJOR language-version event (unscheduled per §63.7). Per S72 user-direction (`user-voice-scrml.md` 2026-05-08), the migration codemod is deferred — the two-stage cycle is sufficient given current adopter state.
 
 **Worked example — multi-batch CPS with `<errorBoundary>`.**
 
@@ -13830,7 +13834,7 @@ The following error codes are introduced by this section. They SHALL be added to
 | E-RENDER-NOT-ENUM | §19.15.3 | `<render of=X>` — X's static type resolves to a non-enum (the render-expression is enum-scoped) | Error |
 | E-TEST-006 | §19.12.7 | `~{}` test block: server-function call inside an active `test-bind` context references a server function with no `test-bind` declaration in scope (fail-fast over silent passthrough; design-insight 22, S74). | Test |
 | W-CPS-NEEDS-FAILABLE | §19.9.5 | Bare call to CPS-implicit-`!` function from non-`!` / non-boundary caller (cycle 1 of A9 Ext 4 deprecation; v0.next). | Warning |
-| E-CPS-NEEDS-FAILABLE | §19.9.5 | Same condition; cycle 2 (v0.next+1). Reserved; not yet emitted. | Error |
+| E-CPS-NEEDS-FAILABLE | §19.9.5 | Same condition; reserved-E, unscheduled per §63.7. Not yet emitted. | Error |
 | E-CPS-NONIDEM-NO-STORAGE | §19.9.6 | Non-monotone CPS batch in scope of `<program>` with `idempotency-store="none"` OR no resolvable backend (default-resolution falls through). (A9 Ext 5; S76.) | Error |
 | E-CPS-IDEMPOTENCY-STORE-DRIVER-MISMATCH | §39.2.6 | `idempotency-store="postgres" \| "sqlite" \| "mysql"` does not match the closest-ancestor `<program db=>` driver. (A9 Ext 5; S76.) | Error |
 | E-CPS-IDEMPOTENCY-STORE-MISSING-IMPORT | §39.2.6 | `idempotency-store="redis"` set but `scrml:redis` not in module graph. (A9 Ext 5; S76.) | Error |
@@ -15718,7 +15722,7 @@ host-import = "disabled"          # default for user project manifests
 - The `"self-host-only"` value is the canonical bootstrap setting. Future SPEC extensions may add `"trusted-allowlist"` or per-package permissions; v1 ratifies only `"disabled"` and `"self-host-only"`.
 - Any other manifest value SHALL be a compile error (`E-MANIFEST-001` — invalid `host-import` value; only `"disabled"` and `"self-host-only"` are recognized in v1). Note: `E-MANIFEST-001` is the manifest-validation code; not registered here — manifest validation is owned by the project-config subsystem and surfaces its own error catalog.
 
-**See also.** `scrml.toml` also carries the `[story]` table (§58.4) — the project's build-story declarations. The `[story]` table is a sibling of `[capabilities]`; like `[capabilities]`, it is read at compile-time before any parse begins. See §58 (Build Story).
+**See also.** `scrml.toml` also carries the `[story]` table (§58.4) — the project's build-story declarations. The `[story]` table is a sibling of `[capabilities]`; like `[capabilities]`, it is read at compile-time before any parse begins. See §58 (Build Story). `scrml.toml` also carries the `[language]` table (§62.6) — the adopter's language-version pin (`version = "1.0"`); a third sibling of `[capabilities]` / `[story]`, read at the same pre-parse point. See §62 (Language Versioning).
 
 ---
 
@@ -17514,8 +17518,8 @@ Rationale: the unified purity contract preserves the `<machine>` subsystem's rep
 | W-TAILWIND-001 | §26.3, §26.5 | Class name in `class="..."` uses Tailwind syntax that the embedded engine does not handle (deferred prefix like `peer-hover:`, custom theme prefix, etc.). The class produces no CSS. SPEC-ISSUE-012. | Warning |
 | W-TAILWIND-UNRECOGNIZED-CLASS | §26.5, §34 | A class-name token inside a `class="..."` attribute does NOT resolve via the embedded Tailwind utility registry. The class produces no CSS. Three legitimate causes: (a) the class is misspelled (`flexx` vs `flex`); (b) the class is a Tailwind arbitrary-value class whose particular utility prefix is not yet supported by the embedded engine (`grid-cols-[auto_1fr_auto]`); (c) the class is a custom user-defined CSS class declared elsewhere (acknowledged false-positive at floor level). Workaround for arbitrary-value classes: drop a `#{}` CSS shim block. **FLOOR fix** (S108 dogfood Bug 1) — emits the lint so adopters surface compile-time friction instead of silent runtime layout breakage; the full fix (actually emitting CSS for arbitrary-value classes plus a safelist mechanism to distinguish custom user classes from misspellings) is deferred. **Fires:** emitted by the lint pre-pass at `compiler/src/tailwind-classes.js` (`findUnrecognizedClasses`) wired through `compiler/src/api.js` ahead of Stage 2 (BS). Suppress per-project via `compilerSettings.lintTailwindUnrecognizedClass = "off"` (cross-ref §28). | Info |
 | W-CASE-001 | §15.15.4 | A user-declared state-type or component name is lowercase and shadows a built-in HTML element name. Resolution still succeeds (the user declaration takes precedence). Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1.E):** emitted by NR (Stage 3.05) — see `compiler/src/name-resolver.ts`. | Warning |
-| W-WHITESPACE-001 | §15.15.5 | A `< identifier>` opener uses whitespace between `<` and the identifier. The canonical form is no-space (`<identifier>`); the with-space form is deprecated and becomes E-WHITESPACE-001 in P3. Migration via `scrml-migrate`. Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1.E):** emitted by NR (Stage 3.05) — see `compiler/src/name-resolver.ts`. | Warning |
-| W-DEPRECATED-001 | §51.3.2 | The `<machine>` keyword is deprecated; use the canonical `<engine>` keyword. Both forms continue to compile in P1; `<machine>` becomes E-DEPRECATED-001 in P3. Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1):** emitted by TAB (`compiler/src/ast-builder.js` engine-decl path) — the keyword distinction is decided at TAB time, NR is not required for this diagnostic. | Warning |
+| W-WHITESPACE-001 | §15.15.5 | A `< identifier>` opener uses whitespace between `<` and the identifier. The canonical form is no-space (`<identifier>`); the with-space form is deprecated and becomes E-WHITESPACE-001 only at a future MAJOR language-version event (unscheduled per §63.7). Migration via `scrml-migrate`. Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1.E):** emitted by NR (Stage 3.05) — see `compiler/src/name-resolver.ts`. | Warning |
+| W-DEPRECATED-001 | §51.3.2 | The `<machine>` keyword is deprecated; use the canonical `<engine>` keyword. Both forms continue to compile in P1; `<machine>` becomes E-DEPRECATED-001 only at a future MAJOR language-version event (unscheduled per §63.7). Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1):** emitted by TAB (`compiler/src/ast-builder.js` engine-decl path) — the keyword distinction is decided at TAB time, NR is not required for this diagnostic. | Warning |
 | W-DEPRECATED-SERVER-MODIFIER | §12.2, §52.10 | The `server` modifier on a function declaration (`server function name() { ... }`) is redundant — the function body's escalation triggers (§12.2 T1/T2/T3/T7) and/or the reserved-name `handle()` recognition (T8) and/or caller-context propagation (T5) already classify the function as server-side. The keyword is deprecated as of v0.next per Insight 26 (2026-05-08); remove from new code. The keyword fires this warning ONLY when at least one other trigger would escalate the function regardless. The keyword on its own (no other trigger, no caller-context evidence) does NOT fire this warning during the deprecation window — that case preserves in-progress development. **Fires:** emitted by RI (`compiler/src/route-inference.ts` Step 5d, D5) for any explicitly-`server`-annotated function whose escalation reasons include at least one non-explicit-annotation entry (T1/T2/T3 body content, T7 channel-cell-write/broadcast, or T8 the reserved `handle()` name — added 2026-06-10, change-id `server-keyword-eliminate-2026-06-10` D2), OR whose call-graph caller set is non-empty and consists entirely of server-classified callers. The `<var server>` cell-authority attribute (§52.4, §6.1.5) is NOT affected. | Warning |
 | E-DEPRECATED-SERVER-MODIFIER | §12.2, §52.10 | The `server` modifier on a function declaration is removed. Use a plain `function` declaration; route inference (§12.2) will classify the function based on its body content and call graph. Deprecation cycle endpoint: this code activates after the W-DEPRECATED-SERVER-MODIFIER deprecation window, when the parser stops accepting `server function` syntax. Mirrors the `<machine>` → `<engine>` deprecation cycle (W-DEPRECATED-001 → E-DEPRECATED-001). | Error |
 | W-DEAD-FUNCTION | §12.2 | A function is declared but called from neither a server-classified context nor a client-classified context, is not exported, is not server-annotated, and is not referenced from markup. The function will be tree-shaken from the output. Remove the declaration if intended dead, or wire it up to a caller. RI does not yet track all markup reference patterns; if the diagnostic is a false positive, exporting the function or adding an explicit caller suppresses it. **Fires:** emitted by RI (`compiler/src/route-inference.ts` Step 5d, D4) at the function's declaration site. Added 2026-05-08 (Insight 26 Batch 1) as the in-vacuum complement to caller-context propagation (Trigger 5). | Warning |
@@ -17620,7 +17624,7 @@ Rationale: the unified purity contract preserves the `<machine>` subsystem's rep
 | E-RENDER-NO-CLAUSE | §19.15.3 | `<render of=X>` — a reachable variant of X's held enum has no `renders` clause; reuses the §19.6.6 E-ERROR-005 per-variant exhaustiveness logic at the render-expression fire site (S196) | Error |
 | E-RENDER-NOT-ENUM | §19.15.3 | `<render of=X>` — X's static type resolves to a non-enum; the render-expression is enum-scoped (S196) | Error |
 | W-CPS-NEEDS-FAILABLE | §19.9.5 | Bare call to a CPS-eligible (implicitly-`!`) function from a non-`!`, non-`<errorBoundary>`-wrapped caller. Cycle 1 of the deprecation cycle (v0.next). Resolution: wrap call site in `<errorBoundary>`, mark caller `!`, or match on result. (Per A9 Ext 4, S72 body-split soundness verdict 2026-05-08.) | Warning |
-| E-CPS-NEEDS-FAILABLE | §19.9.5 | Same condition as W-CPS-NEEDS-FAILABLE, promoted to error in cycle 2 (v0.next+1 = v0.3.0). Reserved; not yet emitted. | Error |
+| E-CPS-NEEDS-FAILABLE | §19.9.5 | Same condition as W-CPS-NEEDS-FAILABLE, reserved to promote to error only at a future MAJOR (unscheduled per §63.7). Not yet emitted. | Error |
 | E-CPS-NONIDEM-NO-STORAGE | §19.9.6 | Non-monotone CPS batch in scope of `<program>` with `idempotency-store="none"` OR no resolvable backend (default-resolution falls through). Resolution: declare `idempotency-store=` on the closest-ancestor `<program>` (matching the `db=` driver), import `scrml:redis`, or annotate the function with `.idempotent()` if the batch is monotone-by-construction. (Per A9 Ext 5, S76 dispatch overlay 2026-05-09.) | Error |
 | E-CPS-IDEMPOTENCY-STORE-DRIVER-MISMATCH | §39.2.6 | `idempotency-store="postgres" \| "sqlite" \| "mysql"` does not match the closest-ancestor `<program db=>` driver. Resolution: change `idempotency-store=` to match `db=`, or use `"auto"` for compiler-default resolution. (Per A9 Ext 5, S76 dispatch overlay 2026-05-09.) | Error |
 | E-CPS-IDEMPOTENCY-STORE-MISSING-IMPORT | §39.2.6 | `idempotency-store="redis"` set but `scrml:redis` not in module graph. Resolution: `import { ... } from 'scrml:redis'` somewhere in the module graph, or change `idempotency-store=` to a SQL backend matching `db=`. (Per A9 Ext 5, S76 dispatch overlay 2026-05-09.) | Error |
@@ -18067,7 +18071,7 @@ Rationale: the unified purity contract preserves the `<machine>` subsystem's rep
 | E-PURE-DEPRECATED | §33, §48.11 | The `pure` modifier is rejected. Deprecation cycle endpoint — activates after the W-PURE-DEPRECATED deprecation window when the parser stops accepting the `pure` modifier and adopters MUST migrate `pure function` / `pure fn` to `fn` (and `pure server function` to `server fn`). Mirrors the `<machine>`→`<engine>` (W-DEPRECATED-001 → E-DEPRECATED-001) and `server function`→`function` (W-DEPRECATED-SERVER-MODIFIER → E-DEPRECATED-SERVER-MODIFIER) deprecation cycles. RESERVED — not yet emitted (the warning is the active stage). (Added 2026-06-09, deprecate-pure-modifier.) | Error |
 | E-CONST-AT-DEPRECATED | §6.6.1 | The legacy `const @name = expr` derived-cell form is rejected. Deprecation cycle endpoint — activates after the W-CONST-AT-DEPRECATED deprecation window when the parser stops accepting the `const @name` form and adopters MUST migrate to `const <name> = expr`. Mirrors the `pure function`→`fn` (W-PURE-DEPRECATED → E-PURE-DEPRECATED) and `server function`→`function` (W-DEPRECATED-SERVER-MODIFIER → E-DEPRECATED-SERVER-MODIFIER) deprecation cycles. RESERVED — not yet emitted (the warning is the active stage). (Added 2026-06-13, sym-cell-registration-completeness.) | Error |
 | E-STATE-BLOCK-BARE-WRITE-DECL | §38.4, §6 | A bare `@name = init` directly in a `<db>` / `<state>` STATE-block markup body is rejected. Deprecation cycle endpoint — activates after the W-STATE-BLOCK-BARE-WRITE-DECL window when adopters MUST move state-block cell declarations into a `${...}` logic block using the structural form (`${ <name> = init }`). Mirrors the Unit CC `E-WRITE-NOT-IN-LOGIC-CONTEXT` shape for the state-block locus. RESERVED — not yet emitted (the warning is the active stage). (Added 2026-06-13, sym-cell-registration-completeness.) | Error |
-| E-WHITESPACE-001 | §15.15.5 | A `< identifier>` opener with whitespace between `<` and the identifier. Deprecation cycle endpoint — activates after the W-WHITESPACE-001 deprecation window (P3 of state-as-primary unification, 2026-04-30) when the parser stops accepting the space-after-`<` form. (Catalog addition S84 Wave 2 #5; spec body at §15.15.5 lines 372, 8418, W-WHITESPACE-001 row at line 14431.) | Error |
+| E-WHITESPACE-001 | §15.15.5 | A `< identifier>` opener with whitespace between `<` and the identifier. Deprecation cycle endpoint — activates after the W-WHITESPACE-001 deprecation window (reclassified unscheduled per §63.7; formerly labeled P3, 2026-04-30) when the parser stops accepting the space-after-`<` form. (Catalog addition S84 Wave 2 #5; spec body at §15.15.5 lines 372, 8418, W-WHITESPACE-001 row at line 14431.) | Error |
 | E-ENGINE-006 | §51.5 | Machine rebinding: an attempt to shadow a machine-bound variable with a different machine. A given `@variable` may be bound by at most one machine in a file scope. (Catalog addition S84 Wave 2 #5; full prose at §51.5 line 22245.) | Error |
 | E-ENGINE-007 | §51.5 | Assignment to `event.from` or `event.to` inside a transition effect block. `event` is read-only — it carries the from/to context of the firing transition for inspection only. (Catalog addition S84 Wave 2 #5; full prose at §51.5 line 22530.) | Error |
 | E-ENGINE-008 | §51.5 | Reference to `event` outside an effect block. `event` is in scope only inside the body of a transition effect handler; outside, the identifier is undeclared. (Catalog addition S84 Wave 2 #5; full prose at §51.5 line 22533.) | Error |
@@ -23266,6 +23270,8 @@ Encoded names do NOT apply to:
 
 **Cross-reference — `chunks.json` `compiler` identity field (Q-OPEN-4, S92).** Added 2026-05-14. The per-route artifact splitter (§40.9.7; PIPELINE.md Stage 8 sub-emit) writes a `chunks.json` manifest alongside the per-(entry-point, role, tier) chunk JS files. The manifest carries a top-level `compiler` field whose value SHALL be the string `"scrml-" + V`, where `V` is the literal value of the `version` field in the scrml `package.json` at compile time (e.g. `"scrml-0.3.0-alpha.0"`). The field is **informational only** — adopter tooling (debug inspectors, future Approach B telemetry-PGO surfaces, deployment provenance pipelines) MAY read it to identify which scrml version produced the manifest. The compiler version SHALL NOT be a content-addressing hash input (§40.9.8 normative — all content-address inputs are deterministic-from-source-only); two chunks produced by different scrml versions but with identical post-canonicalization payload bytes SHALL produce identical FNV-1a hashes. If `package.json` cannot be read, cannot be parsed, or has no string `version` field, codegen SHALL emit the sentinel `"scrml-unknown"` rather than failing the build — the field is informational and its absence MUST NOT block artifact emission. Adopter tooling SHOULD treat `"scrml-unknown"` as a "version not determinable from this build" signal.
 
+**Cross-reference — `chunks.json` `language` contract field (§62.4, S234).** Added 2026-07-01 (Nominal / spec-ahead — the emit lands with the D1 impl wave). Beside the `compiler` field, the manifest carries a `language` field whose value SHALL be the LANGUAGE version this build conforms to (the frozen-contract axis, §62), e.g. `"language": "1.0-rc"`. Whereas `compiler` = "scrml-" + the `package.json` `version` answers *which implementation produced this build*, `language` answers *which frozen contract it conforms to* — the two axes are independent (§62.1). It is single-sourced from the build's resolved language version (the highest fully-conformant version the compiler passes the suite for, OR the source's `scrml.toml [language] version` pin, §62.6, whichever the build resolves to). Like `compiler`, it is **informational / provenance only** and SHALL NOT be a content-addressing hash input (§40.9.8). Two implementations at different `compiler` strings MAY carry the same `language` — the multi-implementation invariant made observable (§62.1). This is Go's two-axis manifest applied exactly (`toolchain` + `go`).
+
 **S118 amendment — per-`<program>` build stories (§58).** Under per-`<program>` build stories, the `compiler` field is recorded **per chunk-set**, not as a single app-wide value: a worker or sidecar chunk set compiled under a non-default build story (a nested `<program story=>` per §58.8) carries the identity of *that* build story rather than the project default. The field remains **informational** and remains **NOT a content-addressing hash input** — §58.7 normatively keeps compiler identity in the build-story layer, not the §47 payload-hash layer. See §58.7 ("Relationship to §47 content-addressing").
 
 ---
@@ -26666,8 +26672,8 @@ cross-check) remains authoritative for those topics. Where §51.0 (this section)
 the legacy content disagree on surface syntax, §51.0 is authoritative for new code:
 
 - **`<engine>` is canonical.** `<machine>` is deprecated; emits `W-DEPRECATED-001` (§34).
-  In v0.next P1 both keywords compile; P3 promotes `W-DEPRECATED-001` to
-  `E-DEPRECATED-001`.
+  Both keywords compile today; `W-DEPRECATED-001` is reserved to promote to
+  `E-DEPRECATED-001` only at a future MAJOR language-version event (unscheduled per §63.7).
 - **`rule=` on state-children is the v0.next surface for transitions.** The legacy
   `transitions {}` block (§51.2) and the `<machine name=... for=...>` named override
   graph (§51.3) remain available for projects already using them and for the
@@ -27880,7 +27886,7 @@ in S53 by `ast-shape-rename`).
 
 ```
 W-DEPRECATED-001: `<machine>` keyword is deprecated; use `<engine>` instead.
-                  Both forms compile in P1; `<machine>` becomes E-DEPRECATED-001 in P3.
+                  Both forms compile in P1; `<machine>` becomes E-DEPRECATED-001 only at a future MAJOR language-version event (unscheduled per §63.7).
                   Migration: rename the keyword (the rest of the declaration is unchanged).
 ```
 
@@ -31771,7 +31777,7 @@ substate-decl      ::= '<' SubstateName attribute-list? '>' substate-body '</>'
 substate-body      ::= (field-decl | substate-decl | transition-decl)*
 ```
 
-**Note on opener syntax (§4.3):** The canonical substate opener is no-space `<SubstateName>`; Name Resolution resolves the PascalCase name to the substate via the unified state-type registry (§15.15.6). The leading-whitespace form `< SubstateName>` is the deprecated v0 opener (W-WHITESPACE-001 → E-WHITESPACE-001 in P3) — whitespace is not a classification signal.
+**Note on opener syntax (§4.3):** The canonical substate opener is no-space `<SubstateName>`; Name Resolution resolves the PascalCase name to the substate via the unified state-type registry (§15.15.6). The leading-whitespace form `< SubstateName>` is the deprecated v0 opener (W-WHITESPACE-001 → E-WHITESPACE-001 only at a future MAJOR language-version event (unscheduled per §63.7)) — whitespace is not a classification signal.
 
 **Worked example:**
 
@@ -33963,3 +33969,387 @@ The `<endpoint>` implementation waves will fire these. Each is **named and reser
 ### 61.11 Cross-references
 
 §60 `<api>` (the typed-OUTBOUND mirror — `<endpoint>` is the typed-INBOUND dual; §61.1, §61.8) · §41.13 `parseVariant` (the request decode, §61.3 — the same total/failable tagged-variant decoder §60.5 uses for the response half) · §18.0.1 `<match>` block-form arms + exhaustiveness (the arm grammar + the exhaustiveness surface `<endpoint>` reuses, §61.2 / §61.4) · §51.0.B.1 payload binding (the per-arm payload destructure, §61.2) · §4.14 `:`-shorthand body (the canonical terse arm form, §61.2) · §4.18 code-default body (the arm-body mode, §61.2) · §53.15 enum-subset refinement (the §61.4 subset-narrows exhaustiveness rule) · §37.3 `server function* route=` (the foreign-facing SSE leg — the streaming counterpart, ALREADY LANDED escalation-2; §61.8) · §40 / §39.3 `handle()` (the global raw escape — interim raw, §61.8) · §12.2 / §12.3 (server placement + the owned data-layer route `<endpoint>` is distinguished from; §61.6) · §14 / §53 (the `accepts=` enum type surface) · §4.15 / §24.4 (the structural-element registry — `<endpoint>` is registered there). Build arc: `docs/changes/endpoint-primitive-2026-06-25/`. Design: the dpa-002 reopen deep-dive + the S219 ratification.
+
+---
+
+## 62. Language Versioning — the `scrml-language` semver axis
+
+> **Nominal / spec-ahead-of-implementation (S234, 2026-07-01).** This section defines
+> the LANGUAGE version surface — a version axis distinct from the compiler
+> (`package.json`, §47.5). The version-tier definitions, the `lang:` partition
+> vocabulary, and the freeze discipline are NORMATIVE as of this landing; the
+> compiler-side wiring (the `chunks.json` `language` field emit, the `scrml.toml
+> [language]` pre-parse read, the version-gate diagnostics) lands in a follow-on
+> wave. The two version-gate error codes named in §62.6 are §34-catalogued WITH
+> that impl wave, per the §26.8 / §60 / §61 named-codes-land-with-impl precedent
+> (pa.md Rule 4). Authority: RULING `docs/changes/language-version-and-deprecation-lifecycle-2026-07-01/RULING.md`;
+> deep-dive `scrml-support/docs/deep-dives/language-version-semver-scheme-2026-06-30.md`;
+> V1 authority `scrml-support/docs/deep-dives/language-compiler-split-2026-06-29.md`.
+
+### 62.1 Two version axes — the language is not the compiler
+
+scrml carries **two independent version axes**:
+
+| axis | artifact | what it versions | source of truth | today |
+|---|---|---|---|---|
+| **LANGUAGE** | `scrml-language` (the spec partition + the conformance suite) | the CONTRACT — which source forms are legal + what they mean | the conformance corpus (§62.2) | `1.0-rc` |
+| **COMPILER** | `scrmlc` (impl #1 = TS reference; later impl #2 = native) | the IMPLEMENTATION — bug fixes, codegen, perf, the native rewrite | `package.json` `version` (bump-on-tag, §47.5) | `0.7.1` |
+
+The two axes move **independently**. A compiler *patch* release MAY add support for a
+language *minor*; a compiler *major* (e.g. the native cutover) MAY implement an
+*unchanged* language version. A compiler "is scrml" iff it passes the conformance suite
+for the language version it declares — nothing more, nothing less. The native parser
+(impl #2) is correct iff it passes the same suite; the cutover is a **non-event** (a
+second conformant implementation of the frozen language), which is the entire purpose of
+the language/compiler split: a breaking change becomes a **deliberate language-version
+event**, never a compiler-cutover accident.
+
+### 62.2 The conformance suite IS the versioned contract
+
+"The language" is defined operationally as the set of
+`(source → required-codes + required-runtime-effect)` tuples the conformance corpus
+pins (`conformance/cases/`, the D3 corpus). A conformance case asserts exactly two
+normative halves: **(a)** which diagnostic CODES fire (presence/absence/family-prefix +
+§34 severity), and **(b)** the RUNTIME EFFECT (post-run normalized DOM + final
+state-cell snapshot). Message text, emitted-JS shape, and AST are explicit implementation
+freedom. A change to that tuple-set is a language change; **the bump tier is assigned by
+what kind of change it is** (§62.3).
+
+### 62.3 Version tiers — anchored to the corpus
+
+Language version is **`MAJOR.MINOR.PATCH`**. The anchor rule: classify every corpus delta
+by its effect on (i) a conforming adopter program and (ii) a conformant implementation.
+
+- **MAJOR** (`X.0.0` → `(X+1).0.0`) — a **breaking** conformance change: a `deprecated`
+  form promoted to *rejected* (the W→E lifecycle's terminal step, §63); a runtime-effect
+  redefinition (same source, different DOM/state); a sanctioned-form removal; a `future`
+  form brought into the surface shape-incompatible with a prior accepted form. MAJOR is
+  where the deprecation cycle terminates — the event the split is designed to make rare,
+  deliberate, and announced.
+- **MINOR** (`1.X.0` → `1.(X+1).0`) — **additive**, backward-compatible: a new case
+  sanctioning a new language form; a new `deprecated`-tier case that widens tolerance
+  (accept + `W-`lint — additive, more sources legal, none made illegal); tightening a
+  `future` fail-closed diagnostic to a more-specific honest code. The known-gaps `future`
+  list is the MINOR backlog ("v1.next absorbs a Nominal").
+- **PATCH** (`1.0.X` → `1.0.(X+1)`) — **clarification**, zero behaviour change: a case
+  closing a coverage hole (pins behaviour the spec already required normatively but the
+  suite did not exercise); a case-metadata correction with `expect` unchanged; a
+  normalization/adapter fix asserting the same contract more robustly. Most corpus growth
+  during V1 hardening is PATCH.
+
+**The anchor table (normative):**
+
+| corpus delta | adopter program | conformant impl | bump |
+|---|---|---|---|
+| new case, NEW sanctioned form | unaffected | must add support | **MINOR** |
+| new case, widens legacy tolerance (`deprecated` tier) | unaffected (more legal) | must accept + W-lint | **MINOR** |
+| new case, closes coverage hole (already-normative) | unaffected | already passes | **PATCH** |
+| case metadata fix (`expect` unchanged) | unaffected | unaffected | **PATCH** |
+| `deprecated` form promoted to **rejected** | **breaks** | must now reject | **MAJOR** |
+| runtime effect redefined | **breaks** | must change | **MAJOR** |
+| sanctioned form removed | **breaks** | must remove | **MAJOR** |
+| mis-authored case corrected → spec | PATCH if it restores already-normative spec AND no released compiler encoded the wrong assertion; MAJOR if the wrong assertion was adopter-observable in a released compiler | | **PATCH or MAJOR** |
+
+### 62.4 A compiler declares its language version — the `chunks.json` `language` field
+
+The `chunks.json` manifest (§47.5) carries a `language` field beside the existing
+`compiler` field:
+
+```jsonc
+{
+  "version": 1,                 // manifest SCHEMA version (unrelated)
+  "compiler": "scrml-0.7.1",    // WHICH IMPLEMENTATION produced this build (§47.5)
+  "language": "1.0-rc",         // WHICH CONTRACT this build conforms to
+  "entryPoints": { /* ... */ }
+}
+```
+
+`compiler` answers "which implementation + version built this"; `language` answers
+"which frozen contract it conforms to." Two implementations at different `compiler`
+strings MAY carry the **same** `language` — the multi-implementation invariant made
+observable. The field is single-sourced (like `compiler` is from `package.json`): the
+compiler emits the highest language version it fully passes the suite for, OR the source's
+pinned version (§62.6), whichever the build resolves to. It is **informational /
+provenance only** — NOT a content-addressing hash input (§40.9.8 normative: all
+content-address inputs are deterministic-from-source-only). This mirrors Go's two-axis
+manifest (`go 1.x` = the language directive; `toolchain go1.x.y` = the compiler).
+
+### 62.5 The pre-1.0 → 1.0 cut + the freeze discipline
+
+The language is at **`1.0-rc`** — not because of any per-case label (every corpus case is
+tagged in-surface) but because **breaking changes are still pending** against the eventual
+1.0 surface. `1.0` *final* is declared only when the surface is frozen with **zero known
+pending breaking changes**.
+
+**The freeze discipline (normative):**
+
+> **Never knowingly ship `language-1.0` with a pending breaking change.**
+
+For every deferred item that would otherwise carry a pending break, bring the
+**source-level discipline** forward to 1.0 and defer the **mechanism** — so the later
+mechanism lands as a non-breaking MINOR, never a 1.x→2.0 break. (E.g. ship the honest
+fail-closed diagnostic for a `future` form in 1.0 — the fail-closed-Nominal invariant,
+§23.3/§23.4/§29 — and defer the mechanism to a later MINOR.)
+
+**The 1.0-final gate (normative):**
+1. The conformance corpus IS the agreed 1.0 surface (every in-surface form has a case;
+   the D2 spec-partition is complete).
+2. Implementation #1 (the TS compiler) passes **100%** of the 1.0 corpus.
+3. **Zero** pending breaking changes against the 1.0 surface (every discipline-forward
+   item's source-level discipline has landed; mechanisms may defer as `future`/MINOR).
+
+**Implementation #2 (native) passing is NOT a 1.0 gate.** Single-implementation
+conformance is sufficient to FREEZE the language while the second implementation catches
+up — a language cannot be 1.0 with zero conformant compilers (reference-impl-conformant is
+the floor), but it does not wait for every implementation. This is the C++17 / test262
+model. Until all three gate conditions hold, the language is `1.0-rc.N` (the compiler emits
+`language: "1.0-rc"`); the `-rc.N` suffix mirrors the compiler's `-alpha.N`/`-beta.N`
+convention (§47.5).
+
+### 62.6 Adopter pin — `scrml.toml [language] version`
+
+Adopters pin the target language version in the project manifest:
+
+```toml
+[language]
+version = "1.0"
+```
+
+`scrml.toml` already carries the `[story]` (§58.4) and `[capabilities]` (§22.13) tables,
+both read at compile-time before any parse begins; `[language]` is a sibling read at the
+same point. This is the Go `go 1.x` / Rust `edition = "…"` / C++ `-std=c++17` adopter-pin
+precedent, in scrml's existing manifest seam.
+
+- **Compiler implements a NEWER language version than the source pins** (e.g. `scrmlc`
+  passes 1.1, source pins `1.0`): compile under the **pinned** rules. Newer-only sanctioned
+  forms are gated off with an honest diagnostic — "this form requires language-1.1; this
+  source targets 1.0 (bump `[language] version`)" — reserved code **`E-LANGUAGE-VERSION-TOO-NEW`**
+  (§34-deferred-to-impl). This is Go's rule verbatim. Because scrml has no editions
+  (§62.8), "compile under older rules" is simple: do not offer newer forms, keep accepting
+  the `deprecated`-tier forms 1.0 accepted.
+- **Compiler implements an OLDER language version than the source pins** (e.g. `scrmlc`
+  passes only 1.0, source pins `1.1`): **fail-closed** — "this source targets language-1.1;
+  this compiler implements 1.0; upgrade the compiler" — reserved code
+  **`E-LANGUAGE-COMPILER-TOO-OLD`** (§34-deferred-to-impl). This is C++ `-std=c++20` on a
+  C++17-only compiler → hard error. Fail-closed, never best-effort.
+- **Unpinned source default:** default to the **compiler's highest fully-conformant
+  language version** (Go-style, zero ceremony). The `[language] version` pin is the
+  *reproducibility* guarantee for adopters who want a fixed target, not a mandatory
+  ceremony.
+
+### 62.7 The `lang:` partition vocabulary
+
+Every spec section (D2) and every conformance case carries one of three `lang:` values.
+D1 (this section) fixes the three values + their conformance semantics; D2 applies the
+label per-section; the corpus applies it per-case.
+
+| `lang:` value | meaning | a conformant 1.0 impl MUST… |
+|---|---|---|
+| **`1.0`** | IN the frozen 1.0 surface (canonical) | implement it; pass its case(s) |
+| **`deprecated`** | accepted-in-1.0-but-discouraged; scheduled for removal only at a future MAJOR (§63) | **accept** it AND fire the sanctioned `W-`lint — the W-code is a conformance-REQUIRED code (this legacy-tolerance is exactly what makes the native cutover non-breaking) |
+| **`future`** | NOT in 1.0; targeted for v1.next (MINOR) or v2 (MAJOR) | **fail-closed** with an honest "not in language-1.0; tracked for vNext" diagnostic — never a silent miscompile or misleading code |
+
+The known-gaps **Nominal list IS the `future` set**; the `W-`lint deprecation machinery
+(§63) IS the `deprecated` tier. `future` and `deprecated` are the two non-1.0 ends of one
+axis (arriving vs leaving). (The corpus schema splits the per-case tier from the
+suite-semver: `suite-version: "1.0.0"` + `tier: in | deprecated | future` — a
+`deprecated`-tier form is *part of* the 1.0 suite, so the two are orthogonal.)
+
+### 62.8 No editions
+
+scrml deliberately does NOT adopt Rust-style editions (coexisting rule-sets). The
+deprecation cycle (§63) handles transitions with **one rule-set per language version** and
+no coexistence machinery: `deprecated`-tier forms ride MINORs accepted-with-`W-`lint; their
+removal is the MAJOR event. Rust's edition-coexistence price (rustc carries every edition's
+rule-set forever) buys "never split a global ecosystem" — worth it for a global ecosystem,
+not warranted here. scrml takes the *axis separation* (the load-bearing idea) and the
+*deprecation cycle* (Go-style: deprecate → warn → remove-at-MAJOR), and explicitly declines
+editions.
+
+### 62.9 Cross-references
+
+§47.5 (the `chunks.json` `compiler` field — the `language`-field sibling) · §63 (the
+deprecation lifecycle — consumes this section's version events; the `deprecated`/`future`
+tiers) · §22.13 `[capabilities]` + §58.4 `[story]` (the `scrml.toml` sibling tables
+`[language]` joins) · §34 (the two reserved version-gate codes, land-with-impl) ·
+`conformance/README.md` (the executable contract). Prior art: Rust editions · ECMAScript +
+test262 · Go modules `go` directive · WebAssembly reference-interpreter + testsuite · C++
+`-std=`/`__cplusplus`.
+
+---
+
+## 63. Deprecation Lifecycle — the stage machine
+
+> **Normative formalization (S234, 2026-07-01).** scrml already had a rich, consistent
+> ad-hoc deprecation pattern — a `W-`lint that parses identically to the canonical form, a
+> `bun scrml migrate --fix` (→ `scrml fix`, §63.4) AST rewrite, and a reserved
+> (named-but-unfired) `E-`code for end-of-window. This section turns that de-facto pattern
+> into a normative **stage machine** and ties stage-advancement to the §62 language-version
+> events, so a deprecation can no longer float forever as a warning pinned to a dead phase
+> label. The stages, invariant, timing rule, and `--fix` gate are NORMATIVE; the corpus
+> disposition (§63.7) reclassifies every existing deprecation at the 1.0 freeze. Authority:
+> RULING `docs/changes/language-version-and-deprecation-lifecycle-2026-07-01/RULING.md`;
+> deep-dive `scrml-support/docs/deep-dives/deprecation-lifecycle-2026-06-30.md`.
+
+### 63.1 The four-stage machine
+
+```
+ SANCTIONED  ──deprecate──►  SOFT-DEPRECATED  ──schedule──►  SCHEDULED  ──major event──►  REMOVED
+  (Stage 0)   (any minor)      (Stage 1)     (version event   (Stage 2)   (pull trigger)  (Stage 3)
+   no lint                  W fires · --fix ·  + --fix GATE)  W fires · E-PINNED to     E fires ·
+                            reserved-E NAMED ·               next MAJOR · --fix         form rejected ·
+                            removal NOT scheduled            verified-landed            conformance flips
+```
+
+- **Stage 0 — SANCTIONED.** The form is canonical; accepted; no diagnostic. `lang: 1.0`.
+- **Stage 1 — SOFT-DEPRECATED (the window; most of the corpus lives here).** The deprecated
+  form **parses identically** — same AST, same emitted JS, same runtime. The compiler fires
+  the `W-`lint at every site, naming the canonical form + the `scrml fix` command + the §
+  cross-ref. A reserved `E-`code is named in §34 *at the moment the W-lint lands*. **No
+  removal version is set.** The form MAY live here indefinitely — no clock runs in Stage 1.
+  `lang: deprecated` on the deprecated form's prose block; the canonical replacement stays
+  `lang: 1.0`.
+- **Stage 2 — SCHEDULED-FOR-REMOVAL (deliberate; gated).** Entry is a deliberate §62
+  version-event decision, not elapsed time. The reserved `E-`code is pinned to a specific
+  named upcoming MAJOR ("fires in `language-2.0`"). Entry is GATED (§63.4). To the adopter
+  the form still compiles + the W still fires (optionally escalated, §63.3); nothing breaks
+  yet. The language-N+1 conformance delta is now a known, named, pre-allocated set.
+- **Stage 3 — REMOVED (at the major version event).** The parser stops accepting the form;
+  the reserved `E-`code fires; the form is rejected. The conformance contract changes at the
+  version boundary (the corpus row flips `(source: deprecated-form) → (codes: {E-CODE},
+  rejected)`); the reserved-E enters the contract at exactly this event. The form's prose
+  transitions `lang: deprecated → lang: removed` (prose retained for migration/historical
+  reference, tagged with the removing version); if the syntax is re-purposed for a new
+  meaning rather than deleted, it transitions to `lang: future` instead.
+
+### 63.2 The well-formedness invariant
+
+> **A deprecation is well-formed only if, at Stage-1 landing, it co-lands {a `W-`lint that
+> parses IDENTICALLY} + {a reserved `E-`code named in §34} + {a `--fix`/`scrml fix` rule, or
+> a designer-card waiver}. A deprecation MUST NOT name a removal version at Stage-1 landing.**
+
+Scheduling (Stage 2) is a separate, later, deliberate version-event act. This single rule
+makes "planned for v0.3.0" / "in P3" structurally impossible: the removal-version string is
+not allowed at Stage 1; removal versions exist only as the output of a Stage-2 event. (The
+historical `<machine>`/`<whitespace>`/`<cps>` deprecations all made the same mistake —
+writing a removal label into the Stage-1 prose, which is neither a decision nor an event, so
+it never got pulled. §63.7 corrects them.)
+
+### 63.3 The timing rule — tied to §62 version events
+
+1. **Deprecate in any MINOR** (additive — only adds a non-fatal W-lint). Minors never
+   remove forms; they only add deprecations and add `--fix` rules.
+2. **Remove only at a MAJOR.** A reserved-E flips to firing only at a major language-version
+   event. The major boundary is the sole place forms leave the language.
+3. **Minimum one released minor in-window.** A form must ship as SOFT-DEPRECATED (W-lint
+   visible) in at least one released minor before a major may remove it (PEP-387's "≥2
+   releases" shrunk to scrml-scale — two friends + a frozen language do not need Python's
+   audience margin).
+4. **The clock is events + corpus-clean, NOT a calendar.** No elapsed-time requirement. A
+   deprecation advances when a major event is being cut AND the `--fix` gate is satisfied AND
+   the corpus is clean — otherwise it stays soft.
+5. **Scheduling is reversible until the event fires.** A Stage-2 schedule can be un-pinned
+   back to Stage-1 if the gate regresses (a new corpus site appears, or the `--fix` is found
+   unsound) — the pin is a plan; the firing is the only commitment.
+
+### 63.4 The `--fix` gate + the `scrml fix` verb
+
+The source-form codemod surface is **`scrml fix`** (prior-art-aligned: `cargo fix`,
+`go fix`). It is distinct from **`scrml migrate`**, which is the database-schema SQL
+application verb (§39.8) — the two are unrelated subsystems and no longer share a verb. (The
+prior `bun scrml migrate --fix` flag-overload is itself SOFT-DEPRECATED in favour of
+`scrml fix`; both are recognized during the window.)
+
+- **At Stage 1 (deprecate):** a `scrml fix` rule **SHOULD** ship with the W-lint (the Go
+  `//go:fix` "carry your codemod" lesson). Not a hard gate on *deprecating* — a form MAY be
+  soft-deprecated without a codemod.
+- **At Stage 2 (schedule) / Stage 3 (remove):** auto-migratability is a **HARD GATE**. A
+  reserved-E MUST NOT be scheduled or fired for a form that has no **verified-landed**
+  `scrml fix` rule (a spec'd-but-unverified `--fix` claim does not satisfy the gate).
+  Removing a codemod-less form forces hand-migration on every adopter site at the major
+  boundary — exactly the friction the split exists to dissolve.
+- **The escape hatch:** a form MAY be removed without a codemod ONLY by an explicit
+  **designer-card** ruling (the form is rare / zero-corpus / hand-migration is trivial),
+  recorded as a version-event decision. Without that waiver, a no-codemod form stays
+  SOFT-DEPRECATED indefinitely.
+
+### 63.5 Conformance interaction
+
+| language version | deprecated-form source | expected codes | expected runtime | in-contract? |
+|---|---|---|---|---|
+| `1.0` (form SOFT or SCHEDULED) | the deprecated form | `{W-CODE}` | identical to the canonical form | **YES** — both forms |
+| `2.0` (form REMOVED) | the deprecated form | `{E-CODE}`, rejected | n/a (rejected) | **YES** — as a rejection |
+
+During the window both forms parse ⇒ both in-contract; the **W-code is a conformance-required
+code** (§62.2 "which codes fire"), and the deprecated form must produce **runtime identical**
+to the canonical form (that identity IS the conformance assertion for a parses-identically
+deprecation). At removal the contract **versions**: the same source row flips
+`{W} → {E}`; because reserved-Es are pre-allocated at Stage 1 (§63.2), the language-(N+1)
+conformance delta is a known named set the day the deprecation lands. **A native parser
+(impl #2) that is stricter than 1.0 — rejecting a `deprecated` form — is a conformance BUG
+in impl #2, not a breaking change.** This is precisely the machinery that reclassifies
+"native enforces canonical" from a breaking event into an implementation bug to fix.
+
+### 63.6 The `lang:` transition semantics
+
+D4 (this section) owns the `deprecated → removed` transition; D2 owns the `lang:` labels
+(§62.7); D1 (the §62 version event) is the clock. `removed` prose is retained for
+migration/historical reference, tagged with the removing version. The re-purpose
+side-branch `deprecated → future` applies when a syntax is reclaimed for a new meaning
+rather than deleted. The `lang:` label and the conformance contract are two views of one
+fact: `lang: deprecated` ⇔ "in this language version, with a W-code"; `lang: removed` ⇔
+"out of the version that removed it, with an E-code." Label granularity is **sub-section /
+form-level** — most deprecations are a clause inside a `lang: 1.0` section (e.g. §18.2 is
+`lang: 1.0` for the `:>` separator while the `=>`/`->` alias sub-clause is
+`lang: deprecated`).
+
+### 63.7 Corpus disposition at the 1.0 freeze — permanent-soft
+
+At the language-1.0 freeze scrml ships **a pile of soft-deprecations and ZERO scheduled
+removals** (the permanent-soft posture: ship 1.0 with everything soft + nothing scheduled;
+the first real removal waits for a concrete pain signal that may be years out or never).
+This means language-1.0 is **frozen with no pending breaking changes** by construction (the
+freeze discipline, §62.5) — because nothing is scheduled to break. The removal half of the
+machine is latent, documented machinery; a Stage-2 schedule is minted only by a future
+deliberate version-event, never pre-armed at 1.0.
+
+Applying the machine to the existing corpus:
+
+- **The three floating-scheduled forms** — `W-DEPRECATED-001` (`<machine>` → `<engine>`,
+  §51.3.2), `W-WHITESPACE-001` (`< id>` → `<id>`, §15.15.5), `W-CPS-NEEDS-FAILABLE`
+  (§19.9.5) — are reclassified **SOFT-DEPRECATED, unscheduled.** Their dead pre-1.0 labels
+  ("in P3", "v0.next+1 = v0.3.0") are struck; their reserved-Es remain named, unfired.
+- **`W-DEPRECATED-SERVER-MODIFIER` (`g-server-keyword-drift`) + `W-STATE-BLOCK-BARE-WRITE-DECL`:**
+  SOFT, **gate-blocked** (no verified-landed codemod → cannot schedule, §63.4).
+- **The arrow/placement/const-@/pure family** (`W-LIFECYCLE-LEGACY-ARROW`,
+  `W-MATCH-ARROW-LEGACY`, `W-GIVEN-ARROW-LEGACY`, `W-COLON-SHORTHAND-LEGACY-PLACEMENT`,
+  `W-CONST-AT-DEPRECATED`, `W-PURE-DEPRECATED`): SOFT; eligible to schedule iff their
+  `scrml fix` rule is verified-landed AND the corpus is clean — at a first MAJOR, *if ever*.
+
+### 63.8 What is NOT a lifecycle deprecation
+
+Two adjacent code classes are ruled OUT of the stage machine:
+
+- **`W-ABSENCE-IN-SCRML-SOURCE`** — a **permanent regression-guard** on `null`/`undefined`
+  in source (the null-does-not-exist axiom, §42). No canonical-replacement *form*, no
+  reserved-E, no codemod — it is not "migrate A→B," it is "A is forbidden, period." A
+  different code class, outside the lifecycle.
+- **`W-EACH-PROMOTABLE` / `I-MATCH-PROMOTABLE`** — **permanent-coexistence promotion nudges**
+  (Tier-0 `${for/lift}` / `if`-chain → Tier-1 `<each>` / `<match>`). Both tiers stay valid
+  forever; the nudge is forever-informational (§17.4, §56). NOT a deprecation — the Tier-0
+  form is never removed.
+
+The `--fix`/`scrml fix` codemod applies only to the from→to deprecations of the stage
+machine; the two classes above are never scheduled and never removed.
+
+### 63.9 Cross-references
+
+§62 (the language-version scheme — the version events that clock this lifecycle; the
+`deprecated`/`future` `lang:` tiers) · §34 (the `W-`/reserved-`E-` catalog rows) · §39.8
+(the `scrml migrate` DB-schema verb — distinguished from `scrml fix`, §63.4) · §51.3.2 /
+§15.15.5 / §19.9.5 (the three floating forms reclassified in §63.7) · §17.4 / §56 (the
+permanent-coexistence promotion nudges ruled out in §63.8) · §42 (the null-does-not-exist
+axiom behind `W-ABSENCE-IN-SCRML-SOURCE`). Prior art: PEP 387 (soft-vs-scheduled
+deprecation) · Rust editions + `cargo fix` · Go `//go:fix` + `go fix` · TypeScript
+`@deprecated` (the floating-warning anti-pattern) · Web-platform intent-to-remove
+(usage-gated removal → the corpus-clean gate).
