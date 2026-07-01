@@ -2316,6 +2316,9 @@ function matchPositionIsPatternShaped(toks) {
   if (t0.kind === "IDENT" && t0.text === "_") return true;       // wildcard position
   if (t0.kind === "KEYWORD" && (t0.text === "else" || t0.text === "not" || t0.text === "is")) return true;
   if (t0.kind === "STRING") return true;                          // "literal"
+  if (t0.kind === "NUMBER") return true;                          // number literal (SPEC 18.16 literal-arm-pattern)
+  if (t0.kind === "KEYWORD" && (t0.text === "true" || t0.text === "false")) return true; // boolean literal (SPEC 18.16)
+  if (t0.kind === "PUNCT" && t0.text === "-" && toks[1] && toks[1].kind === "NUMBER") return true; // negative number literal
   return false;
 }
 
@@ -3914,8 +3917,47 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               }
               return false;
             }
-            // `"string" =>` or `'string' =>` — string literal arm
+            // `"string" =>` / `'string' =>` — string-literal arm, and the
+            // string-literal ALTERNATION chain `"a" | "b" | … =>`
+            // (g-match-lowering-arm-drop F6). Each alternate is a string literal;
+            // a trailing arm-arrow marks the boundary. Without the chain walk the
+            // first alternate `"a"` (followed by `|`, not an arrow) was NOT seen
+            // as a new arm, so `"a" | "b" :>` was absorbed into the PRECEDING arm's
+            // result → E-CODEGEN-INVALID-JS.
             if (tok.kind === "STRING") {
+              if (armArrowAt(1)) return true;
+              let si = 1;
+              while (peek(si) && peek(si).kind === "PUNCT" && peek(si).text === "|" &&
+                     peek(si + 1) && peek(si + 1).kind === "STRING") {
+                si += 2;
+                if (armArrowAt(si)) return true;
+              }
+              return false;
+            }
+            // `<number> =>` — number-literal arm (SPEC §18.16;
+            // g-match-lowering-arm-drop F2). Unambiguous at depth 0: a bare number
+            // is not a valid arrow param and `:>` is a match-only separator. NOT a
+            // boundary when the previous collected part is a unary `-` — the number
+            // is that negative literal's magnitude (handled by the `-` branch).
+            {
+              const _prevPartNum = parts.length > 0 ? (parts[parts.length - 1]?.trim() ?? "") : "";
+              if (tok.kind === "NUMBER") {
+                if (_prevPartNum === "-") return false;
+                return armArrowAt(1);
+              }
+            }
+            // `- <number> =>` — NEGATIVE number-literal arm. The `-` is ambiguous
+            // with subtraction (`100 - 1`), so this is a boundary ONLY when the `-`
+            // opens a NEW source line (match arms are newline-separated, §18.2).
+            if (tok.kind === "PUNCT" && tok.text === "-" && peek(1) && peek(1).kind === "NUMBER") {
+              const _tokLine = tok.span?.line;
+              const _prevLine = lastTok?.span?.line;
+              if (typeof _tokLine === "number" && typeof _prevLine === "number" && _tokLine !== _prevLine) {
+                return armArrowAt(2);
+              }
+            }
+            // `true =>` / `false =>` — boolean-literal arm (SPEC §18.16).
+            if (tok.kind === "KEYWORD" && (tok.text === "true" || tok.text === "false")) {
               return armArrowAt(1);
             }
             // §18.19 — `( p1, p2, … ) :>` product-pattern arm. Unambiguous:

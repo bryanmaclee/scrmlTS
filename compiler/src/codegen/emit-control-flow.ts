@@ -969,7 +969,7 @@ export function emitTryStmt(node: any): string {
 // ---------------------------------------------------------------------------
 
 export interface MatchArm {
-  kind: "variant" | "string" | "wildcard" | "not";
+  kind: "variant" | "string" | "literal" | "wildcard" | "not";
   /**
    * The arm's primary test value. For single-variant arms this is the variant
    * name (e.g. `"Big"`); for pipe-alternation arms (§18 follow-on, S84 fix)
@@ -1101,18 +1101,21 @@ export function parseMatchArm(rawTrimmed: string): MatchArm | null {
   const trimmed = normalizeMatchArmArrow(rawTrimmed);
   // NEW Form 0 (§18 pipe-alternation): `.A | .B | .C => result` (or `:>`).
   // Tried BEFORE the single-variant regex so the alternation chain wins.
-  // Alternation arms with payload bindings are NOT supported — the SPEC §51.3.2
-  // same-binding-shape rule (E-ENGINE-016) requires AST-level verification;
-  // codegen here only matches the unit-variant alternation form (no parens
-  // anywhere in the LHS chain).
+  // Alternation alternates MAY carry a payload-DISCARD tail (`.Ident(_) | .Num(_)`
+  // — g-match-lowering-arm-drop F6). The parens are matched then stripped: a `_`
+  // discard binds nothing, so the OR-chain compares .variant tags alone. Payload
+  // BINDINGS in alternation remain unsupported (SPEC §51.3.2 / §18.0.3
+  // same-binding-shape, E-ENGINE-016 at the typer) — the restricted `[_\s,]*`
+  // payload class matches ONLY discards, so a binding-bearing alternate declines
+  // here and surfaces the typer error rather than mis-lowering.
   const altMatch = trimmed.match(
-    /^\.\s*([A-Z][A-Za-z0-9_]*)((?:\s*\|\s*\.\s*[A-Z][A-Za-z0-9_]*)+)\s*(?:=>|:>|->)\s*([\s\S]+)$/,
+    /^\.\s*([A-Z][A-Za-z0-9_]*)(?:\s*\(\s*[_\s,]*\))?((?:\s*\|\s*\.\s*[A-Z][A-Za-z0-9_]*(?:\s*\(\s*[_\s,]*\))?)+)\s*(?:=>|:>|->)\s*([\s\S]+)$/,
   );
   if (altMatch) {
     const first = altMatch[1];
     const rest = altMatch[2]
       .split("|")
-      .map(s => s.trim().replace(/^\./, "").trim())
+      .map(s => s.trim().replace(/^\.\s*/, "").replace(/\s*\(\s*[_\s,]*\)\s*$/, "").trim())
       .filter(s => s.length > 0);
     const tests = [first, ...rest];
     return {
@@ -1133,6 +1136,19 @@ export function parseMatchArm(rawTrimmed: string): MatchArm | null {
     return { kind: "variant", test: newVariantMatch[1], binding: newVariantMatch[2] ?? null, result: newVariantMatch[3].trim() };
   }
 
+  // NEW Form 2b: string-literal ALTERNATION — `"const" | "let" :> result`
+  // (g-match-lowering-arm-drop F6). Tried BEFORE the single-string forms so the
+  // `|`-chain wins. Lowers to an OR-chain of `=== "…"` over `tests` (§18.16
+  // literal-arm-pattern + §18 alternation). A bare `"a" | "b"` value expression
+  // has no meaning as a match subject, so this never shadows a real value form.
+  const strAltMatch = trimmed.match(
+    /^((?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')(?:\s*\|\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'))+)\s*(?:=>|:>|->)\s*([\s\S]+)$/,
+  );
+  if (strAltMatch) {
+    const tests = strAltMatch[1].split("|").map(s => s.trim()).filter(s => s.length > 0);
+    return { kind: "string", test: tests[0], tests, binding: null, result: strAltMatch[2].trim() };
+  }
+
   // NEW Form 3: "string" => expr (or :>)
   const newDqStringMatch = trimmed.match(/^"((?:[^"\\]|\\.)*)"\s*(?:=>|:>|->)\s*([\s\S]+)$/);
   if (newDqStringMatch) {
@@ -1143,6 +1159,27 @@ export function parseMatchArm(rawTrimmed: string): MatchArm | null {
   const newSqStringMatch = trimmed.match(/^'((?:[^'\\]|\\.)*)'\s*(?:=>|:>|->)\s*([\s\S]+)$/);
   if (newSqStringMatch) {
     return { kind: "string", test: `'${newSqStringMatch[1]}'`, binding: null, result: newSqStringMatch[2].trim() };
+  }
+
+  // NEW Form 4b: number-literal arm — `61 :> result`, `-1 :> result`,
+  // `3.14 :> result`, `0xFF :> result` (SPEC §18.16 literal-arm-pattern;
+  // g-match-lowering-arm-drop F2, and each product-slot literal for F3). The
+  // literal is compared directly (`_scrml_match === 61`); `test` carries the raw
+  // numeric text (no quotes), which the armCondition `=== ${test}` path emits.
+  const numLitMatch = trimmed.match(
+    /^(-?\s*(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?))\s*(?:=>|:>|->)\s*([\s\S]+)$/,
+  );
+  if (numLitMatch) {
+    // The tokenizer emits a negative literal as `- 1` (space-separated); collapse
+    // the internal whitespace so the test reads `-1`, not `- 1`.
+    return { kind: "literal", test: numLitMatch[1].replace(/\s+/g, ""), binding: null, result: numLitMatch[2].trim() };
+  }
+
+  // NEW Form 4c: boolean-literal arm — `true :> result` / `false :> result`
+  // (SPEC §18.16 literal-arm-pattern). Compared directly (`_scrml_match === true`).
+  const boolLitMatch = trimmed.match(/^(true|false)\s*(?:=>|:>|->)\s*([\s\S]+)$/);
+  if (boolLitMatch) {
+    return { kind: "literal", test: boolLitMatch[1], binding: null, result: boolLitMatch[2].trim() };
   }
 
   // NEW Form 5a: not => expr (or :>) — absence arm (§42: `not` in match arms)
@@ -1412,6 +1449,39 @@ export function splitMultiArmString(s: string): string[] {
       inString = q;
       i++;
       continue;
+    }
+
+    // Number-literal arm: <number> => / :> / -> (SPEC §18.16;
+    // g-match-lowering-arm-drop F2). Two adjacent int-literal arms arrive merged
+    // in one bare-expr (the ast-builder inline recognizer declines numeric arms),
+    // so the codegen escape-hatch must re-split them. Only an arm boundary when
+    // the number stands alone (preceded by whitespace / start) AND an arm arrow
+    // follows it. Number lexemes never contain the arm arrows, so a scan up to
+    // the arrow is unambiguous.
+    // A leading `-` may be space-separated from its digit (`- 1`) because the
+    // tokenizer emits the sign and magnitude as separate tokens; skip that space
+    // when probing for a negative-number arm start.
+    const _negDigitAhead = ch === "-" && (() => {
+      let d = i + 1;
+      while (d < s.length && /\s/.test(s[d])) d++;
+      return d < s.length && /[0-9]/.test(s[d]);
+    })();
+    if (/[0-9]/.test(ch) || _negDigitAhead) {
+      const prevCh = i > 0 ? s[i - 1] : null;
+      const isStandalone = prevCh === null || /\s/.test(prevCh);
+      if (isStandalone) {
+        let k = i;
+        if (ch === "-") { k = i + 1; while (k < s.length && /\s/.test(s[k])) k++; }
+        while (k < s.length && /[0-9a-fA-FxXbBoO._]/.test(s[k])) k++;
+        let a = k;
+        while (a < s.length && /\s/.test(s[a])) a++;
+        const numArrow = s.slice(a, a + 2);
+        if (numArrow === "=>" || numArrow === ":>" || numArrow === "->") {
+          armStartPositions.push(i);
+          i = k;
+          continue;
+        }
+      }
     }
 
     // §42 absence arm: not => expr (or :> or ->)
@@ -1766,6 +1836,7 @@ function emitMultiScrutineeMatch(
   scrutineeExprs: any[],
   matchCtx: EmitExprContext,
   matchMode: "client" | "server",
+  opts?: any,
 ): string {
   const N = scrutineeExprs.length;
   const rawScrutinees: string[] = Array.isArray(node.scrutinees) ? node.scrutinees : [];
@@ -1818,6 +1889,32 @@ function emitMultiScrutineeMatch(
     } else if (isWholeWildcard) {
       const bodyEmit = emitMultiArmBody(resultStr, "", matchCtx);
       lines.push(`  else ${bodyEmit}`);
+    } else {
+      // Soundness guard (g-match-lowering-arm-drop F3): a body child that is
+      // neither a product-pattern arm nor a whole-product wildcard is an arm this
+      // lowering does not recognize. Historically such an arm was SILENTLY DROPPED
+      // — a valid-but-WRONG match (the case never fires, NO diagnostic). Fail
+      // CLOSED: report E-CG-003 so the compile fails with a source-anchored error
+      // rather than shipping a silent hole. Empty / comment children (no
+      // `expr`/`result`/`productPatterns`) are ignored as before. The primary F3
+      // root (a NUMBER/boolean/negative product-slot literal) is fixed upstream at
+      // ast-builder.js:matchPositionIsPatternShaped, so a well-formed literal arm
+      // now arrives as `productPatterns`; this net catches any residual shape.
+      const rawArm: string = typeof child.expr === "string" ? child.expr
+        : typeof child.result === "string" ? child.result : "";
+      if (rawArm.trim().length > 0) {
+        const errChannel: CGError[] | null | undefined = opts?.errors;
+        if (errChannel) {
+          errChannel.push(new CGError(
+            "E-CG-003",
+            `E-CG-003: multi-scrutinee match arm \`${rawArm.trim().slice(0, 80)}\` could not ` +
+            `be lowered — the code generator does not recognize this product-pattern arm ` +
+            `shape. Each arm MUST be a parenthesized product pattern (\`(p1, …, pN) :> body\`) ` +
+            `or a whole-product wildcard (\`_\` / \`else\`).`,
+            (child.span ?? node?.span ?? { file: "", start: 0, end: 0, line: 1, col: 1 }) as Parameters<typeof CGError>[2],
+          ));
+        }
+      }
     }
   }
 
@@ -1884,7 +1981,7 @@ export function emitMatchExpr(node: any, opts?: any): string {
     Array.isArray(node.scrutineeExprs) && node.scrutineeExprs.length >= 2 ? node.scrutineeExprs
     : (Array.isArray(node.subjects) && node.subjects.length >= 2 ? node.subjects : null);
   if (_scrutineeExprs) {
-    return emitMultiScrutineeMatch(node, _scrutineeExprs, _matchCtx, _matchMode);
+    return emitMultiScrutineeMatch(node, _scrutineeExprs, _matchCtx, _matchMode, opts);
   }
 
   const header = emitExprField(node.headerExpr, (node.header ?? "").trim(), _matchCtx);
@@ -2179,6 +2276,13 @@ function armCondition(arm: MatchArm, tmpVar: string, tagVar: string): string {
       return arm.tests.map(t => `${tagVar} === "${t}"`).join(" || ");
     }
     return `${tagVar} === "${arm.test}"`;
+  }
+  // string / literal (number, boolean) arms — compare the raw value directly.
+  // Alternation (`"const" | "let"`, string literals only) emits an OR-chain over
+  // `tests`. `arm.test`/`tests` carry the literal WITH quotes for strings and
+  // bare for numbers/booleans, so `${x} === ${test}` is correct for every case.
+  if (arm.tests && arm.tests.length > 1) {
+    return arm.tests.map(t => `${tmpVar} === ${t}`).join(" || ");
   }
   return `${tmpVar} === ${arm.test}`;
 }
