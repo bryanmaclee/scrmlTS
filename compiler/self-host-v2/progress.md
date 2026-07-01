@@ -132,3 +132,66 @@ CONSUMED-BY-ORACLE runtime helper: `_scrml_structural_eq` only (deep-equal stub 
 Dogfood verdict: the flagship type+match-fold idiom LOWERS CORRECTLY through the real emitter (clean enum
 objects + match IIFEs + threaded structs); it does NOT reach the importable library path (F1) — the single
 structural blocker for "the compiler as idiomatic-scrml importable modules."
+
+---
+
+# self-host-v2 LEXER — slice 2 (strings + comments, S234)
+
+Continues slice-1 (LANDED a8df839a). Same substrate/fold/oracle; adds the string
++ comment token classes.
+
+## Slice-2 scope (built here)
+- STRINGS — `scanString(cur, q)`: single- + double-quoted. A backslash escapes
+  the NEXT code point (so an escaped quote never terminates the string — the only
+  escape behavior that affects WHERE the string ends). Emits one
+  `StringLit(cooked, raw, quote)` per string; token `text` = the RAW lexeme
+  (quotes included), matching impl#1. `decodeSingleEscape` is the §12.8.4
+  single-char escape table; `quoteCode` maps QuoteKind → closing-quote code.
+- COMMENTS — `skipLineComment` (`//` → line-terminator/EOF) + `skipBlockComment`
+  (`/*` → `*/`/EOF). impl#1 SKIPS comments as trivia; slice-2 matches — NO token
+  emitted, only the cursor advances (line/col tracked by `advance`).
+- Fold wiring — dispatch gains `(.InCode, .SawQuote(q)) :> scanStringStep(st, q)`,
+  `(.InCode, .SawLineComment)` / `(.InCode, .SawBlockComment)` arms. `regexAllowedAfter`
+  gains a `StringLit` case (a string cannot be followed by a regex).
+
+## DEFERRED to slice-3 (still routed to `deferAdvance`; NOT scanned)
+- template-interp nesting (InTemplateBody + `${…}`)  — SawBacktick event
+- regex bodies (`/…/flags`)                          — SawRegexSlash event
+- BracketStack + ErrorRecovery threading             — LexState fields not present yet
+- **cooked-decode of hex/unicode/line-continuation escapes** (`\xHH`, `\uHHHH`,
+  `\u{…}`, `\<newline>`): slice-2 decodes them via the single-char identity path,
+  so `cooked` is approximate for those inputs — but `raw`/span are ALREADY correct
+  (a backslash always escapes exactly the next code point, and hex/unicode escape
+  bodies never contain a bare closing quote), so the token-diff (kind/text/span)
+  is GREEN for them. Precise cooked-decode needs `parseInt` / `String.fromCodePoint`
+  host support (unverified in scrml) — a slice-3 fidelity item, not a boundary bug.
+The slice-2 corpus contains none of the still-deferred classes; the stub never fires.
+
+## THE ORACLE (extended)
+New sibling `compiler/tests/integration/self-host-v2-lexer-slice2.test.js` — same
+compile→discover→eval→token-diff harness as slice-1, over a curated string/comment
+corpus (single/double strings, escapes, hex/unicode raw-parity, empty, unterminated,
+line/block comments, comments+strings MIXED with slice-1 tokens) PLUS a slice-1
+no-regression guard subset. Regex/template inputs stay OUT (deferred). 31/31 GREEN;
+slice-1's 34/34 unchanged (no regression) — 65/65 across the two files.
+
+## DOGFOOD FINDINGS — slice 2: ZERO NEW.
+Every slice-2 shape the DD prescribes compiled + lowered correctly on the live
+compiler (probed before editing lex.scrml):
+- **multi-field payload-variant** construction — `.StringLit(cooked, raw, quote)`
+  lowers to `{variant:"StringLit", data:{cooked, raw, quote}}` (slice-1 used only
+  single-field payload variants; multi-field works).
+- **product-match arm binding a payload variant in a tuple slot** —
+  `(.InCode, .SawQuote(q)) :> …` lowers + binds `q` correctly (F3 was a LITERAL-
+  in-tuple-slot drop; a payload-variant-with-binding is unaffected).
+- **`match` arms whose patterns are escape-bearing string literals** —
+  `"\\" :> "\\"`, `"\"" :> "\""`, `"\n" ` etc. lower + decode correctly.
+No workarounds beyond the slice-1 set (F1 `<program>` wrapper, F2 string-dispatch,
+F4 qualified `TokenKind.X` / typed-return helpers) were needed.
+
+## STATUS — slice 2 COMPLETE (GREEN)
+- [x] string scanners (single/double + escape boundary handling) — token-diff GREEN.
+- [x] comment scanners (line/block, trivia-skipped) — token-diff GREEN.
+- [x] oracle sibling test — 31/31 GREEN; slice-1 34/34 unchanged.
+- Deferred to slice-3: template-interp, regex bodies, BracketStack/ErrorRecovery,
+  precise hex/unicode/line-continuation cooked-decode.

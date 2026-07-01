@@ -8,8 +8,9 @@
 // the lexer is re-entrant by construction (lex two sources, no reset).
 //
 // Slice 1 = the CORE-TOKEN front: identifiers/keywords, numbers, operators, and
-// punctuation. Strings, template interpolation, comments, and regex bodies are
-// DEFERRED to later slices — their lexical events route to a total-but-stub arm
+// punctuation. Slice 2 adds STRINGS (single/double + escapes) and COMMENTS
+// (line + block, skipped as trivia). Template interpolation and regex bodies
+// remain DEFERRED — their lexical events route to a total-but-stub arm
 // (`deferAdvance`) so the fold stays exhaustive without scanning them here.
 //
 // NB — this file is wrapped in `<program>` deliberately: the importable
@@ -40,6 +41,7 @@ ${
         LogicalAnd, LogicalOr, BitAnd, BitOr,
         // literals + identifiers (payload-carrying)
         NumberLit(raw: string),
+        StringLit(cooked: string, raw: string, quote: QuoteKind),
         Ident(name: string),
         Keyword(name: string),
         Unknown(ch: string),
@@ -127,6 +129,7 @@ ${
         if (last is not) return true
         if (last is .Ident)     return false
         if (last is .NumberLit) return false
+        if (last is .StringLit) return false
         if (last is .RParen)    return false
         if (last is .RBracket)  return false
         if (last is .Increment) return false
@@ -325,6 +328,107 @@ ${
     }
 
     // -------------------------------------------------------------------------
+    // STRING scanners (slice-2). Single- + double-quoted, with escape handling.
+    // impl#1 emits ONE StringLit token per string; `text` = the RAW lexeme
+    // (quotes included); `cooked` = the decoded value (§12.8.4 escape table).
+    // A backslash escapes the NEXT code point, so an escaped quote never
+    // terminates the string — this is the only escape behavior that affects
+    // WHERE the string ends (and thus `raw`/span). The cooked-decode covers the
+    // single-char escapes; precise \xHH / \uHHHH / \u{…} cooked-decoding is
+    // DEFERRED to a later slice (needs parseInt/fromCodePoint host support), but
+    // raw/span are already correct for those inputs (see progress.md slice-2).
+    // -------------------------------------------------------------------------
+
+    // The ECMA-262 §12.8.4 single-char escape table. `c` is the char AFTER the
+    // backslash. Unlisted chars decode to themselves (identity escape).
+    fn decodeSingleEscape(c: string) -> string {
+        return match c {
+            "n"  :> "\n"
+            "r"  :> "\r"
+            "t"  :> "\t"
+            "b"  :> "\b"
+            "f"  :> "\f"
+            "v"  :> "\v"
+            "0"  :> "\0"
+            "\\" :> "\\"
+            "'"  :> "'"
+            "\"" :> "\""
+            "`"  :> "`"
+            "/"  :> "/"
+            _    :> c
+        }
+    }
+
+    // The closing-quote code point for a quote kind (' = 39, " = 34).
+    fn quoteCode(q: QuoteKind) -> int {
+        return match q {
+            .Single :> 39
+            .Double :> 34
+        }
+    }
+
+    fn kString(cooked: string, raw: string, q: QuoteKind) -> TokenKind {
+        return .StringLit(cooked, raw, q)
+    }
+
+    // Scan a quoted string from the opening quote to its close (or EOF). The
+    // cursor is threaded; `cooked` accumulates the decoded value.
+    fn scanString(cur: Cursor, q: QuoteKind) -> Scan {
+        const closeCode: int = quoteCode(q)
+        let c = advance(cur, 1)           // consume the opening quote
+        let cooked: string = ""
+        let done = false
+        while (!isEof(c) && !done) {
+            const code: int = peekCode(c, 0)
+            if (code == 92) {             // backslash — escape the next code point
+                c = advance(c, 1)
+                if (!isEof(c)) {
+                    const esc: string = charAt(c)
+                    cooked = cooked + decodeSingleEscape(esc)
+                    c = advance(c, 1)
+                }
+            } else if (code == closeCode) {
+                c = advance(c, 1)         // consume the closing quote
+                done = true
+            } else {
+                cooked = cooked + charAt(c)
+                c = advance(c, 1)
+            }
+        }
+        const raw: string = sliceText(cur, c)
+        return { tok: mkTok(kString(cooked, raw, q), raw, cur, c), cur: c }
+    }
+
+    // -------------------------------------------------------------------------
+    // COMMENT scanners (slice-2). impl#1 SKIPS comments as trivia — no token is
+    // emitted; only the cursor advances (line/col tracked by `advance`).
+    // -------------------------------------------------------------------------
+
+    // Line comment: `//` to (but not including) the next line terminator / EOF.
+    fn skipLineComment(cur: Cursor) -> Cursor {
+        let c = advance(cur, 2)           // consume the opening //
+        while (!isEof(c) && !isNewline(peekCode(c, 0))) {
+            c = advance(c, 1)
+        }
+        return c
+    }
+
+    // Block comment: `/*` to the closing `*/` (or EOF on an unterminated block).
+    fn skipBlockComment(cur: Cursor) -> Cursor {
+        let c = advance(cur, 2)           // consume the opening /*
+        let done = false
+        while (!isEof(c) && !done) {
+            if (peekCode(c, 0) == 42 && peekCode(c, 1) == 47) {
+                c = advance(c, 2)         // consume the closing */
+                done = true
+            } else {
+                c = advance(c, 1)
+            }
+        }
+        return c
+    }
+
+    // -------------------------------------------------------------------------
     // The lex fold — LexMode + LexEvent, LexState threaded through `step`.
     // -------------------------------------------------------------------------
 
@@ -383,9 +487,12 @@ ${
     // The (mode x event) transition table (the DD's `match (st.mode, ev)`).
     fn dispatch(st: LexState, ev: LexEvent) -> LexState {
         return match (st.mode, ev) {
-            (.InCode, .Ordinary) :> emitOneToken(st)
-            (_, .SawEof)         :> st                  // cursor already at EOF; settle
-            (_, _)               :> deferAdvance(st)    // strings/comments/regex/template — slice-2/3
+            (.InCode, .Ordinary)        :> emitOneToken(st)
+            (.InCode, .SawQuote(q))     :> scanStringStep(st, q)
+            (.InCode, .SawLineComment)  :> scanLineCommentStep(st)
+            (.InCode, .SawBlockComment) :> scanBlockCommentStep(st)
+            (_, .SawEof)                :> st                  // cursor already at EOF; settle
+            (_, _)                      :> deferAdvance(st)    // backtick/regex/template — slice-3
         }
     }
 
@@ -409,10 +516,25 @@ ${
         return scanOperatorOrPunct(cur)
     }
 
-    // DEFERRED lexical events (strings, template interp, line/block comments,
-    // regex bodies) land here. Slice 1 does not scan them — advance one code
-    // point so the driver always makes progress; the real scanners arrive with
-    // the string/comment/regex slices. TODO(slice-2/3).
+    // Slice-2 fold steps. A string emits one StringLit; a comment emits NO token
+    // (trivia) — only the cursor advances.
+    fn scanStringStep(st: LexState, q: QuoteKind) -> LexState {
+        const scan: Scan = scanString(st.cur, q)
+        return { cur: scan.cur, mode: st.mode, tokens: st.tokens.concat([scan.tok]) }
+    }
+
+    fn scanLineCommentStep(st: LexState) -> LexState {
+        return { cur: skipLineComment(st.cur), mode: st.mode, tokens: st.tokens }
+    }
+
+    fn scanBlockCommentStep(st: LexState) -> LexState {
+        return { cur: skipBlockComment(st.cur), mode: st.mode, tokens: st.tokens }
+    }
+
+    // DEFERRED lexical events (template interp `${…}` nesting + regex bodies)
+    // land here. Slice 2 does not scan them — advance one code point so the
+    // driver always makes progress; the real scanners arrive with slice 3.
+    // TODO(slice-3).
     fn deferAdvance(st: LexState) -> LexState {
         return { cur: advance(st.cur, 1), mode: st.mode, tokens: st.tokens }
     }
