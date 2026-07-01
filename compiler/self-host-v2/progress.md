@@ -195,3 +195,116 @@ F4 qualified `TokenKind.X` / typed-return helpers) were needed.
 - [x] oracle sibling test — 31/31 GREEN; slice-1 34/34 unchanged.
 - Deferred to slice-3: template-interp, regex bodies, BracketStack/ErrorRecovery,
   precise hex/unicode/line-continuation cooked-decode.
+
+---
+
+# self-host-v2 LEXER — slice 3 (regex + template-interp, S234)
+
+Continues slices 1-2 (LANDED). Same substrate/fold/oracle; adds the LAST two
+token classes: REGEX bodies + TEMPLATE-INTERPOLATION nesting (the §51.0.Q.1
+composite). Replaces the slice-2 `deferAdvance` stubs for the `SawRegexSlash`
+and `SawBacktick` events.
+
+## Slice-3 scope (built here)
+- REGEX — `scanRegex(cur)`: `/pattern/flags` scanned when `regexAllowedAfter(last)`
+  is true (slice-1's `/`-vs-division predicate). Char-classes (`[...]` — a `/`
+  inside `[]` does NOT close the regex), escapes (`\/`), the IdentifierPart flag
+  run, and unterminated bodies (stop AT a line terminator / at EOF). Emits ONE
+  `RegexLit(pattern, flags)` token; token `text` = the RAW lexeme (both slashes +
+  flags), matching impl#1. `regexAllowedAfter` gained `.RegexLit` + `.RBrace`
+  false-cases (parity with impl#1's false-list; impl#1's value-keyword cases —
+  this/true/false/null/undefined — do NOT apply here: this lexer's keyword set
+  excludes them, so they lex as `Ident`, already in the false-list).
+- TEMPLATE-INTERP — the composite. `scanTemplateChunk(cur)` scans a free-text run
+  to the next backtick / `${` / EOF (a backslash escapes the next code point, so
+  `` \` `` / `\${` never terminate). Emits `TemplateChunk(cooked, raw)` per run
+  (the opening backtick is ABSORBED — the first chunk starts after it; the CLOSING
+  backtick IS included in the final chunk's raw/span — an impl#1 asymmetry matched
+  exactly), `TemplateInterpStart` (`${`) + `TemplateInterpEnd` (`}`) around each
+  interp, and the interp body lexes as EXPRESSIONS (InCode) one level deep.
+- Fold wiring — `dispatch` gains `(.InCode, .SawRegexSlash) :> scanRegexStep`,
+  `(.InCode, .SawBacktick) :> enterTemplateStep`, `(.InCode, .SawInterpClose) :>
+  closeInterpStep`. `step` now branches on `st.mode` FIRST (`.InTemplateBody :>
+  templateBodyStep` — free-text, no trivia skip; else `codeStep` — trivia +
+  classify + dispatch). `LexState` gains `bracketDepth: int` (a MINIMAL running
+  open-bracket counter — NOT the full typed BracketStack, which is slice-4) +
+  `interpDepths: int[]` (the interp frame stack). A single `mkState()` constructor
+  centralises the field list.
+- Interp-close disambiguation (§51.0.Q.1): `${` pushes the current `bracketDepth`
+  onto `interpDepths`; a `}` is the interp-closer (SawInterpClose -> emit
+  TemplateInterpEnd, pop the frame, resume InTemplateBody) ONLY when
+  `bracketDepth == top(interpDepths)` — otherwise it is a plain RBrace (object
+  literal inside the interp). `enterTemplateStep` DRIVES the first chunk
+  synchronously (matches impl#1's backtick handler — guarantees the empty leading
+  chunk even for a lone trailing backtick, which the `while (!isEof)` driver would
+  otherwise skip at EOF); `closeInterpStep` does NOT (so a trailing `}` at EOF
+  emits no extra chunk — also matching impl#1).
+
+## DEFERRED to slice-4 (still routed / left approximate)
+- Full typed `BracketStack` (opener kinds + spans) + `ErrorRecovery` LexState
+  threading — slice 3 threads only the minimal `bracketDepth: int` needed for
+  interp-close disambiguation.
+- Precise cooked-decode of hex/unicode/line-continuation escapes — `TemplateChunk`
+  `cooked` is set ~= `raw` (approximate); NOT compared by the oracle (kind/text/
+  span only). raw/span are already correct (a backslash always escapes exactly the
+  next code point, and escape bodies never contain a bare backtick / `${`).
+- OUT OF SCOPE token classes surfaced by adversarial probing (excluded from the
+  corpus, NOT regressions): the `.foo` BareVariant production (impl#1 lexes
+  `` ``.length `` 's `.length` after a value as `BareVariant`; impl#2 emits
+  `Dot`+`Ident`) and value-keyword-then-regex where impl#1's larger keyword table
+  diverges (`typeof /re/` — impl#2 lexes `typeof` as `Ident` -> division).
+
+## THE ORACLE (extended)
+New sibling `compiler/tests/integration/self-host-v2-lexer-slice3.test.js` — same
+compile->discover->eval->token-diff harness, over REGEX_CORPUS (15: leading /
+after-`=` / after-`return` / in-`(`/`[` / in-interp positions; char-classes;
+escaped `/` and `]`; flags; unterminated at EOF and at a newline), DIVISION_CORPUS
+(4: `/` after Ident / NumberLit / `)` / `}`), TEMPLATE_CORPUS (20: plain, empty,
+single/multi/adjacent interps, interp-at-start, empty interp, object-literal +
+expr + string + regex + arrow interp bodies, ONE/TWO-level nested templates,
+escaped backtick, literal newline), MIXED_CORPUS (2), and a SLICE12_GUARD (9)
+no-regression subset. 54/54 GREEN. Slices 1+2 unchanged (34/34 + 31/31) —
+119/119 across the three files.
+
+## DOGFOOD FINDINGS — slice 3
+
+**F9 (NEW) — a literal `${` inside a scrml STRING literal is lexed as
+interpolation, and an unbalanced `${` fails with E-CTX-003 "Unclosed 'logic'".**
+`"${"` (or `'${'`, or any string with an OPEN `${` and no matching `}`) in an
+expression-position string literal breaks lexing:
+`<program>${ export fn g() -> string { return "${" } }</program>` ->
+`E-CTX-003: Unclosed 'logic'` + `E-CTX-003: Unclosed 'program'`. A BALANCED
+`"a${x}b"` compiles (scrml interpolates `${...}` inside string literals, BOTH
+quote styles — `'lit${'` fails identically). This is likely INTENDED (scrml string
+interpolation is a real feature; cf. §4.18.4 display-text `${...}` interpolation),
+but it means a scrml-authored lexer/compiler cannot write a literal `${`/`}`
+token-text as a plain string literal. WORKAROUND used: DERIVE the interp token
+text from the source via `sliceText(cur, to)` (`${` = a 2-char slice, `}` = a
+1-char slice) — no `"${"`/`"}"` string literal needed anywhere. Classification for
+PA: language-feature interaction (ergonomic gotcha), cleanly workaroundable; flag
+in case expression-position (non-display-text) string interpolation is NOT the
+intended §4.18.4 scope.
+
+**F7 confirmed at scale (benign, NOT new).** The slice-1 match-arm-reachability
+gap now fires 21 `W-DEAD-FUNCTION` warnings (every match-arm-only callee:
+`scanRegex`, `templateBodyStep`, `closeInterpStep`, `emitInterpStart`,
+`scanTemplateChunk`, `bracketDelta`, `popDepth`, `mkState`, `codeStep`, etc.).
+Codegen KEEPS them all (verified: `_scrml_lex_N` + every helper survives in the
+emitted client.js; the oracle drives GREEN), so output is correct — the warnings
+are noise. Reinforces F7's "match-arm call edges are not traced by reachability."
+
+No NEW workarounds beyond the slice-1/2 set (F1 `<program>` wrapper, F2
+string-dispatch, F4 qualified `TokenKind.X` / typed-return helpers) were needed.
+Confirmed shapes that lower + execute correctly (probed before editing): nullary-
+enum `match st.mode { .InTemplateBody :> … _ :> … }`; a new nullary event variant
+(`.SawInterpClose`) added to the product match; `int[].slice(0, n)`; the `TmplScan`
+struct carrying a `Cursor` + an enum field; the enter-drives-synchronously fold
+shape.
+
+## STATUS — slice 3 COMPLETE (GREEN)
+- [x] regex scanner (char-classes + escapes + flags + unterminated) — token-diff GREEN.
+- [x] template-interp composite (chunks + interp triad + nesting) — token-diff GREEN.
+- [x] oracle sibling test — 54/54 GREEN; slices 1+2 unchanged (65/65) — 119/119 total.
+- Deferred to slice-4: full typed BracketStack + ErrorRecovery threading; precise
+  hex/unicode/line-continuation cooked-decode. Out-of-scope token classes noted
+  above (BareVariant `.foo`; value-keyword-then-regex under a subset keyword table).
