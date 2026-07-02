@@ -21,6 +21,8 @@ import { emitParseVariantDecodeIIFE, type ParseVariantEnumLike } from "./emit-pa
 import { isSingleJsExpression } from "./validate-emit.ts";
 // §14.8.9 — protected-column egress redaction (server→client confidentiality).
 import { buildProtectContext, resolveProtectedOutputColumns, detectProtectedRawEgress, SERVER_PROTECT_HELPER, type ProtectContext } from "./protect-egress.ts";
+// §52.8 SSR A-terminus, Dispatch 1 — server-side per-row markup renderer.
+import { buildSsrEachRenderers, SSR_RENDER_HELPER } from "./emit-ssr-render.ts";
 
 // g-pure-module-server-emit (S207): sentinel line marking where deferred
 // local-`.scrml` server imports are re-injected after usage-pruning. Pruned by
@@ -3109,6 +3111,24 @@ export function generateServerJs(
         const q = (d as any).sqlNode?.query ?? (d as any).sqlNode?.body ?? "";
         return typeof q === "string" && q.includes("@currentUser");
       });
+      // §52.8 A-terminus (Dispatch 1) — server-side per-row markup renderers. For
+      // every `<each in=@<seededCell>>` whose per-item template is within the
+      // supported subset, emit a string-building render fn (fed the SAME redacted
+      // rows the seed carries) so the compose handler can fill the each-mount div
+      // with the rows. Falls back (empty mount, client renders) for any each the
+      // renderer cannot faithfully serialize — never ships wrong markup.
+      const _ssrSeededVarNames = new Set<string>();
+      for (const _inst of _ssrSeedTier1) _ssrSeededVarNames.add(_inst.name as string);
+      for (const _decl of _ssrSeedPatternC) _ssrSeededVarNames.add(_decl.name as string);
+      for (const _decl of _ssrSeedCallable) _ssrSeededVarNames.add(_decl.name as string);
+      const _ssrRenderers = buildSsrEachRenderers(fileAST, _ssrSeededVarNames);
+      if (_ssrRenderers.length > 0) {
+        for (const _hl of SSR_RENDER_HELPER.split("\n")) lines.push(_hl);
+        for (const _r of _ssrRenderers) {
+          for (const _fl of _r.fnLines) lines.push(_fl);
+          lines.push("");
+        }
+      }
       lines.push(`// --- §52.8 SSR pre-render: inline server-authoritative state seed (B-substrate) ---`);
       lines.push(`async function _scrml_ssr_compose_handler(_scrml_req) {`);
       lines.push(`  const _scrml_ssr_state = {};`);
@@ -3159,7 +3179,13 @@ export function generateServerJs(
       // String.fromCharCode(92) is a backslash: a `<` in the JSON becomes the JS
       // escape `<` so the embedded value can never break out of the <script>
       // (a `</script>` in protected-but-revealed string data stays inert).
-      lines.push(`  const _scrml_html = await Bun.file(new URL(${JSON.stringify("./" + _ssrHtmlBase + ".html")}, import.meta.url)).text();`);
+      lines.push(`  ${_ssrRenderers.length > 0 ? "let" : "const"} _scrml_html = await Bun.file(new URL(${JSON.stringify("./" + _ssrHtmlBase + ".html")}, import.meta.url)).text();`);
+      // §52.8 A-terminus — fill each server-authority <each> mount with its
+      // server-rendered (redacted) rows so view-source of the first paint shows
+      // the data, not an empty placeholder. data-scrml-key markers ride each row.
+      for (const _r of _ssrRenderers) {
+        lines.push(`  _scrml_html = _scrml_ssr_fill_mount(_scrml_html, ${JSON.stringify("each_" + _r.id)}, ${_r.fnName}(_scrml_ssr_state[${JSON.stringify(_r.varName)}]));`);
+      }
       lines.push(`  const _scrml_seed_json = JSON.stringify(_scrml_ssr_state).replace(/</g, String.fromCharCode(92) + "u003c");`);
       lines.push(`  const _scrml_seed_tag = "<script>window.__scrml_ssr_state=" + _scrml_seed_json + ";</script>";`);
       lines.push(`  const _scrml_out = _scrml_html.includes("</head>")`);

@@ -384,7 +384,7 @@ function exportIsUserComponent(info: ExportInfo | undefined): boolean {
 // NOTE: cross-file imports use info.category === "user-component" on the
 // exportRegistry record (also NR-authoritative); see lookupImportedComponent
 // helpers further below.
-function isUserComponentMarkup(node: unknown): boolean {
+export function isUserComponentMarkup(node: unknown): boolean {
   if (!node || typeof node !== "object") return false;
   const m = node as { kind?: string; resolvedKind?: string; isComponent?: boolean };
   if (m.kind !== "markup") return false;
